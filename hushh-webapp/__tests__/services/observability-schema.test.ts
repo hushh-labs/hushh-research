@@ -257,6 +257,30 @@ describe("observability schema", () => {
     expect(checkIn.droppedKeys).toEqual([]);
     expect(checkIn.sanitized.circle_targeted).toBe(true);
 
+    const checkOut = validateAndSanitizeEvent("one_location_check_out_completed", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location_check_in",
+      result: "success",
+    });
+    expect(checkOut.ok).toBe(true);
+    expect(checkOut.droppedKeys).toEqual([]);
+
+    const unsafeCheckOut = validateAndSanitizeEvent("one_location_check_out_completed", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location_check_in",
+      result: "success",
+      place_name: "private venue",
+      latitude: 37.4275,
+    } as any);
+    expect(unsafeCheckOut.ok).toBe(false);
+    expect(unsafeCheckOut.droppedKeys).toEqual(expect.arrayContaining(["place_name", "latitude"]));
+
     const circle = validateAndSanitizeEvent("one_location_circle_created", {
       env: "production",
       platform: "web",

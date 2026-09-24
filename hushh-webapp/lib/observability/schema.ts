@@ -138,6 +138,11 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "failure_count",
     "circle_targeted",
   ],
+  one_location_check_out_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+  ],
   one_location_visit_rated: [
     ...BASE_ALLOWED_KEYS,
     "route_id",

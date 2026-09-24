@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiJson, mockGetPermissionState, mockGetCurrentPosition } =
+const { mockApiJson, mockGetPermissionState, mockGetCurrentPosition, mockTrackCheckout } =
   vi.hoisted(() => ({
     mockApiJson: vi.fn(),
     mockGetPermissionState: vi.fn(),
     mockGetCurrentPosition: vi.fn(),
+    mockTrackCheckout: vi.fn(),
   }));
 
 vi.mock("@/lib/services/api-client", () => ({
@@ -28,12 +29,27 @@ vi.mock("@/lib/capacitor", () => ({
   },
 }));
 
+vi.mock("@/lib/observability/location-events", () => ({
+  trackNearbyCheckOutCompleted: mockTrackCheckout,
+}));
+
 import { OneLocationService } from "@/lib/one-location/service";
 
 describe("OneLocationService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockResolvedValue({});
+  });
+
+  it("counts only a server-confirmed Nearby transition from every checkout caller", async () => {
+    mockApiJson.mockResolvedValueOnce({ presence: null, attendees: [], checkedOut: true, checkoutTransitioned: true });
+    await OneLocationService.checkoutNearby({ vaultOwnerToken: "vault-token" });
+    expect(mockTrackCheckout).toHaveBeenCalledTimes(1);
+    expect(mockApiJson.mock.calls[0]?.[1]?.method).toBe("DELETE");
+
+    mockApiJson.mockResolvedValueOnce({ presence: null, attendees: [], checkedOut: true, checkoutTransitioned: false });
+    await OneLocationService.checkoutNearby({ vaultOwnerToken: "vault-token" });
+    expect(mockTrackCheckout).toHaveBeenCalledTimes(1);
   });
 
   it("registers recipient public key without private key material", async () => {
