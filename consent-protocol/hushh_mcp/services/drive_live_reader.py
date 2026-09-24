@@ -21,7 +21,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
-from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+from hushh_mcp.services.google_drive_rest_transport import PARSE_REASONS, GoogleDriveRestTransport
 
 MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
@@ -31,6 +31,8 @@ MAX_SEARCH_PAGES = 6
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
 TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# A found file that could not be read is reported with exactly one of these.
+UNREADABLE = frozenset({"source_unavailable", "unsupported_format"}) | PARSE_REASONS
 MAX_TITLE_DATES = 3
 # Drive MCP: file types belong in mimeType clauses, never title/fullText words.
 MIME_CLAUSES = {
@@ -148,10 +150,13 @@ class DriveLiveReader:
         if result.is_error or result.truncated:
             raise DriveReadError("provider_response_invalid")
         if result.payload.get("textFormattingNotSupported") is True:
-            raise DriveReadError("unsupported_format")
+            reason = result.payload.get("reason")
+            raise DriveReadError(reason if reason in PARSE_REASONS else "unsupported_format")
         value = result.payload.get("fileContent")
-        if isinstance(value, str) and value.strip():
-            return value
+        if isinstance(value, str):
+            if value.strip():
+                return value
+            raise DriveReadError("no_extractable_text")
         if isinstance(value, dict):
             for key in ("text", "content"):
                 if isinstance(value.get(key), str) and value[key].strip():
@@ -577,6 +582,7 @@ class DriveLiveReader:
             credential=credential,
             truncated=truncated or len(matches) > MAX_READS,
             expected_names=expected,
+            match_refs={item["file_id"]: item.get("source_ref") for item in chosen},
         )
 
     async def _read_file_ids(
@@ -586,8 +592,16 @@ class DriveLiveReader:
         credential: dict,
         truncated: bool,
         expected_names: dict[str, str] | None = None,
+        match_refs: dict[str, str | None] | None = None,
     ) -> dict:
+        """Read bounded text; report each file that could not be read, with why.
+
+        ``unreadable`` entries carry the found name, an allowlisted reason and
+        the match's source_ref. They are owner-private: callers pass only
+        counts to anything whose output can reach another person.
+        """
         content: list[dict] = []
+        unreadable: list[dict] = []
         self._rows = []
         for file_id in file_ids:
             if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
@@ -618,7 +632,14 @@ class DriveLiveReader:
                 if after != metadata:
                     raise DriveReadError("source_changed")
             except DriveReadError as error:
-                if str(error) in {"source_unavailable", "unsupported_format", "file_too_large"}:
+                if str(error) in UNREADABLE:
+                    unreadable.append(
+                        {
+                            "name": (expected_names or {}).get(file_id),
+                            "reason": str(error),
+                            "source_ref": (match_refs or {}).get(file_id),
+                        }
+                    )
                     truncated = True
                     continue
                 raise
@@ -649,4 +670,8 @@ class DriveLiveReader:
                 }
             )
         await self.require_current()
-        return {"untrusted_external_content": content, "truncated": truncated}
+        return {
+            "untrusted_external_content": content,
+            "truncated": truncated,
+            "unreadable": unreadable,
+        }

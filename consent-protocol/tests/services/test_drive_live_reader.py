@@ -374,3 +374,82 @@ async def test_a_search_with_no_matches_is_an_empty_answer_not_a_failure():
     mcp.read_tool.return_value = ExternalMcpToolResult(False, _search_metadata({}), False)
     found = await reader.find(query=["statement"])
     assert found == {"matches": [], "truncated": False}
+
+
+def three_file_reader(read_payloads, metadata_errors=None):
+    reader, adapter, mcp, _ = fixture()
+    names = {"file-1": "March statement.pdf", "file-2": "Locked.pdf", "file-3": "Huge.pdf"}
+    metadata_errors = metadata_errors or {}
+
+    async def metadata(*, file_id, **_):
+        if file_id in metadata_errors:
+            raise DriveReadError(metadata_errors[file_id])
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    async def read(*, user_id, tool_name, arguments):
+        return ExternalMcpToolResult(False, read_payloads[arguments["fileId"]], False)
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = read
+    matches = [
+        {"file_id": file_id, "name": name, "source_ref": f"document:{index:032d}"}
+        for index, (file_id, name) in enumerate(names.items(), 1)
+    ]
+    return reader, mcp, matches
+
+
+@pytest.mark.asyncio
+async def test_unreadable_files_are_reported_with_a_reason():
+    reader, _, matches = three_file_reader(
+        {
+            "file-1": {"fileContent": "Statement period: March 2026"},
+            "file-2": {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+        },
+        metadata_errors={"file-3": "file_too_large"},
+    )
+    result = await reader.read_matches(matches=matches)
+    assert result["unreadable"] == [
+        {
+            "name": "Locked.pdf",
+            "reason": "encrypted_document",
+            "source_ref": matches[1]["source_ref"],
+        },
+        {"name": "Huge.pdf", "reason": "file_too_large", "source_ref": matches[2]["source_ref"]},
+    ]
+    assert result["truncated"] is True
+    assert len(result["untrusted_external_content"]) == 1
+    assert len(reader._rows) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ({"fileContent": "   "}, "no_extractable_text"),
+        ({"textFormattingNotSupported": True}, "unsupported_format"),
+        # A reason outside the allowlist is never passed through.
+        ({"textFormattingNotSupported": True, "reason": "PRIVATE detail"}, "unsupported_format"),
+        (
+            {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
+            "no_extractable_text",
+        ),
+    ],
+)
+async def test_each_unreadable_file_carries_one_allowlisted_reason(payload, reason):
+    reader, _, matches = three_file_reader({"file-1": payload})
+    result = await reader.read_matches(matches=matches[:1])
+    assert result["unreadable"] == [
+        {"name": "March statement.pdf", "reason": reason, "source_ref": matches[0]["source_ref"]}
+    ]
+    assert result["untrusted_external_content"] == [] and result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_readable_turn_reports_no_unreadable_files():
+    reader, _, _, _ = fixture()
+    result = await reader.read_matches(
+        matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
+    )
+    assert result["unreadable"] == []

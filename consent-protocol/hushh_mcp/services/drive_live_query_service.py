@@ -41,11 +41,14 @@ def requester_answer(outcome: dict) -> dict:
         if outcome["found_truncated"] or len(outcome["files"]) > 10:
             text += " More matches may exist."
         return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
-    return {
-        "text": outcome["answer"],
-        "titles": outcome["titles"],
-        "truncated": outcome["truncated"],
-    }
+    text = outcome["answer"]
+    # A count only: which files and why stay with the owner.
+    unread = len(outcome.get("not_read") or [])
+    if unread == 1:
+        text += " 1 matching file couldn't be read."
+    elif unread > 1:
+        text += f" {unread} matching files couldn't be read."
+    return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
 
 
 class DriveLiveQueryService:

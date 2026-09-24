@@ -784,3 +784,79 @@ async def test_a_selected_files_connection_asks_the_owner_to_reconnect(store, mo
         )
     view = await store.status(user_id="owner", request_id=created["requestId"])
     assert view["status"] == "pending" and view["lastError"] == "reconnect_required"
+
+
+def test_requester_answer_counts_unread_files_without_names():
+    secret = {"name": "Secret.pdf", "reason": "encrypted_document", "source_ref": "document:x"}
+    base = {
+        "status": "ok",
+        "answer": "X",
+        "files": None,
+        "titles": ["A.pdf"],
+        "truncated": True,
+    }
+    two = requester_answer({**base, "not_read": [secret, secret]})
+    assert two["text"] == "X 2 matching files couldn't be read."
+    one = requester_answer({**base, "not_read": [secret]})
+    assert one["text"] == "X 1 matching file couldn't be read."
+    assert requester_answer(base)["text"] == "X"
+    shown = json.dumps([one, two])
+    assert "Secret" not in shown and "encrypted" not in shown and "document:" not in shown
+
+
+async def test_allow_with_an_unreadable_file_tells_b_only_the_count(store, monkeypatch):
+    content = [
+        {
+            "source_ref": "document:" + "b" * 32,
+            "document_ref": str(uuid4()),
+            "name": "March bank statement.pdf",
+            "page": None,
+            "text": "Closing balance 1,204.55",
+            "source_version": "7",
+        }
+    ]
+    locked = {
+        "name": "PRIVATE_Locked statement.pdf",
+        "reason": "encrypted_document",
+        "source_ref": "document:" + "c" * 32,
+    }
+    reader = fake_reader(
+        find=AsyncMock(
+            return_value={
+                "matches": [match(), match("PRIVATE_Locked statement.pdf", file_id="LockedFile1")],
+                "truncated": False,
+            }
+        ),
+        read_matches=AsyncMock(
+            return_value={
+                "untrusted_external_content": content,
+                "unreadable": [locked],
+                "truncated": True,
+            }
+        ),
+    )
+    interpreter = AsyncMock(
+        return_value={
+            "answer": "The closing balance is 1,204.55.",
+            "source_refs": ["document:" + "b" * 32],
+        }
+    )
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "read"},
+        interpreter=interpreter,
+        selector=AsyncMock(return_value={"selected": ["c1", "c2"]}),
+    )
+    created = await ask(store, query="what is my closing balance")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert "1 matching file couldn't be read." in answered["answer"]["text"]
+    assert answered["answer"]["titles"] == ["March bank statement.pdf"]
+    shown = json.dumps(answered)
+    assert "PRIVATE" not in shown and "encrypted" not in shown
+    assert "PRIVATE" not in interpreter.await_args.kwargs["prompt"]

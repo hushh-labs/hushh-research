@@ -407,6 +407,70 @@ async def test_file_request_reads_the_selected_statements_not_the_first_eight(mo
 
 
 @pytest.mark.asyncio
+async def test_the_owner_private_suggestions_prompt_names_unreadable_files(monkeypatch):
+    job = content_job()
+    matches = twelve_matches()[6:8]
+    document_id = str(uuid4())
+    reader = create_autospec(DriveLiveReader, instance=True)
+    reader.find.return_value = {"matches": matches, "truncated": False}
+    reader.read_matches.return_value = {
+        "untrusted_external_content": [
+            {
+                "document_ref": document_id,
+                "source_ref": "document:" + "c" * 32,
+                "name": "HDFC_Statement_07.pdf",
+                "page": None,
+                "text": "Statement period March 2026",
+            }
+        ],
+        "unreadable": [
+            {
+                "name": "HDFC_Statement_08.pdf",
+                "reason": "encrypted_document",
+                "source_ref": "document:" + "d" * 32,
+            }
+        ],
+        "truncated": True,
+    }
+    reader._rows = [
+        {
+            "document_id": document_id,
+            "file_id": matches[0]["file_id"],
+            "name": "HDFC_Statement_07.pdf",
+            "source_version": "3",
+            "connection_generation": 1,
+            "_live": True,
+        }
+    ]
+    store = content_store(job)
+    interpreter = AsyncMock(
+        return_value={
+            "files": [{"document_ref": document_id, "source_refs": ["document:" + "c" * 32]}],
+            "coverage_summary": "March is covered.",
+            "gaps": ["The April statement is password-protected."],
+            "coverage_status": "partial",
+            "covered_periods": [],
+        }
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        interpreter=interpreter,
+        search_planner=AsyncMock(return_value={"terms": ["statement"], "mode": "read"}),
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock(),
+        candidate_selector=AsyncMock(return_value={"selected": ["c1", "c2"]}),
+    )
+    assert await service.run_one(user_id="owner", request_id=job["request_id"]) == "review_ready"
+    prompt = json.loads(interpreter.await_args.kwargs["prompt"])
+    assert prompt["retrieved_documents"]["unreadable"] == [
+        {"name": "HDFC_Statement_08.pdf", "reason": "encrypted_document"}
+    ]
+    assert "document:" + "d" * 32 not in interpreter.await_args.kwargs["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_file_request_with_no_relevant_match_fails_honestly(caplog):
     job = content_job()
     reader = create_autospec(DriveLiveReader, instance=True)

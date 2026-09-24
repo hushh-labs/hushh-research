@@ -539,7 +539,24 @@ class DriveSuggestionService:
                             prompt=json.dumps(
                                 {
                                     "document_request": job["purpose"],
-                                    "retrieved_documents": retrieved,
+                                    # Owner-private review: unread files are
+                                    # named with a reason, never a citable ref.
+                                    "retrieved_documents": {
+                                        **retrieved,
+                                        **(
+                                            {
+                                                "unreadable": [
+                                                    {
+                                                        "name": item.get("name"),
+                                                        "reason": item.get("reason"),
+                                                    }
+                                                    for item in retrieved["unreadable"]
+                                                ]
+                                            }
+                                            if retrieved.get("unreadable")
+                                            else {}
+                                        ),
+                                    },
                                 },
                                 ensure_ascii=False,
                             ),

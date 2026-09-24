@@ -151,6 +151,9 @@ subagents:
       files array is valid and cannot have complete coverage. Return coverage
       descriptions only, not account numbers, balances, long excerpts or recipient
       identities. These suggestions do not share anything; only the application's approval or explicit document trust rule can do that. Never propose a tool call or executable action.
+      retrieved_documents.unreadable lists matching files that could not be
+      read, with a reason. They cannot be suggested; name any that may be the
+      requested records in gaps (for example a password-protected statement).
     privacy:
       context_allowlist: [documents.request.purpose, documents.request.untrusted_content]
       plaintext_telemetry: false
@@ -191,6 +194,14 @@ subagents:
       If none of retrieved_documents answers user_request, set none_relevant=true,
       return no source_refs, and say so plainly. Otherwise leave none_relevant
       false. Resolve relative periods with current_time_utc in user_timezone.
+      When supplied documents give different values for the same thing, give
+      each value, cite each source_ref, and say they differ; never pick one
+      silently or combine them. When the request asks about several items,
+      answer each; for an item the documents do not show, say it is
+      not in the files read. retrieved_documents.not_read counts matching files
+      that could not be read, by reason; never guess their contents or treat
+      their information as absent. The app lists them for the owner, so do not
+      name them.
     privacy:
       context_allowlist: [documents.read.user_request, documents.read.untrusted_content]
       plaintext_telemetry: false

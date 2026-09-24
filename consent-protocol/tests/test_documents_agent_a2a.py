@@ -574,3 +574,125 @@ async def test_a_none_relevant_answer_is_honest_not_unavailable():
     assert response.structured.status == "ok"
     assert not response.structured.sources
     assert response.text.startswith("None of these files mention a closing balance.")
+
+
+LOCKED = {
+    "name": "PRIVATE_LOCKED.pdf",
+    "reason": "encrypted_document",
+    "source_ref": "document:" + "9" * 32,
+}
+SCANNED = {
+    "name": "Scan_2026.pdf",
+    "reason": "no_extractable_text",
+    "source_ref": "document:" + "8" * 32,
+}
+
+
+async def test_interpreter_gets_unread_counts_never_names(monkeypatch):
+    source = reader()
+    source.read_matches.return_value = {
+        **source.read_matches.return_value,
+        "unreadable": [LOCKED],
+        "truncated": True,
+    }
+    interpreter = AsyncMock(return_value={"answer": "March is covered.", "source_refs": [REF]})
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "read"},
+        candidate_selector=pick("c1"),
+        interpreter=interpreter,
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    assert response.structured.status == "ok"
+    raw = interpreter.await_args.kwargs["prompt"]
+    prompt = json.loads(raw)
+    assert prompt["retrieved_documents"]["not_read"] == {"encrypted_document": 1}
+    assert "PRIVATE_LOCKED" not in raw and "unreadable" not in prompt["retrieved_documents"]
+    # The owner, and only the owner, sees which file and why.
+    # Markdown-escaped, as every owner-facing filename is.
+    assert "PRIVATE_LOCKED.pdf" in response.text.replace("\\", "")
+    assert "password-protected" in response.text
+
+
+async def test_nothing_readable_lists_each_file_with_its_reason(monkeypatch):
+    source = reader()
+    locked, scanned = (
+        {
+            "file_id": f"file-{index}",
+            "name": item["name"],
+            "mime_type": "application/pdf",
+            "modified_time": "2026-04-01T00:00:00Z",
+            "source_ref": item["source_ref"],
+            "open_url": f"https://drive.google.com/open?id=file-{index}",
+        }
+        for index, item in enumerate((LOCKED, SCANNED), 1)
+    )
+    source.find.return_value = {"matches": [locked, scanned], "truncated": False}
+    source.read_matches.return_value = {
+        "untrusted_external_content": [],
+        "unreadable": [LOCKED, SCANNED],
+        "truncated": True,
+    }
+    interpreter = AsyncMock(side_effect=AssertionError("interpreter reached"))
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "read"},
+        candidate_selector=pick("c1", "c2"),
+        interpreter=interpreter,
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    assert response.structured.status == "ok"
+    assert "password-protected" in response.text
+    assert "no text I can read" in response.text
+    assert "[Open in Drive](https://drive.google.com/open?id=file-1)" in response.text
+    assert interpreter.called is False
+
+
+async def test_a_changed_selected_file_says_how_to_refresh():
+    source = reader()
+    source.require_current.side_effect = DriveReadError("source_changed")
+    service = DriveChatService(
+        reader_factory=lambda **kwargs: source,
+        interpreter=AsyncMock(return_value={"answer": "PRIVATE_ANSWER", "source_refs": [REF]}),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    assert response.structured.status == "source_changed"
+    assert response.text == (
+        "A file you selected changed since the private agent last read it. "
+        "Sync it in Connectors, or try again later."
+    )
+    assert "PRIVATE" not in response.text
+
+
+async def test_a_live_file_changing_mid_turn_keeps_try_again_copy(monkeypatch):
+    source = reader()
+    source.read_matches.side_effect = DriveReadError("source_changed")
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "read"},
+        candidate_selector=pick("c1"),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    assert response.structured.status == "source_changed"
+    assert response.text == "Drive access or the file changed. Try again."
+
+
+def test_interpreter_and_suggestions_instructions_carry_the_honesty_rules():
+    """Pins the contract only; model behaviour is measured in the live eval."""
+    manifest = ManifestLoader.load(
+        str(Path(documents_agent.__file__).resolve().parents[1] / "agents/documents/agent.yaml")
+    )
+    genes = {gene.id: gene.system_instruction for gene in manifest.subagents}
+    interpreter = genes["agent_documents_interpreter"]
+    for rule in (
+        "not_read",
+        "differ",
+        "not in the files read",
+        "none_relevant",
+        "current_time_utc",
+    ):
+        assert rule in interpreter
+    assert "unreadable" in genes["agent_documents_suggestions"]

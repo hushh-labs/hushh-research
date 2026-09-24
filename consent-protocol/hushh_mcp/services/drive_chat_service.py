@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 from datetime import timezone as datetime_timezone
 from pathlib import Path
@@ -80,6 +81,34 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False, meta
     }
 
 
+# Owner-only wording for the reader's allowlisted reasons.
+_NOT_READ_LABELS = {
+    "encrypted_document": "password-protected",
+    "file_too_large": "too large to read",
+    "unsupported_format": "this file type can't be read yet",
+    "no_extractable_text": "no text I can read, like a scanned page",
+    "source_unavailable": "not available to read",
+}
+
+
+def _safe_title(name: object) -> str:
+    """A filename as inert Markdown text: whitespace collapsed, cut, escaped."""
+    title = re.sub(r"\s+", " ", str(name or "")).strip()[:180] or "A file"
+    return re.sub(r"([\\`*_{}\[\]()#+.!>|~-])", r"\\\1", title)
+
+
+def _not_read_note(items: list[dict]) -> str:
+    """Owner-only: which found files could not be read, and why."""
+    count = len(items)
+    lines = [f"I couldn't read {count} file{'' if count == 1 else 's'}:"]
+    for item in items[:10]:
+        label = _NOT_READ_LABELS.get(
+            str(item.get("reason")), _NOT_READ_LABELS["source_unavailable"]
+        )
+        lines.append(f"- {_safe_title(item.get('name'))} ({label})")
+    return "\n".join(lines)
+
+
 def _found_files(
     matches: list[dict],
     *,
@@ -88,8 +117,12 @@ def _found_files(
     time_window: str = "",
     date_field: str = "modified_time",
     timezone: str = "UTC",
+    reasons: dict | None = None,
 ) -> str:
-    """Render safe owner-only opening actions from validated provider IDs."""
+    """Render safe owner-only opening actions from validated provider IDs.
+
+    ``reasons`` maps a match's source_ref to why it could not be read.
+    """
     lines = [
         "I found these Drive files. I couldn't read their contents here, but you can open them:"
         if unreadable
@@ -98,8 +131,7 @@ def _found_files(
     if time_window:
         lines.append(time_window)
     for index, match in enumerate(matches[:10], 1):
-        title = re.sub(r"\s+", " ", match["name"]).strip()[:180]
-        title = re.sub(r"([\\`*_{}\[\]()#+.!>|~-])", r"\\\1", title)
+        title = _safe_title(match["name"])
         modified = match.get(date_field) or match.get("modified_time")
         date = _local_date(modified, timezone)
         kind = (
@@ -107,7 +139,8 @@ def _found_files(
             if match["mime_type"] == "application/vnd.google-apps.folder"
             else ("video" if match["mime_type"].startswith("video/") else "file")
         )
-        detail = " · ".join(item for item in (kind, date) if item)
+        reason = _NOT_READ_LABELS.get(str((reasons or {}).get(match.get("source_ref"))))
+        detail = " · ".join(item for item in (kind, date, reason) if item)
         lines.append(f"{index}. {title} · {detail} — [Open in Drive]({match['open_url']})")
     if truncated or len(matches) > 10:
         lines.append("More matches may exist. Ask for a narrower filename or period.")
@@ -149,8 +182,12 @@ def _outcome(
     truncated=False,
     metadata_only=False,
     selection=None,
+    not_read=(),
 ):
     """Presentation-free turn result; each caller decides what its reader may see.
+
+    ``not_read`` holds owner-private unreadable files (name, reason); only the
+    owner's own view may name them, and a connection's answer gets a count.
 
     ``selection`` traces the live selector: ``completed`` with counts, or the
     recorded reason it was not asked (exact title, metadata-only listing).
@@ -169,6 +206,7 @@ def _outcome(
         "truncated": truncated,
         "metadata_only": metadata_only,
         "selection": selection,
+        "not_read": list(not_read),
     }
 
 
@@ -181,6 +219,7 @@ def _files_outcome(
     date_field="modified_time",
     timezone="UTC",
     selection=None,
+    not_read=(),
 ):
     return _outcome(
         "ok",
@@ -195,6 +234,7 @@ def _files_outcome(
         truncated=True if unreadable else found["truncated"] or len(matches) > 10,
         metadata_only=True,
         selection=selection,
+        not_read=not_read,
     )
 
 
@@ -243,18 +283,26 @@ class DriveChatService:
             previous_answer=previous_answer,
             timezone=timezone,
         )
-        text = (
-            outcome["answer"]
-            if outcome["files"] is None
-            else _found_files(
+        # The owner's own view may name unreadable files; a connection's never does.
+        not_read = outcome.get("not_read") or []
+        if outcome["files"] is None:
+            text = outcome["answer"]
+            if not_read and outcome["status"] == "ok":
+                text += "\n\n" + _not_read_note(not_read)
+        else:
+            text = _found_files(
                 outcome["files"],
                 truncated=outcome["found_truncated"],
                 unreadable=outcome["unreadable"],
                 time_window=outcome["time_window"],
                 date_field=outcome["date_field"],
                 timezone=outcome["timezone"],
+                reasons={
+                    item["source_ref"]: item["reason"]
+                    for item in not_read
+                    if item.get("source_ref")
+                },
             )
-        )
         return result(
             conversation_id,
             text,
@@ -287,9 +335,9 @@ class DriveChatService:
                 "What would you like to know about your Drive files? Please keep the question brief.",
             )
         stage = "connection"
+        live = False
         try:
             async with asyncio.timeout(160):
-                live = False
                 if self.reader_factory:
                     reader = self.reader_factory(user_id=user_id, require_access=require_access)
                 else:
@@ -445,6 +493,7 @@ class DriveChatService:
                     else await reader.search(query=query)
                 )
                 content = retrieved["untrusted_external_content"]
+                not_read = retrieved.get("unreadable") or []
                 if not content:
                     await reader.require_current()
                     if live:
@@ -456,6 +505,7 @@ class DriveChatService:
                             date_field=date_field,
                             timezone=owner_timezone,
                             selection=selection,
+                            not_read=not_read,
                         )
                     return _outcome(
                         "input_required",
@@ -474,7 +524,13 @@ class DriveChatService:
                                 "user_request": message,
                                 "current_time_utc": now_utc.isoformat(),
                                 "user_timezone": owner_timezone,
-                                "retrieved_documents": retrieved,
+                                # Unread files as counts by reason, never names:
+                                # this answer can reach a connection.
+                                "retrieved_documents": {
+                                    "untrusted_external_content": content,
+                                    "truncated": retrieved["truncated"],
+                                    "not_read": dict(Counter(item["reason"] for item in not_read)),
+                                },
                             },
                             ensure_ascii=False,
                         ),
@@ -495,9 +551,11 @@ class DriveChatService:
                         "\n\nThis answer uses bounded excerpts; some document content was omitted."
                     )
                 logger.info(
-                    "drive_chat.answered selection=%s read=%d cited=%d none_relevant=%s",
+                    "drive_chat.answered selection=%s read=%d unreadable=%d cited=%d "
+                    "none_relevant=%s",
                     (selection or {}).get("stage", "none"),
                     len(content),
+                    len(not_read),
                     len(set(answer.source_refs)),
                     answer.none_relevant,
                 )
@@ -508,6 +566,7 @@ class DriveChatService:
                         text,
                         truncated=retrieved["truncated"],
                         selection=selection,
+                        not_read=not_read,
                     )
                 sources = [
                     {
@@ -525,6 +584,7 @@ class DriveChatService:
                     titles=[known[ref]["name"] for ref in dict.fromkeys(answer.source_refs)],
                     truncated=retrieved["truncated"],
                     selection=selection,
+                    not_read=not_read,
                 )
         except PermissionError:
             raise
@@ -550,6 +610,14 @@ class DriveChatService:
                 return _outcome(
                     "input_required",
                     "Please ask a shorter question about your Drive files.",
+                )
+            if code == "source_changed" and not live:
+                # A selected file is rechecked on a schedule; trying again at
+                # once meets the same change until it is synced.
+                return _outcome(
+                    "source_changed",
+                    "A file you selected changed since the private agent last read it. "
+                    "Sync it in Connectors, or try again later.",
                 )
             if code in {"source_changed", "connection_changed", "source_unavailable"}:
                 return _outcome(

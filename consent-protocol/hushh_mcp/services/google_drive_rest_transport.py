@@ -28,6 +28,9 @@ from hushh_mcp.services.google_drive_adapter import (
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 
 REST_TOOLS = frozenset({"search_files", "list_recent_files", "read_file_content"})
+# Parse failures the owner can act on (unlock, use a text PDF, split a file).
+# Only these codes leave the transport; every other one stays unsupported.
+PARSE_REASONS = frozenset({"encrypted_document", "no_extractable_text", "file_too_large"})
 _MAX_ARGUMENT_BYTES = 4_096
 _MAX_QUERY_CHARS = 1_800
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
@@ -125,7 +128,10 @@ class GoogleDriveRestTransport:
             )
             try:
                 text = "\n\n".join(page for page in parse_document(content, mime_type).pages)
-            except ParseError:
+            except ParseError as error:
+                code = str(error)
+                if code in PARSE_REASONS:
+                    return {"textFormattingNotSupported": True, "reason": code}
                 return {"textFormattingNotSupported": True}
             return {"fileContent": text}
         page_size = arguments.get("pageSize", 8)

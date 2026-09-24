@@ -163,6 +163,44 @@ async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("code", "payload"),
+    [
+        (
+            "encrypted_document",
+            {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+        ),
+        (
+            "no_extractable_text",
+            {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
+        ),
+        ("file_too_large", {"textFormattingNotSupported": True, "reason": "file_too_large"}),
+        # Anything else keeps the exact old payload: no new vocabulary leaks out.
+        ("unsupported_format", {"textFormattingNotSupported": True}),
+        ("invalid_document", {"textFormattingNotSupported": True}),
+    ],
+)
+async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payload):
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(
+                FILE_ID, "Locked.pdf", "application/pdf", "3", "2026-09-20T00:00:00Z", 1, None
+            )
+        ),
+        read_live_bytes=AsyncMock(return_value=("application/pdf", b"%PDF-1.7")),
+    )
+
+    def refuse(content, mime_type):
+        raise rest.ParseError(code)
+
+    monkeypatch.setattr(rest, "parse_document", refuse)
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
+    )
+    assert result.payload == payload
+
+
+@pytest.mark.parametrize(
     "tool,arguments",
     [
         ("read_file_content", {"fileId": "../x"}),
