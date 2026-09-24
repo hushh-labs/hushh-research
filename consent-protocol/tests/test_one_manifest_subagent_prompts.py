@@ -18,7 +18,8 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "connecting or selecting files in Connectors does not establish that grant" in composed
     assert "Never use the broader path to bypass" in composed
     assert "share this file with Chris" in composed
-    assert "This chat has no direct Google sharing action" in composed
+    assert "One can stage a document request in chat using propose_document_request" in composed
+    assert "the owner reviews exact files in chat or Feed before any Viewer grant" in composed
     assert "SELECTED-FILE DRIVE READ ADMISSION: disabled" in composed
     assert "Do not claim the owner is disconnected" in composed
     assert '"do you have my Drive access?"' in composed

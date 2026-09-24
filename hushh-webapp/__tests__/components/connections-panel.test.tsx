@@ -30,9 +30,13 @@ const state = vi.hoisted(() => ({
   disconnectMail: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => state.native },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: () => state.native },
+  };
+});
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: state.uid, getIdToken: async () => "firebase" },

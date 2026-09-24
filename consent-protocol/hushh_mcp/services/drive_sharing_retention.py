@@ -231,6 +231,11 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
             connection.execute(
                 text("DELETE FROM drive_share_reviews WHERE request_id=:request"), identifiers
             )
+            if _exists(connection, "drive_share_live_sources"):
+                connection.execute(
+                    text("DELETE FROM drive_share_live_sources WHERE request_id=:request"),
+                    identifiers,
+                )
             connection.execute(
                 text("DELETE FROM drive_share_requests WHERE request_id=:request"), identifiers
             )
@@ -247,6 +252,14 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                 """),
                     identifiers,
                 )
+
+    if _exists(connection, "drive_document_rules"):
+        connection.execute(
+            text("DELETE FROM drive_document_rules WHERE user_id=:user OR recipient_user_id=:user"),
+            params,
+        )
+    if _exists(connection, "drive_live_preferences"):
+        connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id=:user"), params)
 
     # Explicitly remove attempts: they intentionally have no connection FK.
     if _exists(connection, "external_connector_oauth_attempts"):

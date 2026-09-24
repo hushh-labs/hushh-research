@@ -15,6 +15,7 @@ import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-sum
 import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
+import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
   domainLabelFor,
@@ -37,6 +38,7 @@ import type {
   AgentStructuredExperience,
   EvidenceBriefExperience,
   InformationRequestReviewExperience,
+  DocumentRequestReviewExperience,
   KycReadinessExperience,
   MemoryImportReviewExperience,
   ScopeDiscoveryExperience,
@@ -80,6 +82,8 @@ export function AgentStructuredExperienceView({
       return <ScopeDiscoveryView experience={experience} />;
     case "one.information_request_review.v1":
       return <InformationRequestReviewView experience={experience} />;
+    case "one.document_request_review.v1":
+      return <DocumentRequestReviewView experience={experience} />;
     case "one.kyc_readiness.v1":
       return <KycReadinessView experience={experience} />;
     case "one.memory_import_review.v1":
@@ -87,6 +91,15 @@ export function AgentStructuredExperienceView({
     case "one.evidence_brief.v1":
       return <EvidenceBriefView experience={experience} />;
   }
+}
+
+function DocumentRequestReviewView({ experience }: { experience: DocumentRequestReviewExperience }) {
+  return <ExperienceShell experienceType={experience.type} label="Document request" title={`Ask ${experience.personName} for documents`}
+    summary="Review the purpose and dates, then send the request." icon={<FileCheck2 className="size-5" />}><DocumentRequestButton
+      personRef={experience.personRef} personName={experience.personName}
+      draft={{clientRequestId: experience.clientRequestId, purpose: experience.purpose,
+        periodStart: experience.periodStart, periodEnd: experience.periodEnd}}
+    /></ExperienceShell>;
 }
 
 function ExperienceShell({

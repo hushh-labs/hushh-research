@@ -262,15 +262,21 @@ class ExternalConnectorCredentialsService:
     ) -> dict[str, Any]:
         status = row["status"]
         label = row.get("connected_account_label")
+        profile = None
         if row.get("envelope_version") == 2 and status in {
             "connected",
             "verifying",
             "needs_reauth",
         }:
             try:
-                label = self.open_credential(
+                credential = self.open_credential(
                     user_id=user_id, connector_id=connector_id, row=row
-                ).get("accountLabel")
+                )
+                label = credential.get("accountLabel")
+                if connector_id == "google_drive":
+                    profile = credential.get("profile", "selected")
+                    if profile not in {"selected", "live"}:
+                        profile = None
             except ExternalConnectorCredentialError:
                 status, label = "needs_reauth", None
         connected_at = row.get("connected_at")
@@ -282,6 +288,7 @@ class ExternalConnectorCredentialsService:
             "accountLabel": str(label)[:254] if label else None,
             "connectedAt": connected_at,
             "validationState": row.get("validation_state", "unverified"),
+            "profile": profile,
             "revocationOutcome": row.get("revocation_outcome", "not_attempted"),
             "lastErrorCode": row.get("last_error_code")
             if row.get("last_error_code")

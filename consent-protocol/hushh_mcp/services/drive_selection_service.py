@@ -20,10 +20,10 @@ from hushh_mcp.services.external_connector_oauth_service import get_external_con
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     POLICY_HASH,
-    SELECTED_POLICY,
     DriveReadError,
     GoogleDriveAdapter,
     selected_file_ids,
+    supports_selected_policy,
 )
 
 
@@ -40,10 +40,12 @@ class DriveSelectionService:
         if (
             connector.transport_kind != "google_drive_rest"
             or connector.mcp_endpoint != DRIVE_BASE
-            or connector.capability_policy != SELECTED_POLICY
+            or not supports_selected_policy(connector.capability_policy)
         ):
             raise DriveReadError("connector_policy_changed")
-        row, credential = await self.oauth.current_credential(user_id=user_id)
+        row, credential = await self.oauth.current_credential(
+            user_id=user_id, required_profile="selected"
+        )
         return connector, row, credential
 
     async def _fence(self, *, user_id: str, generation: int):
