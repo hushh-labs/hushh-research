@@ -402,6 +402,8 @@ class DriveSuggestionService:
                         "query": plan.terms,
                         "file_kind": plan.file_kind,
                         "shared_with_me": plan.shared_with_me,
+                        # "latest" is the planner's sort, as in the chat lane.
+                        "recent": plan.sort == "recent",
                     }
                     if bounds is not None:
                         search_args.update(

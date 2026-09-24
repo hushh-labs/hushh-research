@@ -536,6 +536,7 @@ export class DriveSharingService {
     guard: SharingSessionGuard,
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
+    documentIds: string[] = review.files.map((file) => file.documentId),
   ) {
     if (
       !review.canApprove ||
@@ -543,10 +544,18 @@ export class DriveSharingService {
       Date.parse(review.expiresAt) <= Date.now()
     )
       throw new DriveSharingError("review_changed");
+    // Only a non-empty selection of the files A reviewed can be shared.
+    const reviewed = new Set(review.files.map((file) => file.documentId));
+    if (
+      documentIds.length === 0 ||
+      new Set(documentIds).size !== documentIds.length ||
+      documentIds.some((id) => !reviewed.has(id))
+    )
+      throw new DriveSharingError("invalid_selection");
     return this.request(token, requestId, guard, "/approve", {
       revision: review.revision,
       reviewDigest: review.reviewDigest,
-      documentIds: review.files.map((file) => file.documentId),
+      documentIds,
       confirmed: true,
       ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
