@@ -162,3 +162,27 @@ async def test_generation_change_discards_provider_result(monkeypatch):
         await GoogleDriveMcpService(oauth=owner).read_tool(
             user_id="owner", tool_name="search_files", arguments={}
         )
+
+
+def test_search_projection_keeps_creation_time_for_recordings():
+    projected = _search_metadata(
+        {
+            "files": [
+                {"id": "f", "title": "R", "createdTime": "2026-09-20T00:00:00Z", "snippet": "x"}
+            ]
+        }
+    )
+    assert projected["files"] == [{"id": "f", "title": "R", "createdTime": "2026-09-20T00:00:00Z"}]
+
+
+@pytest.mark.asyncio
+async def test_recent_listing_uses_the_same_bounded_projection(monkeypatch):
+    admit(monkeypatch, tool="list_recent_files")
+    owner = oauth()
+    outcome = ExternalMcpToolResult(is_error=False, payload={"files": []}, truncated=False)
+    transport = AsyncMock(return_value=outcome)
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
+    await GoogleDriveMcpService(oauth=owner).read_tool(
+        user_id="owner", tool_name="list_recent_files", arguments={"orderBy": "recency"}
+    )
+    assert transport.await_args.kwargs["project"] is _search_metadata

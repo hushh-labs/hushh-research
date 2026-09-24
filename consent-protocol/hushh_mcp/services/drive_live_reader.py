@@ -30,6 +30,28 @@ SEARCH_PAGE_SIZE = 8
 MAX_SEARCH_PAGES = 6
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
+TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+MAX_TITLE_DATES = 3
+# Drive MCP: file types belong in mimeType clauses, never title/fullText words.
+MIME_CLAUSES = {
+    "document": (
+        "(mimeType = 'application/vnd.google-apps.document'"
+        " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')"
+    ),
+    "spreadsheet": (
+        "(mimeType = 'application/vnd.google-apps.spreadsheet'"
+        " or mimeType contains 'spreadsheetml' or mimeType = 'text/csv')"
+    ),
+    "presentation": (
+        "(mimeType = 'application/vnd.google-apps.presentation'"
+        " or mimeType contains 'presentationml')"
+    ),
+    "pdf": "mimeType = 'application/pdf'",
+    "image": "mimeType contains 'image/'",
+    "video": "mimeType contains 'video/'",
+    "audio": "mimeType contains 'audio/'",
+    "folder": "mimeType = 'application/vnd.google-apps.folder'",
+}
 
 
 def _open_url(file_id: str, value: object) -> str:
@@ -206,34 +228,70 @@ class DriveLiveReader:
         time_field: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        file_kind: str = "any",
+        shared_with_me: bool = False,
+        recent: bool = False,
+        title_dates: list[str] | tuple[str, ...] = (),
     ) -> dict:
-        """Search bounded file metadata; no content read, selection, or index."""
+        """Search bounded file metadata; no content read, selection, or index.
+
+        Terms must all match first (Drive's own multi-word behaviour); any term
+        may match only when that finds nothing. A file type is a mimeType clause.
+        """
         date_bounded = time_field is not None or start_time is not None or end_time is not None
-        terms = self._validate_query(query, date_bounded=date_bounded)
-        searches = [
-            self._search_query(
-                term, time_field=time_field, start_time=start_time, end_time=end_time
+        if file_kind not in MIME_CLAUSES and file_kind != "any":
+            raise DriveReadError("narrow_selection_required")
+        # Meet names recordings and notes in the meeting's own timezone, so a day
+        # can also be matched by the date in the title (checked exactly below).
+        if len(title_dates) > MAX_TITLE_DATES or (title_dates and not date_bounded):
+            raise DriveReadError("narrow_selection_required")
+        if any(not isinstance(day, str) or not TITLE_DATE.fullmatch(day) for day in title_dates):
+            raise DriveReadError("narrow_selection_required")
+        filtered = date_bounded or file_kind != "any" or shared_with_me
+        terms = self._validate_query(query, date_bounded=filtered or recent)
+        base = [MIME_CLAUSES[file_kind]] if file_kind != "any" else []
+        if shared_with_me:
+            base.append("sharedWithMe = true")
+        untimed = list(base)
+        if date_bounded:
+            base.append(
+                self._search_query(
+                    None, time_field=time_field, start_time=start_time, end_time=end_time
+                )
             )
-            for term in (terms or [None])
+        term_clauses = [
+            f"(title contains '{term}' or fullText contains '{term}')" for term in terms
         ]
+        requests: list[tuple[str, dict]] = []
+        if term_clauses:
+            requests.append(("search_files", {"query": " and ".join([*term_clauses, *base])}))
+            if len(term_clauses) > 1:
+                either = "(" + " or ".join(term_clauses) + ")"
+                requests.append(("search_files", {"query": " and ".join([either, *base])}))
+        elif base:
+            requests.append(("search_files", {"query": " and ".join(base)}))
+        elif recent:
+            requests.append(("list_recent_files", {"orderBy": "recency"}))
+        else:
+            raise DriveReadError("narrow_selection_required")
         await self._credential()
         matches: list[dict] = []
         seen: set[str] = set()
         truncated = False
         pages = 0
-        for drive_query in searches:
+        for tool_name, request in requests:
             page_token = None
             while pages < MAX_SEARCH_PAGES and len(matches) < MAX_SEARCH_RESULTS:
                 await self.require_access()
                 arguments = {
-                    "query": drive_query,
+                    **request,
                     "pageSize": SEARCH_PAGE_SIZE,
                     "excludeContentSnippets": True,
                 }
                 if page_token:
                     arguments["pageToken"] = page_token
                 result = await self.mcp.read_tool(
-                    user_id=self.user_id, tool_name="search_files", arguments=arguments
+                    user_id=self.user_id, tool_name=tool_name, arguments=arguments
                 )
                 if (
                     result.is_error
@@ -249,38 +307,13 @@ class DriveLiveReader:
                     if len(matches) >= MAX_SEARCH_RESULTS:
                         truncated = True
                         break
-                    if not isinstance(candidate, dict):
+                    match = self._match(candidate)
+                    if match is None:
                         truncated = True
                         continue
-                    file_id = candidate.get("id")
-                    title = candidate.get("title")
-                    mime = candidate.get("mimeType")
-                    modified = candidate.get("modifiedTime")
-                    if (
-                        not isinstance(file_id, str)
-                        or not FILE_ID.fullmatch(file_id)
-                        or not isinstance(title, str)
-                        or not 1 <= len(title) <= 1024
-                        or mime is not None
-                        and (not isinstance(mime, str) or len(mime) > 200)
-                        or modified is not None
-                        and (not isinstance(modified, str) or len(modified) > 64)
-                    ):
-                        truncated = True
-                        continue
-                    if file_id not in seen:
-                        seen.add(file_id)
-                        matches.append(
-                            {
-                                "file_id": file_id,
-                                "name": title,
-                                "mime_type": mime or "",
-                                "modified_time": modified,
-                                "source_ref": "document:"
-                                + hashlib.sha256(str(uuid4()).encode()).hexdigest()[:32],
-                                "open_url": _open_url(file_id, candidate.get("viewUrl")),
-                            }
-                        )
+                    if match["file_id"] not in seen:
+                        seen.add(match["file_id"])
+                        matches.append(match)
                 pages += 1
                 next_token = result.payload.get("nextPageToken")
                 if next_token is not None and (
@@ -298,8 +331,96 @@ class DriveLiveReader:
             if pages >= MAX_SEARCH_PAGES or len(matches) >= MAX_SEARCH_RESULTS:
                 truncated = True
                 break
+            if matches:
+                # All terms matched; the broader any-term search is only a fallback.
+                break
+        dated: list[dict] = []
+        title_pages = 0
+        for day in title_dates:
+            token = day.replace("-", "/")
+            page_token = None
+            while title_pages < MAX_SEARCH_PAGES:
+                await self.require_access()
+                arguments = {
+                    "query": " and ".join([*term_clauses, *untimed, f"title contains '{token}'"]),
+                    "pageSize": SEARCH_PAGE_SIZE,
+                    "excludeContentSnippets": True,
+                }
+                if page_token:
+                    arguments["pageToken"] = page_token
+                result = await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name="search_files", arguments=arguments
+                )
+                if (
+                    result.is_error
+                    or result.truncated
+                    or not isinstance(result.payload.get("files"), list)
+                    or len(result.payload["files"]) > SEARCH_PAGE_SIZE
+                    or result.payload.get("overLimit") is True
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                title_pages += 1
+                for candidate in result.payload["files"]:
+                    match = self._match(candidate)
+                    if match is None:
+                        truncated = True
+                        continue
+                    # Drive tokenizes the title search loosely; keep only exact dates.
+                    exact = token in match["name"] or day in match["name"]
+                    if exact and match["file_id"] not in seen:
+                        seen.add(match["file_id"])
+                        dated.append(match)
+                next_token = result.payload.get("nextPageToken")
+                if next_token is not None and (
+                    not isinstance(next_token, str) or len(next_token) > 1024
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                if not next_token:
+                    break
+                if next_token == page_token:
+                    raise DriveReadError("provider_response_invalid")
+                page_token = next_token
+            else:
+                truncated = True
+        if dated:
+            matches = [*dated, *matches][:MAX_SEARCH_RESULTS]
+        if recent and tool_name == "search_files":
+            field = "created_time" if time_field == "createdTime" else "modified_time"
+            matches.sort(key=lambda item: item.get(field) or "", reverse=True)
         await self.require_current()
         return {"matches": matches, "truncated": truncated}
+
+    @staticmethod
+    def _match(candidate: object) -> dict | None:
+        if not isinstance(candidate, dict):
+            return None
+        file_id = candidate.get("id")
+        title = candidate.get("title")
+        mime = candidate.get("mimeType")
+        modified = candidate.get("modifiedTime")
+        created = candidate.get("createdTime")
+        if (
+            not isinstance(file_id, str)
+            or not FILE_ID.fullmatch(file_id)
+            or not isinstance(title, str)
+            or not 1 <= len(title) <= 1024
+            or mime is not None
+            and (not isinstance(mime, str) or len(mime) > 200)
+            or any(
+                value is not None and (not isinstance(value, str) or len(value) > 64)
+                for value in (modified, created)
+            )
+        ):
+            return None
+        return {
+            "file_id": file_id,
+            "name": title,
+            "mime_type": mime or "",
+            "modified_time": modified,
+            "created_time": created,
+            "source_ref": "document:" + hashlib.sha256(str(uuid4()).encode()).hexdigest()[:32],
+            "open_url": _open_url(file_id, candidate.get("viewUrl")),
+        }
 
     async def search(
         self,

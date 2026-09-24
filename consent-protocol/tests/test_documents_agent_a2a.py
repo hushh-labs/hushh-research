@@ -277,7 +277,9 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
         interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
-    source.find.assert_awaited_once_with(query=["statement"])
+    source.find.assert_awaited_once_with(
+        query=["statement"], file_kind="any", shared_with_me=False, recent=False
+    )
     if not failure:
         source.read_matches.assert_awaited_once()
     selected.assert_not_called()

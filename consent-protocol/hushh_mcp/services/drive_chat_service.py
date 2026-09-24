@@ -69,7 +69,13 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False, meta
 
 
 def _found_files(
-    matches: list[dict], *, truncated: bool, unreadable: bool = False, time_window: str = ""
+    matches: list[dict],
+    *,
+    truncated: bool,
+    unreadable: bool = False,
+    time_window: str = "",
+    date_field: str = "modified_time",
+    timezone: str = "UTC",
 ) -> str:
     """Render safe owner-only opening actions from validated provider IDs."""
     lines = [
@@ -82,12 +88,8 @@ def _found_files(
     for index, match in enumerate(matches[:10], 1):
         title = re.sub(r"\s+", " ", match["name"]).strip()[:180]
         title = re.sub(r"([\\`*_{}\[\]()#+.!>|~-])", r"\\\1", title)
-        modified = match.get("modified_time")
-        date = (
-            modified[:10]
-            if isinstance(modified, str) and re.match(r"^\d{4}-\d{2}-\d{2}", modified)
-            else None
-        )
+        modified = match.get(date_field) or match.get("modified_time")
+        date = _local_date(modified, timezone)
         kind = (
             "folder"
             if match["mime_type"] == "application/vnd.google-apps.folder"
@@ -98,6 +100,19 @@ def _found_files(
     if truncated or len(matches) > 10:
         lines.append("More matches may exist. Ask for a narrower filename or period.")
     return "\n".join(lines)
+
+
+def _local_date(value: object, timezone: str) -> str | None:
+    """The file's calendar day in the owner's timezone, matching the stated window."""
+    if not isinstance(value, str) or not re.match(r"^\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            return value[:10]
+        return moment.astimezone(ZoneInfo(timezone or "UTC")).date().isoformat()
+    except (ValueError, ZoneInfoNotFoundError):
+        return value[:10]
 
 
 def _metadata_sources(matches: list[dict]) -> list[dict]:
@@ -115,6 +130,8 @@ def _outcome(
     unreadable=False,
     found_truncated=False,
     time_window="",
+    date_field="modified_time",
+    timezone="UTC",
     sources=(),
     titles=(),
     truncated=False,
@@ -128,6 +145,8 @@ def _outcome(
         "unreadable": unreadable,
         "found_truncated": found_truncated,
         "time_window": time_window,
+        "date_field": date_field,
+        "timezone": timezone,
         "sources": list(sources),
         "titles": list(titles),
         "truncated": truncated,
@@ -135,13 +154,17 @@ def _outcome(
     }
 
 
-def _files_outcome(matches, found, *, unreadable, time_window):
+def _files_outcome(
+    matches, found, *, unreadable, time_window, date_field="modified_time", timezone="UTC"
+):
     return _outcome(
         "ok",
         files=matches,
         unreadable=unreadable,
         found_truncated=found["truncated"],
         time_window=time_window,
+        date_field=date_field,
+        timezone=timezone,
         sources=_metadata_sources(matches),
         titles=[item["name"] for item in matches[:10]],
         truncated=True if unreadable else found["truncated"] or len(matches) > 10,
@@ -200,6 +223,8 @@ class DriveChatService:
                 truncated=outcome["found_truncated"],
                 unreadable=outcome["unreadable"],
                 time_window=outcome["time_window"],
+                date_field=outcome["date_field"],
+                timezone=outcome["timezone"],
             )
         )
         return result(
@@ -285,8 +310,16 @@ class DriveChatService:
                             "Which file do you mean? Please give me its title.",
                         )
                     stage = "search_files"
-                    bounds = plan.time_bounds(now_utc=now_utc)
-                    search_kwargs = {"query": query}
+                    bounds = plan.time_bounds(now_utc=now_utc, timezone=owner_timezone)
+                    search_kwargs = {
+                        "query": query,
+                        "file_kind": plan.file_kind,
+                        "shared_with_me": plan.shared_with_me,
+                        "recent": plan.sort == "recent",
+                    }
+                    date_field = (
+                        "created_time" if plan.file_time_field == "createdTime" else "modified_time"
+                    )
                     time_window = ""
                     if bounds is not None:
                         search_kwargs.update(
@@ -294,6 +327,9 @@ class DriveChatService:
                             start_time=bounds[0],
                             end_time=bounds[1],
                         )
+                        title_dates = plan.title_dates(now_utc=now_utc, timezone=owner_timezone)
+                        if title_dates:
+                            search_kwargs["title_dates"] = title_dates
                         start_local = datetime.fromisoformat(
                             bounds[0].replace("Z", "+00:00")
                         ).astimezone(ZoneInfo(owner_timezone))
@@ -326,7 +362,12 @@ class DriveChatService:
                     if plan.mode == "find":
                         await reader.require_current()
                         return _files_outcome(
-                            matches, found, unreadable=False, time_window=time_window
+                            matches,
+                            found,
+                            unreadable=False,
+                            time_window=time_window,
+                            date_field=date_field,
+                            timezone=owner_timezone,
                         )
                 await require_access()
                 stage = "read_file_content"
@@ -340,7 +381,12 @@ class DriveChatService:
                     await reader.require_current()
                     if live:
                         return _files_outcome(
-                            matches, found, unreadable=True, time_window=time_window
+                            matches,
+                            found,
+                            unreadable=True,
+                            time_window=time_window,
+                            date_field=date_field,
+                            timezone=owner_timezone,
                         )
                     return _outcome(
                         "input_required",
