@@ -92,10 +92,25 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
         query="(name contains 'statement') and trashed = false",
         page_size=8,
         page_token=PAGE,
+        order_by="modifiedTime desc",
     )
 
 
-async def test_recent_files_use_the_recency_order(monkeypatch):
+async def test_full_text_search_keeps_drive_relevance_order(monkeypatch):
+    # Drive ranks fullText matches by relevance and does not sort them.
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "(title contains 'tax' or fullText contains 'tax')"},
+    )
+    assert listing.await_args.kwargs["order_by"] is None
+
+
+async def test_recent_files_come_back_newest_first(monkeypatch):
+    # files.list sorts each key ascending unless told "desc": bare "recency"
+    # would list the oldest files first.
     listing = AsyncMock(return_value={"files": []})
     drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
     result = await drive.read_tool(
@@ -104,7 +119,7 @@ async def test_recent_files_use_the_recency_order(monkeypatch):
         arguments={"orderBy": "recency", "pageSize": 8},
     )
     assert result.payload["files"] == []
-    assert listing.await_args.kwargs["order_by"] == "recency"
+    assert listing.await_args.kwargs["order_by"] == "recency desc"
 
 
 async def test_reading_a_google_doc_exports_text(monkeypatch):
@@ -213,7 +228,20 @@ async def test_the_connect_probe_is_one_bounded_rest_search():
     "params,allowed",
     [
         ({**adapter_module.LIST_FIXED, "q": "trashed = false", "pageSize": "8"}, True),
-        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "25", "orderBy": "recency"}, True),
+        (
+            {**adapter_module.LIST_FIXED, "q": "x", "pageSize": "25", "orderBy": "recency desc"},
+            True,
+        ),
+        (
+            {
+                **adapter_module.LIST_FIXED,
+                "q": "x",
+                "pageSize": "8",
+                "orderBy": "modifiedTime desc",
+            },
+            True,
+        ),
+        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "recency"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "26"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "name"}, False),
         ({**adapter_module.LIST_FIXED, "fields": "*", "q": "x", "pageSize": "8"}, False),

@@ -73,7 +73,17 @@ async def live_journey(sharing, monkeypatch):
             "_live": True,
         }
 
-        async def search(**kwargs):
+        match = {"file_id": source["file_id"], "name": source["name"]}
+
+        # The reader's real call shape: a typed metadata search, then reads of
+        # exactly the files it found.
+        async def find(*, query, file_kind="any", shared_with_me=False, **bounds):
+            assert query == ["records"] and not bounds
+            await require_access()
+            return {"matches": [match], "truncated": False}
+
+        async def read_matches(*, matches, truncated=False):
+            assert matches == [match]
             await require_access()
             return {
                 "untrusted_external_content": [
@@ -84,10 +94,12 @@ async def live_journey(sharing, monkeypatch):
                         "page": None,
                     }
                 ],
-                "truncated": False,
+                "truncated": truncated,
             }
 
-        return SimpleNamespace(search=search, require_current=require_access, _rows=[source])
+        return SimpleNamespace(
+            find=find, read_matches=read_matches, require_current=require_access, _rows=[source]
+        )
 
     async def interpret(**kwargs):
         item = json.loads(kwargs["prompt"])["retrieved_documents"]["untrusted_external_content"][0]

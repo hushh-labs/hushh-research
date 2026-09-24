@@ -58,7 +58,9 @@ SHARE_METADATA_FIELDS = (
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
-LIST_ORDERS = frozenset({"recency"})
+# Drive sorts each key ascending unless told "desc"; live results are newest
+# first. modifiedTime is the time sort Drive optimizes on large collections.
+LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc"})
 LIST_FIXED = {
     "fields": LIST_FIELDS,
     "supportsAllDrives": "true",
@@ -173,7 +175,7 @@ class GoogleDriveAdapter:
                 and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
                 and len(params.get("q", "")) <= 2000
                 and len(params.get("pageToken", "")) <= 1024
-                and params.get("orderBy", "recency") in LIST_ORDERS
+                and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
             )
         elif re.fullmatch(r"/files/[A-Za-z0-9_-]{1,200}(?:/export)?", path):
             allowed = (
