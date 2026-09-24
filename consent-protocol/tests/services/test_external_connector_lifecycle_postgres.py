@@ -200,6 +200,44 @@ def sql(store, statement, params=None):
         return connection.execute(text(statement), params or {})
 
 
+def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle):
+    migration = (MIGRATIONS / "243_private_mcp_registration.sql").read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(migration)
+        connection.exec_driver_sql(migration)
+    original = sql(
+        lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active"
+    ).all()
+    sql(
+        lifecycle,
+        """INSERT INTO external_mcp_connectors
+          (connector_id, display_name, mcp_endpoint, auth_style, created_by,
+           user_id, is_active, owner_enabled)
+          VALUES ('private-test', 'Private', 'https://example.invalid/mcp',
+                  'api_key', 'owner', 'owner', FALSE, TRUE)""",
+    )
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        sql(lifecycle, "UPDATE external_mcp_connectors SET is_active=TRUE WHERE user_id='owner'")
+    assert (
+        sql(lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active").all()
+        == original
+    )
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(
+            (MIGRATIONS / "rollback/243_private_mcp_registration.rollback.sql").read_text()
+        )
+    assert sql(
+        lifecycle,
+        "SELECT owner_enabled, is_active FROM external_mcp_connectors WHERE connector_id='private-test'",
+    ).one() == (False, False)
+    assert (
+        sql(lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active").all()
+        == original
+    )
+
+
 @pytest.mark.asyncio
 async def test_callback_replay_has_one_winner_and_wrong_owner_cannot_consume(lifecycle):
     await start(lifecycle)

@@ -1004,10 +1004,10 @@
       "exact_tables": [
         "external_mcp_connectors"
       ],
-      "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
+      "primary_access_path": "One registry service resolves curated definitions and owner-private definitions. Owner-aware reads require authenticated user_id; legacy reads see only is_active curated rows. Private registration ingress is not yet enabled.",
       "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
-      "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
-      "trust_boundary": "Operator-controlled connector endpoint, transport, registered redirects, verified capability policy, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never credential values. Policy and rollout admission are separate authorities; neither endpoints nor raw schemas are returned in customer status.",
+      "deletion_behavior": "Curated rows remain operator-managed. Private rows carry user_id and tombstone write guards; account-erasure/FK ordering acceptance is required before private registration ingress is enabled. Rollback disables owner_enabled without deleting credentials or history.",
+      "trust_boundary": "Configuration metadata only, never credential values or tool results. Private definitions require is_active=false by database constraint so older readers cannot publish them. owner_enabled is separate owner-scoped availability, not OAuth, tool permission, or execution authority. Private endpoint safety and registration are separate gates; status projections omit raw endpoints and schemas.",
       "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
       "expected_row_growth": "low_reference"
     },

@@ -1,4 +1,4 @@
-"""Operator-curated catalog of external MCP connectors.
+"""Curated and owner-private definitions in one external MCP registry.
 
 Mirrors `crm_registry_repo.py`'s shape (a small, environment-wide table any
 signed-in user can read the *catalog* of, but only an operator can write to
@@ -36,6 +36,7 @@ class ExternalMcpConnectorDefinition:
     transport_kind: str = "mcp"
     capability_policy: dict[str, Any] = field(default_factory=dict)
     registered_redirect_uris: tuple[str, ...] = ()
+    owner_user_id: str | None = None
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "ExternalMcpConnectorDefinition":
@@ -52,7 +53,8 @@ class ExternalMcpConnectorDefinition:
             oauth_client_id_env=_clean(row.get("oauth_client_id_env")) or None,
             oauth_client_secret_env=_clean(row.get("oauth_client_secret_env")) or None,
             api_key_header_name=_clean(row.get("api_key_header_name")) or None,
-            is_active=bool(row.get("is_active")),
+            is_active=bool(row.get("is_active") or row.get("owner_enabled")),
+            owner_user_id=_clean(row.get("user_id")) or None,
             transport_kind=_clean(row.get("transport_kind")) or "mcp",
             capability_policy=row.get("capability_policy")
             if isinstance(row.get("capability_policy"), dict)
@@ -81,7 +83,21 @@ class ExternalConnectorRegistryService:
         result = await asyncio.to_thread(self.db.execute_raw, sql, params)
         return result.data or []
 
-    async def list_active_connectors(self) -> list[ExternalMcpConnectorDefinition]:
+    async def list_active_connectors(
+        self, *, user_id: str | None = None
+    ) -> list[ExternalMcpConnectorDefinition]:
+        # Calls without an authenticated owner remain curated-only. Preserve
+        # this query for pre-migration/legacy callers; private rows are always
+        # is_active=false at the database boundary.
+        if user_id:
+            rows = await self._execute(
+                """SELECT * FROM external_mcp_connectors
+                   WHERE (user_id IS NULL AND is_active = TRUE)
+                      OR (user_id = :user_id AND owner_enabled = TRUE)
+                   ORDER BY display_name ASC, connector_id ASC""",
+                {"user_id": user_id},
+            )
+            return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
         rows = await self._execute(
             """SELECT * FROM external_mcp_connectors
                WHERE is_active = TRUE
@@ -89,7 +105,18 @@ class ExternalConnectorRegistryService:
         )
         return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
 
-    async def get_connector(self, connector_id: str) -> ExternalMcpConnectorDefinition | None:
+    async def get_connector(
+        self, connector_id: str, *, user_id: str | None = None
+    ) -> ExternalMcpConnectorDefinition | None:
+        if user_id:
+            rows = await self._execute(
+                """SELECT * FROM external_mcp_connectors
+                   WHERE connector_id = :connector_id
+                     AND ((user_id IS NULL AND is_active = TRUE)
+                       OR (user_id = :user_id AND owner_enabled = TRUE))""",
+                {"connector_id": _clean(connector_id), "user_id": user_id},
+            )
+            return ExternalMcpConnectorDefinition.from_row(rows[0]) if rows else None
         rows = await self._execute(
             """SELECT * FROM external_mcp_connectors
                WHERE connector_id = :connector_id AND is_active = TRUE""",

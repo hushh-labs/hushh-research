@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 242,
+  "expected_migration_version": 243,
   "migration_version_policy": "minimum",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -622,7 +622,9 @@
       "updated_at",
       "transport_kind",
       "capability_policy",
-      "registered_redirect_uris"
+      "registered_redirect_uris",
+      "user_id",
+      "owner_enabled"
     ],
     "feed_event_counterparts": [
       "feed_event_id",
