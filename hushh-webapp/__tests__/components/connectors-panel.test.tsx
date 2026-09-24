@@ -85,6 +85,8 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Connected" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
+    expect(screen.queryByText(/Google Workspace MCP|Finance connection|Read access after connection/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Read selected files")).not.toBeInTheDocument();
     for (const label of ["Coming soon", "Notion", "HubSpot", "Shopify", "Circle"]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
@@ -93,6 +95,17 @@ describe("supported connector catalog", () => {
   it("shows built-in Drive when the external registry is empty", async () => {
     render(panel());
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
+  });
+
+  it("does not describe a failed Drive status check as disconnected", async () => {
+    state.overview.mockRejectedValue(new Error("synthetic unavailable"));
+    render(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+    expect(await screen.findByText("Connection status unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drive connection is unavailable in this session. Try again later.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Connect Drive" })).not.toHaveClass("min-h-[50px]");
   });
 
   it("opens the requested provider directly from the Settings catalog", async () => {

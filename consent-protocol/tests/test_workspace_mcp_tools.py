@@ -41,6 +41,95 @@ def context():
 
 
 @pytest.fixture
+def native_drive(monkeypatch):
+    monkeypatch.setattr(tools, "_owner", AsyncMock(return_value="owner-a"))
+    monkeypatch.setattr(tools, "connector_feature_enabled", lambda *_: True)
+    row = dict(
+        status="connected",
+        validation_state="verified",
+        verified_policy_hash=tools.LIVE_POLICY_HASH,
+        connection_generation=3,
+        credential_version=4,
+    )
+    secret = dict(profile="live", subject="synthetic-subject", accessToken="synthetic-token")
+    oauth = SimpleNamespace(current_credential=AsyncMock(return_value=(row, secret)))
+    monkeypatch.setattr(
+        tools, "get_external_connector_oauth_service", lambda: SimpleNamespace(drive=lambda: oauth)
+    )
+    return row, secret, oauth
+
+
+async def test_native_drive_uses_existing_live_credential_and_narrows_catalog(native_drive):
+    row, secret, oauth = native_drive
+    resolved = await tools.resolve_native_drive_connection(context())
+    oauth.current_credential.assert_awaited_once_with(user_id="owner-a", required_profile="live")
+    assert resolved.binding.generation == row["connection_generation"]
+    assert resolved.binding.credential_version == row["credential_version"]
+    assert resolved.binding.authority_revision == (
+        secret["subject"],
+        tools.LIVE_POLICY_HASH,
+        "live",
+    )
+    assert resolved.headers == {"Authorization": "Bearer synthetic-token"}
+    assert "synthetic-token" not in repr(resolved)
+    assert "synthetic-subject" not in repr(resolved)
+    catalog = resolved.catalog_policy(
+        [
+            {"name": name, "inputSchema": {"type": "object"}}
+            for name in ["search_files", "delete_file"]
+        ]
+    )
+    assert [item["name"] for item in catalog] == ["search_files"]
+    result = resolved.result_policy(
+        "search_files", {"files": [{"id": "synthetic", "snippet": "omit"}]}
+    )
+    assert result["files"] == [{"id": "synthetic"}]
+
+
+@pytest.mark.parametrize("tool_name", ["search_files", "list_recent_files"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"content": "synthetic unexpected content"},
+        {"files": "synthetic unexpected content"},
+        {"files": ["synthetic unexpected content"]},
+        {"files": [{"title": {"content": "synthetic unexpected content"}}]},
+        {"files": [], "nextPageToken": {"content": "synthetic unexpected content"}},
+    ],
+)
+def test_native_drive_listing_rejects_malformed_metadata(tool_name, payload):
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    with pytest.raises(ExternalMcpError):
+        tools._drive_result_policy(tool_name, payload)
+
+
+@pytest.mark.parametrize(
+    "failure", ["selected", "unverified", "policy", "revoked", "token", "owner"]
+)
+async def test_native_drive_rejects_wrong_profile_and_stale_authority(
+    native_drive, monkeypatch, failure
+):
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    row, secret, _ = native_drive
+    if failure == "selected":
+        secret["profile"] = "selected"
+    elif failure == "unverified":
+        row["validation_state"] = "unverified"
+    elif failure == "policy":
+        row["verified_policy_hash"] = "old"
+    elif failure == "revoked":
+        row["status"] = "disconnected"
+    elif failure == "token":
+        secret["accessToken"] = "bad\r\nheader"
+    else:
+        monkeypatch.setattr(tools, "_owner", AsyncMock(side_effect=["owner-a", None]))
+    with pytest.raises(ExternalMcpError):
+        await tools.resolve_native_drive_connection(context())
+
+
+@pytest.fixture
 def admission(monkeypatch):
     monkeypatch.setattr(tools, "pod_mode", lambda: False)
     monkeypatch.setattr(tools, "connector_feature_enabled", lambda *_: True)

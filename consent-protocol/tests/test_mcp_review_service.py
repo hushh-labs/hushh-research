@@ -1,5 +1,6 @@
 """Browser review prepares authority; only the native Chat tool executes."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -10,7 +11,10 @@ from google.adk.sessions import InMemorySessionService, Session
 from hushh_mcp.one_adk import mcp_review_service as module
 from hushh_mcp.one_adk import mcp_turn_scope
 from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
-from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
+    ActionDirectiveStore,
+)
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
@@ -19,7 +23,13 @@ def harness(monkeypatch):
     binding = McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp")
     registry = SimpleNamespace(
         get_connector=AsyncMock(
-            return_value=SimpleNamespace(owner_user_id="owner", display_name="Synthetic connector")
+            return_value=SimpleNamespace(
+                owner_user_id="owner",
+                display_name="Synthetic connector",
+                is_active=True,
+                transport_kind="mcp",
+                connector_id="custom",
+            )
         )
     )
     sessions = InMemorySessionService()
@@ -112,6 +122,72 @@ async def test_review_and_confirmation_use_current_terms_without_executing(harne
     h.tool.run_async.assert_not_called()
     for instance in h.created:
         instance.close.assert_awaited_once()
+
+
+async def test_provider_snapshot_is_bound_to_review_and_confirmation(harness):
+    h = harness
+    original = h.resolver.return_value
+    snapshot = ("synthetic-subject", "connection-1", "grant-1")
+    h.resolver.return_value = replace(
+        original, binding=replace(original.binding, authority_revision=snapshot)
+    )
+    preview = await module.prepare_review(**h.request)
+    issued = h.ledger.issue.await_args.kwargs["resource_binding"]
+    assert issued["authority_revision"] == list(snapshot)
+    assert "synthetic-subject" not in str(preview)
+    h.resolver.return_value = replace(
+        original,
+        binding=replace(
+            original.binding, authority_revision=("synthetic-subject", "connection-1", "grant-2")
+        ),
+    )
+    await module.confirm_review(**h.request, directive_id=preview["directiveId"], confirmed=True)
+    current = h.ledger.confirm.await_args.kwargs["terms"].resource_binding
+    assert current != issued
+    assert current["authority_revision"][-1] == "grant-2"
+    # The real ledger hashes the complete binding, not just numeric versions.
+    ledger = ActionDirectiveStore(db=SimpleNamespace(), hmac_key="synthetic-key")
+    assert ledger._hmac(current) != ledger._hmac(issued)
+    h.tool.run_async.assert_not_called()
+
+
+async def test_curated_drive_review_uses_same_scope_and_never_executes(harness):
+    h = harness
+    definition = h.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = "google_drive"
+    definition.transport_kind = "google_drive_rest"
+    h.request["connector_id"] = "google_drive"
+    h.resolver.return_value = replace(
+        h.resolver.return_value,
+        binding=replace(h.resolver.return_value.binding, connector_id="google_drive"),
+    )
+    preview = await module.prepare_review(**h.request)
+    assert preview["connectorId"] == "google_drive"
+    context, connector_id = h.resolver.await_args.args
+    assert connector_id == "google_drive"
+    assert context.state["temp:hussh:workspace_chat_admission"] is True
+    assert context.user_id == "owner"
+    h.tool.run_async.assert_not_called()
+
+
+@pytest.mark.parametrize("registration", ["disabled", "unsupported", "wrong-owner"])
+async def test_curated_drive_review_rejects_registration_before_credentials(harness, registration):
+    h = harness
+    definition = h.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = "google_drive"
+    definition.transport_kind = "google_drive_rest"
+    if registration == "disabled":
+        definition.is_active = False
+    elif registration == "unsupported":
+        definition.connector_id = "unreviewed_provider"
+    else:
+        definition.owner_user_id = "another-owner"
+    with pytest.raises(ExternalMcpError):
+        await module.prepare_review(**h.request)
+    h.resolver.assert_not_awaited()
+    h.tool.run_async.assert_not_called()
 
 
 @pytest.mark.parametrize(

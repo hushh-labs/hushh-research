@@ -1181,11 +1181,7 @@ function OwnerConnectorsPanel({
     {
       id: "gmail",
       name: "Gmail",
-      detail: mailConnected
-        ? gmail.status?.needs_reauth
-          ? "Reconnect needed"
-          : `Google Workspace MCP · ${gmail.status?.google_email || "Connected"}`
-        : "Google Workspace MCP · Read access after connection",
+      detail: gmail.status?.needs_reauth ? "Reconnect needed" : undefined,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       action: mailConnected
@@ -1202,11 +1198,7 @@ function OwnerConnectorsPanel({
     {
       id: "google_drive",
       name: "Google Drive",
-      detail: hasDriveGrant
-        ? drive?.status === "needs_reauth"
-          ? "Reconnect needed"
-          : drive?.accountLabel || "Search your Drive"
-        : undefined,
+      detail: drive?.status === "needs_reauth" ? "Reconnect needed" : undefined,
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1230,9 +1222,7 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : calendar.status?.status === "needs_reauth"
             ? "Reconnect needed"
-          : calendar.connected
-              ? "Google Workspace MCP · Connected"
-              : "Google Workspace MCP · Not connected",
+            : undefined,
       action: {
         label: "Manage Calendar",
         onClick: () => {
@@ -1251,9 +1241,7 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Reconnect needed"
-          : plaidConnections.length > 0
-              ? "Finance connection · sharing needs approval (not MCP)"
-              : "Finance connection · not connected (not MCP)",
+            : undefined,
       action: {
         label: "Manage Plaid",
         onClick: () => {
@@ -1270,7 +1258,7 @@ function OwnerConnectorsPanel({
       .map((item): ConnectorListEntry => ({
         id: item.connectorId,
         name: item.displayName,
-        detail: item.accountLabel || item.description || undefined,
+        detail: item.status === "needs_reauth" ? "Reconnect needed" : undefined,
         connected: !["not_connected", "revoked"].includes(item.status),
         onOpen: !["not_connected", "revoked"].includes(item.status)
           ? () => showConnector(item.connectorId)
@@ -1455,9 +1443,9 @@ function OwnerConnectorsPanel({
             </section>}
             {activeConnector === "google_drive" && <section
               aria-labelledby="connection-drive-title"
-              className="space-y-3 rounded-xl border border-border p-3"
+              className="space-y-3"
             >
-              <h3 id="connection-drive-title" className="font-semibold">
+              <h3 id="connection-drive-title" className="sr-only">
                 Google Drive
               </h3>
               <p className="break-all text-sm text-muted-foreground">
@@ -1466,7 +1454,9 @@ function OwnerConnectorsPanel({
               <p role="status" className="text-sm">
                 {loading
                   ? "Checking Drive…"
-                  : drive
+                  : !statusChecked
+                    ? "Connection status unavailable"
+                    : drive
                     ? (labels[drive.status] ?? "Status unavailable")
                     : "Not connected"}
               </p>
@@ -1475,6 +1465,7 @@ function OwnerConnectorsPanel({
                   drive?.status === "needs_reauth" ||
                   drive?.status === "error") && (
                   <Button
+                    size="compact"
                     className={touch}
                     disabled={driveBusy || loading || !canConnectDrive}
                     onClick={() => startDrive("live")}
@@ -1503,6 +1494,7 @@ function OwnerConnectorsPanel({
                   </Button>
                 )}
                 <Button
+                  size="compact"
                   className={touch}
                   variant="ghost"
                   disabled={driveBusy || loading}
@@ -1538,7 +1530,7 @@ function OwnerConnectorsPanel({
                 </div>
               )}
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
-              {!canConnectDrive && (
+              {statusChecked && !canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
                   Drive connection is unavailable in this session. Try again later.
                 </p>

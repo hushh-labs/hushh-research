@@ -1,7 +1,8 @@
 """One native ADK registry view, with authenticated resources owned by the turn.
 
-This view contains no credential resolver or second connector catalog. Curated
-providers retain their existing adapters until their authority parity is proven.
+This view contains no credential resolver or second connector catalog. Admitted
+curated providers use their existing credential authorities through the shared
+resolver; providers without native admission retain their existing adapters.
 """
 
 import asyncio
@@ -9,6 +10,7 @@ import json
 
 from google.adk.tools.base_toolset import BaseToolset
 
+from hushh_mcp.one_adk.governed_mcp_toolset import native_registration_admitted
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
 from hushh_mcp.services.external_connector_registry_service import (
@@ -65,11 +67,7 @@ class RegisteredMcpToolset(BaseToolset):
                 user_id=context.user_id
             )
             admitted = [
-                item
-                for item in definitions
-                if item.owner_user_id == context.user_id
-                and item.is_active
-                and item.transport_kind == "mcp"
+                item for item in definitions if native_registration_admitted(item, context.user_id)
             ]
             if len(admitted) > 32:
                 raise ExternalMcpError("Connector limit reached.", code="MCP_TURN_LIMIT")

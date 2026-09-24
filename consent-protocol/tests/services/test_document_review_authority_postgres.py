@@ -63,6 +63,7 @@ async def test_native_mcp_approval_port_consumes_only_fresh_exact_app_review(led
             replace(review, binding=replace(binding, endpoint="https://other.example/mcp")),
             replace(review, binding=replace(binding, credential_version=2)),
             replace(review, binding=replace(binding, generation=2)),
+            replace(review, binding=replace(binding, authority_revision=("changed-grant",))),
             replace(review, conversation_id=str(uuid4())),
         ):
             with pytest.raises(ActionDirectiveAuthorityError):

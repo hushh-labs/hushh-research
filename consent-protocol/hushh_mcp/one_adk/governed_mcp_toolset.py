@@ -52,12 +52,36 @@ class McpConnectionBinding:
     generation: int
     credential_version: int
     endpoint: str = field(repr=False)
+    # Optional full observation from an existing provider credential owner.
+    # Separate account/service-grant revisions must not be collapsed to an int.
+    authority_revision: tuple[str, ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.authority_revision, tuple) or any(
+            not isinstance(part, str) or not part.strip() for part in self.authority_revision
+        ):
+            raise ValueError("Invalid MCP authority revision")
 
 
 @dataclass(frozen=True)
 class ResolvedMcpConnection:
     binding: McpConnectionBinding
     headers: dict[str, str] = field(repr=False)
+    catalog_policy: CatalogPolicy | None = field(default=None, repr=False, compare=False)
+    result_policy: ResultPolicy | None = field(default=None, repr=False, compare=False)
+
+
+def native_registration_admitted(connector: Any, owner: str) -> bool:
+    """Registration admission only; credentials and capabilities are checked later."""
+    if connector is None or not connector.is_active:
+        return False
+    if connector.owner_user_id == owner:
+        return connector.transport_kind == "mcp"
+    return (
+        connector.owner_user_id is None
+        and connector.connector_id == "google_drive"
+        and connector.transport_kind in {"mcp", "google_drive_rest"}
+    )
 
 
 async def resolve_registered_connection(context: Any, connector_id: str) -> ResolvedMcpConnection:
@@ -83,8 +107,14 @@ async def resolve_registered_connection(context: Any, connector_id: str) -> Reso
     connector = await get_external_connector_registry_service().get_connector(
         connector_id, user_id=owner
     )
-    if connector is None or not connector.is_active or connector.transport_kind != "mcp":
+    if not native_registration_admitted(connector, owner):
         raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+    if connector.owner_user_id is None:
+        # Narrow provider authentication/policy adapter, never another tool
+        # dispatcher. All discovery, review and invocation remain native ADK.
+        from hushh_mcp.one_adk.workspace_mcp_tools import resolve_native_drive_connection
+
+        return await resolve_native_drive_connection(context)
     row = await ExternalConnectorLifecycleStore().read(user_id=owner, connector_id=connector_id)
     if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
         raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")

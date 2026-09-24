@@ -88,6 +88,21 @@ async def test_curated_and_other_owner_entries_do_not_gain_private_authority(reg
         scope.acquire.assert_not_awaited()
 
 
+async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
+    drive = definition("google_drive", owner=None)
+    drive.transport_kind = "google_drive_rest"
+    registry.list_active_connectors.return_value = [drive]
+    async with mcp_turn_scope("thread") as scope:
+        tool = SimpleNamespace(name="mcp_drive", description="Read Drive")
+        scope.acquire = AsyncMock(
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
+        )
+        assert await module.RegisteredMcpToolset().get_tools(context()) == [tool]
+        assert scope.acquire.await_count == 1
+        assert scope.acquire.await_args.args[1] == "google_drive"
+        assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
+
+
 async def test_disconnected_connector_does_not_hide_working_connector(registry):
     registry.list_active_connectors.return_value = [definition("revoked"), definition("working")]
     tool = SimpleNamespace(name="mcp_working", description="Read")

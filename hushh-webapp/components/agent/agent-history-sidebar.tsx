@@ -599,17 +599,15 @@ export function AgentHistorySidebar({
               <Button
                 type="button"
                 variant="ghost"
-                className={cn(
-                  "mt-2 h-11 w-full justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
-                  isMobileMode
-                    ? "rounded-full bg-black/[0.035] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
-                    : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
-                )}
+                size="compact"
+                className="group mt-1 h-11 min-h-11 w-full justify-start rounded-xl bg-transparent p-0 text-[13px] font-medium text-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-primary/60"
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
               >
-                <PlugIcon className="h-4 w-4" aria-hidden="true" />
-                <span className="truncate">Connectors</span>
+                <span className="flex h-9 w-full items-center gap-2 rounded-xl border border-black/[0.06] bg-foreground/[0.035] px-3 group-hover:bg-foreground/[0.06] dark:border-white/[0.07] dark:bg-white/[0.04] dark:group-hover:bg-white/[0.07]">
+                  <PlugIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <span className="truncate">Connectors</span>
+                </span>
               </Button>
             ) : null}
           </div>

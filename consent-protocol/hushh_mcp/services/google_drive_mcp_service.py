@@ -61,16 +61,25 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         # Drive MCP answers "no matches" with `{}`: that is zero files, not a
         # broken provider. Any other shape without a file list stays invalid.
         files = []
-    if not isinstance(files, list):
-        return payload
+    if not isinstance(files, list) or any(not isinstance(item, dict) for item in files):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    next_page = payload.get("nextPageToken")
+    if next_page is not None and not isinstance(next_page, str):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    # Metadata fields are scalar strings, not a channel for nested content.
+    if any(
+        value is not None and not isinstance(value, str)
+        for item in files
+        for key, value in item.items()
+        if key in _SEARCH_FIELDS
+    ):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
     return {
         "files": [
             {key: value for key, value in item.items() if key in _SEARCH_FIELDS}
-            if isinstance(item, dict)
-            else item
             for item in files[:26]
         ],
-        "nextPageToken": payload.get("nextPageToken"),
+        "nextPageToken": next_page,
         "overLimit": len(files) > 25,
     }
 

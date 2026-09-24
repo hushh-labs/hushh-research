@@ -23,6 +23,7 @@ function renderSidebar() {
       activeConversationId="conv_1"
       mode="mobile"
       onClose={vi.fn()}
+      onOpenConnectors={vi.fn()}
       onToggleCollapsed={vi.fn()}
       onCreateNew={vi.fn()}
       onSelectConversation={vi.fn()}
@@ -33,6 +34,14 @@ function renderSidebar() {
 }
 
 describe("AgentHistorySidebar", () => {
+  it("keeps Connectors visually compact with a transparent touch target", () => {
+    renderSidebar();
+    const button = screen.getByRole("button", { name: "Open Connectors" });
+    expect(button).toHaveClass("h-11", "min-h-11", "p-0", "text-[13px]");
+    expect(button.firstElementChild).toHaveClass("h-9", "w-full", "px-3");
+    expect(button).not.toHaveClass("min-h-[50px]", "py-3");
+  });
+
   it("uses the compact Chats drawer in mobile mode and omits desktop collapse controls", () => {
     renderSidebar();
 
