@@ -379,18 +379,18 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
           {RIA_COPY.clients.verifyGate.eyebrow}
         </p>
 
-        {/* Title in Pure White Font */}
-        <h2 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+        {/* Title */}
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
           {RIA_COPY.clients.verifyGate.title}
         </h2>
 
-        {/* Description in Clean Light Font */}
-        <p className="mt-3 max-w-md text-base leading-relaxed text-white/70">
+        {/* Description */}
+        <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">
           {RIA_COPY.clients.verifyGate.description}
         </p>
 
         {/* Status Note */}
-        <p className="mt-3 text-xs font-medium text-white/50">
+        <p className="mt-3 text-xs font-medium text-muted-foreground/70">
           {RIA_COPY.clients.verifyGate.body}
         </p>
 

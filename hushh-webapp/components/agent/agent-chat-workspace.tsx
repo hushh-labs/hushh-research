@@ -1721,14 +1721,14 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
+                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
                     : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
                 title="Like response"
               >
-                <ThumbsUp className="h-3.5 w-3.5" />
+                <ThumbsUp className="h-3.5 w-3.5" weight={liked ? "fill" : "regular"} />
               </button>
               <button
                 type="button"
@@ -1736,14 +1736,14 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
+                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
                     : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
                 title="Dislike response"
               >
-                <ThumbsDown className="h-3.5 w-3.5" />
+                <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
               </button>
                 </>
               ) : null}
