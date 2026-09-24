@@ -84,6 +84,45 @@ export type TrustedDocumentRule = {
   status: "Trusted for documents";
 };
 
+export type DriveQueryStatus =
+  | "pending"
+  | "running"
+  | "answered"
+  | "denied"
+  | "expired";
+/** One connection's question about the owner's Drive. No file ids or links. */
+export type DriveQueryView = {
+  requestId: string;
+  direction: "incoming" | "outgoing";
+  status: DriveQueryStatus;
+  revision: number;
+  query: string;
+  counterpartName: string | null;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  answer: { text: string; titles: string[]; truncated: boolean } | null;
+  canDecide: boolean;
+  lastError: "reconnect_required" | "drive_query_unavailable" | null;
+};
+export type DriveQueryDraft = { clientRequestId: string; query: string } & (
+  | { ownerPersonRef: string; ownerUserId?: never }
+  | { ownerUserId: string; ownerPersonRef?: never }
+);
+export type DriveQueryPage = { items: DriveQueryView[]; hasMore: boolean };
+
+export const DRIVE_QUERY_MAX_CHARS = 2000;
+export const DRIVE_QUERY_MAX_BYTES = 2048;
+
+/** Mirrors the server bound: non-blank, 2000 characters and 2048 UTF-8 bytes. */
+export function validDriveQuery(query: string): boolean {
+  return (
+    query.trim().length > 0 &&
+    query.length <= DRIVE_QUERY_MAX_CHARS &&
+    new TextEncoder().encode(query).length <= DRIVE_QUERY_MAX_BYTES
+  );
+}
+
 export class DriveSharingError extends Error {
   constructor(
     public readonly code: string,
@@ -133,6 +172,76 @@ function date(value: unknown): string {
   return result;
 }
 
+const SHARING_PATH = "/api/connectors/google_drive/sharing";
+const VIEW_MAX_LENGTH = 64 * 1024;
+const QUERY_PAGE_MAX = 50;
+const QUERY_STATUSES = new Set<DriveQueryStatus>([
+  "pending",
+  "running",
+  "answered",
+  "denied",
+  "expired",
+]);
+
+/** Strict decode: any unexpected shape fails closed instead of rendering. */
+export function parseDriveQueryView(value: unknown): DriveQueryView {
+  const result = record(value);
+  const direction = result.direction;
+  if (direction !== "incoming" && direction !== "outgoing")
+    throw new DriveSharingError("invalid_response");
+  const status = result.status as DriveQueryStatus;
+  if (!QUERY_STATUSES.has(status))
+    throw new DriveSharingError("invalid_response");
+  const rawAnswer = result.answer == null ? null : record(result.answer);
+  // An answer exists exactly when the question was answered.
+  if ((rawAnswer !== null) !== (status === "answered"))
+    throw new DriveSharingError("invalid_response");
+  if (
+    rawAnswer &&
+    (!Array.isArray(rawAnswer.titles) ||
+      rawAnswer.titles.length > 25 ||
+      typeof rawAnswer.truncated !== "boolean")
+  )
+    throw new DriveSharingError("invalid_response");
+  const lastError = result.lastError ?? null;
+  if (
+    lastError !== null &&
+    lastError !== "reconnect_required" &&
+    lastError !== "drive_query_unavailable"
+  )
+    throw new DriveSharingError("invalid_response");
+  return {
+    requestId: id(result.requestId),
+    direction,
+    status,
+    revision: revision(result.revision),
+    query: string(result.query, DRIVE_QUERY_MAX_CHARS),
+    counterpartName:
+      result.counterpartName == null
+        ? null
+        : string(result.counterpartName, 320),
+    createdAt: date(result.createdAt),
+    expiresAt: date(result.expiresAt),
+    decidedAt: result.decidedAt == null ? null : date(result.decidedAt),
+    answer: rawAnswer
+      ? {
+          text: string(rawAnswer.text, 20_000),
+          titles: (rawAnswer.titles as unknown[]).map((title) =>
+            string(title, 1024),
+          ),
+          truncated: rawAnswer.truncated as boolean,
+        }
+      : null,
+    // Only the owner of a pending question may ever decide it.
+    canDecide:
+      result.canDecide === true &&
+      direction === "incoming" &&
+      status === "pending",
+    // The owner's connection state is never shown to the person asking.
+    lastError: direction === "incoming" ? lastError : null,
+  };
+}
+
 /** Private responses stay in the invoking component's memory, never a cache. */
 export class DriveSharingService {
   private static async request(
@@ -144,9 +253,26 @@ export class DriveSharingService {
     firebaseToken?: string,
   ): Promise<RecordValue> {
     if (requestId !== null) id(requestId);
+    return this.send(
+      `${SHARING_PATH}/requests${requestId === null ? action : `/${requestId}${action}`}`,
+      token,
+      guard,
+      body,
+      firebaseToken,
+    );
+  }
+
+  private static async send(
+    path: string,
+    token: string,
+    guard: SharingSessionGuard,
+    body?: object,
+    firebaseToken?: string,
+    maxLength = VIEW_MAX_LENGTH,
+  ): Promise<RecordValue> {
     guard();
     const response = await ApiService.apiFetch(
-      `/api/connectors/google_drive/sharing/requests${requestId === null ? action : `/${requestId}${action}`}`,
+      path,
       {
         isEffectCurrent: () => {
           guard();
@@ -169,7 +295,7 @@ export class DriveSharingService {
     guard();
     const serialized = await response.text();
     guard();
-    if (serialized.length > 64 * 1024)
+    if (serialized.length > maxLength)
       throw new DriveSharingError("invalid_response");
     let payload: RecordValue;
     try {
@@ -478,5 +604,150 @@ export class DriveSharingService {
       grantIds: review.files.map((file) => file.grantId),
       confirmed: true,
     });
+  }
+
+  /**
+   * Creates a pending question only. Nothing reads the owner's Drive until
+   * the owner allows it, so the asker needs no Google identity here.
+   */
+  static async createQuery(
+    token: string,
+    draft: DriveQueryDraft,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    const owner =
+      typeof draft.ownerPersonRef === "string" &&
+      draft.ownerUserId === undefined
+        ? DOCUMENT_REQUEST_UUID.test(draft.ownerPersonRef)
+          ? { ownerPersonRef: draft.ownerPersonRef }
+          : null
+        : typeof draft.ownerUserId === "string" &&
+            draft.ownerPersonRef === undefined &&
+            /^[A-Za-z0-9_-]{1,128}$/.test(draft.ownerUserId)
+          ? { ownerUserId: draft.ownerUserId }
+          : null;
+    if (
+      !owner ||
+      !DOCUMENT_REQUEST_UUID.test(draft.clientRequestId) ||
+      !validDriveQuery(draft.query)
+    )
+      throw new DriveSharingError("invalid_argument");
+    const view = parseDriveQueryView(
+      await this.send(`${SHARING_PATH}/queries`, token, guard, {
+        ...owner,
+        clientRequestId: draft.clientRequestId,
+        query: draft.query,
+      }),
+    );
+    if (view.direction !== "outgoing")
+      throw new DriveSharingError("invalid_response");
+    return view;
+  }
+
+  static async listQueries(
+    token: string,
+    direction: "incoming" | "outgoing",
+    guard: SharingSessionGuard,
+    page: { limit?: number; offset?: number } = {},
+  ): Promise<DriveQueryPage> {
+    const { limit = 20, offset = 0 } = page;
+    if (
+      (direction !== "incoming" && direction !== "outgoing") ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > QUERY_PAGE_MAX ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0
+    )
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.send(
+      `${SHARING_PATH}/queries?${new URLSearchParams({
+        direction,
+        limit: String(limit),
+        offset: String(offset),
+      })}`,
+      token,
+      guard,
+      undefined,
+      undefined,
+      limit * VIEW_MAX_LENGTH,
+    );
+    if (!Array.isArray(result.items) || result.items.length > limit)
+      throw new DriveSharingError("invalid_response");
+    const items = result.items.map(parseDriveQueryView);
+    if (items.some((item) => item.direction !== direction))
+      throw new DriveSharingError("invalid_response");
+    return { items, hasMore: result.hasMore === true };
+  }
+
+  static async getQuery(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    return this.queryView(token, requestId, guard, "");
+  }
+
+  /** Runs one bounded search of the owner's Drive; can take ~160 seconds. */
+  static allowQuery(
+    token: string,
+    requestId: string,
+    revisionValue: number,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    const timeZone = ownerTimeZone();
+    return this.queryView(token, requestId, guard, "/allow", {
+      revision: revisionValue,
+      ...(timeZone ? { timeZone } : {}),
+    });
+  }
+
+  static denyQuery(
+    token: string,
+    requestId: string,
+    revisionValue: number,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    return this.queryView(token, requestId, guard, "/deny", {
+      revision: revisionValue,
+    });
+  }
+
+  private static async queryView(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+    action: "" | "/allow" | "/deny",
+    body?: { revision: number; timeZone?: string },
+  ): Promise<DriveQueryView> {
+    if (
+      !DOCUMENT_REQUEST_UUID.test(requestId) ||
+      (body !== undefined &&
+        (!Number.isSafeInteger(body.revision) || body.revision < 0))
+    )
+      throw new DriveSharingError("invalid_argument");
+    const view = parseDriveQueryView(
+      await this.send(
+        `${SHARING_PATH}/queries/${requestId}${action}`,
+        token,
+        guard,
+        body,
+      ),
+    );
+    if (view.requestId.toLowerCase() !== requestId.toLowerCase())
+      throw new DriveSharingError("invalid_response");
+    return view;
+  }
+}
+
+/** The owner's own calendar day decides dates like "24th September". */
+function ownerTimeZone(): string | null {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(zone)
+      ? zone
+      : null;
+  } catch {
+    return null;
   }
 }

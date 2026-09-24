@@ -51,6 +51,33 @@ describe("connector proxy privacy", () => {
     expect(url).not.toContain("synthetic");
   });
 
+  it("gives an allowed Drive question the same long budget as document preparation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const id = "11111111-1111-4111-8111-111111111111";
+    const post = (path: string[]) =>
+      proxyExternalConnectorRequest(
+        new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ revision: 1 }),
+        }),
+        path,
+      );
+    await post(["google_drive", "sharing", "queries", id, "allow"]);
+    await post(["google_drive", "sharing", "requests", id, "prepare"]);
+    await post(["google_drive", "sharing", "queries", id, "deny"]);
+    await post(["google_drive", "sharing", "queries"]);
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([
+      170_000,
+      170_000,
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+    expect(timeout.mock.calls[2][0]).toBeLessThan(170_000);
+    expect(timeout.mock.calls[3][0]).toBeLessThan(170_000);
+  });
+
   it("does not log upstream exception messages containing private material", async () => {
     vi.stubGlobal(
       "fetch",

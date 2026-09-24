@@ -109,8 +109,8 @@ export function AgentStructuredExperienceView({
 }
 
 function DocumentRequestReviewView({ experience }: { experience: DocumentRequestReviewExperience }) {
-  return <ExperienceShell experienceType={experience.type} label="Document request" title={`Ask ${experience.personName} for documents`}
-    summary="Review the purpose and dates, then send the request." icon={<FileCheck2 className="size-5" />}><DocumentRequestButton
+  return <ExperienceShell experienceType={experience.type} label="Drive question" title={`Ask ${experience.personName} about their Drive`}
+    summary="Check the question, then send it." icon={<FileCheck2 className="size-5" />}><DocumentRequestButton
       personRef={experience.personRef} personName={experience.personName}
       draft={{clientRequestId: experience.clientRequestId, purpose: experience.purpose,
         periodStart: experience.periodStart, periodEnd: experience.periodEnd}}

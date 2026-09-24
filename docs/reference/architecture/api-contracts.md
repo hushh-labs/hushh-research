@@ -1181,6 +1181,18 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | `POST /requests/{id}/revocation/prepare` | A's fresh review of recorded Hussh-managed direct Viewer grants under the current matching Google account. |
 | `POST /requests/{id}/revocation/confirm` | Exact revocation revision, directive, digest, grant IDs and strict confirmation; queues removal, never adopts pre-existing grants. |
 
+Drive questions (`/queries`) are a separate, slimmer lane in `drive_live_query_requests`: B asks,
+A allows or denies, and nothing reads A's Drive before Allow. No preparation worker scans this
+table.
+
+| Method / suffix | Authority and result |
+| --- | --- |
+| `POST /queries` | B's Vault Owner and an active A/B connection; no Google identity needed. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and one `query` (≤2000 characters, ≤2048 UTF-8 bytes). Stores it sealed as `pending`; no Drive I/O, no worker wake. Idempotent per client request ID. |
+| `GET /queries` | Participant-scoped incoming/outgoing questions, bounded pagination. |
+| `GET /queries/{id}` | A or B only: status, the question, and the answer (text plus file titles) once answered. The failure reason after a failed Allow is A-only. |
+| `POST /queries/{id}/allow` | A's exact revision and optional IANA `timeZone`. Claims the unexpired question once, then runs A's own bounded live chat turn (`DriveChatService.run_live_query`) under A's current authority, fenced on every step. Stores answer text and titles only; B never receives Drive links, file IDs or dates. A failed run returns the question to `pending` with `reconnect_required` or `drive_query_unavailable`. |
+| `POST /queries/{id}/deny` | A's revision-bound decision; no Drive I/O. |
+
 Background suggestions require current durable per-file processing consent and a short-lived
 request lease. The authored interpreter has no tools, owner session or permission authority.
 It may propose only observed document/source references, and every read input is checked again

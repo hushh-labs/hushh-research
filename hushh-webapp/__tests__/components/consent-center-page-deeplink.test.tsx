@@ -60,6 +60,12 @@ vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
 }));
 
+vi.mock("@/components/consent/drive-query-request-card", () => ({
+  DriveQueryRequestCard: ({ requestId, direction }: { requestId: string; direction?: string }) => (
+    <div data-testid="drive-query-card" data-direction={direction ?? ""}>{requestId}</div>
+  ),
+}));
+
 // CapabilityExploreCard reads useAuth from the firebase context directly, not
 // via the @/hooks/use-auth re-export, so it needs its own stub here.
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -449,6 +455,75 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(await screen.findByText("Invalid document request")).toBeVisible();
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
     expect(screen.queryByTestId("private-document-review")).toBeNull();
+  });
+
+  it("routes a cold Drive question link only to its own card, never generic consent or voice decisions", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.search = `tab=pending&requestId=drive_query_request%3A${id}&notificationAction=approve`;
+    render(<ConsentCenterPage />);
+    expect(await screen.findByTestId("drive-query-card")).toHaveTextContent(id);
+    expect(screen.getByRole("dialog", { name: "Drive question" })).toBeVisible();
+    expect(screen.queryByTestId("private-document-review")).toBeNull();
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByText(/Allow was selected in the notification/)).toBeNull();
+    const metadata = vi.mocked(usePublishVoiceSurfaceMetadata).mock.lastCall?.[0];
+    expect(JSON.stringify(metadata)).not.toContain("consent_approve");
+  });
+
+  it("does not send malformed Drive question links through generic pending lookup", async () => {
+    mocks.search = "tab=pending&requestId=drive_query_request%3Ainvalid";
+    render(<ConsentCenterPage />);
+    expect(await screen.findByText("Invalid Drive question")).toBeVisible();
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("drive-query-card")).toBeNull();
+  });
+
+  it("opens an incoming Drive question row in its own card with no generic Allow or Don't allow", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const entry = {
+      id: `drive_query_request:${id}`,
+      request_id: id,
+      kind: "incoming_request",
+      status: "pending",
+      action: "DRIVE_QUERY_REVIEW",
+      scope: null,
+      scope_description: "Google Drive question",
+      counterpart_type: "investor",
+      counterpart_id: null,
+      counterpart_label: "Drive question",
+      issued_at: 1_790_000_000_000,
+      metadata: {
+        request_source: "drive_live_query_request",
+        request_id: id,
+        direction: "incoming",
+        state: "pending",
+        revision: 1,
+        recorded_outcome_only: true,
+      },
+    };
+    mocks.search = "tab=pending";
+    mocks.listEntries.mockResolvedValue(pendingListResponse(entry));
+    const { rerender } = render(<ConsentCenterPage />);
+    fireEvent.click(await screen.findByText("Google Drive question"));
+    expect(mocks.replace).toHaveBeenCalledWith(
+      expect.stringContaining(`requestId=drive_query_request%3A${id}`),
+      { scroll: false },
+    );
+    mocks.search = `tab=pending&requestId=drive_query_request%3A${id}`;
+    rerender(<ConsentCenterPage />);
+    const card = await screen.findByTestId("drive-query-card");
+    expect(card).toHaveTextContent(id);
+    expect(card).toHaveAttribute("data-direction", "incoming");
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Don't allow" })).toBeNull();
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(mocks.handleDeny).not.toHaveBeenCalled();
+    const metadata = vi.mocked(usePublishVoiceSurfaceMetadata).mock.lastCall?.[0];
+    expect(JSON.stringify(metadata)).not.toContain("consent_approve");
+    expect(JSON.stringify(metadata)).not.toContain("consent_deny");
   });
 
   it("rediscovers sent requests in their own projection and preserves that view when closing detail", async () => {

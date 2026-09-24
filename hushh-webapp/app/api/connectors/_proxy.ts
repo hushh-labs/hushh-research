@@ -9,6 +9,10 @@ import {
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
+// Owner-initiated Drive work that runs synchronously in the request: document
+// preparation, and an allowed question's single bounded search (~160 s).
+const LONG_DRIVE_SHARING_POST =
+  /^google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/allow)$/;
 
 function connectorPath(path: string[]): string {
   const suffix = path.map((segment) => encodeURIComponent(segment)).join("/");
@@ -46,7 +50,7 @@ export async function proxyExternalConnectorRequest(
       headers,
       body,
       signal: AbortSignal.timeout(
-        request.method === "POST" && /^google_drive\/sharing\/requests\/[0-9a-f-]{36}\/prepare$/.test(path.join("/"))
+        request.method === "POST" && LONG_DRIVE_SHARING_POST.test(path.join("/"))
           ? 170_000 : CONNECTOR_PROXY_TIMEOUT_MS,
       ),
     });

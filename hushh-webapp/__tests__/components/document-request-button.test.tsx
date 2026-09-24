@@ -11,20 +11,17 @@ const state = vi.hoisted(() => ({
   uid: "b",
   unlocked: true,
   epoch: 1,
-  native: false,
   token: "owner-b",
   getToken: vi.fn(),
   overview: vi.fn(),
-  reauthenticate: vi.fn(),
+  googleIdentity: vi.fn(),
   linkGoogle: vi.fn(),
   create: vi.fn(),
+  createQuery: vi.fn(),
   lookupClient: vi.fn(),
   invalidate: vi.fn(),
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConsentMutated: state.invalidate } }));
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => state.native },
-}));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: state.uid } }),
 }));
@@ -41,162 +38,158 @@ vi.mock("@/lib/vault/session-epoch", () => ({
 vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { overview: state.overview },
 }));
+// Asking a question never needs the asker's Google identity.
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { linkGoogleIdentity: state.linkGoogle, documentRequestIdentityToken: state.reauthenticate },
+  AuthService: { linkGoogleIdentity: state.linkGoogle, documentRequestIdentityToken: state.googleIdentity },
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: vi.fn() },
 }));
 vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
   ...(await original<typeof import("@/lib/services/drive-sharing-service")>()),
-  DriveSharingService: { create: state.create, lookupClient: state.lookupClient },
+  DriveSharingService: { create: state.create, createQuery: state.createQuery, lookupClient: state.lookupClient },
+}));
+vi.mock("@/components/consent/drive-query-request-card", () => ({
+  DriveQueryRequestCard: ({ requestId, direction, initial }: { requestId: string; direction?: string; initial?: { query: string } }) => (
+    <div data-testid="drive-query-card" data-direction={direction}>{requestId}:{initial?.query}</div>
+  ),
+}));
+vi.mock("@/components/consent/document-share-review", () => ({
+  DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="legacy-document-review">{requestId}</div>,
 }));
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 const personRef = "11111111-1111-4111-8111-111111111111";
 const requestId = "22222222-2222-4222-8222-222222222222";
+const queryView = (query = "Six months of statements") => ({
+  requestId,
+  direction: "outgoing",
+  status: "pending",
+  revision: 1,
+  query,
+  counterpartName: "A",
+  createdAt: "2026-09-24T10:00:00Z",
+  expiresAt: "2026-10-01T10:00:00Z",
+  decidedAt: null,
+  answer: null,
+  canDecide: false,
+  lastError: null,
+});
 const mount = () =>
   render(<DocumentRequestButton personRef={personRef} personName="A" />);
-async function open() {
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Request documents" }),
-  );
-  fireEvent.change(screen.getByLabelText("What do you need?"), {
-    target: { value: "Six months of statements" },
-  });
+async function open(value = "Six months of statements") {
+  fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
+  fireEvent.change(screen.getByLabelText("Your question"), { target: { value } });
 }
-const send = () =>
-  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-describe("recipient document request", () => {
+const send = () => fireEvent.click(screen.getByRole("button", { name: "Send" }));
+describe("asking a connection about their Drive", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     state.uid = "b";
     state.unlocked = true;
     state.epoch = 1;
-    state.native = false;
     state.token = "owner-b";
     state.getToken.mockImplementation(() => state.token);
     state.overview.mockResolvedValue({
       features: { drive_document_sharing: true },
       connectors: [],
     });
-    state.reauthenticate.mockResolvedValue("fresh-proof");
-    state.create.mockResolvedValue({
-      requestId,
-      status: "pending",
-      revision: 0,
-    });
+    state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
     state.lookupClient.mockResolvedValue(null);
   });
   afterEach(cleanup);
-  it("sends a staged chat card with its resolved dates and original retry key only after a tap", async () => {
-    const clientRequestId = "33333333-3333-4333-8333-333333333333";
-    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
-      clientRequestId, purpose: "Six months of statements",
-      periodStart: "2026-03-01", periodEnd: "2026-08-31",
-    }} />);
-    expect(await screen.findByText("Requested period: 2026-03-01 – 2026-08-31")).toBeTruthy();
-    expect(state.create).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    await waitFor(() => expect(state.create).toHaveBeenCalledWith(
-      "owner-b", "fresh-proof",
-      { ownerPersonRef: personRef, clientRequestId,
-        purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" } },
-      expect.any(Function),
-    ));
-  });
-  it.each([false, true])("requires explicit submission and single-flight Google verification (native=%s)", async (native) => {
-    state.native = native;
+
+  it("offers one question field and no period or Google account step", async () => {
     mount();
-    await open();
-    expect(state.create).not.toHaveBeenCalled();
-    const submit = screen.getByRole("button", { name: "Send request" });
-    fireEvent.click(submit);
-    fireEvent.click(submit);
-    expect(state.reauthenticate).toHaveBeenCalledOnce();
-    await screen.findByText(
-      "Request sent. No files have been shared by this action.",
-    );
-    expect(state.reauthenticate).toHaveBeenCalledWith(
-      "b",
-      expect.any(Function),
-    );
-    expect(state.create).toHaveBeenCalledOnce();
-    expect(state.invalidate).toHaveBeenCalledWith("b");
-    expect(state.create).toHaveBeenCalledWith(
-      "owner-b",
-      "fresh-proof",
-      {
-        ownerPersonRef: personRef,
-        clientRequestId: expect.any(String),
-        purpose: {
-          purpose: "Six months of statements",
-          periodStart: null,
-          periodEnd: null,
-        },
-      },
-      expect.any(Function),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
+    expect(screen.getByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
     expect(
-      screen.getByRole("link", { name: "View request" }).getAttribute("href"),
-    ).toContain("requestView=sent");
-    expect(
-      screen.getByRole("link", { name: "View request" }).getAttribute("href"),
-    ).not.toContain("statements");
+      screen.getByText("They see your question and decide. Nothing in their Drive is read unless they allow it."),
+    ).toBeVisible();
+    const field = screen.getByLabelText("Your question");
+    expect(field).toHaveAttribute("placeholder", "e.g. Find my bank statement from March");
+    expect(screen.getAllByRole("textbox")).toHaveLength(1);
+    expect(screen.queryByLabelText("Start date")).toBeNull();
+    expect(screen.queryByLabelText("End date")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request documents" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
-  it.each([false, true])("preserves the unchanged retry key; changed terms use a new key (native=%s)", async (native) => {
-    state.native = native;
-    state.create.mockRejectedValue(new Error("private-provider-error"));
-    mount();
-    await open();
-    send();
-    await screen.findByRole("alert");
-    const firstId = state.create.mock.calls[0][2].clientRequestId;
-    send();
-    await waitFor(() => expect(state.create).toHaveBeenCalledTimes(2));
-    await screen.findByRole("alert");
-    expect(state.create.mock.calls[1][2].clientRequestId).toBe(firstId);
-    expect(screen.queryByText("private-provider-error")).toBeNull();
-    fireEvent.change(screen.getByLabelText("What do you need?"), {
-      target: { value: "A new request" },
-    });
-    send();
-    await waitFor(() => expect(state.create).toHaveBeenCalledTimes(3));
-    expect(state.create.mock.calls[2][2].clientRequestId).not.toBe(firstId);
-  });
-  it("cancellation retains draft without denying that an earlier attempt may have succeeded", async () => {
-    state.create.mockRejectedValueOnce(new Error("timeout"));
-    mount();
-    await open();
-    send();
-    await screen.findByRole("alert");
-    state.reauthenticate.mockRejectedValueOnce(new Error("identity_cancelled"));
-    send();
-    await screen.findByText(/Check Sent documents for any earlier request/);
-    expect(screen.getByLabelText("What do you need?")).toHaveValue(
-      "Six months of statements",
-    );
-    expect(state.create).toHaveBeenCalledOnce();
-  });
-  it.each(["identity_popup_blocked", "identity_mismatch", "identity_cancelled", "identity_timeout", "native_identity_unavailable"])(
-    "never posts after %s",
-    async (message) => {
-      state.reauthenticate.mockRejectedValueOnce(new Error(message));
+
+  it("sends exactly one question with a retry key, then shows the outgoing card", async () => {
+    const reconcile = vi.fn();
+    window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+    try {
       mount();
-      await open();
-      send();
-      await screen.findByRole("alert");
+      await open("  potential bank statement  ");
+      expect(state.createQuery).not.toHaveBeenCalled();
+      const submit = screen.getByRole("button", { name: "Send" });
+      fireEvent.click(submit);
+      fireEvent.click(submit);
+      const card = await screen.findByTestId("drive-query-card");
+      expect(card).toHaveTextContent(`${requestId}:potential bank statement`);
+      expect(card).toHaveAttribute("data-direction", "outgoing");
+      expect(state.createQuery).toHaveBeenCalledOnce();
+      expect(state.createQuery).toHaveBeenCalledWith(
+        "owner-b",
+        { ownerPersonRef: personRef, clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/), query: "potential bank statement" },
+        expect.any(Function),
+      );
+      expect(state.googleIdentity).not.toHaveBeenCalled();
+      expect(state.linkGoogle).not.toHaveBeenCalled();
       expect(state.create).not.toHaveBeenCalled();
-    },
-  );
+      expect(reconcile).toHaveBeenCalledOnce();
+      expect(state.invalidate).toHaveBeenCalledWith("b");
+      const link = screen.getByRole("link", { name: "View question" }).getAttribute("href");
+      expect(link).toContain("requestView=sent");
+      expect(link).toContain(encodeURIComponent(`drive_query_request:${requestId}`));
+      expect(link).not.toContain("statement");
+    } finally {
+      window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+    }
+  });
+
+  it("preserves the retry key for an unchanged question and uses a new one when it changes", async () => {
+    state.createQuery.mockRejectedValue(new Error("private-provider-error"));
+    mount();
+    await open();
+    send();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't confirm it was sent. Send again. It won't be sent twice.");
+    const firstId = state.createQuery.mock.calls[0][1].clientRequestId;
+    send();
+    await waitFor(() => expect(state.createQuery).toHaveBeenCalledTimes(2));
+    expect(state.createQuery.mock.calls[1][1].clientRequestId).toBe(firstId);
+    expect(screen.queryByText("private-provider-error")).toBeNull();
+    expect(screen.getByLabelText("Your question")).toHaveValue("Six months of statements");
+    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "A new question" } });
+    send();
+    await waitFor(() => expect(state.createQuery).toHaveBeenCalledTimes(3));
+    expect(state.createQuery.mock.calls[2][1].clientRequestId).not.toBe(firstId);
+  });
+
+  it.each([
+    ["connection_required", "You need an active connection with this person."],
+    ["sharing_unavailable", "Drive questions aren't available for this connection yet."],
+  ])("maps %s to plain copy", async (code, copy) => {
+    state.createQuery.mockRejectedValueOnce(new DriveSharingError(code, 409));
+    mount();
+    await open();
+    send();
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy);
+  });
+
+  it("refuses a question over the UTF-8 byte limit before sending", async () => {
+    mount();
+    await open("€".repeat(700));
+    expect(screen.getByText("Shorten your question.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+    expect(state.createQuery).not.toHaveBeenCalled();
+  });
+
   it("prevents dismissal during POST and reconciles exactly once on acknowledgement", async () => {
     let finish!: (value: unknown) => void;
-    state.create.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
+    state.createQuery.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const reconcile = vi.fn();
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
     try {
@@ -205,135 +198,105 @@ describe("recipient document request", () => {
       send();
       await waitFor(() => expect(finish).toBeTypeOf("function"));
       expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-      expect(screen.queryByRole("link", { name: "Sent documents" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
       fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
       expect(screen.getByRole("dialog")).toBeVisible();
-      await act(async () =>
-        finish({ requestId, status: "pending", revision: 0 }),
-      );
+      await act(async () => finish(queryView()));
       expect(reconcile).toHaveBeenCalledOnce();
       expect(state.invalidate).toHaveBeenCalledOnce();
     } finally {
       window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
     }
   });
-  it.each([false, true])("clears private draft and suppresses late verification after locking (native=%s)", async (native) => {
-    state.native = native;
-    let finish!: (value: string) => void;
-    state.reauthenticate.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
+
+  it("clears the private draft and drops a late result after locking", async () => {
+    let finish!: (value: unknown) => void;
+    state.createQuery.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const rendered = mount();
     await open();
     send();
     state.unlocked = false;
     state.epoch++;
-    rendered.rerender(
-      <DocumentRequestButton personRef={personRef} personName="A" />,
-    );
-    await act(async () => finish("late-proof"));
-    expect(state.create).not.toHaveBeenCalled();
+    rendered.rerender(<DocumentRequestButton personRef={personRef} personName="A" />);
+    await act(async () => finish(queryView()));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(state.invalidate).not.toHaveBeenCalled();
     state.unlocked = true;
-    rendered.rerender(
-      <DocumentRequestButton personRef={personRef} personName="A" />,
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Request documents" }),
-    );
-    expect(screen.getByLabelText("What do you need?")).toHaveValue("");
+    rendered.rerender(<DocumentRequestButton personRef={personRef} personName="A" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
+    expect(screen.getByLabelText("Your question")).toHaveValue("");
+    expect(screen.queryByTestId("drive-query-card")).toBeNull();
   });
-  it("allows a second intentional request after successful creation", async () => {
+
+  it("allows a second intentional question after a successful send", async () => {
     mount();
     await open();
     send();
-    fireEvent.click(await screen.findByRole("button", { name: "New request" }));
-    expect(screen.getByLabelText("What do you need?")).toHaveValue("");
-    fireEvent.change(screen.getByLabelText("What do you need?"), {
-      target: { value: "Statements again" },
-    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask another question" }));
+    expect(screen.getByLabelText("Your question")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "Statements again" } });
     send();
-    await waitFor(() => expect(state.create).toHaveBeenCalledTimes(2));
-    expect(state.create.mock.calls[1][2].clientRequestId).not.toBe(
-      state.create.mock.calls[0][2].clientRequestId,
+    await waitFor(() => expect(state.createQuery).toHaveBeenCalledTimes(2));
+    expect(state.createQuery.mock.calls[1][1].clientRequestId).not.toBe(
+      state.createQuery.mock.calls[0][1].clientRequestId,
     );
   });
-  it("validates paired dates on native before starting verification", async () => {
-    state.native = true;
-    mount();
-    await open();
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-01-01" },
-    });
-    expect(
-      screen.getByRole("button", { name: "Send request" }),
-    ).toBeDisabled();
-    expect(state.reauthenticate).not.toHaveBeenCalled();
-    expect(state.create).not.toHaveBeenCalled();
-  });
-  it("suppresses proof after the native request component unmounts", async () => {
-    state.native = true;
-    let finish!: (token: string) => void;
-    state.reauthenticate.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    const rendered = mount();
-    await open();
-    send();
-    rendered.unmount();
-    await act(async () => finish("late-native-proof"));
-    expect(state.create).not.toHaveBeenCalled();
-  });
-  it("does not offer creation when feature admission is unavailable", async () => {
-    state.overview.mockResolvedValueOnce({
-      features: { drive_document_sharing: false },
-    });
+
+  it("does not offer asking when the feature is off", async () => {
+    state.overview.mockResolvedValueOnce({ features: { drive_document_sharing: false } });
     mount();
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
-    expect(
-      screen.queryByRole("button", { name: "Request documents" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask about files" })).toBeNull();
   });
 });
 
+describe("chat draft question card", () => {
+  const clientRequestId = "33333333-3333-4333-8333-333333333333";
+  beforeEach(() => {
+    vi.resetAllMocks();
+    state.uid = "b";
+    state.unlocked = true;
+    state.epoch = 1;
+    state.token = "owner-b";
+    state.getToken.mockImplementation(() => state.token);
+    state.overview.mockResolvedValue({ features: { drive_document_sharing: true }, connectors: [] });
+    state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
+    state.lookupClient.mockResolvedValue(null);
+  });
+  afterEach(cleanup);
 
-it("asks to link only when missing, preserves cancellation and retries the same request", async () => {
-  vi.clearAllMocks(); state.uid = "b"; state.unlocked = true; state.epoch = 1; state.token = "owner-b";
-  state.getToken.mockImplementation(() => state.token); state.overview.mockResolvedValue({features: {drive_document_sharing: true}, connectors: []}); state.lookupClient.mockResolvedValue(null); state.reauthenticate.mockResolvedValue("session");
-  const { DriveSharingError } = await import("@/lib/services/drive-sharing-service");
-  state.create.mockRejectedValueOnce(new DriveSharingError("verify_google_identity_required"));
-  mount(); await open(); send();
-  const add = await screen.findByRole("button", { name: "Add Google account" });
-  const firstId = state.create.mock.calls.at(-1)![2].clientRequestId;
-  state.linkGoogle.mockRejectedValueOnce(new Error("identity_cancelled"));
-  fireEvent.click(add);
-  await screen.findByRole("alert");
-  expect(screen.getByLabelText("What do you need?")).toHaveValue("Six months of statements");
-  state.linkGoogle.mockResolvedValueOnce("linked-proof");
-  state.create.mockResolvedValueOnce({ requestId, status: "pending", revision: 0 });
-  fireEvent.click(await screen.findByRole("button", { name: "Add Google account" }));
-  await screen.findByText("Request sent. No files have been shared by this action.");
-  expect(state.create.mock.calls.at(-1)![2].clientRequestId).toBe(firstId);
-});
+  it("sends the draft purpose and period as one question with the original retry key, only after a tap", async () => {
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "Six months of statements",
+      periodStart: "2026-03-01", periodEnd: "2026-08-31",
+    }} />);
+    expect(await screen.findByText("Ask A: “Six months of statements (2026-03-01 to 2026-08-31)”")).toBeVisible();
+    expect(state.createQuery).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(state.createQuery).toHaveBeenCalledWith(
+      "owner-b",
+      { ownerPersonRef: personRef, clientRequestId, query: "Six months of statements (2026-03-01 to 2026-08-31)" },
+      expect.any(Function),
+    ));
+    expect(await screen.findByTestId("drive-query-card")).toHaveAttribute("data-direction", "outgoing");
+    expect(state.googleIdentity).not.toHaveBeenCalled();
+  });
 
-it("keeps a successful Google link when submission fails, then retries silently", async () => {
-  vi.clearAllMocks(); state.uid = "b"; state.unlocked = true; state.epoch = 1; state.token = "owner-b";
-  state.getToken.mockImplementation(() => state.token);
-  state.overview.mockResolvedValue({features: {drive_document_sharing: true}, connectors: []});
-  state.lookupClient.mockResolvedValue(null); state.reauthenticate.mockResolvedValue("session");
-  const { DriveSharingError } = await import("@/lib/services/drive-sharing-service");
-  state.create.mockRejectedValueOnce(new DriveSharingError("verify_google_identity_required"));
-  mount(); await open(); send();
-  await screen.findByRole("button", { name: "Add Google account" });
-  const firstId = state.create.mock.calls.at(-1)![2].clientRequestId;
-  state.linkGoogle.mockResolvedValueOnce("linked-proof");
-  state.create.mockRejectedValueOnce(new Error("network"));
-  fireEvent.click(await screen.findByRole("button", { name: "Add Google account" }));
-  await screen.findByRole("alert");
-  state.create.mockResolvedValueOnce({requestId, status: "pending", revision: 0});
-  fireEvent.click(await screen.findByRole("button", {name: "Send request"}));
-  await screen.findByText("Request sent. No files have been shared by this action.");
-  expect(state.linkGoogle).toHaveBeenCalledOnce();
-  expect(state.create.mock.calls.at(-1)![2].clientRequestId).toBe(firstId);
+  it("sends a draft without a period as the purpose alone", async () => {
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "Tax return", periodStart: null, periodEnd: null,
+    }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await waitFor(() => expect(state.createQuery.mock.calls[0][1].query).toBe("Tax return"));
+  });
+
+  it("keeps showing a legacy document request that this card already sent", async () => {
+    state.lookupClient.mockResolvedValue(requestId);
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "Statements", periodStart: null, periodEnd: null,
+    }} />);
+    expect(await screen.findByTestId("legacy-document-review")).toHaveTextContent(requestId);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(state.createQuery).not.toHaveBeenCalled();
+  });
 });
