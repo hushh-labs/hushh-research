@@ -1,6 +1,6 @@
 # ADK Orchestration Documentation Audit
 
-**Review basis:** 2026-09-23 local pod integration, refreshed through pod base `812deaae16c26eccf4b80509021931d5cc467952`, remote ADK `2018cc2dba21b066485318b8053824893f7600c6`, local ADK `53aa5386dd3ac63eaf36ddbbf9c9ab1338f954f1`, and remote main `623fb8a2551d0e73870d0c270c0d5bd8082655b4`. The final source revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
+**Review basis:** 2026-09-23 local pod integration, refreshed through pod base `812deaae16c26eccf4b80509021931d5cc467952`, remote ADK `b48a85d5bcff39f225e421bf033b38480c02ce7c` (contained in main), local ADK reviewer change `53aa5386dd3ac63eaf36ddbbf9c9ab1338f954f1`, and remote main `c7586798aef46797db8fda528fda164ba3daf8da`. The final source revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
 
 ## Visual Context
 
@@ -33,6 +33,7 @@ flowchart LR
 | Pod refresh toward main | Source integrated; rollout unverified | The pod candidate contains the 2026-09-23 main Drive drawer changes and the local ADK reviewer identity capture. The capability graph now records the previous pod workflow revision as an additive predecessor. Shared-runtime `/health/ready` checks dependencies; the private pod reports process readiness without hub database credentials. The reviewed pod ingress allowlist includes upgrade routes behind the machine wall. Source and focused contract checks do not prove a deployed pod image or recovery rehearsal. |
 | Reviewer and native test contracts | Corrected in candidate | First-run reviewer authentication now uses an owner-bound authenticated state without injecting a vault passphrase; established-vault continuity still requires unlock. The harness installs its read-only guard before navigation and suppresses only listed analytics collection hosts. Native test artifact output resolves absolute or relative selected directories. These checks are local, not a live browser or device rehearsal. |
 | Drive work-drain deploy settings | Restored in source; rollout unverified | The UAT workflow's four scheduler substitutions again reach the backend deploy script through one validated Cloud Build entry, under the 100-entry step limit. The script forwards the flag and OIDC identity to the runtime. Contract tests passed; no Cloud Build or scheduler run was performed. |
+| Account deletion production release | Source integrated; rollout unverified | The refreshed main production workflow and cleanup scheduler contract are present in the pod candidate. Source and focused lifecycle checks establish the intended release sequence, not a completed production migration, scheduler setup, or erasure rehearsal. |
 
 ## Follow-up ownership
 
