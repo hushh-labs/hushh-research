@@ -1427,8 +1427,8 @@ class GmailReceiptsService:
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         return access_token
 
-    async def get_read_access_token(self, *, user_id: str) -> str:
-        """Admit owner-bound Gmail reads without granting send authority."""
+    async def assert_read_ready(self, *, user_id: str) -> None:
+        """Recheck read admission without decrypting or refreshing a token."""
 
         row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not row or self._derive_connection_state(row) != "connected":
@@ -1443,6 +1443,43 @@ class GmailReceiptsService:
                 status_code=409,
                 code="GMAIL_READ_PERMISSION_REQUIRED",
             )
+
+    async def read_grant_binding(self, *, user_id: str) -> tuple[str, ...] | None:
+        """Observe the exact owner/account/row version before or after a private read.
+
+        ``xmin`` also changes on unrelated token refresh or sync updates. Rejecting
+        that in-flight result is intentionally conservative, not availability parity.
+        """
+        await self.assert_read_ready(user_id=user_id)
+        result = await self._execute_raw_async(
+            """SELECT google_sub, scope_csv, status, revoked, connected_at,
+                      xmin::text AS grant_revision
+               FROM kai_gmail_connections WHERE user_id = :user_id""",
+            {"user_id": user_id},
+        )
+        row = result.data[0] if result.data else None
+        if (
+            not row
+            or row.get("status") != "connected"
+            or row.get("revoked") is not False
+            or _GMAIL_READONLY_SCOPE not in self._granted_scopes(row)
+            or not row.get("google_sub")
+            or not row.get("connected_at")
+            or not row.get("grant_revision")
+        ):
+            return None
+        return (
+            user_id,
+            "gmail",
+            str(row["google_sub"]),
+            str(row["connected_at"]),
+            str(row["grant_revision"]),
+        )
+
+    async def get_read_access_token(self, *, user_id: str) -> str:
+        """Admit owner-bound Gmail reads without granting send authority."""
+
+        await self.assert_read_ready(user_id=user_id)
         access_token, current_row = await self._ensure_access_token(user_id=user_id)
         if _GMAIL_READONLY_SCOPE not in self._granted_scopes(current_row):
             raise GmailApiError(

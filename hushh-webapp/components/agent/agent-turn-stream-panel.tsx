@@ -6,7 +6,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
-import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
+import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
   AgentStructuredExperienceWithPresentation,
@@ -38,6 +38,7 @@ export type AgentTurnStreamPanelProps = {
     experience: AgentStructuredExperienceWithPresentation;
   }>;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -145,6 +146,7 @@ export function AgentTurnStreamPanel({
   structuredExperience = null,
   structuredExperiences = [],
   onOpenConnections,
+  onInformationRequestSubmitted,
 }: AgentTurnStreamPanelProps) {
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
@@ -181,6 +183,8 @@ export function AgentTurnStreamPanel({
                 key={id}
                 experience={experience}
                 onOpenConnections={onOpenConnections}
+                onInformationRequestSubmitted={onInformationRequestSubmitted
+                  ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}
               />
             ))}
           </div>

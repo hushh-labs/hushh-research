@@ -11,8 +11,8 @@ import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
 import { DecryptedRecordContent } from "@/components/connections/decrypted-grant-card";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
-import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-summary";
-import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
+import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
+import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
@@ -41,15 +41,24 @@ import type {
   MemoryImportReviewExperience,
   ScopeDiscoveryExperience,
 } from "@/lib/agent/agui-structured-experiences";
+import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
 
 export const AgentPersonSelectionContext = createContext<((handle: string, name: string) => void) | null>(null);
+
+export type InformationRequestSubmissionReceipt = {
+  bundleId: string;
+  subjectRef: string;
+  idempotencyKey: string;
+};
 
 export function AgentStructuredExperienceView({
   experience,
   onOpenConnections,
+  onInformationRequestSubmitted,
 }: {
   experience: AgentStructuredExperience;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
@@ -77,7 +86,7 @@ export function AgentStructuredExperienceView({
         </div>
       </ExperienceShell>;
     case "one.scope_discovery.v1":
-      return <ScopeDiscoveryView experience={experience} />;
+      return <ScopeDiscoveryView experience={experience} onInformationRequestSubmitted={onInformationRequestSubmitted} />;
     case "one.information_request_review.v1":
       return <InformationRequestReviewView experience={experience} />;
     case "one.kyc_readiness.v1":
@@ -145,10 +154,55 @@ function personName(value: string): string {
     .replace(/(^|[\s'-])([a-z])/g, (_match, boundary, letter) => `${boundary}${letter.toUpperCase()}`);
 }
 
+function submittedReviewFromBundle(input: {
+  bundle: InformationRequestBundle;
+  subjectRef: string;
+  personName: string;
+  purpose: string;
+  durationHours: number;
+  scopes: RequestablePersonScope[];
+}): InformationRequestReviewExperience | null {
+  const { bundle, subjectRef, personName, purpose, durationHours, scopes } = input;
+  if (bundle.personRef !== subjectRef || bundle.purpose !== purpose.trim()
+    || bundle.durationSeconds !== durationHours * 3600
+    || !Array.isArray(bundle.items) || bundle.items.length !== scopes.length) return null;
+  const byRef = new Map(scopes.map((scope) => [scope.scopeRef, scope]));
+  if (byRef.size !== scopes.length || new Set(bundle.items.map((item) => item.scopeRef)).size !== scopes.length
+    || bundle.items.some((item) => !byRef.has(item.scopeRef))) return null;
+  // Reuse the same safe descriptor parser as restored Chat history. The bundle
+  // and subject are display references only; the submitted card rereads both.
+  const review = parseAgentActivityExperience("one.information_request_review.v1", {
+    personName,
+    purpose: bundle.purpose,
+    durationLabel: requestDurationLabel(durationHours),
+    direction: "outgoing",
+    phase: "submitted",
+    subjectRef,
+    bundleId: bundle.bundleId,
+    requestId: null,
+    status: "pending",
+    fields: bundle.items.map((item) => {
+      const scope = byRef.get(item.scopeRef)!;
+      return {
+        requestId: item.requestId,
+        label: item.label,
+        domain: scope.domain || "Information",
+        sensitivity: scope.sensitivity || item.sensitivity || "standard",
+      };
+    }),
+  });
+  return review?.type === "one.information_request_review.v1"
+    && review.phase === "submitted" && review.subjectRef === subjectRef
+    && review.bundleId === bundle.bundleId && review.fields.length === scopes.length
+    ? review : null;
+}
+
 function ScopeDiscoveryView({
   experience,
+  onInformationRequestSubmitted,
 }: {
   experience: ScopeDiscoveryExperience;
+  onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked } = useVault();
@@ -159,6 +213,11 @@ function ScopeDiscoveryView({
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState(DEFAULT_REQUEST_DURATION_HOURS);
   const [sent, setSent] = useState(false);
+  const [submitted, setSubmitted] = useState<{
+    ownerUid: string;
+    subjectRef: string;
+    review: InformationRequestReviewExperience;
+  } | null>(null);
   const generation = useRef(0);
   const inFlight = useRef(false);
   const [current, setCurrent] = useState<{ owner: string; profile: ViewerPersonProfile } | null>(null);
@@ -167,6 +226,8 @@ function ScopeDiscoveryView({
   const [retry, setRetry] = useState(0);
   const profile = personRef && isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
     ? current.profile : null;
+
+  useEffect(() => { setSubmitted(null); }, [personRef, user?.uid]);
 
   useEffect(() => {
     const run = ++generation.current;
@@ -246,6 +307,10 @@ function ScopeDiscoveryView({
     })),
   );
 
+  const activeSubmitted = isVaultUnlocked && submitted && submitted.ownerUid === user?.uid
+    && submitted.subjectRef === personRef ? submitted.review : null;
+  if (activeSubmitted) return <InformationRequestReviewView experience={activeSubmitted} />;
+
   return (
     <section
       aria-label={`Information available from ${experience.person.displayName}`}
@@ -306,9 +371,19 @@ function ScopeDiscoveryView({
         <div className="flex flex-wrap justify-end gap-2">
           <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
           <MorphyButton type="button" size="sm" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
-            onClick={() => void request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours }).then(success => {
-              if (!success) return;
-              setSent(true); setReviewing(false); setSelectedIds(new Set()); setPurpose("");
+            onClick={() => void request.submitWithReceipt({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours }).then(receipt => {
+              if (!receipt || !user || !personRef) return;
+              const { bundle, idempotencyKey } = receipt;
+              const review = submittedReviewFromBundle({
+                bundle, subjectRef: personRef, personName: profile.displayName,
+                purpose, durationHours, scopes: selectedScopes,
+              });
+              if (review) {
+                setSubmitted({ ownerUid: user.uid, subjectRef: personRef, review });
+                void onInformationRequestSubmitted?.({ bundleId: bundle.bundleId, subjectRef: personRef, idempotencyKey });
+              }
+              else setSent(true);
+              setReviewing(false); setSelectedIds(new Set()); setPurpose("");
             })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
       </section> : items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}

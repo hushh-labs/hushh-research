@@ -17,6 +17,7 @@ _EPHEMERAL = frozenset(
     {
         STATE_EXECUTION_SURFACE,
         STATE_EXTERNAL_READ,
+        "temp:hussh:workspace_chat_admission",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.

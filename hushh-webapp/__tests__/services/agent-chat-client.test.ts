@@ -57,6 +57,7 @@ vi.mock("@ag-ui/client", () => ({
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   formatAgentChatErrorMessage,
   getAgentChatHistory,
+  recordAgentChatInformationRequest,
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
@@ -75,6 +77,36 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
+  it("records a submission locator and accepts only a bound safe history descriptor", async () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const descriptor = { activityType: "one.information_request_review.v1", content: {
+      direction: "outgoing", phase: "submitted", status: "pending",
+      personName: "Synthetic Recipient", purpose: "Synthetic professional review",
+      durationLabel: "1 day", subjectRef: "1234567890abcdef", bundleId,
+      fields: [{ requestId: "request_12345678", label: "Professional Domain",
+        domain: "Information", sensitivity: "standard", status: "pending" }],
+    } };
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
+    const result = await recordAgentChatInformationRequest({
+      conversationId: "thread-1", sourceActivityId: "discover-call",
+      bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
+    });
+    expect(result.type).toBe("one.information_request_review.v1");
+    expect(ApiService.apiFetch).toHaveBeenCalledWith(
+      "/api/one/agent-chat/history/thread-1/information-requests",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({
+        source_activity_id: "discover-call", bundle_id: bundleId,
+        idempotency_key: "synthetic-receipt-key",
+      }) }),
+    );
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      descriptor: { ...descriptor, content: { ...descriptor.content, bundleId: "other-bundle" } },
+    }), { status: 200 }));
+    await expect(recordAgentChatInformationRequest({
+      conversationId: "thread-1", sourceActivityId: "discover-call",
+      bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
+    })).rejects.toThrow();
+  });
   it("shows selected Drive status activity without exposing private filenames", async () => {
     const onToolResult = vi.fn();
     const onToolWaiting = vi.fn();

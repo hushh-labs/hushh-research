@@ -3627,9 +3627,21 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "ed9c681c23058e851be612073567b79fcc0eb931cd50e46324cb8ab9bed01264",
+      "system_instruction_sha256": "df2a93155d0795df037383cb94e1ef62f0e0ebd43cae0679dd00eebd35f572fb",
       "telemetry_namespace": "agent.one",
       "tools": [
+        {
+          "description": "Discover currently admitted read capabilities for the owner's Drive, Gmail or Calendar through Google's official MCP servers.",
+          "name": "discover_workspace_tools",
+          "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.discover_workspace_tools",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Perform one bounded Workspace MCP read using its discovered schema; provider writes require their existing reviewed app action.",
+          "name": "read_workspace_tool",
+          "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.read_workspace_tool",
+          "required_scope": "vault.owner"
+        },
         {
           "description": "Discover the current official Google Drive MCP read capabilities and exact input schemas in authenticated Chat.",
           "name": "discover_google_drive_tools",

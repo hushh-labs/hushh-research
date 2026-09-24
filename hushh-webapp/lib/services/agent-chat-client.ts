@@ -908,6 +908,38 @@ export async function getAgentChatHistory(input: {
     }));
 }
 
+/** Record only a request locator; the Chat owner derives the history card from its ledger. */
+export async function recordAgentChatInformationRequest(input: {
+  conversationId: string;
+  sourceActivityId: string;
+  bundleId: string;
+  idempotencyKey: string;
+  vaultOwnerToken: string;
+}): Promise<AgentStructuredExperience> {
+  const response = await ApiService.apiFetch(
+    `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+      body: JSON.stringify({
+        source_activity_id: input.sourceActivityId,
+        bundle_id: input.bundleId,
+        idempotency_key: input.idempotencyKey,
+      }),
+    },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  const payload = (await response.json()) as { descriptor?: { activityType?: string; content?: unknown } };
+  const descriptor = payload.descriptor;
+  const experience = descriptor?.activityType === "one.information_request_review.v1"
+    ? parseAgentActivityExperience(descriptor.activityType, descriptor.content) : null;
+  if (!experience || experience.type !== "one.information_request_review.v1"
+    || experience.phase !== "submitted" || experience.bundleId !== input.bundleId) {
+    throw new Error("The submitted request history could not be verified.");
+  }
+  return experience;
+}
+
 /**
  * Ratings this person has given in one conversation, keyed by message id.
  * Never throws: an opinion about a turn must not stop the turn from loading.

@@ -407,9 +407,24 @@
       "voice_action_contract_ids": [
         "onboarding.claim_one"
       ],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/agent-chat-client.ts",
+          "service_methods": [
+            "streamAgentChat",
+            "getAgentChatHistory",
+            "recordAgentChatInformationRequest"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/agent-chat/{history/*,conversations/*}",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "submitted_card_history": "Owner-bound request receipts are metadata-only encrypted session events; grant status and values require current authority and browser-only decrypt."
+      }
     },
     {
       "route": "/agent",
@@ -9451,5 +9466,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8c76736237174380eda4150e0c869fce8b6be0024f8b19df2bfc55dd12609498"
+  "content_sha256": "d3a6be87371f62f47c95daac9d54472c1e74ea366d63865fd54b2a1869df6faa"
 }

@@ -17,6 +17,9 @@ READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
     "ask_documents_agent": "google_drive_chat_reads",
     "inspect_selected_drive_files": "google_drive_chat_reads",
+    # Per-provider admission and owner authority are checked inside the tool.
+    # Establish the content barrier before dispatch, regardless of provider.
+    "read_workspace_tool": None,
 }
 
 
@@ -31,7 +34,10 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
     if (
         getattr(tool, "name", "") in READ_TOOLS
         and tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
-        and connector_feature_enabled(READ_TOOLS[tool.name], str(tool_context.user_id or ""))
+        and (
+            READ_TOOLS[tool.name] is None
+            or connector_feature_enabled(READ_TOOLS[tool.name], str(tool_context.user_id or ""))
+        )
     ):
         invocation = getattr(tool_context, "invocation_id", None)
         if not isinstance(invocation, str) or not invocation:

@@ -861,6 +861,48 @@ class GoogleConnectionService:
             "scope_csv": grant.get("scope_csv") if connection_active and grant else "",
         }
 
+    async def read_grant_binding(
+        self, *, user_id: str, service: Literal["drive", "calendar"]
+    ) -> tuple[str, ...] | None:
+        """Observe one exact owner/account/grant generation without returning tokens.
+
+        A token refresh changes the connection row's ``xmin`` too, so an
+        in-flight read may be discarded conservatively and retried by the owner.
+        """
+        if service not in {"drive", "calendar"}:
+            return None
+        result = await self._execute_raw_async(
+            """SELECT c.provider_subject, c.status AS connection_status, c.connected_at,
+                      c.xmin::text AS connection_revision, g.status AS grant_status,
+                      g.scope_csv, g.xmin::text AS grant_revision
+               FROM google_provider_connections c
+               JOIN google_service_grants g ON g.user_id = c.user_id AND g.provider = c.provider
+               WHERE c.user_id = :user_id AND c.provider = 'google' AND g.service = :service""",
+            {"user_id": user_id, "service": service},
+        )
+        row = result.data[0] if result.data else None
+        required = set(self.scopes(service, "read"))
+        granted = set(_clean((row or {}).get("scope_csv")).replace(",", " ").split())
+        if (
+            not row
+            or row.get("connection_status") != "connected"
+            or row.get("grant_status") != "connected"
+            or not required <= granted
+            or not row.get("provider_subject")
+            or not row.get("connected_at")
+            or not row.get("connection_revision")
+            or not row.get("grant_revision")
+        ):
+            return None
+        return (
+            user_id,
+            service,
+            str(row["provider_subject"]),
+            str(row["connected_at"]),
+            str(row["connection_revision"]),
+            str(row["grant_revision"]),
+        )
+
     async def disconnect_service(self, *, user_id: str, service: GoogleService) -> dict[str, Any]:
         """Stop Hussh access to one Google service without revoking sibling grants.
 

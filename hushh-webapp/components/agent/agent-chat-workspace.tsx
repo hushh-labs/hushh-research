@@ -17,7 +17,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
-import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
+import { AgentPersonSelectionContext, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import {
   Check,
   ChevronDown,
@@ -163,6 +163,7 @@ import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
+  clearAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -192,6 +193,7 @@ import {
   type AgentSource,
   getAgentChatFeedback,
   setAgentChatFeedback,
+  recordAgentChatInformationRequest,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -1513,6 +1515,7 @@ export function GmailInformationRequestAttachment({
 function AgentBubble({
   message,
   onOpenConnections,
+  onInformationRequestSubmitted,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1530,6 +1533,7 @@ function AgentBubble({
 }: {
   message: AgentMessage;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1670,6 +1674,7 @@ function AgentBubble({
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
               onOpenConnections={onOpenConnections}
+              onInformationRequestSubmitted={onInformationRequestSubmitted}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -6261,6 +6266,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      onInformationRequestSubmitted={async (activityId, receipt) => {
+                        const ownerUid = user?.uid;
+                        const threadId = conversationIdRef.current;
+                        const ownerToken = vaultOwnerToken;
+                        const epoch = historyRestoreEpochRef.current;
+                        if (!ownerUid || !threadId || !ownerToken) {
+                          toast.error("Request sent, but Chat history could not be saved.");
+                          return;
+                        }
+                        try {
+                          const review = await recordAgentChatInformationRequest({
+                            conversationId: threadId,
+                            sourceActivityId: activityId,
+                            bundleId: receipt.bundleId,
+                            idempotencyKey: receipt.idempotencyKey,
+                            vaultOwnerToken: ownerToken,
+                          });
+                          if (review.type !== "one.information_request_review.v1"
+                            || review.subjectRef !== receipt.subjectRef) {
+                            throw new Error("Submitted request history did not match the recipient.");
+                          }
+                          clearAgentChatHistoryCache(ownerUid);
+                          if (historyRestoreEpochRef.current !== epoch || conversationIdRef.current !== threadId) return;
+                          setMessages((current) => current.map((item) => item.id !== message.id ? item : {
+                            ...item,
+                            structuredExperiences: (item.structuredExperiences ?? []).map((entry) =>
+                              entry.id === activityId ? { ...entry, experience: review } : entry),
+                          }));
+                        } catch {
+                          toast.error("Request sent, but Chat history could not be saved.");
+                        }
+                      }}
                       onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}

@@ -6,12 +6,14 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 from typing import Any
 
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.events import Event
 from google.adk.sessions import InMemorySessionService
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -40,10 +42,15 @@ from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionServi
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
     get_personal_gmail_information_request_service,
+)
+from hushh_mcp.services.information_request_service import (
+    InformationRequestError,
+    InformationRequestService,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,6 +141,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             ) from exc
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),
         STATE_USER_ID: session_user_id,
         STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
         STATE_CONVERSATION_ID: input_data.thread_id,
@@ -163,7 +171,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
 
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(),
+    root_agent=build_one_text_agent(allow_workspace_tools=True),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(
@@ -522,109 +530,116 @@ def _safe_information_request_descriptor(
     return None
 
 
+def _safe_submitted_information_request_card(card: Any) -> dict[str, Any] | None:
+    """Allowlist display-only submission metadata, never consent authority."""
+    card = _record(card) or {}
+    if (
+        card.get("activityType") != "one.information_request_review.v1"
+        or card.get("direction") != "outgoing"
+        or card.get("phase") != "submitted"
+    ):
+        return None
+    person_name = _bounded_text(card.get("personName"), 120)
+    purpose = _bounded_text(card.get("purpose"), 500)
+    duration_label = _bounded_text(card.get("durationLabel"), 100)
+    status = _bounded_text(card.get("status"), 32)
+    if (
+        not person_name
+        or not purpose
+        or not duration_label
+        or status
+        not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
+    ):
+        return None
+    raw_fields = card.get("fields")
+    if not isinstance(raw_fields, list):
+        return None
+    fields: list[dict[str, Any]] = []
+    for raw_field in raw_fields[:50]:
+        field = _record(raw_field)
+        if not field:
+            continue
+        label = _bounded_text(field.get("label"), 120)
+        domain = _bounded_text(field.get("domain"), 80)
+        if not label or not domain:
+            continue
+        projected = {
+            "label": label,
+            "domain": domain,
+            "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
+        }
+        request_id = _bounded_text(field.get("requestId"), 128)
+        if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
+            projected["requestId"] = request_id
+        field_status = _bounded_text(field.get("status"), 32)
+        if field_status in {"pending", "cancelled", "granted", "denied", "expired", "revoked"}:
+            projected["status"] = field_status
+        fields.append(projected)
+    if not fields:
+        return None
+    content: dict[str, Any] = {
+        "direction": "outgoing",
+        "phase": "submitted",
+        "status": status,
+        "personName": person_name,
+        "purpose": purpose,
+        "durationLabel": duration_label,
+        "fields": fields,
+    }
+    for key, pattern in (
+        ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
+        ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
+        ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
+    ):
+        value = _bounded_text(card.get(key), 128)
+        if value and re.fullmatch(pattern, value):
+            content[key] = value
+    return {"activityType": "one.information_request_review.v1", "content": content}
+
+
 def _safe_submitted_information_request_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
-    """Restore a sent request from a browser settlement, never from authority.
-
-    The browser sends this allowlisted display descriptor as the result of the
-    already-authorized directive. It contains no proposal handle, scope
-    authority, connector, credential, or decrypted value. Current status is
-    deliberately not inferred from this historical event; the descriptor only
-    records the last safe status observed at submission time.
-    """
+    """Restore existing app-action settlements without replaying their authority."""
     parts = (
         selected_parts
         if selected_parts is not None
         else (getattr(getattr(event, "content", None), "parts", None) or [])
     )
     for part in parts:
-        function_response = getattr(part, "function_response", None)
-        if function_response is None or getattr(function_response, "name", "") != "run_app_action":
+        response = getattr(part, "function_response", None)
+        if response is None or response.name != "run_app_action":
             continue
-        response = _record(getattr(function_response, "response", None)) or {}
-        if response.get("status") != "succeeded":
+        result = _record(response.response) or {}
+        if result.get("status") != "succeeded":
             continue
-        data = _record(response.get("data")) or {}
-        card = _record(data.get("consentCard")) or {}
-        if (
-            card.get("activityType") != "one.information_request_review.v1"
-            or card.get("direction") != "outgoing"
-            or card.get("phase") != "submitted"
-        ):
-            continue
-        person_name = _bounded_text(card.get("personName"), 120)
-        purpose = _bounded_text(card.get("purpose"), 500)
-        duration_label = _bounded_text(card.get("durationLabel"), 100)
-        status = _bounded_text(card.get("status"), 32)
-        if (
-            not person_name
-            or not purpose
-            or not duration_label
-            or status
-            not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
-        ):
-            continue
-        raw_fields = card.get("fields")
-        if not isinstance(raw_fields, list):
-            continue
-        fields: list[dict[str, Any]] = []
-        for raw_field in raw_fields[:50]:
-            field = _record(raw_field)
-            if not field:
-                continue
-            label = _bounded_text(field.get("label"), 120)
-            domain = _bounded_text(field.get("domain"), 80)
-            if not label or not domain:
-                continue
-            projected = {
-                "label": label,
-                "domain": domain,
-                "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
-            }
-            request_id = _bounded_text(field.get("requestId"), 128)
-            if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
-                projected["requestId"] = request_id
-            field_status = _bounded_text(field.get("status"), 32)
-            if field_status in {
-                "pending",
-                "cancelled",
-                "granted",
-                "denied",
-                "expired",
-                "revoked",
-            }:
-                projected["status"] = field_status
-            fields.append(projected)
-        if not fields:
-            continue
-        content: dict[str, Any] = {
-            "direction": "outgoing",
-            "phase": "submitted",
-            "status": status,
-            "personName": person_name,
-            "purpose": purpose,
-            "durationLabel": duration_label,
-            "fields": fields,
-        }
-        for key, pattern in (
-            ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
-            ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
-            ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
-        ):
-            value = _bounded_text(card.get(key), 128)
-            if value and re.fullmatch(pattern, value):
-                content[key] = value
-        return {
-            "activityType": "one.information_request_review.v1",
-            "content": content,
-        }
+        data = _record(result.get("data")) or {}
+        descriptor = _safe_submitted_information_request_card(data.get("consentCard"))
+        if descriptor:
+            return descriptor
     return None
 
 
-def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
+def _safe_agent_history_metadata(
+    event: Any, suppressed_discovery_ids: set[str] | None = None
+) -> dict[str, Any] | None:
     descriptors = []
     seen = set()
+    presentation = _record(getattr(event, "custom_metadata", None)) or {}
+    if presentation.get("kind") == "information_request_submission_v1":
+        if _submitted_source_id(event) is None:
+            return None
+        descriptor = _safe_submitted_information_request_card(presentation.get("card"))
+        return (
+            {
+                "kind": "structured_experience",
+                "structuredExperiences": [{"id": event.id, **descriptor}],
+                "structuredExperience": descriptor,
+                "structuredExperienceId": event.id,
+            }
+            if descriptor
+            else None
+        )
     event_identity = (
         _bounded_text(getattr(event, "id", None), 128)
         or _bounded_text(getattr(event, "invocation_id", None), 128)
@@ -642,6 +657,10 @@ def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
             getattr(getattr(part, "function_response", None), "id", None), 128
         )
         card_id = f"{event_identity}:{invocation_identity or index}"
+        if card_id in (suppressed_discovery_ids or set()) and _safe_discovery_descriptor(
+            event, [part]
+        ):
+            continue
         if card_id in seen:
             continue
         seen.add(card_id)
@@ -672,6 +691,130 @@ def _session_title(session: Any) -> str:
 
 class RenameConversation(BaseModel):
     title: str = Field(min_length=1, max_length=160)
+
+
+class RecordInformationRequestSubmission(BaseModel):
+    source_activity_id: str = Field(min_length=1, max_length=256)
+    bundle_id: uuid.UUID
+    idempotency_key: str = Field(min_length=16, max_length=256)
+
+
+def _discovery_source(session: Any, activity_id: str) -> tuple[str, dict[str, Any]] | None:
+    matches: list[tuple[str, dict[str, Any]]] = []
+    for event in session.events:
+        event_id = (
+            _bounded_text(getattr(event, "id", None), 128)
+            or _bounded_text(getattr(event, "invocation_id", None), 128)
+            or "event"
+        )
+        for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
+            descriptor = _safe_discovery_descriptor(event, [part])
+            if descriptor is None:
+                continue
+            tool_id = _bounded_text(
+                getattr(getattr(part, "function_response", None), "id", None), 128
+            )
+            card_id = f"{event_id}:{tool_id or index}"
+            if activity_id in {card_id, tool_id}:
+                matches.append((card_id, descriptor["content"]))
+    return matches[0] if len(matches) == 1 else None
+
+
+def _submitted_source_id(event: Any) -> str | None:
+    presentation = _record(getattr(event, "custom_metadata", None)) or {}
+    if presentation.get("kind") != "information_request_submission_v1" or event.content is not None:
+        return None
+    if _safe_submitted_information_request_card(presentation.get("card")) is None:
+        return None
+    source_id = _bounded_text(presentation.get("sourceCardId"), 256)
+    expected_id = f"request_submission_{hashlib.sha256(str(source_id).encode()).hexdigest()[:32]}"
+    return source_id if source_id and event.id == expected_id else None
+
+
+@router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
+async def record_information_request_submission(
+    conversation_id: str,
+    payload: RecordInformationRequestSubmission,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Record one confirmed browser request in the existing encrypted ADK history.
+
+    The caller supplies locators and the one-time request key, never a card body.
+    The request ledger and this owner's conversation derive every display field.
+    """
+    owner = str(token["user_id"])
+    session = await _session_service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    source = _discovery_source(session, payload.source_activity_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Discovery card not found.")
+    source_card_id, discovery = source
+    try:
+        bundle = await InformationRequestService().verify_submission_receipt(
+            requester_user_id=owner,
+            bundle_id=str(payload.bundle_id),
+            idempotency_key=payload.idempotency_key,
+        )
+    except InformationRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    person = discovery["person"]
+    if bundle["personRef"] != person.get("personRef") or not bundle.get("items"):
+        raise HTTPException(status_code=409, detail="Request recipient did not match discovery.")
+    statuses = [item["status"] for item in bundle["items"]]
+    status = statuses[0] if all(value == statuses[0] for value in statuses) else "mixed"
+    hours = bundle["durationSeconds"] // 3600
+    duration_label = (
+        f"{hours // 24} {'day' if hours // 24 == 1 else 'days'}"
+        if hours % 24 == 0
+        else f"{hours} {'hour' if hours == 1 else 'hours'}"
+    )
+    card = {
+        "activityType": "one.information_request_review.v1",
+        "direction": "outgoing",
+        "phase": "submitted",
+        "status": status,
+        "personName": person["displayName"],
+        "subjectRef": bundle["personRef"],
+        "bundleId": bundle["bundleId"],
+        "purpose": bundle["purpose"],
+        "durationLabel": duration_label,
+        "fields": [
+            {
+                "requestId": item["requestId"],
+                "label": item["label"],
+                "domain": "Information",
+                "sensitivity": item.get("sensitivity") or "standard",
+                "status": item["status"],
+            }
+            for item in bundle["items"]
+        ],
+    }
+    descriptor = _safe_submitted_information_request_card(card)
+    if descriptor is None:
+        raise HTTPException(status_code=409, detail="Request receipt could not be projected.")
+    event = Event(
+        id=f"request_submission_{hashlib.sha256(source_card_id.encode()).hexdigest()[:32]}",
+        author="one",
+        invocation_id=f"information_request_{payload.bundle_id}",
+        custom_metadata={
+            "kind": "information_request_submission_v1",
+            "sourceCardId": source_card_id,
+            "card": card,
+        },
+    )
+    persisted = await _session_service.append_event_once(
+        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id, event=event
+    )
+    persisted_metadata = _record(persisted.custom_metadata) or {}
+    persisted_descriptor = _safe_submitted_information_request_card(persisted_metadata.get("card"))
+    if _submitted_source_id(persisted) != source_card_id or not persisted_descriptor:
+        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
+    if persisted_descriptor["content"].get("bundleId") != str(payload.bundle_id):
+        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
+    return {"descriptor": persisted_descriptor, "sourceActivityId": source_card_id}
 
 
 @router.get("/api/one/agent-chat/conversations/{user_id}")
@@ -717,6 +860,9 @@ async def conversation_history(
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     messages: list[dict[str, object]] = []
+    submitted_discovery_ids = {
+        source_id for event in session.events if (source_id := _submitted_source_id(event))
+    }
     receipts: dict[str, dict[str, Any]] = {}
     last_answer: dict[str, int] = {}
     for index, event in enumerate(session.events):
@@ -730,7 +876,7 @@ async def conversation_history(
                     receipts[event.invocation_id] = receipt["structured"]
     for index, event in enumerate(session.events):
         text = _event_text(event)
-        metadata = _safe_agent_history_metadata(event)
+        metadata = _safe_agent_history_metadata(event, submitted_discovery_ids)
         if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
             continue
         if event.author not in {"user", "one"}:

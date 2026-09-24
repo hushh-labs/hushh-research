@@ -182,6 +182,20 @@ from attempting its legacy issuance before returning the incompatible response.
 
 ### One Person Request History
 
+Chat records an inline scope-discovery send through
+`POST /api/one/agent-chat/history/{conversation_id}/information-requests`.
+It requires the requester's VAULT_OWNER token and accepts only
+`source_activity_id`, `bundle_id`, and `idempotency_key` from the confirmed
+request. The server verifies that the conversation and discovery belong to the
+owner, that the request ledger binds the key to that bundle and recipient, and
+derives an allowlisted submitted-card descriptor from current request metadata.
+One deterministic, content-less encrypted ADK session event is appended per
+discovery card; retries return that event without a second request or card.
+Chat history suppresses the superseded discovery card and restores the
+submitted descriptor. This history receipt is presentation-only: grant status
+and encrypted exports must still be reread under current authority, and no
+vault key, connector credential, scope payload, or decrypted value is stored.
+
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
 profile named by `person_ref`; the profile URL alone grants no access. A self
