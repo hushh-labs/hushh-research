@@ -27,15 +27,21 @@ TestFlight is complete. Do not initiate Drive OAuth for the user.
 
 ### Current evidence at this checkpoint
 
-- **Main integration:** fetched `origin/main` `30c8d3006141a62cb8a12d4834cb61cc0f42ce78`
-  and merged it normally into the existing branch as `60427df4a`. Merge parent
-  and source-fidelity check confirm the latest main content is present; no history
-  rewrite or branch switch. A bounded instruction/projection reconciliation and
-  canonical Connectors-route redirect fix are still uncommitted.
-- **Automated:** 45 backend manifest/prompt tests, 115 focused frontend consent,
-  connector and receipt tests, 5 proxy tests, TypeScript typecheck, generated
-  registry/hierarchy and capability-graph checks, route/surface/cache/service
-  boundaries, and Capacitor static/plugin parity passed.
+- **Main integration:** fetched and normally merged latest `origin/main`
+  `a1b80dcc807126dd43480a79457d9f520fcb16cc` as `4ac22d155`. The merge retained
+  branch-owned One/MCP policy while integrating main's Drive live-search/read
+  implementation. Product-agent registry, capability graph, Location catalog,
+  and runtime topology were regenerated from merged authored sources; their
+  canonical checks pass. The regenerated revisions intentionally supersede
+  main's previous generated digests because the combined authored sources differ.
+  No branch switch, reset, or history rewrite occurred.
+- **Automated:** 93 Drive/ADK backend tests and 126 web connection/Chat tests pass
+  after the merge. The full web build, typecheck, lint, design-system, docs, and
+  render-performance checks passed. Full Vitest reported 9,099 passed and one
+  five-second timeout in an unchanged One Location test; that exact test passes
+  alone in 2.8 seconds. Earlier connector assertion failures also passed in
+  isolation. The local canonical pre-PR gate is therefore not yet green; require
+  exact-head CI and continue classifying the load-sensitive baseline failure.
 - **Browser/runtime:** frontend `3000` and backend `8000` are served from this
   worktree and return healthy responses. Canonical reviewer preflight and
   read-only same-session route plus cold re-unlock proof passed for
@@ -44,9 +50,9 @@ TestFlight is complete. Do not initiate Drive OAuth for the user.
   Local reviewer configuration keeps Drive connect disabled; existing UAT
   rollout configuration is enabled. No rollout values were changed and no OAuth
   was started. A real Drive read still requires the user's normal authorization.
-- **Native:** a paired physical iPhone is available, and native static/plugin
-  contracts pass. No post-merge native interaction or TestFlight build has yet
-  been verified.
+- **Native:** a paired physical iPhone is available. Native static/plugin checks
+  passed before the latest Drive merge; rerun changed-surface native checks.
+  No post-latest-merge native interaction or TestFlight build has been verified.
 - **Still open:** fresh live root-scope submission/approval/readback, three-account
   Memory fixtures, the full 12-journey Chat/Profile matrix, real Drive provider
   read, and deployed UAT/TestFlight evidence. Existing grants and their impact
@@ -63,8 +69,8 @@ Canonical visual index: [Architecture reference](../architecture/README.md).
 
 | Boundary | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Main → ADK branch | Latest fetched main merged locally at `60427df4a` | New PR, queue/Admin SOP, landed-SHA smoke |
-| Connector → One | Guarded read path committed and regression-tested | Live provider and native proof |
+| Main → ADK branch | Latest fetched main merged locally at `4ac22d155` | Freshness, PR checks, queue/Admin SOP, landed-SHA smoke |
+| Connector → One | Owner-bound Drive MCP read path and 93 backend/126 web tests pass | User OAuth, actual provider read, and native proof |
 | Consent → Chat | Metadata-only receipt and restoration committed | Browser revisit and fresh encrypted readback |
 | Sidebar → connection authority | Calendar/Plaid owning status, 11 tests | Real authenticated visual rehearsal |
 
