@@ -9,9 +9,10 @@ import asyncio
 import json
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -121,7 +122,26 @@ def explicitly_requests_file_activity(purpose: str) -> bool:
     )
 
 
+MAX_DATE_RANGE_DAYS = 366
+
+
+def _zone(timezone: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone or "UTC")
+    except (ValueError, ZoneInfoNotFoundError):
+        return ZoneInfo("UTC")
+
+
+def _utc_text(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class LiveSearchPlan(BaseModel):
+    """What to look for, in the Drive MCP's own terms; the reader compiles it.
+
+    Every field is bounded and typed: the planner never writes query syntax.
+    """
+
     model_config = ConfigDict(extra="forbid", strict=True)
     terms: list[str] = Field(default_factory=list, max_length=3)
     # Omitted intent may discover metadata, but must never trigger a content read.
@@ -130,26 +150,76 @@ class LiveSearchPlan(BaseModel):
     relative_days: int | None = Field(default=None, ge=1, le=31)
     file_time_field: Literal["modifiedTime", "createdTime"] = "modifiedTime"
     time_intent: Literal["file_activity", "document_coverage"] = "document_coverage"
+    # A file type is a mimeType clause, never a title or full-text word.
+    file_kind: Literal[
+        "any", "document", "spreadsheet", "presentation", "pdf", "image", "video", "audio", "folder"
+    ] = "any"
+    # Calendar days in the owner's timezone, inclusive ("24th September").
+    date_from: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    shared_with_me: bool = False
+    sort: Literal["relevance", "recent"] = "relevance"
 
     @model_validator(mode="after")
     def require_search_boundary(self):
-        if not self.terms and self.relative_days is None:
-            raise ValueError("search terms or a bounded file date range required")
-        if self.relative_days is not None and self.time_intent != "file_activity":
+        dated = self.date_from is not None or self.date_to is not None
+        if not (
+            self.terms
+            or self.relative_days is not None
+            or dated
+            or self.file_kind != "any"
+            or self.shared_with_me
+            or self.sort == "recent"
+        ):
+            raise ValueError("search terms, a file type, a date range or a recent listing required")
+        if (self.relative_days is not None or dated) and self.time_intent != "file_activity":
             raise ValueError("a file date range requires explicit file activity intent")
+        if self.relative_days is not None and dated:
+            raise ValueError("use either relative days or calendar dates")
+        if dated:
+            # Explicit ranges are checked as written; only an open "since" is bounded later.
+            start = date.fromisoformat(self.date_from or self.date_to or "")
+            end = date.fromisoformat(self.date_to or self.date_from or "")
+            if self.date_to is not None and (
+                end < start or (end - start).days >= MAX_DATE_RANGE_DAYS
+            ):
+                raise ValueError("the calendar date range is invalid")
         return self
 
-    def time_bounds(self, now_utc: datetime) -> tuple[str, str] | None:
-        if self.relative_days is None:
-            return None
+    def title_dates(self, now_utc: datetime, timezone: str = "UTC") -> list[str]:
+        """Calendar days (at most 3) that a meeting title may carry, e.g. 2026/09/24."""
+        if self.date_from is None and self.date_to is None:
+            return []
+        start, end = self._dates(now_utc.astimezone(_zone(timezone)).date())
+        span = (end - start).days + 1
+        if span > 3:
+            return []
+        return [(start + timedelta(days=offset)).isoformat() for offset in range(span)]
+
+    def _dates(self, today: date) -> tuple[date, date]:
+        """date_from alone means "since then, through today"; date_to alone is that day."""
+        if self.date_from is None:
+            end = date.fromisoformat(self.date_to or "")
+            return end, end
+        start = date.fromisoformat(self.date_from)
+        end = date.fromisoformat(self.date_to) if self.date_to is not None else today
+        # A long "since" is bounded; the reply states the window actually searched.
+        return max(start, end - timedelta(days=MAX_DATE_RANGE_DAYS - 1)), end
+
+    def time_bounds(self, now_utc: datetime, timezone: str = "UTC") -> tuple[str, str] | None:
         if now_utc.tzinfo is None or now_utc.utcoffset() is None:
             raise ValueError("current search time must include a timezone")
-        end = now_utc.astimezone(UTC)
-        start = end - timedelta(days=self.relative_days)
-        return (
-            start.isoformat().replace("+00:00", "Z"),
-            end.isoformat().replace("+00:00", "Z"),
-        )
+        if self.relative_days is not None:
+            end = now_utc.astimezone(UTC)
+            start = end - timedelta(days=self.relative_days)
+            return _utc_text(start), _utc_text(end)
+        if self.date_from is None and self.date_to is None:
+            return None
+        zone = _zone(timezone)
+        first, last = self._dates(now_utc.astimezone(zone).date())
+        start = datetime.combine(first, time.min, tzinfo=zone)
+        end = datetime.combine(last + timedelta(days=1), time.min, tzinfo=zone)
+        return _utc_text(start), _utc_text(end)
 
 
 async def interpret_live_search(*, prompt, user_id):
@@ -292,7 +362,11 @@ class DriveSuggestionService:
                     # file activity. The typed plan distinguishes that from
                     # dates the document's contents must cover.
                     file_recency = (
-                        plan.relative_days is not None
+                        (
+                            plan.relative_days is not None
+                            or plan.date_from is not None
+                            or plan.date_to is not None
+                        )
                         and plan.mode == "find"
                         and plan.time_intent == "file_activity"
                     )
@@ -301,7 +375,11 @@ class DriveSuggestionService:
                     bounds = (
                         plan.time_bounds(now_utc) if file_recency or not requested_period else None
                     )
-                    search_args = {"query": plan.terms}
+                    search_args = {
+                        "query": plan.terms,
+                        "file_kind": plan.file_kind,
+                        "shared_with_me": plan.shared_with_me,
+                    }
                     if bounds is not None:
                         search_args.update(
                             time_field=plan.file_time_field,

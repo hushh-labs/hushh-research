@@ -5643,7 +5643,7 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "3a9df1e0d783e710f8692ea1c1762a3f696fd32dbbf72d60d7be186180c3a683",
+    "agent_registry": "2704a892de370eaffbf730af509b78257cf0f25b74cd4d43bd6c207c3ffd26b8",
     "cache_manifest": "7e06bffcb92862a81614bcc30d40e6593942eedce8f9eea9f900302d76a478b7",
     "data_plane": "f8dac06aa54f0b3c71ffbe982bb5ad7db28c4f19d23fc04afd8cd99f7520fac5",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
