@@ -34,11 +34,13 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
     "ce3d0f0b6b9d9199",
     "cf08fb61503832fb",
     "d3e820220dacdce1",
+    "e59793b27ab57818",
     "e957417b1eacbe4b",
     "f0d84e300bb39de3",
     "f159d8b097f5456c",
     "f37e6638e90db246",
-    "f91ecbcca5e10b42"
+    "f91ecbcca5e10b42",
+    "fbac9497545a7c39"
   ],
   "workflowId": "workflow.setup.location",
   "workflowVersion": 2,
