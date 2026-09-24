@@ -54,6 +54,14 @@ _LISTING_TOOLS = frozenset({"search_files", "list_recent_files"})
 def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     """Drop snippets/descriptions before the shared MCP response-size cap."""
     files = payload.get("files")
+    if (
+        files is None
+        and set(payload) <= {"nextPageToken", "content"}
+        and not (payload.get("nextPageToken") or payload.get("content"))
+    ):
+        # Drive MCP answers "no matches" with `{}`: that is zero files, not a
+        # broken provider. Any other shape without a file list stays invalid.
+        files = []
     if not isinstance(files, list):
         return payload
     return {
