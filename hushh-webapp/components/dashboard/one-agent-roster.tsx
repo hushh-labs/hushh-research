@@ -1,12 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  type CSSProperties,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   CaretRightIcon,
@@ -42,6 +37,11 @@ import type { CapabilityStatus } from "@/lib/services/capability-setup-state-ser
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
+import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
+import {
+  DASHBOARD_AGENT_ICON_STYLE_BY_ID,
+  DEFAULT_DASHBOARD_AGENT_ICON_STYLE,
+} from "@/lib/design/home-icon-palette";
 
 type OneAgentMode = {
   id: string;
@@ -69,12 +69,6 @@ type OneAgentMode = {
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
 type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
-type DashboardAgentIconStyle = CSSProperties & {
-  "--agent-icon-profile-bg": string;
-  "--agent-icon-profile-fg": string;
-  "--agent-icon-profile-bg-dark": string;
-  "--agent-icon-profile-fg-dark": string;
-};
 
 /**
  * Returns true only when this person is actively sharing their location.
@@ -91,95 +85,10 @@ export function hasActiveLocationActivity(
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
-/**
- * Masterpiece Direction 2: Sovereign Gemstone & Raw Minerals (Tactile Luxury)
- * Each capability is treated as a cut, polished mineral slab (Malachite, Baltic Amber,
- * Sapphire, Tanzanite, Ruby, Obsidian) with natural tonal depth and micro-chamfered edges.
- */
-const DASHBOARD_AGENT_ICON_STYLE_BY_ID: Record<
-  string,
-  DashboardAgentIconStyle
-> = {
-  finance: {
-    "--agent-icon-profile-bg": "#D1FAE5",
-    "--agent-icon-profile-fg": "#065F46",
-    "--agent-icon-profile-bg-dark": "#064E3B",
-    "--agent-icon-profile-fg-dark": "#6EE7B7",
-  },
-  wallet: {
-    "--agent-icon-profile-bg": "#FEF3C7",
-    "--agent-icon-profile-fg": "#92400E",
-    "--agent-icon-profile-bg-dark": "#78350F",
-    "--agent-icon-profile-fg-dark": "#FDE68A",
-  },
-  location: {
-    "--agent-icon-profile-bg": "#E0F2FE",
-    "--agent-icon-profile-fg": "#075985",
-    "--agent-icon-profile-bg-dark": "#0C4A6E",
-    "--agent-icon-profile-fg-dark": "#7DD3FC",
-  },
-  ria: {
-    "--agent-icon-profile-bg": "#EDE9FE",
-    "--agent-icon-profile-fg": "#4C1D95",
-    "--agent-icon-profile-bg-dark": "#3B0764",
-    "--agent-icon-profile-fg-dark": "#C4B5FD",
-  },
-  gmail: {
-    "--agent-icon-profile-bg": "#FFE4E6",
-    "--agent-icon-profile-fg": "#9F1239",
-    "--agent-icon-profile-bg-dark": "#881337",
-    "--agent-icon-profile-fg-dark": "#FDA4AF",
-  },
-  calendar: {
-    "--agent-icon-profile-bg": "#E0F7FA",
-    "--agent-icon-profile-fg": "#0E7490",
-    "--agent-icon-profile-bg-dark": "#155E75",
-    "--agent-icon-profile-fg-dark": "#67E8F9",
-  },
-  email: {
-    "--agent-icon-profile-bg": "#FCE7F3",
-    "--agent-icon-profile-fg": "#831843",
-    "--agent-icon-profile-bg-dark": "#701A75",
-    "--agent-icon-profile-fg-dark": "#F472B6",
-  },
-  pkm: {
-    "--agent-icon-profile-bg": "#F1F5F9",
-    "--agent-icon-profile-fg": "#0F172A",
-    "--agent-icon-profile-bg-dark": "#1E293B",
-    "--agent-icon-profile-fg-dark": "#F8FAFC",
-  },
-  consent: {
-    "--agent-icon-profile-bg": "#FFEDD5",
-    "--agent-icon-profile-fg": "#9A3412",
-    "--agent-icon-profile-bg-dark": "#7C2D12",
-    "--agent-icon-profile-fg-dark": "#FDBA74",
-  },
-  marketplace: {
-    "--agent-icon-profile-bg": "#DCFCE7",
-    "--agent-icon-profile-fg": "#14532D",
-    "--agent-icon-profile-bg-dark": "#064E3B",
-    "--agent-icon-profile-fg-dark": "#86EFAC",
-  },
-  "connected-systems": {
-    "--agent-icon-profile-bg": "#CFFAFE",
-    "--agent-icon-profile-fg": "#115E59",
-    "--agent-icon-profile-bg-dark": "#134E4A",
-    "--agent-icon-profile-fg-dark": "#5EEAD4",
-  },
-};
-
-const DEFAULT_DASHBOARD_AGENT_ICON_STYLE: DashboardAgentIconStyle = {
-  "--agent-icon-profile-bg": "transparent",
-  "--agent-icon-profile-fg": "#00E5FF",
-  "--agent-icon-profile-bg-dark": "transparent",
-  "--agent-icon-profile-fg-dark": "#00E5FF",
-};
-
-function dashboardAgentIconStyle(mode: OneAgentMode): DashboardAgentIconStyle {
-  return (
-    DASHBOARD_AGENT_ICON_STYLE_BY_ID[mode.id] ??
-    DEFAULT_DASHBOARD_AGENT_ICON_STYLE
-  );
+function dashboardAgentIconStyle(mode: OneAgentMode): AgentProfileIconStyle {
+  const palette: Readonly<Record<string, AgentProfileIconStyle>> =
+    DASHBOARD_AGENT_ICON_STYLE_BY_ID;
+  return palette[mode.id] ?? DEFAULT_DASHBOARD_AGENT_ICON_STYLE;
 }
 
 /**

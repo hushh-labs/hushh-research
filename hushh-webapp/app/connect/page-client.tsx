@@ -31,6 +31,8 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
+import { LivingConnections } from "@/components/connect/living-connections";
+import { EMPTY_CIRCLES_SNAPSHOT, type ConnectCirclesSnapshot } from "@/components/connect/circle-discovery";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import {
@@ -76,6 +78,7 @@ import {
   CONNECT_SEARCH_QUERY_PARAM,
   CONNECT_REVIEW_PERSON_PARAM,
   CONNECT_SURFACE_PARAM,
+  CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
   isFocusedConnectCircleTask,
   readConnectCircleAction,
@@ -126,6 +129,8 @@ import { ContactSourceBadge } from "@/components/connections/contact-source-badg
 import {
   CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
+  CONNECT_SWIPE_PANE_INSET_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
   CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
 } from "./connect-surface-layout";
@@ -554,11 +559,7 @@ export default function ConnectPageClient() {
   // relationship, so an open roster re-reads instead of waiting for a manual
   // refresh -- the request sent from a member row is the case that showed.
   const [circleRefreshToken, setCircleRefreshToken] = useState(0);
-  const [circlesState, setCirclesState] = useState<{
-    loading: boolean;
-    error: string | null;
-    count: number;
-  }>({ loading: true, error: null, count: 0 });
+  const [circlesState, setCirclesState] = useState<ConnectCirclesSnapshot>(EMPTY_CIRCLES_SNAPSHOT);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -2880,6 +2881,7 @@ export default function ConnectPageClient() {
                       swipeable, the way Finance and Consent are; a swipe commits the
                       same route the tab pill pushes. */}
                   <SwipeViews
+                    className={CONNECT_SWIPE_CLIP_GUARD_CLASSNAME}
                     tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
                     activeValue={surface}
                     options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
@@ -2888,7 +2890,7 @@ export default function ConnectPageClient() {
                     viewportMinHeight="fill"
                     heightMode="active"
                   >
-                    <div data-connect-surface="all">
+                    <div data-connect-surface="all" className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}>
                       {tab === "nearby" ? (
                         <div className="space-y-3">
                           <div className="px-1">{directorySelector}</div>
@@ -2896,6 +2898,44 @@ export default function ConnectPageClient() {
                         </div>
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
+                          {tab === "people" ? (
+                            <LivingConnections
+                              key={user?.uid ?? "signed-out"}
+                              currentUserId={user?.uid ?? null}
+                              circlesState={circlesState}
+                              ownerName={
+                                user?.displayName ||
+                                user?.email ||
+                                "You"
+                              }
+                              ownerPhotoUrl={user?.photoURL ?? null}
+                              connections={sortedConnections}
+                              totalCount={connectionsTotalCount}
+                              loading={
+                                !connectionsRefreshError &&
+                                ((!connectionsLoaded ||
+                                  connectionsRefreshingFirstPage) &&
+                                  sortedConnections.length === 0)
+                              }
+                              error={connectionsRefreshError}
+                              onFindPeople={() => {
+                                searchInputRef.current?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                });
+                                searchInputRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                              }}
+                              onCreateCircle={() =>
+                                router.push(`${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=create-circle`, {
+                                  scroll: false,
+                                })
+                              }
+                              onRetry={handleRefreshConnections}
+                              onRetryCircles={() => setCircleRefreshToken((value) => value + 1)}
+                            />
+                          ) : null}
                           <SettingsGroup
                             titleControl={
                               <Button
@@ -3684,7 +3724,7 @@ export default function ConnectPageClient() {
                         </div>
                       )}
                     </div>
-                    <div data-connect-surface="circles">
+                    <div data-connect-surface="circles" className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}>
                     <ConnectCirclesTab
                       onStateChange={setCirclesState}
                       currentUserId={user?.uid ?? null}
