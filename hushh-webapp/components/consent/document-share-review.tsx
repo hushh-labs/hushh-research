@@ -94,6 +94,7 @@ function UnlockedDocumentReview({
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trustFuture, setTrustFuture] = useState(false);
   const serial = useRef(0);
   const alive = useRef(false);
   const inFlight = useRef(false);
@@ -229,6 +230,7 @@ function UnlockedDocumentReview({
   );
 
   const review = snapshot?.review;
+  useEffect(() => setTrustFuture(false), [review?.reviewDigest]);
   const removal = snapshot?.revocation;
   const canApprove =
     !!review?.canApprove &&
@@ -344,20 +346,22 @@ function UnlockedDocumentReview({
           {!canApprove ? (
             <HelperText>Refresh suggestions before sharing.</HelperText>
           ) : null}
+          {review.canTrustFutureRequests ? (
+            <label className="flex items-start gap-3 text-sm">
+              <input type="checkbox" checked={trustFuture} disabled={busy || !canApprove}
+                onChange={(event) => setTrustFuture(event.target.checked)} />
+              <span>Trust this verified person for these exact files and this same request purpose on future requests while your app is closed. Changed files and new files will require review. You can revoke this rule.</span>
+            </label>
+          ) : null}
           <FlowActionGroup
             primary={
               <Button
                 size="prominent"
                 disabled={busy || !canApprove}
                 onClick={() =>
-                  mutate((token, guard) =>
-                    DriveSharingService.approve(
-                      token,
-                      requestId,
-                      review,
-                      guard,
-                    ),
-                  )
+                  mutate((token, guard) => trustFuture
+                    ? DriveSharingService.approve(token, requestId, review, guard, true)
+                    : DriveSharingService.approve(token, requestId, review, guard))
                 }
               >
                 Share files

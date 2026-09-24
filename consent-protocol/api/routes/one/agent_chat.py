@@ -481,6 +481,66 @@ def _safe_information_request_descriptor(
     return None
 
 
+def _safe_document_request_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        if response is None or getattr(response, "name", "") != "propose_document_request":
+            continue
+        result = _record(getattr(response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready":
+            return None
+        person = _record(result.get("person")) or {}
+        purpose = _record(result.get("purpose")) or {}
+        person_ref = _bounded_text(person.get("personRef"), 36)
+        client_id = _bounded_text(result.get("clientRequestId"), 36)
+        person_name = _bounded_text(person.get("displayName"), 120)
+        purpose_text = _bounded_text(purpose.get("purpose"), 2000)
+        if (
+            not person_ref
+            or not client_id
+            or not person_name
+            or not purpose_text
+            or not re.fullmatch(r"[0-9a-f-]{36}", person_ref)
+            or not re.fullmatch(r"[0-9a-f-]{36}", client_id)
+        ):
+            return None
+        start = purpose.get("periodStart")
+        end = purpose.get("periodEnd")
+        if (start is None) != (end is None):
+            return None
+        if start is not None and (
+            not isinstance(start, str)
+            or not isinstance(end, str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end)
+        ):
+            return None
+        return {
+            "activityType": "one.document_request_review.v1",
+            "content": {
+                "personRef": person_ref,
+                "personName": person_name,
+                "clientRequestId": client_id,
+                "purpose": purpose_text,
+                "periodStart": start,
+                "periodEnd": end,
+            },
+        }
+    return None
+
+
 def _safe_submitted_information_request_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
@@ -595,6 +655,8 @@ def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
             descriptor = _safe_submitted_information_request_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_information_request_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_document_request_descriptor(event, [part])
         if descriptor is None:
             continue
         invocation_identity = _bounded_text(

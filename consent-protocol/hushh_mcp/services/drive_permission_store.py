@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, SharingApproval
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -56,10 +57,17 @@ class DrivePermissionStore(DriveSharingStore):
             purpose="permission-plan",
         )
 
+    def _reconciliation_connection(self, connection, *, user_id, generation, row):
+        if self._plan(row).get("source_kind") == "live":
+            DriveLivePreferences(db=self.db).live_active(
+                connection, user_id=user_id, generation=generation, management=True
+            )
+        else:
+            self._active(connection, user_id, generation)
+            self._selection_policy(connection, user_id, feature="google_drive_connection")
+
     def _grant_authority(self, connection, initial):
         self._participant_gate(connection, initial["user_id"], str(initial["request_id"]))
-        self._active(connection, initial["user_id"], initial["connection_generation"])
-        self._selection_policy(connection, initial["user_id"], feature="drive_document_sharing")
         request = self._related_request(connection, initial["user_id"], str(initial["request_id"]))
         context = self._management_context(connection, initial["user_id"], initial["request_id"])
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -74,11 +82,18 @@ class DrivePermissionStore(DriveSharingStore):
             raise DriveSharingError("approval_superseded")
         plan = self._plan(initial)
         approval = SharingApproval.model_validate(plan["approval"])
+        self._admit_sources(
+            connection,
+            user_id=initial["user_id"],
+            generation=initial["connection_generation"],
+            sources=approval.sources,
+        )
         sources = self._sources(
             connection,
             user_id=initial["user_id"],
             generation=initial["connection_generation"],
             document_ids=[str(item.document_id) for item in approval.sources],
+            request_id=str(initial["request_id"]),
         )
         current = SharingApproval.model_validate(
             {
@@ -90,6 +105,39 @@ class DrivePermissionStore(DriveSharingStore):
         )
         if current.authority_binding() != approval.authority_binding():
             raise DriveSharingError("approval_superseded")
+        if plan.get("rule_id"):
+            rule = self._row(
+                connection,
+                """SELECT * FROM drive_document_rules WHERE rule_id=:id AND user_id=:user FOR SHARE""",
+                {"id": str(UUID(plan["rule_id"])), "user": initial["user_id"]},
+            )
+            if (
+                not rule
+                or not rule["active"]
+                or rule["version"] != plan.get("rule_version")
+                or rule["recipient_user_id"] != request["recipient_user_id"]
+                or rule["recipient_binding"] != request["recipient_binding"]
+                or rule["connection_generation"] != initial["connection_generation"]
+            ):
+                raise DriveSharingError("approval_superseded")
+            boundary = self.sharing_cipher.open(
+                rule["boundary_envelope"],
+                user_id=initial["user_id"],
+                resource_id=str(rule["rule_id"]),
+                purpose="document-rule",
+            )
+            if boundary.get("purpose_digest") != self.sharing_cipher.digest(
+                "rule-purpose", self._open_request(request)["purpose"]
+            ) or sorted(
+                (item["file_id"], item["content_fingerprint"]) for item in boundary["files"]
+            ) != sorted(
+                (
+                    self._source_metadata(item)["file_id"],
+                    self._source_metadata(item)["content_fingerprint"],
+                )
+                for item in sources
+            ):
+                raise DriveSharingError("approval_superseded")
         return plan
 
     async def claim_grant(self, *, user_id: str, operation_id: str) -> dict | None:
@@ -223,8 +271,9 @@ class DrivePermissionStore(DriveSharingStore):
             if not initial or initial["state"] not in {"dispatching", "unknown"}:
                 return None
             self._owner_gate(connection, user_id)
-            self._active(connection, user_id, generation)
-            self._selection_policy(connection, user_id, feature="google_drive_connection")
+            self._reconciliation_connection(
+                connection, user_id=user_id, generation=generation, row=initial
+            )
             self._management_context(connection, user_id, initial["request_id"])
             row = self._permission(connection, user_id, operation_id, lock=True)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -263,8 +312,12 @@ class DrivePermissionStore(DriveSharingStore):
     async def require_reconciliation_current(self, job):
         def operation(connection):
             self._owner_gate(connection, job["user_id"])
-            self._active(connection, job["user_id"], job["reconciliation_generation"])
-            self._selection_policy(connection, job["user_id"], feature="google_drive_connection")
+            self._reconciliation_connection(
+                connection,
+                user_id=job["user_id"],
+                generation=job["reconciliation_generation"],
+                row=job,
+            )
             self._management_context(connection, job["user_id"], job["request_id"])
             row = self._permission(connection, job["user_id"], str(job["operation_id"]), lock=True)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()

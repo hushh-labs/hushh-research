@@ -249,7 +249,14 @@ class GoogleDrivePermissionAdapter:
         # Cancellation propagates: the caller's dispatching record must reconcile.
 
     async def inspect_shareable(
-        self, *, file_id: str, expected_version: str, access_token: str, require_current: Fence
+        self,
+        *,
+        file_id: str,
+        expected_version: str,
+        access_token: str,
+        require_current: Fence,
+        require_app_authorized: bool = True,
+        require_genai_eligibility: bool = True,
     ) -> None:
         if not isinstance(expected_version, str) or not VERSION.fullmatch(expected_version):
             raise DrivePermissionError("operation_not_allowed")
@@ -261,14 +268,15 @@ class GoogleDrivePermissionAdapter:
         if (
             result.get("id") != file_id
             or result.get("trashed") is not False
-            or result.get("isAppAuthorized") is not True
+            or require_app_authorized
+            and result.get("isAppAuthorized") is not True
             or not isinstance(mime, str)
             or mime not in SUPPORTED_TYPES
             or not isinstance(capabilities, dict)
-            or any(
-                capabilities.get(key) is not True
-                for key in ("canShare", "canDownload", "canAccessViaGenAi")
-            )
+            or capabilities.get("canShare") is not True
+            or capabilities.get("canDownload") is not True
+            or require_genai_eligibility
+            and capabilities.get("canAccessViaGenAi") is not True
             or (
                 encryption is not None
                 and (
@@ -324,14 +332,17 @@ class GoogleDrivePermissionAdapter:
             raise DrivePermissionError("permission_provider_unavailable", retryable=True) from None
         raise DrivePermissionError("permission_catalog_incomplete")
 
-    async def inspect_permission_management(self, *, file_id, access_token, require_current):
+    async def inspect_permission_management(
+        self, *, file_id, access_token, require_current, require_app_authorized=True
+    ):
         result = await self._exchange(
             "inspect", file_id=file_id, access_token=access_token, require_current=require_current
         )
         capabilities = result.get("capabilities")
         if (
             result.get("id") != file_id
-            or result.get("isAppAuthorized") is not True
+            or require_app_authorized
+            and result.get("isAppAuthorized") is not True
             or not isinstance(result.get("mimeType"), str)
             or not result["mimeType"]
             or result["mimeType"]

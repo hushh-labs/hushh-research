@@ -61,7 +61,7 @@ function DrivePopupReturn() {
       details.current = null;
       setMessage(
         outcome === "succeeded"
-          ? "Authorization saved. Return to chat to choose files."
+          ? "Authorization saved. Return to chat."
           : "Authorization was not completed. Return to chat and try again.",
       );
       setFinished(true);
@@ -88,7 +88,7 @@ function DrivePopupReturn() {
         if (result)
           finish(
             result.connectorId === "google_drive" &&
-              result.status === "verifying"
+              ["verifying", "connected"].includes(result.status)
               ? "succeeded"
               : "failed",
           );

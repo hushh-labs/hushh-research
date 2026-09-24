@@ -26,9 +26,9 @@ from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     MAX_SELECTION,
     POLICY_HASH,
-    SELECTED_POLICY,
     DriveMetadata,
     DriveReadError,
+    supports_selected_policy,
 )
 
 MAX_OWNER_DOCUMENTS = 100
@@ -121,7 +121,7 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
             or not policy["is_active"]
             or policy["transport_kind"] != "google_drive_rest"
             or policy["mcp_endpoint"] != DRIVE_BASE
-            or policy["capability_policy"] != SELECTED_POLICY
+            or not supports_selected_policy(policy["capability_policy"])
         ):
             raise DriveReadError("connector_policy_changed")
         if not connector_feature_enabled(feature, user_id):

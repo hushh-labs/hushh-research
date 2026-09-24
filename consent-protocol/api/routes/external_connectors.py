@@ -53,6 +53,7 @@ class ConnectorSummary(BaseModel):
     accountLabel: Optional[str] = None
     connectedAt: Optional[str] = None
     validationState: str = "unverified"
+    profile: Literal["selected", "live"] | None = None
     revocationOutcome: str = "not_attempted"
     lastErrorCode: Optional[str] = None
     available: bool = True
@@ -77,6 +78,7 @@ class ConnectResultResponse(BaseModel):
 class StartOAuthRequest(BaseModel):
     redirectUri: str = Field(min_length=1, max_length=2048)
     flow: Literal["web", "native"] = "web"
+    profile: Literal["selected", "live"] = "selected"
 
 
 class StartOAuthResponse(BaseModel):
@@ -163,6 +165,12 @@ class DriveProcessingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
     disclosure: Literal["selected-files-background-v1"] | None = None
+    confirmed: Literal[True]
+
+
+class LiveBackgroundRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
     confirmed: Literal[True]
 
 
@@ -406,6 +414,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 validationState=statuses.get(connector.connector_id, {}).get(
                     "validationState", "unverified"
                 ),
+                profile=statuses.get(connector.connector_id, {}).get("profile"),
                 revocationOutcome=statuses.get(connector.connector_id, {}).get(
                     "revocationOutcome", "not_attempted"
                 ),
@@ -430,6 +439,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 accountLabel=status.get("accountLabel"),
                 connectedAt=status.get("connectedAt"),
                 validationState=status.get("validationState", "unverified"),
+                profile=status.get("profile"),
                 revocationOutcome=status.get("revocationOutcome", "not_attempted"),
                 lastErrorCode=status.get("lastErrorCode"),
                 available=False,
@@ -478,6 +488,7 @@ async def start_oauth_connect(
             connector_id=connector_id,
             redirect_uri=body.redirectUri,
             flow=body.flow,
+            profile=body.profile,
         )
     except (
         ExternalConnectorOAuthError,
@@ -599,6 +610,51 @@ async def finalize_native(
         ExternalConnectorCredentialError,
     ) as error:
         raise _oauth_error(error) from None
+
+
+@router.post("/google_drive/live/verify", response_model=ConnectResultResponse)
+async def verify_live_drive(token_data: dict = Depends(require_vault_owner_token)):
+    try:
+        verified = (
+            await get_external_connector_oauth_service()
+            .drive()
+            .verify_live(user_id=_user_id(token_data))
+        )
+        if not verified:
+            raise DriveOAuthError("connection_changed", status_code=409)
+        return ConnectResultResponse(connectorId="google_drive", status="connected")
+    except (DriveOAuthError, ConnectorLifecycleError, ExternalConnectorCredentialError) as error:
+        raise _oauth_error(error) from None
+
+
+@router.get("/google_drive/live/background")
+async def get_live_background(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await DriveLivePreferences().get_background(user_id=_user_id(token_data))
+    except DriveReadError as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/live/background")
+async def set_live_background(
+    body: LiveBackgroundRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await DriveLivePreferences().set_background(
+            user_id=_user_id(token_data), enabled=body.enabled, confirmed=body.confirmed
+        )
+    except DriveReadError as error:
+        raise _drive_selection_error(error) from None
 
 
 @router.post("/{connector_id}/disconnect", response_model=ConnectResultResponse)

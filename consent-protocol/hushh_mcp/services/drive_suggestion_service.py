@@ -7,6 +7,7 @@ processing consent, rechecked before every read/model call and publication.
 
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -21,8 +22,14 @@ from hushh_mcp.services.drive_document_retrieval import (
     DriveDocumentReader,
     DriveSuggestionRetrievalStore,
 )
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ReviewedSource
+from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingError,
+    LiveReviewedSource,
+    ReviewedSource,
+)
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
+from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -39,6 +46,77 @@ class DocumentSuggestions(BaseModel):
     coverage_summary: str = Field(min_length=1, max_length=2000)
     gaps: list[str] = Field(max_length=24)
     coverage_status: Literal["complete", "partial", "unknown"]
+    covered_periods: list["CoveredPeriod"] = Field(default_factory=list, max_length=24)
+
+
+class CoveredPeriod(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    period_start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    period_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    source_refs: list[str] = Field(min_length=1, max_length=8)
+
+
+def period_covered(
+    purpose: dict, periods: list[CoveredPeriod], known: dict, ids: list[str]
+) -> bool:
+    start_text, end_text = purpose.get("periodStart"), purpose.get("periodEnd")
+    if not start_text or not end_text:
+        return True
+    try:
+        start, end = (
+            date.fromisoformat(start_text).toordinal(),
+            date.fromisoformat(end_text).toordinal(),
+        )
+        spans = []
+        for item in periods:
+            if any(
+                ref not in known or known[ref]["document_ref"] not in ids
+                for ref in item.source_refs
+            ):
+                return False
+            left = date.fromisoformat(item.period_start).toordinal()
+            right = date.fromisoformat(item.period_end).toordinal()
+            if right < left:
+                return False
+            spans.append((left, right))
+    except ValueError:
+        return False
+    cursor = start
+    for left, right in sorted(spans):
+        if left > cursor:
+            return False
+        cursor = max(cursor, right + 1)
+        if cursor > end:
+            return True
+    return False
+
+
+class LiveSearchPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    terms: list[str] = Field(min_length=1, max_length=3)
+
+
+async def interpret_live_search(*, prompt, user_id):
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
+    )
+    gene = next(child for child in manifest.subagents if child.id == "agent_documents_live_search")
+    agent = build_single_turn_agent(
+        gene,
+        output_schema=LiveSearchPlan,
+        model=Gemini(
+            model=resolve_fleet_model_name(str(gene.model.name)),
+            client=build_managed_runtime_client(gene.model.provider),
+        ),
+    )
+    result = await run_single_turn(
+        agent,
+        prompt_parts=prompt,
+        user_id=user_id,
+        consent_token="",
+        timeout_seconds=20,  # nosec B106
+    )
+    return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
 async def interpret_suggestions(*, prompt, user_id):
@@ -74,11 +152,18 @@ async def interpret_suggestions(*, prompt, user_id):
 
 class DriveSuggestionService:
     def __init__(
-        self, *, oauth=None, store=None, interpreter=interpret_suggestions, reader_factory=None
+        self,
+        *,
+        oauth=None,
+        store=None,
+        interpreter=interpret_suggestions,
+        search_planner=interpret_live_search,
+        reader_factory=None,
     ):
         self.oauth = oauth or get_external_connector_oauth_service().drive()
         self.store = store or DriveSuggestionStore(db=self.oauth.lifecycle.db)
         self.interpreter = interpreter
+        self.search_planner = search_planner
         self.reader_factory = reader_factory
 
     def _reader(self, job):
@@ -87,6 +172,10 @@ class DriveSuggestionService:
 
         if self.reader_factory:
             return self.reader_factory(user_id=job["user_id"], require_access=require_access)
+        if job.get("live"):
+            return DriveLiveReader(
+                user_id=job["user_id"], require_access=require_access, oauth=self.oauth
+            )
         return DriveDocumentReader(
             user_id=job["user_id"],
             require_access=require_access,
@@ -104,7 +193,19 @@ class DriveSuggestionService:
                 query = job["purpose"]["purpose"]
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
-                retrieved = await reader.search(query=query)
+                if job.get("live"):
+                    plan = LiveSearchPlan.model_validate(
+                        await self.search_planner(
+                            prompt=json.dumps(
+                                {"document_request": job["purpose"]}, ensure_ascii=False
+                            ),
+                            user_id=user_id,
+                        )
+                    )
+                    await self.store.require_preparation_current(job)
+                    retrieved = await reader.search(query=plan.terms)
+                else:
+                    retrieved = await reader.search(query=query)
                 if not retrieved["untrusted_external_content"]:
                     await self.store.fail_preparation(
                         job,
@@ -140,12 +241,16 @@ class DriveSuggestionService:
                         for ref in item.source_refs
                     ):
                         raise ValueError("invented suggestion reference")
+                if answer.coverage_status == "complete" and not period_covered(
+                    job["purpose"], answer.covered_periods, known, ids
+                ):
+                    raise ValueError("unsupported coverage")
                 await reader.require_current()
                 await self.store.require_preparation_current(job)
                 observed = {
-                    str(row["document_id"]): ReviewedSource.model_validate(
-                        self.store._source_terms(row)
-                    )
+                    str(row["document_id"]): (
+                        LiveReviewedSource if row.get("_live") else ReviewedSource
+                    ).model_validate(self.store._source_terms(row))
                     for row in reader._rows
                 }
                 if set(ids) - observed.keys():
@@ -164,7 +269,9 @@ class DriveSuggestionService:
                     },
                     preparation_lease_id=job["lease_id"],
                     read_sources=list(observed.values()),
+                    live_sources=reader._rows if job.get("live") else None,
                 )
+                await wake_drive_work("sharing")
                 return "review_ready"
         except Exception as error:
             code = str(error) if isinstance(error, DriveReadError) else "preparation_unavailable"

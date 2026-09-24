@@ -53,7 +53,10 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
         try:
             async with asyncio.timeout(75):
                 plan = self.store._plan(job)
-                row, credentials = await self.oauth.current_credential(user_id=user_id)
+                row, credentials = await self.oauth.current_credential(
+                    user_id=user_id,
+                    required_profile="live" if plan.get("source_kind") == "live" else "selected",
+                )
                 issuer = verified_issuer(credentials)
                 if row["connection_generation"] != job["connection_generation"]:
                     raise DriveSharingError("connection_changed")
@@ -64,7 +67,9 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
                     "access_token": credentials["accessToken"],
                     "require_current": lambda: self.store.require_current(job),
                 }
-                await self.adapter.inspect_permission_management(**args)
+                await self.adapter.inspect_permission_management(
+                    **args, require_app_authorized=plan.get("source_kind") != "live"
+                )
                 before = await self.adapter.list_permissions(**args)
                 existing = current_recorded_viewer(before, plan)
                 if existing is None:

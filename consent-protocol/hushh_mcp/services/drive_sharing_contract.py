@@ -119,6 +119,17 @@ class ReviewedSource(BaseModel):
     processing_revision: int = Field(ge=0)
 
 
+class LiveReviewedSource(BaseModel):
+    """A provider observation whose raw file ID stays in a private envelope."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["live"] = "live"
+    document_id: UUID
+    source_version: str = Field(pattern=r"^[0-9]{1,30}$")
+    provider_file_binding: str = Field(pattern=r"^[0-9a-f]{64}$")
+    connection_generation: int = Field(ge=1)
+
+
 class SharingApproval(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     request_id: UUID
@@ -127,7 +138,9 @@ class SharingApproval(BaseModel):
     recipient_user_id: str = Field(min_length=1, max_length=128)
     recipient_binding: str = Field(pattern=r"^[0-9a-f]{64}$")
     connection_generation: int = Field(ge=1)
-    sources: tuple[ReviewedSource, ...] = Field(min_length=1, max_length=MAX_FILES)
+    sources: tuple[ReviewedSource | LiveReviewedSource, ...] = Field(
+        min_length=1, max_length=MAX_FILES
+    )
     role: Literal["reader"] = "reader"
     recipient_type: Literal["user"] = "user"
     disclosure: Literal["drive-original-viewer-until-revoked-v1"] = SHARING_DISCLOSURE
@@ -138,7 +151,13 @@ class SharingApproval(BaseModel):
             raise ValueError("A document request requires a different recipient.")
         if len({source.document_id for source in self.sources}) != len(self.sources):
             raise ValueError("Each approved document must appear exactly once.")
-        if len({source.source_fingerprint for source in self.sources}) != len(self.sources):
+        identities = {
+            source.source_fingerprint
+            if isinstance(source, ReviewedSource)
+            else source.provider_file_binding
+            for source in self.sources
+        }
+        if len(identities) != len(self.sources):
             raise ValueError("Each approved source must appear exactly once.")
         return self
 

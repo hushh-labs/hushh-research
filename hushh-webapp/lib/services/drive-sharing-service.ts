@@ -52,6 +52,7 @@ export type SharingReview = {
   reviewDigest: string | null;
   expiresAt: string | null;
   canApprove: boolean;
+  canTrustFutureRequests: boolean;
 };
 export type SharingDelivery = {
   status: string;
@@ -71,6 +72,14 @@ export type SharingRevocationReview = {
   reviewDigest: string;
   expiresAt: string;
   files: { grantId: string; name: string; recipientEmail: string }[];
+};
+export type TrustedDocumentRule = {
+  ruleId: string;
+  version: number;
+  recipientEmail: string;
+  purpose: { purpose: string; periodStart: string | null; periodEnd: string | null };
+  fileNames: string[];
+  status: "Trusted for documents";
 };
 
 export class DriveSharingError extends Error {
@@ -135,7 +144,7 @@ export class DriveSharingService {
     if (requestId !== null) id(requestId);
     guard();
     const response = await ApiService.apiFetch(
-      `/api/connectors/google_drive/sharing/requests${requestId === null ? "" : `/${requestId}${action}`}`,
+      `/api/connectors/google_drive/sharing/requests${requestId === null ? action : `/${requestId}${action}`}`,
       {
         isEffectCurrent: () => {
           guard();
@@ -232,6 +241,60 @@ export class DriveSharingService {
     };
   }
 
+  static async lookupClient(
+    token: string,
+    clientRequestId: string,
+    guard: SharingSessionGuard,
+  ): Promise<string | null> {
+    id(clientRequestId);
+    const result = await this.request(
+      token, null, guard, `/by-client/${clientRequestId}`,
+    );
+    return result.status === "draft" ? null : id(result.requestId);
+  }
+
+  static async listRules(token: string, guard: SharingSessionGuard): Promise<TrustedDocumentRule[]> {
+    guard();
+    const response = await ApiService.apiFetch("/api/connectors/google_drive/sharing/rules", {
+      method: "GET", cache: "no-store", headers: ApiService.getAuthHeaders(token),
+      isEffectCurrent: () => { guard(); return true; },
+    });
+    guard();
+    if (!response.ok) throw new DriveSharingError("request_failed", response.status);
+    const payload = record(await response.json());
+    guard();
+    if (!Array.isArray(payload.items) || payload.items.length > 50)
+      throw new DriveSharingError("invalid_response");
+    return payload.items.map((value) => { const item = record(value); return ({
+      ruleId: id(item.ruleId),
+      version: revision(item.version),
+      recipientEmail: string(item.recipientEmail, 320),
+      purpose: {
+        purpose: string(record(item.purpose).purpose),
+        periodStart: record(item.purpose).periodStart === null ? null : string(record(item.purpose).periodStart, 10),
+        periodEnd: record(item.purpose).periodEnd === null ? null : string(record(item.purpose).periodEnd, 10),
+      },
+      fileNames: (Array.isArray(item.fileNames) ? item.fileNames : []).map((value) => string(value, 1024)),
+      status: "Trusted for documents" as const,
+    }); });
+  }
+
+  static async revokeRule(
+    token: string, rule: TrustedDocumentRule, guard: SharingSessionGuard,
+  ): Promise<void> {
+    guard();
+    const response = await ApiService.apiFetch(
+      `/api/connectors/google_drive/sharing/rules/${id(rule.ruleId)}/revoke`, {
+        method: "POST", cache: "no-store",
+        headers: {...ApiService.getAuthHeaders(token), "Content-Type": "application/json"},
+        body: JSON.stringify({version: rule.version, confirmed: true}),
+        isEffectCurrent: () => { guard(); return true; },
+      },
+    );
+    guard();
+    if (!response.ok) throw new DriveSharingError("rule_changed", response.status);
+  }
+
   static async review(
     token: string,
     requestId: string,
@@ -288,6 +351,7 @@ export class DriveSharingService {
         selected.length > 0 &&
         !!expiresAt &&
         !!reviewDigest,
+      canTrustFutureRequests: result.canTrustFutureRequests === true,
     };
   }
 
@@ -331,6 +395,7 @@ export class DriveSharingService {
     requestId: string,
     review: SharingReview,
     guard: SharingSessionGuard,
+    trustFutureRequests = false,
   ) {
     if (
       !review.canApprove ||
@@ -343,6 +408,7 @@ export class DriveSharingService {
       reviewDigest: review.reviewDigest,
       documentIds: review.files.map((file) => file.documentId),
       confirmed: true,
+      ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
     });
   }
   static decide(

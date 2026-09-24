@@ -7,6 +7,7 @@ The response 'approved' means queued, not that Google has shared anything.
 from hushh_mcp.services.drive_permission_executor import require_recipient_identity
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
+from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 
 
@@ -29,18 +30,24 @@ class DriveSharingService:
         return row["connection_generation"]
 
     async def create(self, *, recipient, owner_user_id, client_request_id, purpose):
-        return await self.store.create_request(
+        result = await self.store.create_request(
             recipient=recipient,
             owner_user_id=owner_user_id,
             client_request_id=client_request_id,
             purpose=purpose,
         )
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+        return result
 
     async def list_requests(self, **kwargs):
         return await self.store.list_requests(**kwargs)
 
     async def status(self, **kwargs):
         return await self.store.request_status(**kwargs)
+
+    async def lookup_client(self, **kwargs):
+        return await self.store.lookup_client_request(**kwargs)
 
     async def review(self, **kwargs):
         return await self.store.owner_review(**kwargs)
@@ -60,14 +67,34 @@ class DriveSharingService:
     async def approve(self, *, user_id, **kwargs):
         generation = await self._generation(user_id)
         await self._require_owner()
-        return await self.store.approve_review(user_id=user_id, generation=generation, **kwargs)
+        if kwargs.get("trust_future_requests"):
+            recipient = await self.store.rule_recipient(
+                user_id=user_id, request_id=kwargs["request_id"]
+            )
+            await self.verify_recipient(recipient)
+            await self._require_owner()
+        result = await self.store.approve_review(user_id=user_id, generation=generation, **kwargs)
+        await wake_drive_work("sharing")
+        return result
+
+    async def list_rules(self, *, user_id):
+        await self._require_owner()
+        return await self.store.list_rules(user_id=user_id)
+
+    async def revoke_rule(self, *, user_id, **kwargs):
+        await self._require_owner()
+        return await self.store.revoke_rule(user_id=user_id, **kwargs)
 
     async def decide(self, **kwargs):
-        return await self.store.decline_or_cancel(**kwargs)
+        result = await self.store.decline_or_cancel(**kwargs)
+        await wake_drive_work("sharing")
+        return result
 
     async def retry_preparation(self, **kwargs):
         await self._require_owner()
-        return await self.store.retry_preparation(**kwargs)
+        result = await self.store.retry_preparation(**kwargs)
+        await wake_drive_work("suggestions")
+        return result
 
     async def prepare_revocation(self, *, user_id, request_id):
         generation = await self._generation(user_id)
