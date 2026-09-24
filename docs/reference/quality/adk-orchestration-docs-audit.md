@@ -2,7 +2,73 @@
 
 **Review basis:** repository `HEAD` `4fb27f5a06a397ac3d42599a55e5da2245ddf5a2`, inspected 2026-09-23. The Plaid retirement implementation is committed on this branch; this documentation audit is an uncommitted working-tree change. Branch source inspection does not establish that the code is deployed or that per-environment cleanup completed.
 
-## Visual Context
+## Product-agent hierarchy audit — 2026-09-24
+
+Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
+Read-only comparison: infrastructure branch
+`5e0ade416f8b76fb81b472e762258401fb0d1250`. Neither branch was switched
+or merged for this audit. The earlier findings below retain their original revision.
+
+All 19 top-level manifests were inventoried against the generated registry and
+hierarchy verifier. This is structural/source evidence, not live verification of
+every specialist or a latency benchmark.
+
+| Manifest family | Declared composition / boundary |
+|---|---|
+| One | Chat root; bounded intro and public-search children; curated Workspace tools |
+| Kai | Finance task; RIA, brochure, Investor, optimizer, fundamental, sentiment, valuation, debate, synthesis, chat children |
+| Wallet | One's bounded task child; private reveal remains client-owned |
+| Nav / Connections | Nav chat specialist with Consent child; Connections parent is Nav |
+| Documents | Task with live-search planner, suggestions, interpreter; distinct from generic Workspace reads |
+| Email | Task with read planner/interpreter, request classifier, receipt extractor, draft, enrichment |
+| Location | Task plus transcriber; generated actions retain their own authority |
+| Personal Information | Task plus attribute learner; not a replacement PKM store |
+| Connected Systems | Chat plus CRM schema mapper; ingress/admission remains required |
+| Calendar | One-parent manifest with existing tools; do not infer an independent ADK root from its presence |
+| Onboarding | Deterministic runtime with bounded assessment contract |
+| KYC | Route, redraft, full-redraft, extract/draft stages; not a registered local dispatch handler |
+| Portfolio Import | Extract, relevance, comprehensive stages |
+| Memory Segmentation / Intent / Merge / PKM Structure | Separate semantic preparation stages, not four top-level conversational routers |
+| Financial Guard | Bounded guard definition, not another conversational head |
+
+The five local dispatch registrations and five external scope-admitted identifiers
+are intentionally different sets. Registry presence, a parent field, an AgentTool,
+and an A2A endpoint are not interchangeable evidence. Missing explicit runtime
+fields require tracing their consumer; adding a chat runtime everywhere is not an
+optimization. The infrastructure comparison does not justify wholesale hierarchy
+replacement; preserve its already-integrated specialist boundaries.
+
+### Bounded correction and remaining work
+
+- Removed three Python repetitions of One's authored cancellation policy and a
+  contradictory Python Nav ownership paragraph. The YAML retains cancellation
+  priority, exact confirmation requirements, direct consent tools, and Connections
+  delegation. Regression coverage checks the authored policy survives composition.
+- One still composes substantial static Python instructions alongside its YAML.
+  Consolidate remaining static semantics through the authored owner in bounded
+  parity-tested changes; keep dynamic admission/context overlays in runtime code.
+- Generic Workspace reads and Documents' delegated interpretation are different
+  contracts. Their selection guidance and the external-read turn barrier still
+  need alignment before claiming same-turn read-to-reviewed-action composition.
+- Explicit credential-scoped MCP refresh and its Settings/Chat tool inventory are
+  unfinished. A cache invalidation primitive alone does not establish refresh UX.
+- No claim of faster Gemini responses, complete specialist acceptance, physical
+  device proof, release readiness, or deployment follows from this audit.
+
+Verification: focused manifest/factory/One runtime tests passed **326**, with
+**74 skipped**; generated registry and hierarchy checks passed. The ADK/A2A
+compliance check passed **preview containment only**, explicitly reporting
+`ADK_A2A_SDK_MATRIX_UNVERIFIED` and `official_a2a_v1.ready=false`.
+Do not promote that result to full A2A compatibility.
+
+Google's [ADK A2A guidance](https://adk.dev/a2a/) distinguishes local agents
+from remote agents. Its [MCP integration guidance](https://adk.dev/tools-custom/mcp-tools/)
+supports discovered tool integration. Apply these through the installed SDK's
+tested contracts: preserve local bounded delegation, owner-bound MCP admission,
+and explicit remote task compatibility gates rather than replacing every local
+specialist with a network hop.
+
+## Earlier documentation audit
 
 See the [canonical runtime architecture visuals](../architecture/architecture.md).
 

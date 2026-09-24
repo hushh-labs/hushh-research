@@ -9,6 +9,18 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from hushh_mcp.one_adk import agent_tree
 
 
+def test_consent_routing_is_not_reauthored_by_runtime_instruction():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction).strip()
+    composed = agent_tree.ONE_IDENTITY_INSTRUCTION
+    assert authored in composed
+    overlay = composed.removeprefix(authored)
+    assert "withdraw that" not in overlay
+    assert "Nav answers from structured lookups" not in overlay
+    assert 'ask_consent_agent with target "connections"' in authored
+    assert "Do not hand consent questions to a specialist" in authored
+    assert 'run_app_action("consent.cancel_request", {})' in authored
+
+
 def test_one_chat_receives_authored_cross_connector_semantic_policy():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
