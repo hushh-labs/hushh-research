@@ -76,19 +76,15 @@ class GoogleDriveMcpService:
         The public catalog is capability metadata. It supplies no execution
         authority, credential, or private file result.
         """
-        if force_refresh:
-            self._catalog.invalidate(access_token)
-        revision = self._catalog.revision
-        cached = self._catalog.get(access_token)
-        if cached is not None:
-            return cached
-        tools = await list_tools(
-            endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
-            headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
-        )
-        result: list[dict[str, Any]] = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
-        self._catalog.put(access_token, result, revision=revision)
-        return result
+
+        async def discover() -> list[dict[str, Any]]:
+            tools = await list_tools(
+                endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
+                headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
+            )
+            return admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
+
+        return await self._catalog.load(access_token, discover, force_refresh=force_refresh)
 
     async def discover_for_owner(
         self, *, user_id: str, force_refresh: bool = False

@@ -34,21 +34,14 @@ class GoogleCalendarMcpService:
     async def _catalog_for_token(
         self, token: str, *, force_refresh: bool = False
     ) -> list[dict[str, Any]]:
-        if force_refresh:
-            self._catalog.invalidate(token)
-        revision = self._catalog.revision
-        cached = self._catalog.get(token)
-        if cached is not None:
-            return cached
-        tools = await list_tools(
-            endpoint=GOOGLE_CALENDAR_MCP_ENDPOINT,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        result: list[dict[str, Any]] = admit_catalog(
-            tools, allowed_names=GOOGLE_CALENDAR_READ_TOOLS
-        )
-        self._catalog.put(token, result, revision=revision)
-        return result
+        async def discover() -> list[dict[str, Any]]:
+            tools = await list_tools(
+                endpoint=GOOGLE_CALENDAR_MCP_ENDPOINT,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            return admit_catalog(tools, allowed_names=GOOGLE_CALENDAR_READ_TOOLS)
+
+        return await self._catalog.load(token, discover, force_refresh=force_refresh)
 
     async def discover_read_tools(
         self, *, user_id: str, force_refresh: bool = False

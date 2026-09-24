@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import Any
 
@@ -41,6 +42,24 @@ class McpCatalogCache:
         """Forget only this credential's catalog before an explicit refresh."""
         self._entries.pop(self._key(token), None)
         self._revision += 1
+
+    async def load(
+        self,
+        token: str | None,
+        discover: Callable[[], Awaitable[list[dict[str, Any]]]],
+        *,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        """One refresh contract for all providers; failed discovery is not cached."""
+        if force_refresh:
+            self.invalidate(token)
+        revision = self.revision
+        cached = self.get(token)
+        if cached is not None:
+            return cached
+        catalog = await discover()
+        self.put(token, catalog, revision=revision)
+        return catalog
 
     def put(
         self, token: str | None, catalog: list[dict[str, Any]], *, revision: int | None = None
