@@ -136,6 +136,15 @@ def test_save_gmail_draft_is_explicit_and_rejects_attachments():
     assert service.create_reviewed_draft.await_args.kwargs["user_id"] == "firebase-user"
 
 
+def test_save_gmail_draft_rejects_malformed_service_acknowledgement():
+    service = MagicMock()
+    service.create_reviewed_draft = AsyncMock(return_value={"status": "saved", "draft_id": ""})
+    with patch.object(module, "GoogleGmailMcpService", return_value=service):
+        response = TestClient(_app()).post("/api/one/email/draft/save", json=_envelope())
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "GMAIL_SEND_NOT_READY"
+
+
 def test_route_rejects_multiple_attachments_and_caller_supplied_bytes():
     client = TestClient(_app())
     for payload in (

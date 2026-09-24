@@ -125,8 +125,21 @@ async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str 
 async def _grant_binding(owner: str, provider: WorkspaceProvider) -> tuple[str, ...] | None:
     """Consume the credential owner's read-only account/grant observation."""
     if provider == "gmail":
-        return await GmailReceiptsService().read_grant_binding(user_id=owner)
-    return await get_google_connection_service().read_grant_binding(user_id=owner, service=provider)
+        binding = await GmailReceiptsService().read_grant_binding(user_id=owner)
+    else:
+        binding = await get_google_connection_service().read_grant_binding(
+            user_id=owner, service=provider
+        )
+    if (
+        not isinstance(binding, (tuple, list))
+        or len(binding) != 5
+        or any(not isinstance(part, str) or not part.strip() for part in binding)
+    ):
+        return None
+    normalized = tuple(part.strip() for part in binding if isinstance(part, str))
+    if len(normalized) != 5 or normalized[0] != owner or normalized[1] != provider:
+        return None
+    return normalized
 
 
 def _schema_without_prose(value: Any) -> Any:

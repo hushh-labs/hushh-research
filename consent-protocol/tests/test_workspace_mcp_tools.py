@@ -205,14 +205,31 @@ async def test_discovery_rejects_schema_enum_prompt_injection(admission):
 
 @pytest.mark.asyncio
 async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
-    gmail = SimpleNamespace(read_grant_binding=AsyncMock(return_value=("gmail-binding",)))
-    google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=("google-binding",)))
+    gmail_binding = ("owner-a", "gmail", "google-sub", "connected-at", "revision-1")
+    calendar_binding = ("owner-a", "calendar", "google-sub", "connected-at", "revision-2")
+    gmail = SimpleNamespace(read_grant_binding=AsyncMock(return_value=gmail_binding))
+    google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=calendar_binding))
     monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
     monkeypatch.setattr(tools, "get_google_connection_service", lambda: google)
-    assert await tools._grant_binding("owner-a", "gmail") == ("gmail-binding",)
-    assert await tools._grant_binding("owner-a", "calendar") == ("google-binding",)
+    assert await tools._grant_binding("owner-a", "gmail") == gmail_binding
+    assert await tools._grant_binding("owner-a", "calendar") == calendar_binding
     gmail.read_grant_binding.assert_awaited_once_with(user_id="owner-a")
     google.read_grant_binding.assert_awaited_once_with(user_id="owner-a", service="calendar")
+
+
+@pytest.mark.asyncio
+async def test_grant_binding_rejects_malformed_or_cross_owner_observations(monkeypatch):
+    gmail = SimpleNamespace(
+        read_grant_binding=AsyncMock(
+            side_effect=[
+                ("owner-a", "gmail", "google-sub"),
+                ("owner-b", "gmail", "google-sub", "connected-at", "revision-1"),
+            ]
+        )
+    )
+    monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
+    assert await tools._grant_binding("owner-a", "gmail") is None
+    assert await tools._grant_binding("owner-a", "gmail") is None
 
 
 @pytest.mark.asyncio
