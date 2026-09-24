@@ -15,7 +15,7 @@ from google.genai import types
 from pydantic import PrivateAttr
 
 from hushh_mcp.one_adk import agent_tree
-from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_USER_ID
+from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_CONVERSATION_ID, STATE_USER_ID
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
@@ -200,6 +200,54 @@ async def test_email_authority_minted_only_at_trusted_typed_ingress(monkeypatch,
         assert task.execution_surface == "typed_chat"
     else:
         assert task is None
+
+
+async def test_documents_followup_gets_only_prior_visible_answer(monkeypatch):
+    context = SimpleNamespace(
+        state={
+            STATE_USER_ID: "owner",
+            STATE_CONSENT_TOKEN: "opaque",
+            STATE_EXECUTION_SURFACE: "typed_chat",
+            STATE_CONVERSATION_ID: "conversation",
+        },
+        user_id="owner",
+        invocation_id="current",
+        function_call_id="call",
+        session=SimpleNamespace(
+            events=[
+                SimpleNamespace(
+                    author="one",
+                    invocation_id="previous",
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                text="1. First.pdf\n2. Board recording.mp4", thought=False
+                            ),
+                        ]
+                    ),
+                ),
+                SimpleNamespace(
+                    author="one",
+                    invocation_id="current",
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(text="Current turn preface", thought=False),
+                        ]
+                    ),
+                ),
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        agent_tree,
+        "validate_first_party_owner_token",
+        AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
+    )
+    task = await agent_tree._task_from_context(
+        context, "read the second one", agent_id="agent_documents"
+    )
+    assert task.previous_answer == "1. First.pdf\n2. Board recording.mp4"
+    assert "Current turn preface" not in task.previous_answer
 
 
 @pytest.mark.parametrize(

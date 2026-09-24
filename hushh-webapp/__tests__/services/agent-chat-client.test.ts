@@ -162,6 +162,24 @@ describe("AG-UI Agent One client", () => {
   });
 
   it.each([
+    { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
+    { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },
+    { status: "ok", metadataOnly: true, expected: "Drive search finished." },
+  ])("reports the Drive outcome instead of treating $status as a completed read", async ({ status, metadataOnly, expected }) => {
+    const onToolResult = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "drive-call", toolCallName: "ask_documents_agent" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "drive-call", content: JSON.stringify({
+        status, structured: { schema_version: "specialist_read.v1", connector: "drive", status,
+          sources: [], truncated: false, metadata_only: metadataOnly },
+      }) } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Find my file", vaultOwnerToken: "fixture",
+      handlers: { onToolResult } });
+    expect(onToolResult.mock.calls[0][0].message).toBe(expected);
+  });
+
+  it.each([
     { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
     { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },
   ])("forwards safe $connector provenance without dispatching a smuggled action or storing tool text", async ({ toolName, connector, sourceRef, kind, label }) => {

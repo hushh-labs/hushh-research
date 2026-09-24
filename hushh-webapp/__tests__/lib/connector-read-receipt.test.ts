@@ -18,6 +18,10 @@ describe("connector read receipts", () => {
     expect(JSON.stringify(value)).not.toContain("PRIVATE");
     expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], page: 101 }] })).toBeNull();
     expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], label: "PRIVATE FILENAME" }] })).toBeNull();
+    const found = { ...structured, metadata_only: true,
+      sources: [{ source_ref: ref, kind: "metadata", label: "Document", page: null }] };
+    expect(parseConnectorReadReceipt(found)).toMatchObject({ metadataOnly: true, sourceRefs: [ref] });
+    expect(parseConnectorReadReceipt({ ...found, sources: [{ ...found.sources[0], open_url: "https://evil.invalid" }] })).toBeNull();
   });
   it("adapts only the declared Mail result and drops the outer tool text", () => {
     const value = parseAgentToolResultExperience("ask_email_agent", JSON.stringify({
