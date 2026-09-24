@@ -10,7 +10,9 @@ from hushh_mcp.one_adk import workspace_mcp_tools as tools
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.google_calendar_mcp_service import GOOGLE_CALENDAR_READ_TOOLS
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.google_drive_mcp_service import GOOGLE_DRIVE_READ_TOOLS
 from hushh_mcp.services.google_gmail_mcp_service import GOOGLE_GMAIL_READ_TOOLS
 
@@ -237,6 +239,25 @@ async def test_empty_catalog_is_not_ready(admission):
     result = await tools.discover_workspace_tools("gmail", context())
     assert result["status"] == "unavailable"
     assert result["tools"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "error"),
+    [
+        ("gmail", GmailApiError("private provider detail", status_code=401)),
+        ("calendar", GoogleConnectionError("private provider detail", status_code=403)),
+    ],
+)
+async def test_discovery_preserves_only_safe_reconnect_state(provider, error, admission):
+    admission.discover_read_tools.side_effect = error
+    result = await tools.discover_workspace_tools(provider, context())
+    assert result == {
+        "status": "permission_required",
+        "provider": provider,
+        "message": "Check this connection and its reading permission, then try again.",
+    }
+    assert "private provider detail" not in str(result)
 
 
 @pytest.mark.asyncio

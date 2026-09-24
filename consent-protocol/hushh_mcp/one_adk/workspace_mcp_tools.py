@@ -249,13 +249,13 @@ async def discover_workspace_tools(
             provider != "drive" and await _grant_binding(owner, provider) != binding
         ):
             return {"status": "blocked", "message": "The session changed. Try again."}
-    except DriveOAuthError as error:
+    except (DriveOAuthError, GoogleConnectionError, GmailApiError) as error:
         return {
             "status": "permission_required"
             if error.status_code in {401, 403, 409}
             else "unavailable",
             "provider": provider,
-            "message": "Connect live Drive access to check these capabilities.",
+            "message": "Check this connection and its reading permission, then try again.",
         }
     except Exception:  # noqa: BLE001 - provider details may contain credentials
         return {"status": "unavailable", "message": "These capabilities could not be checked."}
