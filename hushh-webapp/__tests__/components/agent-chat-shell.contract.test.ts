@@ -68,7 +68,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("agent-chat-composer-expanded");
     expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
-    expect(workspace).toContain("px-0 py-2.5");
+    expect(workspace).toContain("agent-chat-composer-surface");
+    expect(workspace).toContain("px-0 py-3");
+    expect(workspace).toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
     expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');

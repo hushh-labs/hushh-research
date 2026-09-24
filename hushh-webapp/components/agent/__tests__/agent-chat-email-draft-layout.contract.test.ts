@@ -17,7 +17,15 @@ describe("Agent Chat email draft layout contract", () => {
     );
     expect(source).toContain("openGmailEmailDraftFromDirective");
     expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
-    expect(source).toContain("setEmailDraftAutoDraft(true);");
+    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft);");
+    expect(source).toContain("initialDraft: body");
+    expect(source).toContain("getGmailInformationRequestReplyPayload");
+    expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
+    expect(source).toContain(
+      '"Reply to the selected Gmail email with appropriate details from my PKM."',
+    );
+    expect(source).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
+    expect(source).not.toContain("prepareScopedGmailInformationRequestDraft");
     expect(source).toContain("autoDraft={emailDraftAutoDraft}");
     expect(source).toContain("onSendStarted={handleEmailSendStarted}");
     expect(source).toContain("EmailDeliveryHistoryCard");

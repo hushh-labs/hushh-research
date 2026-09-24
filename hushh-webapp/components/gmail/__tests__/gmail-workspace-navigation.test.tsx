@@ -15,7 +15,7 @@ describe("Gmail workspace navigation", () => {
     );
 
     expect(
-      screen.getByRole("tablist", { name: "Mail workspace" }),
+      screen.getByRole("tablist", { name: "Gmail workspace" }),
     ).toBeVisible();
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
       "aria-selected",

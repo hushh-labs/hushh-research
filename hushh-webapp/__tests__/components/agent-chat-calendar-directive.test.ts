@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getCalendarDirectiveFromToolEvent } from "@/components/agent/agent-chat-workspace";
+import {
+  getCalendarDirectiveFromToolEvent,
+  getGmailEmailDraftPayload,
+  getGmailInformationRequestReplyPayload,
+} from "@/components/agent/agent-chat-workspace";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(
@@ -247,5 +251,63 @@ describe("getCalendarDirectiveFromToolEvent", () => {
         },
       },
     });
+  });
+});
+
+describe("getGmailInformationRequestReplyPayload", () => {
+  it("keeps a source-bound One reply body on the live tool event", () => {
+    const event = makeToolEvent(
+      "open_gmail_information_request_reply",
+      { status: "draft_opened" },
+      { body: "Here are the requested details." },
+    );
+
+    expect(getGmailInformationRequestReplyPayload(event)).toEqual({
+      body: "Here are the requested details.",
+    });
+  });
+
+  it("rejects ordinary Gmail draft events", () => {
+    expect(
+      getGmailInformationRequestReplyPayload(
+        makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, { body: "Nope" }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("getGmailEmailDraftPayload", () => {
+  it("uses One's active tool-call draft without storing it in a directive", () => {
+    const draft = getGmailEmailDraftPayload(
+      makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, {
+        request: "Send a hello email",
+        to: "person@example.com",
+        subject: "Hello",
+        body: "Hello there",
+      }),
+    );
+
+    expect(draft).toEqual({
+      instruction: "Send a hello email",
+      driveFileId: null,
+      initialDraft: {
+        to: "person@example.com",
+        cc: "",
+        bcc: "",
+        subject: "Hello",
+        body: "Hello there",
+      },
+    });
+  });
+
+  it("falls back to the bounded Email Draft Writer when One did not supply a body", () => {
+    const draft = getGmailEmailDraftPayload(
+      makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, {
+        request: "Send a hello email",
+        subject: "Hello",
+      }),
+    );
+
+    expect(draft?.initialDraft).toBeNull();
   });
 });

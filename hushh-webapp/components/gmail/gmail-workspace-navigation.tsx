@@ -23,7 +23,7 @@ export function GmailWorkspaceNavigation({
       onValueChange={(next) => onValueChange(next as GmailWorkspace)}
       options={[...OPTIONS]}
       mobileColumns={3}
-      ariaLabel="Mail workspace"
+      ariaLabel="Gmail workspace"
       variant="agent-top"
     />
   );

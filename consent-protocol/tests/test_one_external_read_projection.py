@@ -106,6 +106,53 @@ def test_unrelated_sessions_and_events_are_preserved():
     assert durable_external_read_projection(session) is session
 
 
+def test_selected_gmail_reply_context_and_draft_body_are_not_durable():
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={
+            "temp:hussh:gmail_information_request_context": "PRIVATE_SOURCE_EMAIL",
+            "temp:hussh:gmail_information_request_workflow_id": "workflow-1",
+        },
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            id="call",
+                            name="open_gmail_information_request_reply",
+                            args={"body": "PRIVATE_DRAFT_BODY"},
+                        )
+                    )
+                ],
+                invocation="draft-turn",
+            ),
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="call",
+                            name="open_gmail_information_request_reply",
+                            response={"message": "PRIVATE_DRAFT_BODY"},
+                        )
+                    )
+                ],
+                invocation="draft-turn",
+            ),
+        ],
+    )
+
+    durable = durable_external_read_projection(session)
+
+    assert "PRIVATE_" not in durable.model_dump_json()
+    assert durable.events[0].content.parts[0].function_call.args == {}
+    assert durable.events[1].content.parts[0].function_response.response == {
+        "content_redacted": True
+    }
+    assert session.events[0].content.parts[0].function_call.args == {"body": "PRIVATE_DRAFT_BODY"}
+
+
 async def test_compare_and_swap_retry_preserves_live_guard_without_persisting_it(monkeypatch):
     service = EncryptedAdkSessionService()
     session = Session(

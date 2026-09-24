@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Mail, MailCheck } from "@/components/icons";
+import { Loader2, Mail, MailCheck, RefreshCw } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
@@ -57,7 +57,19 @@ function gmailThreadUrl(threadId: string): string {
 
 function fieldLabels(workflow: GmailInformationRequestWorkflow): string {
   return (
-    workflow.requested_field_labels.slice(0, 3).join(", ") ||
+    workflow.requested_field_labels
+      .slice(0, 3)
+      .map((label) => {
+        const readable = label
+          .replace(/[_-]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return readable
+          ? `${readable.charAt(0).toUpperCase()}${readable.slice(1)}`
+          : "";
+      })
+      .filter(Boolean)
+      .join(", ") ||
     "Personal information"
   );
 }
@@ -269,8 +281,8 @@ function WorkflowQueueCard({
   onDraftWithOne: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3.5">
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="rounded-[var(--app-card-radius-md)] border border-[color:var(--app-card-border-standard)] bg-background/60 px-4 py-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.025]">
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
             <MailCheck className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -294,7 +306,7 @@ function WorkflowQueueCard({
             </p>
           </div>
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:shrink-0">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-[19.5rem] sm:shrink-0 sm:grid-cols-[minmax(0,1fr)_8.25rem]">
           <Button
             type="button"
             size="sm"
@@ -548,7 +560,7 @@ export default function GmailInformationRequestsSection({
       setError(
         scanError instanceof Error
           ? scanError.message
-          : "We could not scan your Inbox. Try Scan inbox again.",
+          : "We couldn’t check Gmail right now. Try again.",
       );
       return false;
     } finally {
@@ -940,36 +952,126 @@ export default function GmailInformationRequestsSection({
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.workflow_id === selectedWorkflowId,
   );
+  const monitoringActions = enabled ? (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-11 w-full sm:w-auto"
+        variant="muted"
+        disabled={loading || scanningInbox}
+        onClick={() =>
+          vaultOwnerToken ? void scanInbox() : onRequestVaultUnlock()
+        }
+      >
+        {scanningInbox || loading ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <RefreshCw className="mr-2 h-4 w-4" />
+        )}
+        {scanningInbox || loading
+          ? "Looking…"
+          : vaultOwnerToken
+            ? "Check now"
+            : "Unlock to check"}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-11 w-full text-muted-foreground hover:text-destructive sm:w-auto"
+        variant="muted"
+        disabled={updating || loading || scanningInbox}
+        onClick={() => setShowDisableConfirm(true)}
+      >
+        Turn off
+      </Button>
+    </>
+  ) : (
+    <Button
+      type="button"
+      size="sm"
+      className="min-h-11 w-full sm:w-auto"
+      variant="blue-gradient"
+      disabled={updating || loading || scanningInbox}
+      onClick={() => {
+        if (vaultKey && vaultOwnerToken) {
+          setShowEnableConfirm(true);
+          return;
+        }
+        void setMonitoring(true);
+      }}
+    >
+      {updating ? (
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+      ) : (
+        <Mail className="mr-2 h-4 w-4" />
+      )}
+      {vaultKey && vaultOwnerToken
+        ? "Start monitoring"
+        : "Unlock to start"}
+    </Button>
+  );
   return (
-    <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+    <SurfaceInset className="space-y-5 px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="font-medium text-foreground">KYC requests</p>
+          <p className="font-semibold text-foreground">KYC requests</p>
           <p className="text-sm leading-6 text-muted-foreground">
-            Review new requests, choose the details to share, and approve every
-            reply.
+            Review requests and approve every reply before it sends.
           </p>
         </div>
-        {enabled ? <Badge variant="secondary">Monitoring on</Badge> : null}
+        {enabled ? (
+          <Badge variant="secondary" className="shrink-0 gap-1.5">
+            <span
+              className="size-1.5 rounded-full bg-emerald-500"
+              aria-hidden="true"
+            />
+            On
+          </Badge>
+        ) : null}
       </div>
 
       {enabled ? (
-        <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          <div className="flex items-start gap-2">
-            <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-            <p>
-              We process new Inbox messages first, then continue a saved
-              newest-to-oldest backfill without reclassifying messages already
-              processed. Their content is classified transiently; only request
-              metadata is retained.
-            </p>
+        <div className="flex flex-col gap-3 rounded-[var(--app-card-radius-sm)] border border-primary/15 bg-primary/[0.045] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              {scanningInbox ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <MailCheck className="h-4 w-4" aria-hidden="true" />
+              )}
+            </div>
+            <div className="min-w-0" aria-live="polite">
+              <p className="font-medium text-foreground">
+                {scanningInbox
+                  ? "Looking for KYC-related emails…"
+                  : "Gmail monitoring is on"}
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {scanningInbox
+                  ? "We’ll add any requests we find here."
+                  : "We’ll show you new requests here when they arrive."}
+              </p>
+            </div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            {monitoringActions}
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Start monitoring to scan your last 30 Inbox mail messages, then keep
-          KYC requests up to date as new mail arrives. Monitoring never grants
-          sharing or send permission.
+        <div className="flex flex-col gap-3 rounded-[var(--app-card-radius-sm)] border border-border/60 bg-background/60 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Mail className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Find KYC requests in Gmail</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Nothing is shared without your approval.
+              </p>
+            </div>
+          </div>
+          <div className="w-full sm:w-auto">{monitoringActions}</div>
         </div>
       )}
 
@@ -987,27 +1089,15 @@ export default function GmailInformationRequestsSection({
           ) : null}
         </p>
       ) : null}
-      {enabled && scanningInbox ? (
-        <p aria-live="polite" className="text-xs text-muted-foreground">
-          Processing up to 30 previously unprocessed Inbox messages. This can
-          take a little longer when Gmail or the classifier retries…
-        </p>
-      ) : null}
       {enabled && scanSummary ? (
         <div
           aria-live="polite"
-          className="grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-4"
+          className="grid grid-cols-2 gap-3 rounded-[var(--app-card-radius-sm)] border border-border/60 bg-background/60 px-3.5 py-3"
         >
           <div>
-            <p className="text-xs text-muted-foreground">Processed now</p>
+            <p className="text-xs text-muted-foreground">Emails checked</p>
             <p className="mt-1 text-sm font-semibold text-foreground">
               {scanSummary.scanned_count}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Already processed</p>
-            <p className="mt-1 text-sm font-semibold text-foreground">
-              {scanSummary.unchanged_count}
             </p>
           </div>
           <div>
@@ -1016,82 +1106,25 @@ export default function GmailInformationRequestsSection({
               {scanSummary.matched_count}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Pending retry</p>
-            <p className="mt-1 text-sm font-semibold text-foreground">
-              {scanSummary.failed_count}
-            </p>
-          </div>
           {scanSummary.failed_count > 0 ? (
-            <p className="col-span-2 text-xs text-amber-700 dark:text-amber-300 sm:col-span-4">
-              {scanSummary.failed_count} mail message
-              {scanSummary.failed_count === 1 ? "" : "s"} could not be
-              classified. Scan again to retry.
+            <p className="col-span-2 text-xs text-amber-700 dark:text-amber-300">
+              We couldn’t check {scanSummary.failed_count} email
+              {scanSummary.failed_count === 1 ? "" : "s"}. Try again in a
+              moment.
             </p>
           ) : null}
           {scanSummary.backfill_pending ? (
-            <p className="col-span-2 text-xs text-muted-foreground sm:col-span-4">
-              More older Inbox mail is queued for incremental processing. New
-              mail will always be checked first.
+            <p className="col-span-2 text-xs text-muted-foreground">
+              We’ll keep checking your Gmail emails in the background.
             </p>
           ) : null}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          className="min-h-11"
-          variant={enabled ? "muted" : "blue-gradient"}
-          disabled={updating || loading || scanningInbox}
-          onClick={() => {
-            if (enabled) {
-              setShowDisableConfirm(true);
-              return;
-            }
-            if (vaultKey && vaultOwnerToken) {
-              setShowEnableConfirm(true);
-              return;
-            }
-            void setMonitoring(true);
-          }}
-        >
-          {updating ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Mail className="mr-2 h-4 w-4" />
-          )}
-          {enabled
-            ? "Turn off monitoring"
-            : vaultKey && vaultOwnerToken
-              ? "Start KYC monitoring"
-              : "Unlock to start monitoring"}
-        </Button>
-        {enabled ? (
-          <Button
-            type="button"
-            size="sm"
-            className="min-h-11"
-            variant="muted"
-            disabled={loading || scanningInbox}
-            onClick={() =>
-              vaultOwnerToken ? void scanInbox() : onRequestVaultUnlock()
-            }
-          >
-            {scanningInbox || loading
-              ? "Checking…"
-              : vaultOwnerToken
-                ? "Scan inbox"
-                : "Unlock to check inbox"}
-          </Button>
-        ) : null}
-      </div>
-
       {enabled && !vaultOwnerToken ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Unlock your private vault to view KYC requests, check Mail, or
+            Unlock your private vault to view KYC requests, check Gmail, or
             prepare a draft.
           </p>
           <Button
@@ -1185,7 +1218,7 @@ export default function GmailInformationRequestsSection({
         </p>
       ) : enabled && listView === "activity" && activityLoaded ? (
         <p className="text-xs text-muted-foreground">
-          No KYC activity yet. Sent messages remain available in Mail.
+          No KYC activity yet. Sent messages remain available in Gmail.
         </p>
       ) : null}
 
@@ -1228,12 +1261,10 @@ export default function GmailInformationRequestsSection({
       >
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Start KYC monitoring?</AlertDialogTitle>
+            <AlertDialogTitle>Start monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
-              We’ll scan your last 30 Inbox mail messages, including mail
-              messages you have already opened, to identify KYC requests. Mail
-              content is not retained, and monitoring never shares or sends
-              anything.
+              We’ll look through recent Gmail emails for KYC requests. Nothing
+              is shared or sent without your approval.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
@@ -1260,10 +1291,8 @@ export default function GmailInformationRequestsSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
-              This stops future checks and permanently deletes KYC-request
-              activity and monitoring metadata. Your Mail messages are not
-              deleted. Turning it on again scans your last 30 Inbox mail
-              messages before monitoring new mail.
+              This stops checking new Gmail emails and clears the requests
+              shown here. Your Gmail emails are not deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
