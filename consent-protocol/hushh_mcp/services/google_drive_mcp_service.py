@@ -42,7 +42,8 @@ GOOGLE_DRIVE_READ_TOOLS = frozenset(
     }
 )
 _CATALOG_TTL_SECONDS = 300
-_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "viewUrl"})
+_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "createdTime", "viewUrl"})
+_LISTING_TOOLS = frozenset({"search_files", "list_recent_files"})
 
 
 def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
@@ -171,7 +172,7 @@ class GoogleDriveMcpService:
             arguments,
             endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
             headers={"Authorization": f"Bearer {credential['accessToken']}"},
-            **({"project": _search_metadata} if tool_name == "search_files" else {}),
+            **({"project": _search_metadata} if tool_name in _LISTING_TOOLS else {}),
         )
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (

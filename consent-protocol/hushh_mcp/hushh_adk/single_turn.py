@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, AgentModelConfig, AgentSubagentConfig
 from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
-from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import (
     build_generate_content_config,
     resolve_fleet_model_name,
@@ -53,7 +53,11 @@ def build_single_turn_agent(
         raise ValueError("single-turn output_schema is required")
     config = _manifest_config(manifest_or_subagent)
     configured_model = resolve_fleet_model_name(config.name)
-    resolved = model if model is not None else build_managed_gemini_adk_model(configured_model)
+    # One tool-less request: a transient provider failure may replay in the next
+    # configured Vertex location through the shared VertexRegionalClient.
+    resolved = (
+        model if model is not None else build_managed_regional_gemini_adk_model(configured_model)
+    )
     model_name = resolved if isinstance(resolved, str) else str(getattr(resolved, "model", ""))
     if not model_name:
         model_name = config.name
