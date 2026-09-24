@@ -10,7 +10,8 @@ from ag_ui.core import BaseEvent, EventType
 from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_NAME
 from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
 
-_OUTCOMES = frozenset({"ok", "blocked", "unavailable"})
+_OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required"})
+_WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
 _PRIVATE_TOOLS = frozenset(
     {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
 )
@@ -25,11 +26,16 @@ def _safe_result(value: object) -> dict[str, Any]:
             value = None
     result = value if isinstance(value, dict) else {}
     status = result.get("status")
-    return {
+    safe = {
         "status": status if status in _OUTCOMES else "unavailable",
         "private_result": "not_retained",
         "truncated": result.get("truncated") is True,
     }
+    # The provider enum is safe to expose and is needed for the in-chat OAuth
+    # card after private tool arguments and results have been removed.
+    if status == "permission_required" and result.get("provider") in _WORKSPACE_PROVIDERS:
+        safe["provider"] = result["provider"]
+    return safe
 
 
 def redact_drive_session_json(serialized: str) -> str:

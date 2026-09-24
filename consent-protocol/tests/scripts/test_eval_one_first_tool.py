@@ -122,12 +122,13 @@ def test_load_rejects_wrong_schema_version(tmp_path):
 def test_roster_is_the_production_roster(roster_names):
     assert len(roster_names) >= 40
     assert {"run_app_action", "ask_consent_agent", "google_search", "finance"} <= roster_names
-    assert {"discover_google_drive_tools", "read_google_drive"} <= roster_names
+    assert {"discover_workspace_tools", "read_workspace_tool"} <= roster_names
+    assert {"discover_google_drive_tools", "read_google_drive"}.isdisjoint(roster_names)
 
 
 def test_drive_email_first_tool_must_identify_file_before_draft(cases):
     case = next(case for case in cases if case.id == "drive.email_selected_file")
-    assert set(case.expected) == {"discover_google_drive_tools", "read_google_drive"}
+    assert set(case.expected) == {"discover_workspace_tools", "read_workspace_tool"}
     assert not harness.is_hit("open_gmail_email_draft", case.expected)
 
 

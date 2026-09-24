@@ -178,14 +178,6 @@ tools:
     description: Perform one bounded Workspace MCP read using its discovered schema; provider writes require their existing reviewed app action.
     py_func: hushh_mcp.one_adk.workspace_mcp_tools.read_workspace_tool
     required_scope: vault.owner
-  - name: discover_google_drive_tools
-    description: Discover the current official Google Drive MCP read capabilities and exact input schemas in authenticated Chat.
-    py_func: hushh_mcp.one_adk.drive_tools.discover_google_drive_tools
-    required_scope: vault.owner
-  - name: read_google_drive
-    description: Read one item from the owner's connected Google Drive through a reviewed MCP operation; no file mutation or sending.
-    py_func: hushh_mcp.one_adk.drive_tools.read_google_drive
-    required_scope: vault.owner
 runtime:
   kind: adk
   factory: hushh_mcp.one_adk.agent_tree.build_one_text_agent

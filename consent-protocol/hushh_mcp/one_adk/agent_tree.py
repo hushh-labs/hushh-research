@@ -93,7 +93,6 @@ from hushh_mcp.one_adk.agui_turn_timing import (
     timed_one_after_model,
     timed_one_before_model,
 )
-from hushh_mcp.one_adk.drive_tools import discover_google_drive_tools, read_google_drive
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     before_external_read_tool,
@@ -2170,7 +2169,6 @@ def _one_roster_tools(
     *,
     specialist_model: Any | None = None,
     tool_mode: str = "full",
-    allow_owner_drive_tools: bool = False,
     allow_workspace_tools: bool = False,
 ) -> list:
     """The /one specialist roster, shared by every One head.
@@ -2250,8 +2248,6 @@ def _one_roster_tools(
         tools.index(ask_email_agent),
         AgentTool(agent=_build_wallet_agent(model=specialist_model)),
     )
-    if allow_owner_drive_tools and not pod_mode():
-        tools.extend([discover_google_drive_tools, read_google_drive])
     if allow_workspace_tools and not pod_mode():
         tools.extend([discover_workspace_tools, read_workspace_tool])
     return tools
@@ -2267,7 +2263,6 @@ def build_one_root_agent(
 def build_one_text_agent(
     *,
     model: Any | None = None,
-    allow_owner_drive_tools: bool = False,
     allow_workspace_tools: bool = False,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
@@ -2288,7 +2283,6 @@ def build_one_text_agent(
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(
             specialist_model=text_model,
-            allow_owner_drive_tools=allow_owner_drive_tools,
             allow_workspace_tools=allow_workspace_tools,
         ),
         before_tool_callback=before_external_read_tool,

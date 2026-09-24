@@ -140,6 +140,46 @@ def test_failed_read_keeps_only_safe_outcome():
     assert "PRIVATE_DRIVE_SENTINEL" not in safe.model_dump_json()
 
 
+@pytest.mark.parametrize("provider", ["drive", "gmail", "calendar"])
+def test_missing_workspace_grant_retains_only_provider_for_connect_card(provider):
+    secret = "PRIVATE_PROVIDER_SENTINEL"
+    known = {"workspace-call"}
+    event = ToolCallResultEvent(
+        message_id="result-connect",
+        tool_call_id="workspace-call",
+        content=json.dumps(
+            {
+                "status": "permission_required",
+                "provider": provider,
+                "message": secret,
+            }
+        ),
+    )
+    safe = redact_drive_wire_event(event, known)
+    assert json.loads(safe.content) == {
+        "status": "permission_required",
+        "private_result": "not_retained",
+        "truncated": False,
+        "provider": provider,
+    }
+    assert secret not in safe.model_dump_json()
+
+
+def test_untrusted_workspace_provider_is_not_projected():
+    event = ToolCallResultEvent(
+        message_id="result-untrusted",
+        tool_call_id="workspace-call",
+        content=json.dumps(
+            {
+                "status": "permission_required",
+                "provider": "attacker-controlled-provider",
+            }
+        ),
+    )
+    safe = redact_drive_wire_event(event, {"workspace-call"})
+    assert "provider" not in json.loads(safe.content)
+
+
 @pytest.mark.parametrize("status", ["ok", "blocked", "unavailable"])
 def test_storage_keeps_safe_outcome_and_truncation(status):
     document = {

@@ -234,7 +234,11 @@ async def discover_workspace_tools(
         # checks. Do not require a parallel legacy Google service grant.
         binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:
-            return {"status": "permission_required", "message": "Connect this service to read it."}
+            return {
+                "status": "permission_required",
+                "provider": provider,
+                "message": "Connect this service to read it.",
+            }
         service = _service(provider)
         tools = (
             await service.discover_for_owner(user_id=owner)
@@ -250,6 +254,7 @@ async def discover_workspace_tools(
             "status": "permission_required"
             if error.status_code in {401, 403, 409}
             else "unavailable",
+            "provider": provider,
             "message": "Connect live Drive access to check these capabilities.",
         }
     except Exception:  # noqa: BLE001 - provider details may contain credentials
@@ -281,7 +286,11 @@ async def read_workspace_tool(
         # before and after the provider call; legacy grants are not authority.
         binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:
-            return {"status": "permission_required", "message": "Connect this service to read it."}
+            return {
+                "status": "permission_required",
+                "provider": provider,
+                "message": "Connect this service to read it.",
+            }
         result = await _service(provider).read_tool(
             user_id=owner, tool_name=tool_name, arguments=arguments
         )
@@ -296,6 +305,7 @@ async def read_workspace_tool(
             "status": "permission_required"
             if error.status_code in {401, 403, 409}
             else "unavailable",
+            "provider": provider,
             "message": "Check this connection and its reading permission, then try again.",
         }
     except Exception:  # noqa: BLE001 - no raw provider diagnostics in model/history

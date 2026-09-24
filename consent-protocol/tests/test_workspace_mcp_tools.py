@@ -239,6 +239,19 @@ async def test_empty_catalog_is_not_ready(admission):
     assert result["tools"] == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["gmail", "calendar"])
+async def test_missing_grant_names_only_admitted_provider(provider, admission, monkeypatch):
+    monkeypatch.setattr(tools, "_grant_binding", AsyncMock(return_value=None))
+    result = await tools.read_workspace_tool(provider, "list_events", {}, context())
+    assert result == {
+        "status": "permission_required",
+        "provider": provider,
+        "message": "Connect this service to read it.",
+    }
+    admission.read_tool.assert_not_awaited()
+
+
 def test_workspace_read_blocks_followup_mutation_and_redacts_stored_payload():
     request = context()
     assert (

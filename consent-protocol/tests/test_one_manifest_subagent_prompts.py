@@ -103,16 +103,16 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: False)
     baseline = agent_tree._one_roster_tools(specialist_model="test-model")
     admitted = agent_tree._one_roster_tools(
-        specialist_model="test-model", allow_owner_drive_tools=True
+        specialist_model="test-model", allow_workspace_tools=True
     )
-    for tool in (agent_tree.discover_google_drive_tools, agent_tree.read_google_drive):
+    for tool in (agent_tree.discover_workspace_tools, agent_tree.read_workspace_tool):
         assert tool not in baseline
         assert tool in admitted
-    assert agent_tree._one_roster_tools(tool_mode="proposal", allow_owner_drive_tools=True) == [
+    assert agent_tree._one_roster_tools(tool_mode="proposal", allow_workspace_tools=True) == [
         agent_tree.list_app_actions,
         agent_tree.propose_app_action,
     ]
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
-    assert agent_tree.read_google_drive not in agent_tree._one_roster_tools(
-        specialist_model="test-model", allow_owner_drive_tools=True
+    assert agent_tree.read_workspace_tool not in agent_tree._one_roster_tools(
+        specialist_model="test-model", allow_workspace_tools=True
     )

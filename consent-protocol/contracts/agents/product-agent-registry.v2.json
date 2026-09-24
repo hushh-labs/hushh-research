@@ -3688,18 +3688,6 @@
           "name": "read_workspace_tool",
           "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.read_workspace_tool",
           "required_scope": "vault.owner"
-        },
-        {
-          "description": "Discover the current official Google Drive MCP read capabilities and exact input schemas in authenticated Chat.",
-          "name": "discover_google_drive_tools",
-          "py_func": "hushh_mcp.one_adk.drive_tools.discover_google_drive_tools",
-          "required_scope": "vault.owner"
-        },
-        {
-          "description": "Read one item from the owner's connected Google Drive through a reviewed MCP operation; no file mutation or sending.",
-          "name": "read_google_drive",
-          "py_func": "hushh_mcp.one_adk.drive_tools.read_google_drive",
-          "required_scope": "vault.owner"
         }
       ],
       "ui_type": "chat",
