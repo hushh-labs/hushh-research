@@ -415,11 +415,55 @@ describe("drive question transport", () => {
     ["a malformed request id", { requestId: "not-a-uuid" }],
     ["an unparseable expiry", { expiresAt: "tomorrow-ish" }],
     ["an overlong question", { query: "q".repeat(2001) }],
+    [
+      "the owner's file list in the asker's view",
+      {
+        direction: "outgoing",
+        status: "answered",
+        answer: { text: "x", titles: [], truncated: false, files: [{ ref: "f1", name: "a.pdf" }] },
+      },
+    ],
+    [
+      "a malformed file reference",
+      {
+        direction: "incoming",
+        status: "answered",
+        answer: { text: "x", titles: [], truncated: false, files: [{ ref: "x9", name: "a.pdf" }] },
+      },
+    ],
+    [
+      "a malformed share id",
+      { status: "answered", answer: { text: "x", titles: [], truncated: false, shareRequestId: "nope" } },
+    ],
   ])("rejects a view with %s", async (_label, overrides) => {
     fetcher.mockResolvedValueOnce(reply(rawView(overrides)));
     await expect(
       DriveSharingService.getQuery("vault", requestId, guard),
     ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("shares only a valid, non-empty selection of answer files", async () => {
+    for (const refs of [[], ["f0"], ["f1", "f1"], ["f11"]]) {
+      expect(() =>
+        DriveSharingService.shareQueryFiles("vault", requestId, refs, guard),
+      ).toThrow(DriveSharingError);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(
+      reply(
+        rawView({
+          direction: "incoming",
+          status: "answered",
+          answer: { text: "x", titles: [], truncated: false, files: [], shareRequestId: requestId },
+        }),
+      ),
+    );
+    await expect(
+      DriveSharingService.shareQueryFiles("vault", requestId, ["f1", "f2"], guard),
+    ).resolves.toMatchObject({ answer: { shareRequestId: requestId } });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe(`/api/connectors/google_drive/sharing/queries/${requestId}/share`);
+    expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
   });
 
   it("never grants decisions or owner errors to the person who asked", async () => {

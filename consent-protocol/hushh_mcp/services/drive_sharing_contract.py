@@ -91,6 +91,29 @@ def recipient_from_verified_firebase_claims(
         raise DriveSharingError("verify_google_identity_required") from None
 
 
+def recipient_from_google_provider(
+    user_id: str, google_provider: object, *, now: datetime | None = None
+) -> VerifiedGoogleRecipient:
+    """B's identity from Firebase Admin's current user record, for owner actions.
+
+    Used when A shares files from B's question: B is not present, so the proof
+    is the same server lookup that re-verifies every delivery, never request data.
+    """
+    subject = getattr(google_provider, "uid", None)
+    email = getattr(google_provider, "email", None)
+    if (
+        getattr(google_provider, "provider_id", None) != "google.com"
+        or not isinstance(subject, str)
+        or not re.fullmatch(r"[0-9]{1,40}", subject)
+        or not isinstance(email, str)
+        or not email.isascii()
+        or not 3 <= len(email) <= 254
+        or not _EMAIL.fullmatch(email)
+    ):
+        raise DriveSharingError("recipient_google_identity_required")
+    return VerifiedGoogleRecipient(user_id, subject, email, now or datetime.now(UTC))
+
+
 class ShareRequestPurpose(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     purpose: str = Field(min_length=1, max_length=2000)
