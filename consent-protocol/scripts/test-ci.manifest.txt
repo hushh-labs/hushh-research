@@ -190,6 +190,9 @@ tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
+# Inventory all user-keyed migration tables against executed deletes, checked
+# FK cascades, specialized Drive erasure, or an explicit retention contract.
+tests/services/test_account_erasure_covers_every_user_table.py
 tests/test_pool_acquire_is_bounded.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.

@@ -1,9 +1,8 @@
 """Every user-keyed table is erased on account deletion, or explicitly kept with a reason.
 
 The delete map is hand-maintained. This regression check inventories migration-authored
-user-keyed tables and compares them with statements executed by full account deletion.
-Foreign-key cascades may already erase some rows; explicit execution coverage alone
-cannot establish which historical rows survived deletion.
+user-keyed tables and follows direct deletes, declared foreign-key cascades, and the
+specialized Drive transaction invoked by full account deletion.
 
 The SQL scan is inventory assistance, not a complete catalog parser: it does not
 model every ALTER statement or runtime-created table. Compare it with live metadata
@@ -16,6 +15,7 @@ constraint behavior, external-provider erasure, or the safety of retained metada
 from __future__ import annotations
 
 import asyncio
+import inspect
 import pathlib
 import re
 from contextlib import contextmanager
@@ -23,16 +23,43 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hushh_mcp.services import drive_sharing_retention
 from hushh_mcp.services.account_service import ACCOUNT_ERASURE_RETAINED_TABLES, AccountService
 
 SERVICE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATIONS = SERVICE_ROOT / "db" / "migrations"
+DRIVE_ERASE = drive_sharing_retention.erase_drive_account_in_transaction
 
 _CREATE = re.compile(
     r'CREATE TABLE (?:IF NOT EXISTS )?"?([a-z_0-9]+)"?\s*\((.*?)\n\)\s*;', re.S | re.I
 )
 _USER_KEY = re.compile(r'^\s*"?(user_id|owner_user_id)"?\s', re.M | re.I)
 _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
+
+# Every edge is checked against the creating migration below. The parent must
+# itself be deleted or lead to another checked cascade edge.
+_CASCADE_PARENT = {
+    "one_capability_runs": "actor_profiles",
+    "one_location_onboarding_interactions": "actor_profiles",
+    "one_location_onboarding_receipts": "actor_profiles",
+    "one_location_onboarding_drafts": "actor_profiles",
+    "one_location_pkm_finalize_authorizations": "actor_profiles",
+    "one_location_account_settings": "actor_profiles",
+    "one_location_setup_progress": "actor_profiles",
+    "one_voice_conversations": "actor_profiles",
+    "one_voice_pending_actions": "one_voice_conversations",
+    "drive_picker_sessions": "user_external_connector_connections",
+    "connected_documents": "user_external_connector_connections",
+    "document_chunks": "connected_documents",
+    "drive_native_picker_attempts": "drive_picker_sessions",
+}
+_DRIVE_SPECIALIZED_TABLES = {
+    "drive_share_requests",
+    "drive_share_reviews",
+    "drive_share_permission_operations",
+    "drive_share_events",
+    "drive_share_management_contexts",
+}
 
 
 def _user_keyed_tables() -> dict[str, str]:
@@ -59,6 +86,15 @@ def erased_tables(monkeypatch) -> set[str]:
     conn.execute.return_value.first.return_value = None
     conn.execute.return_value.mappings.return_value.first.return_value = None
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    drive_calls = []
+
+    def record_drive_erasure(conn, *, user_id, permanent):
+        drive_calls.append((user_id, permanent))
+        return DRIVE_ERASE(conn, user_id=user_id, permanent=permanent)
+
+    monkeypatch.setattr(
+        drive_sharing_retention, "erase_drive_account_in_transaction", record_drive_erasure
+    )
 
     @contextmanager
     def connection():
@@ -73,6 +109,7 @@ def erased_tables(monkeypatch) -> set[str]:
     )
     first_delete = next(i for i, sql in enumerate(statements) if "DELETE FROM" in sql)
     assert guard < first_delete
+    assert drive_calls == [("synthetic-owner", True)]
 
     def deletion_index(table):
         return next(
@@ -114,14 +151,33 @@ def test_retained_tables_are_never_also_erased(erased_tables) -> None:
 
 
 def test_no_user_keyed_table_is_silently_left_behind(erased_tables) -> None:
-    """Erased, or a stated exception. Never neither."""
+    """Every table has an executed delete, checked cascade, or specialized path."""
     tables = _user_keyed_tables()
-    unaccounted = sorted(set(tables) - erased_tables - set(ACCOUNT_ERASURE_RETAINED_TABLES))
+    helper_source = inspect.getsource(DRIVE_ERASE)
+    assert "r.recipient_user_id=:user" in helper_source
+    for table in _DRIVE_SPECIALIZED_TABLES:
+        assert re.search(rf"DELETE FROM {table}\b", helper_source)
+    for table, parent in _CASCADE_PARENT.items():
+        assert parent in erased_tables or parent in _CASCADE_PARENT
+        assert table in tables
+        source = (MIGRATIONS / tables[table]).read_text(errors="ignore")
+        body = next(match.group(2) for match in _CREATE.finditer(source) if match.group(1) == table)
+        assert re.search(
+            rf"REFERENCES\s+{parent}\s*\([^)]*\)\s+ON DELETE CASCADE",
+            body,
+            re.I,
+        ), f"{table} has no checked cascade to {parent}"
+    unaccounted = sorted(
+        set(tables)
+        - erased_tables
+        - set(_CASCADE_PARENT)
+        - _DRIVE_SPECIALIZED_TABLES
+        - set(ACCOUNT_ERASURE_RETAINED_TABLES)
+    )
     assert not unaccounted, (
-        "these tables carry a person's key but are neither erased on account deletion "
-        "nor declared retained, so a deleted person's rows would survive in them:\n  "
+        "these tables carry a person's key but no erasure path or stated retention "
+        "exception was established:\n  "
         + "\n  ".join(f"{t}  (created in {tables[t]})" for t in unaccounted)
-        + "\n\nEither add a DELETE predicate to AccountService._delete_by_user_queries and "
-        "wire it into the actual full-deletion sequence, or add the table to "
-        "ACCOUNT_ERASURE_RETAINED_TABLES with the reason it must survive."
+        + "\n\nProve a direct delete, a schema-backed cascade, a specialized cleanup "
+        "path, or a justified retained-table contract."
     )
