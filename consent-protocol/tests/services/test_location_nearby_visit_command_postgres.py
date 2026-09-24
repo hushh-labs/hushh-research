@@ -151,6 +151,7 @@ async def test_exact_checkout_and_prompt_leave_another_open_venue_and_new_visit_
         "presence": None,
         "attendees": [],
         "checkedOut": True,
+        "checkoutTransitioned": False,
         "reviewPrompt": None,
     }
     assert nearby.checkout(user_id="other")["checkedOut"] is True

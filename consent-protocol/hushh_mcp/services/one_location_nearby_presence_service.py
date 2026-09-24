@@ -49,6 +49,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _CheckoutResult(dict):
+    """Keep persisted receipt equality while marking an in-process replay."""
+
+    replayed = False
+
+
 @contextmanager
 def _optional_rating_write(connection: Any):
     """Optional rating work must not hold up a visibility change.
@@ -669,7 +675,9 @@ class PostgresNearbyPresenceStore:
                 if prior:
                     # The receipt proves the original command completed; this
                     # retry did not perform a second state transition.
-                    return {**prior, "_checkout_replayed": True}
+                    replayed = _CheckoutResult(prior)
+                    replayed.replayed = True
+                    return replayed
             row = (
                 connection.execute(
                     text("""SELECT id,version,status,rating_visit_id,expires_at>clock_timestamp() AS active
@@ -1576,14 +1584,9 @@ class OneLocationNearbyPresenceService:
             else {"presence": None, "attendees": []}
         )
         checkout_transitioned = (
-            bool(result.get("checkout_transitioned")) and not bool(result.get("_checkout_replayed"))
+            bool(result.get("checkout_transitioned")) and not getattr(result, "replayed", False)
             if isinstance(result, dict)
             else False
-        )
-        checkout_receipt = (
-            {key: value for key, value in result.items() if not key.startswith("_")}
-            if isinstance(result, dict)
-            else result
         )
         return {
             **current,
@@ -1592,7 +1595,7 @@ class OneLocationNearbyPresenceService:
             else bool(result),
             "checkoutTransitioned": checkout_transitioned,
             "reviewPrompt": review_prompt,
-            **({"checkoutReceipt": checkout_receipt} if command_operation_id else {}),
+            **({"checkoutReceipt": result} if command_operation_id else {}),
         }
 
     def extend(
