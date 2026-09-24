@@ -44,7 +44,9 @@ async def live_journey(sharing, monkeypatch):
             )
         )
         connection.commit()
-        connection.execute(text((MIGRATIONS / "241_drive_live_sharing.sql").read_text()))
+        # Execute SQL verbatim: this migration contains JSON colons and PL/pgSQL %I.
+        with connection.connection.driver_connection.cursor() as cursor:
+            cursor.execute((MIGRATIONS / "241_drive_live_sharing.sql").read_text())
         connection.execute(
             text(
                 "UPDATE user_external_connector_connections SET verified_policy_hash=:policy WHERE user_id='owner'"
