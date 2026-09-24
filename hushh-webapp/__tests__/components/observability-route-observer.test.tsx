@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   captureGrowthAttribution: vi.fn(),
   setLastKaiPath: vi.fn(),
   setLastRiaPath: vi.fn(),
-  setObservabilityUserId: vi.fn().mockResolvedValue(undefined),
+  setObservabilityUserId: vi.fn().mockResolvedValue(true),
   user: null as { uid: string } | null,
   loading: false,
 }));
@@ -48,6 +48,7 @@ function renderAt(pathname: string) {
 describe("ObservabilityRouteObserver", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.setObservabilityUserId.mockReset().mockResolvedValue(true);
     mocks.user = null;
     mocks.loading = false;
   });
@@ -101,11 +102,30 @@ describe("ObservabilityRouteObserver", () => {
   it("waits for restored auth and binds its ID before recording a product view", async () => {
     mocks.user = { uid: "validated-account" };
     let releaseBinding: (() => void) | undefined;
-    mocks.setObservabilityUserId.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseBinding = resolve; }));
+    mocks.setObservabilityUserId.mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseBinding = () => resolve(true); }));
     renderAt("/one");
     expect(mocks.setObservabilityUserId).toHaveBeenCalledWith("validated-account");
     expect(mocks.trackPageView).not.toHaveBeenCalled();
     releaseBinding?.();
     await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith("/one", "initial_load"));
+  });
+
+  it("does not emit a signed-in page view until a delayed gtag identity bind succeeds", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.user = { uid: "validated-account" };
+      mocks.setObservabilityUserId
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      renderAt("/one");
+      await act(async () => { await Promise.resolve(); });
+      expect(mocks.trackPageView).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mocks.setObservabilityUserId).toHaveBeenCalledTimes(2);
+      expect(mocks.trackPageView).toHaveBeenCalledTimes(1);
+      expect(mocks.trackPageView).toHaveBeenCalledWith("/one", "initial_load");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

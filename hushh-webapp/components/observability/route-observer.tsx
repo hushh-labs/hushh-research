@@ -36,7 +36,17 @@ export function ObservabilityRouteObserver() {
     // A route view emitted before AuthProvider restores the account lands in
     // GA4 as an anonymous browser. Bind the validated identity first, then
     // send the view. This does not infer people from devices or page traffic.
-    void setObservabilityUserId(user?.uid ?? null).then(() => {
+    const observe = async () => {
+      // A cold signed-in load may restore auth before the afterInteractive
+      // gtag script exists. Never send that first view anonymously: retry the
+      // binding for a bounded window and omit the view if GA4 stays unavailable.
+      let bound = false;
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
+        bound = await setObservabilityUserId(user?.uid ?? null).catch(() => false);
+        if (bound) break;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      if (!bound) return;
       if (cancelled) return;
       if (lastObservedPathRef.current === pathname) return;
       trackPageView(pathname, mountedRef.current ? "route_change" : "initial_load");
@@ -45,7 +55,8 @@ export function ObservabilityRouteObserver() {
       if (scope === "investor") setLastKaiPath(pathname);
       else if (scope === "ria") setLastRiaPath(pathname);
       mountedRef.current = true;
-    });
+    };
+    void observe();
     return () => { cancelled = true; };
   }, [pathname, user?.uid, loading, setLastKaiPath, setLastRiaPath]);
 
