@@ -46,6 +46,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
           redirectUri:
             "https://api.uat.hushh.ai/api/connectors/oauth/native/callback",
           flow: "native",
+          profile: "selected",
         }),
       }),
     );
