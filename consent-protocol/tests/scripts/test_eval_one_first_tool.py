@@ -163,7 +163,14 @@ def test_generic_drive_case_is_admitted_by_actual_one_head_and_tool_schema(monke
             }
         )
     )
-    assert "file_name as an empty string" in instruction
+    assert (
+        "For document contents or finding a named Drive file, call ask_documents_agent"
+        in instruction
+    )
+    assert (
+        "For connection status or an explicit question about selected-file processing"
+        in instruction
+    )
     assert agent_tree.inspect_selected_drive_files in agent.tools
     declaration = FunctionTool(func=agent_tree.inspect_selected_drive_files)._get_declaration()
     assert declaration.name == "inspect_selected_drive_files"
@@ -215,7 +222,7 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert text == (
         agent_tree.ONE_IDENTITY_INSTRUCTION
         + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
-        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim the owner is disconnected or that a named file is absent without a current status check. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
+        + "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim Drive is disconnected or a file is absent without a current status check."
     )
     assert "discover_person_information" in text
     assert "Preserve the selected recipient and selection handle" in text

@@ -44,7 +44,7 @@ async def live_journey(sharing, monkeypatch):
             )
         )
         connection.commit()
-        connection.exec_driver_sql((MIGRATIONS / "241_drive_live_sharing.sql").read_text())
+        connection.execute(text((MIGRATIONS / "241_drive_live_sharing.sql").read_text()))
         connection.execute(
             text(
                 "UPDATE user_external_connector_connections SET verified_policy_hash=:policy WHERE user_id='owner'"
