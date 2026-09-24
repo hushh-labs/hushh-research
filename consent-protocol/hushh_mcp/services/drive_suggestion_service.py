@@ -259,7 +259,19 @@ class DriveSuggestionService:
                 if job.get("live"):
                     await self._require_current(job)
                     stage = "search_plan"
-                    now_utc = datetime.now(UTC)
+                    requested_at = job.get("requested_at")
+                    if requested_at is None:
+                        # Compatibility for test doubles created before the
+                        # request timestamp was included in the preparation job.
+                        now_utc = datetime.now(UTC)
+                    elif (
+                        isinstance(requested_at, datetime)
+                        and requested_at.tzinfo is not None
+                        and requested_at.utcoffset() is not None
+                    ):
+                        now_utc = requested_at.astimezone(UTC)
+                    else:
+                        raise ValueError("invalid request timestamp")
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(

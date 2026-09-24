@@ -1,7 +1,7 @@
 """Recent Drive requests use A's live metadata and existing private review."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -48,6 +48,7 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
     monkeypatch, truncated, time_field, with_card_dates, purpose, explicit_file_activity
 ):
     request_id, document_id = str(uuid4()), str(uuid4())
+    requested_at = datetime(2026, 9, 20, 12, 30, tzinfo=UTC)
     source_ref = "document:" + "b" * 32
     job = {
         "user_id": "owner",
@@ -59,6 +60,7 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
             "purpose": purpose,
             **({"periodStart": "2026-09-22", "periodEnd": "2026-09-24"} if with_card_dates else {}),
         },
+        "requested_at": requested_at,
         "live": True,
         "foreground": True,
     }
@@ -132,6 +134,8 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
     reader.find.assert_awaited_once()
     assert reader.find.await_args.kwargs["query"] == []
     assert reader.find.await_args.kwargs["time_field"] == time_field
+    assert reader.find.await_args.kwargs["start_time"] == "2026-09-18T12:30:00Z"
+    assert reader.find.await_args.kwargs["end_time"] == "2026-09-20T12:30:00Z"
     reader.bind_matches.assert_awaited_once()
     reader.search.assert_not_awaited()
     interpreter.assert_not_awaited()
@@ -147,6 +151,10 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
     assert (
         json.loads(search_planner.await_args.kwargs["prompt"])["document_request"] == job["purpose"]
     )
+    first_search = reader.find.await_args.kwargs
+    # A later worker retry of the same request must retain B's Send-time window.
+    assert await service.run_one(user_id="owner", request_id=request_id) == "review_ready"
+    assert reader.find.await_args.kwargs == first_search
 
 
 @pytest.mark.asyncio
