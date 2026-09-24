@@ -46,6 +46,7 @@ describe("gmail-connector-store", () => {
     clearConnectorStatus("user-hook");
     clearConnectorStatus("user-backfill");
     clearConnectorStatus("user-backfill-complete");
+    clearConnectorStatus("user-cancelled-poll");
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
     }
@@ -462,6 +463,58 @@ describe("gmail-connector-store", () => {
       setTimeoutSpy.mockRestore();
       dateNowSpy.mockRestore();
     }
+  });
+
+  it("does not emit an error or recreate state when polling is intentionally cleared", async () => {
+    let rejectRun: ((reason?: unknown) => void) | null = null;
+    vi.mocked(GmailReceiptsService.getSyncRun).mockImplementationOnce(
+      () => new Promise((_, reject) => {
+        rejectRun = reject;
+      }),
+    );
+    const activeRun = {
+      run_id: "run_cancelled",
+      user_id: "user-cancelled-poll",
+      trigger_source: "connect",
+      sync_mode: "bootstrap",
+      status: "running",
+      listed_count: 0,
+      filtered_count: 0,
+      synced_count: 0,
+      extracted_count: 0,
+      duplicates_dropped: 0,
+      extraction_success_rate: 0,
+    } as const;
+
+    primeConnectorStatus({
+      userId: "user-cancelled-poll",
+      status: {
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+        last_sync_status: "running",
+        latest_run: activeRun,
+      },
+      source: "status",
+      idTokenProvider: async () => "id-token",
+    });
+
+    await waitFor(() => expect(GmailReceiptsService.getSyncRun).toHaveBeenCalled());
+    clearConnectorStatus("user-cancelled-poll");
+    await act(async () => {
+      rejectRun?.(new Error("request canceled during cleanup"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      "gmail_sync_result",
+      expect.objectContaining({ action: "poll", result: "error" }),
+    );
+    expect(getConnectorView("user-cancelled-poll").status).toBeNull();
   });
 
   it("starts polling active runs discovered from a plain status fetch and hands off to backfill", async () => {

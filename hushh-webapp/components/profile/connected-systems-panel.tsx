@@ -1136,6 +1136,7 @@ export function ConnectedSystemsPanel({
       error: string;
     },
     action: () => Promise<T>,
+    options: { trackMutationOutcome?: boolean } = {},
   ): Promise<T | null> {
     const requestContext = capturePanelRequestContext();
     if (!vaultOwnerToken) {
@@ -1208,14 +1209,14 @@ export function ConnectedSystemsPanel({
     );
     try {
       const result = await promise;
-      if (isCurrentPanelRequest(requestContext) && (state === "create" || state === "update" || state === "delete")) {
+      if (options.trackMutationOutcome !== false && isCurrentPanelRequest(requestContext) && (state === "create" || state === "update" || state === "delete")) {
         const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
         trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "success" });
       }
       return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
       if (!isCurrentPanelRequest(requestContext)) return null;
-      if (state === "create" || state === "update" || state === "delete") {
+      if (options.trackMutationOutcome !== false && (state === "create" || state === "update" || state === "delete")) {
         const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
         trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "error" });
       }
@@ -1536,6 +1537,7 @@ export function ConnectedSystemsPanel({
           systemId: selectedSystem?.systemId,
           objectType: createObjectType,
         }),
+      { trackMutationOutcome: false },
     );
     if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);
@@ -1746,6 +1748,7 @@ export function ConnectedSystemsPanel({
           systemId: selectedSystem?.systemId,
           objectType: deleteObjectType,
         }),
+      { trackMutationOutcome: false },
     );
     if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);

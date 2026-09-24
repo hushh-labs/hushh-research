@@ -23,6 +23,12 @@ import {
 } from "@/lib/services/cache-service";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 
+const trackEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: trackEventMock,
+}));
+
 const routerPushMock = vi.fn();
 const routerMock = {
   push: routerPushMock,
@@ -580,6 +586,31 @@ describe("ConnectedSystemsPanel", () => {
       ),
     );
     expect(await screen.findByText("Review create request")).toBeTruthy();
+  });
+
+  it("does not report a CRM create mutation when intent preparation fails", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockRejectedValueOnce(
+      new Error("intent preparation unavailable"),
+    );
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find my record" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create profile" }));
+    await waitFor(() =>
+      expect(ConnectedSystemsService.createRecordIntent).toHaveBeenCalledTimes(1),
+    );
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      "one_crm_action",
+      expect.objectContaining({ action: "record_created" }),
+    );
   });
 
   it("waits for a separately verified Contact binding after Person Account creation", async () => {

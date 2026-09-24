@@ -447,12 +447,27 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   eventName: T,
   payload: EventPayloadWithContextFor<T>
 ): EventValidationResult {
+  const rawPayload = payload as unknown as Record<string, unknown>;
   const allowed = new Set(EVENT_ALLOWED_KEYS[eventName]);
   const sanitized: Record<string, PrimitiveEventValue> = {};
   const droppedKeys: string[] = [];
   let fatal = false;
 
-  for (const [key, value] of Object.entries(payload as unknown as Record<string, unknown>)) {
+  // Governed actions/results are required dimensions, not optional metadata.
+  // Validate presence before iterating: omitted and explicitly undefined keys
+  // would otherwise never reach the enum validator below.
+  const requiredGovernedKeys = [
+    ...(GOVERNED_ACTIONS_BY_EVENT[eventName] ? ["action"] : []),
+    ...(GOVERNED_RESULTS_BY_EVENT[eventName] ? ["result"] : []),
+  ];
+  for (const key of requiredGovernedKeys) {
+    if (typeof rawPayload[key] !== "string") {
+      fatal = true;
+      droppedKeys.push(key);
+    }
+  }
+
+  for (const [key, value] of Object.entries(rawPayload)) {
     if (!allowed.has(key)) {
       droppedKeys.push(key);
       continue;
@@ -464,7 +479,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
     }
 
     if (!isPrimitiveValue(value)) {
-      droppedKeys.push(key);
+      if (!droppedKeys.includes(key)) droppedKeys.push(key);
       continue;
     }
 

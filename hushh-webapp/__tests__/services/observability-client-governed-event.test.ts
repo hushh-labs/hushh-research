@@ -58,6 +58,16 @@ describe("governed observability dispatch", () => {
     expect(adapters.nativeTrack).not.toHaveBeenCalled();
   });
 
+  it("rejects the entire event when a required governed enum is missing", () => {
+    const handedOff = trackEvent("one_memory_action", {
+      route_id: "pkm",
+      result: "success",
+    } as never);
+
+    expect(handedOff).toBe(false);
+    expect(adapters.webTrack).not.toHaveBeenCalled();
+  });
+
   it("still sanitizes non-governed extra fields without dropping a valid event", () => {
     const handedOff = trackEvent("one_memory_action", {
       route_id: "pkm",

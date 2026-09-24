@@ -918,6 +918,7 @@ async function pollSyncRun(params: {
       });
     }
   } catch (error) {
+    if (controller.signal.aborted) return;
     trackEvent("gmail_sync_result", {
       action: "poll",
       result: "error",
@@ -935,7 +936,11 @@ async function pollSyncRun(params: {
     });
   } finally {
     inflightRunPollers.delete(normalizedUserId);
-    updateEntry(normalizedUserId, { isPolling: false });
+    // clearConnectorStatus intentionally removes the entry. Do not recreate
+    // it from cleanup after its poll controller has been aborted.
+    if (!controller.signal.aborted) {
+      updateEntry(normalizedUserId, { isPolling: false });
+    }
   }
 
   if (

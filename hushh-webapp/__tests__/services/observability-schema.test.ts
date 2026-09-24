@@ -46,6 +46,28 @@ describe("observability schema", () => {
     expect(result.sanitized).not.toHaveProperty("result");
   });
 
+  it.each([undefined, "omitted"])(
+    "fatally rejects governed events whose required enums are %s",
+    (variant) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "feature",
+        app_version: "1.1.0",
+        route_id: "pkm",
+        action: "detail_edited",
+        result: "success",
+      };
+      if (variant === "omitted") delete payload.action;
+      else payload.action = undefined;
+
+      const result = validateAndSanitizeEvent("one_memory_action", payload as never);
+
+      expect(result.fatal).toBe(true);
+      expect(result.droppedKeys).toContain("action");
+    },
+  );
+
   it("accepts bounded Gmail terminal-sync outcomes and rejects arbitrary stages", () => {
     const valid = validateAndSanitizeEvent("gmail_sync_result", {
       env: "production",
