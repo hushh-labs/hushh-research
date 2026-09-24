@@ -375,6 +375,23 @@ class PolicyTests(unittest.TestCase):
             {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 14}}]},
         )
 
+    def test_android_release_build_uses_one_isolated_native_export(self) -> None:
+        source = (
+            ROOT / ".github/workflows/ship-android-playstore-v1.yml"
+        ).read_text()
+        self.assertIn('NATIVE_EXPORT=".next-native-android"', source)
+        self.assertIn(
+            "node ./scripts/native/with-android-native-env.mjs \\", source
+        )
+        self.assertIn(
+            'CAPACITOR_BUILD=true NEXT_DIST_DIR="$NATIVE_EXPORT"', source
+        )
+        self.assertIn(
+            'CAPACITOR_PLATFORM=android NEXT_DIST_DIR="$NATIVE_EXPORT"', source
+        )
+        self.assertIn("next build --webpack", source)
+        self.assertIn("npx cap sync android", source)
+
 
 if __name__ == "__main__":
     unittest.main()

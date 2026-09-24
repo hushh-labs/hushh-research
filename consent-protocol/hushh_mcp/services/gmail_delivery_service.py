@@ -332,6 +332,16 @@ class GmailDeliveryService:
     async def _resolve_attachment(
         self, *, user_id: str, file_id: str, revision: str | None, sha256: str | None
     ) -> tuple[DriveBlobDescriptor, bytes, str, str]:
+        # UAT's Drive connector grants access only to Picker-selected files.
+        # The older attachment resolver uses a separate account-wide grant,
+        # so it cannot serve a UAT attachment until it is migrated to the
+        # selected-document authority. Plain reviewed Gmail sends continue.
+        if os.getenv("ENVIRONMENT", "").strip().lower() == "uat":
+            raise GmailDeliveryError(
+                "DRIVE_ATTACHMENT_UNAVAILABLE",
+                "Drive attachments are temporarily unavailable. Send without the attachment.",
+                status_code=403,
+            )
         try:
             identity_before = await self.drive_blobs.grant_identity(
                 authenticated_owner_user_id=user_id
@@ -510,6 +520,13 @@ class GmailDeliveryService:
             )
         except GmailDeliveryError:
             raise
+        except ValueError as exc:
+            # The single-turn runtime has already exhausted its safe schema
+            # retry. This is a bad model draft, not a Gmail transport outage.
+            logger.warning("gmail.delivery.draft_failed category=invalid_model_output")
+            raise GmailDeliveryError(
+                "DRAFT_INVALID", "Email drafting returned an invalid draft.", status_code=502
+            ) from exc
         except Exception as exc:
             logger.warning("gmail.delivery.draft_failed error=%s", type(exc).__name__)
             raise GmailDeliveryError(
@@ -532,6 +549,12 @@ class GmailDeliveryService:
         if _is_email_agent_intro_instruction(instruction):
             draft["subject"] = "Meet your Hushh Email Agent"
             draft["body"] = _EMAIL_AGENT_INTRO_BODY
+        if not draft["body"].strip():
+            raise GmailDeliveryError(
+                "DRAFT_INVALID",
+                "Email drafting returned an incomplete draft.",
+                status_code=502,
+            )
         return draft
 
     async def prepare(

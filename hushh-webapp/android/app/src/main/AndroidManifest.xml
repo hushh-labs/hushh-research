@@ -90,11 +90,9 @@
                 <data android:scheme="https" android:host="uat.one.hushh.ai" />
                 <data android:scheme="https" android:host="dev.one.hushh.ai" />
                 <data android:pathPrefix="/one/kai/plaid/oauth/return" />
-                <data android:pathPrefix="/one/kai/alpaca/oauth/return" />
                 <data android:pathPrefix="/one/profile/google/oauth/return" />
                 <data android:pathPrefix="/one/profile/gmail/oauth/return" />
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
-                <data android:pathPrefix="/kai/alpaca/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
             </intent-filter>

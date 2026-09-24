@@ -61,7 +61,6 @@ that file for the full record; this table is the index.
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
 | `feed_events` | `workflow_state` | `backend-runtime-governance` | 1 table |
-| `funding_trading_audit` | `audit_regulated` | `backend-runtime-governance` | `kai_funding_*` |
 | `hushh_tech_client_identity_state` *(uat_synthetic)* | `personal_metadata` | `iam-consent-governance` | 2 tables |
 | `hushh_tech_client_launch_workflows` *(uat_synthetic)* | `workflow_state` | `iam-consent-governance` | 1 table |
 | `hushh_tech_client_link_audit` *(uat_synthetic)* | `audit_regulated` | `iam-consent-governance` | 1 table |
@@ -70,7 +69,6 @@ that file for the full record; this table is the index.
 | `information_marketplace_delivery` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `information_marketplace_opportunity_signals` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `information_marketplace_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
-| `kai_brokerage_provider_cache` | `provider_cache` | `backend-runtime-governance` | `kai_plaid_*`, `kai_portfolio_source_preferences` |
 | `kai_gmail_receipts_provider_cache` | `provider_cache` | `backend-runtime-governance` | 4 tables |
 | `gmail_owner_approved_delivery` | `workflow_state` | `backend-runtime-governance` | `gmail_owner_send_actions`, `google_email_send_actions` |
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |

@@ -178,11 +178,17 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS
     )
     cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
-    if (enabled or cohort) and args.environment != "uat":
+    all_users_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
+    if all_users_value not in {"true", "false"}:
+        raise ValueError("UAT connector all-users mode must be true or false")
+    all_uat_users = all_users_value == "true"
+    if (enabled or cohort or all_uat_users) and args.environment != "uat":
         raise ValueError("Mail/Drive connector rollout is limited to UAT")
-    if enabled and not cohort:
+    if all_uat_users and cohort:
+        raise ValueError("UAT connector all-users mode cannot be combined with a cohort")
+    if enabled and not (cohort or all_uat_users):
         raise ValueError(
-            "Enabled Mail/Drive flags require exact Firebase UIDs in the UAT cohort"
+            "Enabled Mail/Drive flags require a UAT cohort or all-users mode"
         )
     if not cohort:
         return
@@ -238,6 +244,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
         "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
+        "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
@@ -392,6 +399,7 @@ def main() -> int:
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--connector-internal-owner-cohort", default="")
+    parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to

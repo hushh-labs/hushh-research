@@ -2,7 +2,7 @@ import Capacitor
 import Foundation
 import WebKit
 
-/// The provider OAuth flows (Plaid, Alpaca, Google, Gmail) end with the page
+/// The provider OAuth flows (Plaid, Google, Gmail) end with the page
 /// navigating the WebView's top frame to the app's https return route. That
 /// host is not the app's origin, so Capacitor's navigation policy hands the
 /// URL to Safari, where no session exists and the flow dies (measured on the

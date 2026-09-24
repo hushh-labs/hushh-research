@@ -1578,6 +1578,10 @@ export class PersonalKnowledgeModelService {
     const deviceResourceKey = this.metadataDeviceResourceKey(userId);
     const canUseDeviceCache = !Capacitor.isNativePlatform() && Boolean(vaultOwnerToken);
     const staleMemorySnapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
+    const shouldBypassProxyCache =
+      forceRefresh ||
+      !staleMemorySnapshot ||
+      !this.isAuthoritativeMetadataSnapshot(staleMemorySnapshot.data);
     let deviceFallback: PersonalKnowledgeModelMetadata | null = null;
 
     if (!forceRefresh && options.allowStaleFallback !== false) {
@@ -1793,7 +1797,10 @@ export class PersonalKnowledgeModelService {
         });
         const fetchMetadataResponse = async (token?: string) =>
           ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
-            headers: this.getAuthHeaders(token),
+            headers: {
+              ...this.getAuthHeaders(token),
+              ...(shouldBypassProxyCache ? { "Cache-Control": "no-cache" } : {}),
+            },
           });
 
         let response = await fetchMetadataResponse(metadataToken);
@@ -1822,7 +1829,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
           // Upstream timeout / temporary backend issue.
           // Fall back to the last known good metadata and avoid caching a false empty state.
@@ -1832,7 +1842,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else if (!response.ok) {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
           // Preserve the last known good metadata instead of caching a false empty state.
@@ -1842,7 +1855,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else {
           const data = await response.json();
 

@@ -201,7 +201,6 @@ export const ROUTES = {
   LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
   LEGACY_KAI_IMPORT: "/kai/import",
   LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
-  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
@@ -222,7 +221,6 @@ export const ROUTES = {
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
-  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
   KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
   KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",

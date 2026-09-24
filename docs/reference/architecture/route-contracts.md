@@ -132,7 +132,6 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/kai/news`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`
-- `/one/kai/alpaca/oauth/return`
 - `/one/kai?tab=portfolio`
 - `/one/kai/portfolio/holdings`
 - `/one/kai/portfolio/allocation`

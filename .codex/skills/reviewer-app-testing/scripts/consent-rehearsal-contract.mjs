@@ -23,6 +23,25 @@ export function matchesExpectedJson(node, expected) {
   catch { return false; }
 }
 
+/** Browser-only comparison with an independently reviewed owner's payload digest. */
+export async function matchesExpectedJsonDigest(node, expectedDigest) {
+  if (typeof expectedDigest !== "string" || !/^[a-f0-9]{64}$/.test(expectedDigest)) return false;
+  const canonical = value => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(
+      Object.keys(value).sort().map(key => [key, canonical(value[key])]),
+    );
+    return value;
+  };
+  try {
+    const payload = JSON.parse(node.textContent || "");
+    const bytes = new TextEncoder().encode(JSON.stringify(canonical(payload)));
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const actual = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    return actual === expectedDigest;
+  } catch { return false; }
+}
+
 export function safeFailureCode(error) {
   return error instanceof ConsentRehearsalFailure ? error.code : "REHEARSAL_UNEXPECTED_FAILURE";
 }

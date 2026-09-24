@@ -25,7 +25,12 @@ vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { overview: state.overview, documents: state.documents },
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({ GmailReceiptsService: {} }));
-vi.mock("@/components/icons", () => ({ ArrowLeftIcon: () => null }));
+vi.mock("@/components/icons", () => ({
+  ArrowLeftIcon: () => null,
+  ChevronRightIcon: () => null,
+  SearchIcon: () => null,
+  XIcon: () => null,
+}));
 
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 
@@ -64,9 +69,14 @@ describe("supported connector catalog", () => {
     state.overview.mockResolvedValue(overview([catalogItem]));
     render(panel());
     expect(await screen.findByText("Example Docs")).toBeInTheDocument();
-    for (const label of ["Connections", "Google Drive", "Gmail", "Manage Calendar", "Manage Plaid"]) {
+    for (const label of ["Connectors", "Google Drive", "Gmail"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
+    expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage Plaid" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connected" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
     for (const label of ["Coming soon", "Notion", "HubSpot", "Shopify", "Circle"]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
@@ -83,6 +93,20 @@ describe("supported connector catalog", () => {
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
     expect(screen.getAllByText("Google Drive")).toHaveLength(1);
     expect(screen.queryByText("Duplicate Drive")).not.toBeInTheDocument();
+  });
+
+  it("filters the real connector list and restores it when search is cleared", async () => {
+    state.overview.mockResolvedValue(overview([catalogItem]));
+    render(panel());
+    expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "Search connectors" });
+    fireEvent.change(search, { target: { value: "example" } });
+    expect(screen.getByText("Example Docs")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gmail" })).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Google Drive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeInTheDocument();
   });
 
   it.each([
@@ -139,6 +163,6 @@ describe("supported connector catalog", () => {
     state.token = null;
     view.rerender(panel());
     expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
-    expect(screen.getByText("Unlock your vault to manage connections.")).toBeInTheDocument();
+    expect(screen.getByText("Unlock your vault to manage connectors.")).toBeInTheDocument();
   });
 });

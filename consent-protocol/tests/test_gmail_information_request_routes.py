@@ -189,6 +189,36 @@ def test_refresh_candidates_uses_only_the_authenticated_vault_owner():
     }
 
 
+def test_source_preview_fetches_only_the_current_owner_selected_workflow():
+    service = type("Service", (), {})()
+    service.get_source_preview = AsyncMock(
+        return_value={"from": "Sender", "subject": "Verification", "body": "Requested details"}
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().get("/api/one/email/information-requests/workflow-1/source-preview")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {
+        "from": "Sender",
+        "subject": "Verification",
+        "body": "Requested details",
+    }
+    assert service.get_source_preview.await_args.kwargs == {
+        "user_id": "owner",
+        "workflow_id": "workflow-1",
+    }
+
+
+def test_source_preview_rejects_a_different_vault_owner():
+    response = _app(owner_user_id="another-owner").get(
+        "/api/one/email/information-requests/workflow-1/source-preview"
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "PERSONAL_GMAIL_INFORMATION_REQUEST_OWNER_REQUIRED"
+
+
 def test_background_monitor_requires_oidc_token(monkeypatch):
     monkeypatch.setenv("GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED", "true")
     monkeypatch.setenv(

@@ -50,7 +50,7 @@ export function ConnectorReadReceipt({ experience, onOpenConnections }: {
       ) : null}
       {needsConnection && onOpenConnections ? (
         <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(event.currentTarget)}>
-          Open Connections
+          Open Connectors
         </Button>
       ) : null}
     </section>

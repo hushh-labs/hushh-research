@@ -3351,82 +3351,6 @@ class RIAIAMService:
         )
 
     @staticmethod
-    def _parse_list_of_dicts(value: Any) -> list[dict[str, Any]]:
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except Exception:
-                return []
-            if isinstance(parsed, list):
-                return [item for item in parsed if isinstance(item, dict)]
-        return []
-
-    async def _list_linked_account_branches(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        investor_user_id: str,
-    ) -> list[dict[str, Any]]:
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT item_id, institution_name, latest_accounts_json
-                FROM kai_plaid_items
-                WHERE user_id = $1
-                  AND COALESCE(status, '') <> 'permission_revoked'
-                ORDER BY updated_at DESC
-                """,
-                investor_user_id,
-            )
-        except asyncpg.exceptions.UndefinedTableError:
-            return []
-
-        out: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            item_id = str(row["item_id"] or "").strip() or None
-            institution_name = str(row["institution_name"] or "").strip() or None
-            accounts = self._parse_list_of_dicts(row["latest_accounts_json"])
-            for account in accounts:
-                account_id = str(account.get("account_id") or "").strip()
-                persistent_account_id = (
-                    str(account.get("persistent_account_id") or "").strip() or None
-                )
-                branch_id = persistent_account_id or account_id
-                if not branch_id or branch_id in seen:
-                    continue
-                seen.add(branch_id)
-                out.append(
-                    {
-                        "branch_id": branch_id,
-                        "account_id": account_id or branch_id,
-                        "persistent_account_id": persistent_account_id,
-                        "item_id": item_id,
-                        "institution_name": institution_name
-                        or str(account.get("institution_name") or "").strip()
-                        or None,
-                        "name": str(
-                            account.get("name") or account.get("official_name") or branch_id
-                        ).strip(),
-                        "official_name": str(account.get("official_name") or "").strip() or None,
-                        "mask": str(account.get("mask") or "").strip() or None,
-                        "type": str(account.get("type") or "").strip() or None,
-                        "subtype": str(account.get("subtype") or "").strip() or None,
-                    }
-                )
-
-        out.sort(
-            key=lambda item: (
-                str(item.get("institution_name") or "").lower(),
-                str(item.get("name") or "").lower(),
-                str(item.get("mask") or "").lower(),
-            )
-        )
-        return out
-
-    @staticmethod
     def _bundle_scope_state(
         scope: str,
         *,
@@ -3876,28 +3800,15 @@ class RIAIAMService:
                     )
 
                 normalized_account_ids = self._normalize_account_ids(selected_account_ids)
-                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
-                    account_branches = await self._list_linked_account_branches(
-                        conn,
-                        investor_user_id=subject_user_id,
+                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID and (
+                    normalized_account_ids
+                ):
+                    # Linked accounts are sealed in the investor's vault; the
+                    # server holds no account list an advisor could select from.
+                    raise RIAIAMPolicyError(
+                        "Selected account is not available for this investor workspace",
+                        status_code=400,
                     )
-                    available_account_ids = {
-                        str(item.get("branch_id") or item.get("account_id") or "").strip()
-                        for item in account_branches
-                        if str(item.get("branch_id") or item.get("account_id") or "").strip()
-                    }
-                    if not normalized_account_ids and available_account_ids:
-                        normalized_account_ids = sorted(available_account_ids)
-                    invalid_account_ids = [
-                        account_id
-                        for account_id in normalized_account_ids
-                        if account_id not in available_account_ids
-                    ]
-                    if invalid_account_ids:
-                        raise RIAIAMPolicyError(
-                            "Selected account is not available for this investor workspace",
-                            status_code=400,
-                        )
 
                 if firm_id:
                     membership = await conn.fetchrow(
@@ -6026,10 +5937,7 @@ class RIAIAMService:
                 for payload in latest_by_request.values()
                 if payload.get("action") == "REQUESTED"
             ]
-            account_branches = await self._list_linked_account_branches(
-                conn,
-                investor_user_id=investor_user_id,
-            )
+            account_branches: list[dict[str, Any]] = []
             kai_specialized_bundle, scoped_account_branches = (
                 self._build_kai_specialized_bundle_state(
                     account_branches=account_branches,
@@ -8689,10 +8597,7 @@ class RIAIAMService:
             )
             granted_scope_keys = {str(item["scope"]) for item in granted_scopes}
             if metadata is None:
-                account_branches = await self._list_linked_account_branches(
-                    conn,
-                    investor_user_id=investor_user_id,
-                )
+                account_branches: list[dict[str, Any]] = []
                 granted_payloads = [
                     payload
                     for payload in latest_by_scope.values()
@@ -8756,10 +8661,7 @@ class RIAIAMService:
                     available_domains = []
                     domain_summaries = {}
 
-            account_branches = await self._list_linked_account_branches(
-                conn,
-                investor_user_id=investor_user_id,
-            )
+            account_branches = []
             granted_payloads = [
                 payload
                 for payload in latest_by_scope.values()

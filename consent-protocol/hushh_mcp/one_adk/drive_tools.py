@@ -69,7 +69,7 @@ async def read_google_drive(
         if error.status_code == 403:
             return {
                 "status": "permission_required",
-                "message": "This Drive read permission is not active. The selected-file library in Connections is separate.",
+                "message": "This Drive read permission is not active. The selected-file library in Connectors is separate.",
             }
         return {"status": "unavailable", "message": "Drive could not complete that read."}
     except Exception:  # noqa: BLE001 - provider diagnostics may contain private content

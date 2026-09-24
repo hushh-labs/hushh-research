@@ -2043,6 +2043,67 @@ async def test_generate_structure_preview_keeps_eight_segment_imports(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failed_index", [0, 1])
+async def test_batch_reports_degradation_from_every_candidate(monkeypatch, failed_index):
+    service = PKMAgentLabService()
+    messages = ["My synthetic project is Cedar.", "My synthetic project is Elm."]
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            return_value={
+                "segments": [{"source_text": message} for message in messages],
+                "contract_version": 1,
+                "has_more_candidates": False,
+            }
+        ),
+    )
+
+    async def preview(**kwargs):
+        degraded = kwargs["message"] == messages[failed_index]
+        return {
+            "routing_decision": "non_financial_or_ephemeral",
+            "intent_frame": {"save_class": "durable", "intent_class": "profile_fact"},
+            "merge_decision": {"merge_mode": "create_entity"},
+            "candidate_payload": {"projects": {"summary": kwargs["message"]}},
+            "structure_decision": {"target_domain": "professional"},
+            "write_mode": "confirm_first",
+            "primary_json_path": "projects",
+            "target_entity_scope": "projects",
+            "manifest_draft": {"domain": "professional", "segment_ids": []},
+            "used_fallback": degraded,
+            "intent_used_fallback": degraded,
+            "merge_used_fallback": degraded,
+            "structure_used_fallback": degraded,
+            "intent_skipped": degraded,
+            "merge_skipped": degraded,
+            "structure_skipped": degraded,
+            "error": "memory_intent_agent_fallback" if degraded else None,
+        }
+
+    mocked_preview = AsyncMock(side_effect=preview)
+    monkeypatch.setattr(service, "_generate_single_structure_preview", mocked_preview)
+    args = {"user_id": f"batch-degradation-{failed_index}", "message": " ".join(messages)}
+    result = await service.generate_structure_preview(**args)
+    for field in (
+        "used_fallback",
+        "intent_used_fallback",
+        "merge_used_fallback",
+        "structure_used_fallback",
+    ):
+        assert result[field] is True
+    for field in ("intent_skipped", "merge_skipped", "structure_skipped"):
+        assert result[field] is True
+        assert result["drift_flags"][field] is True
+    assert result["drift_flags"]["stage_skipped"] is True
+    assert len(result["preview_cards"]) == 2
+    assert result["error"] == "memory_intent_agent_fallback"
+    # Failed preparation is never reused as a successful cached batch.
+    await service.generate_structure_preview(**args)
+    assert mocked_preview.await_count == 4
+
+
+@pytest.mark.asyncio
 async def test_normal_preview_returns_safe_stage_outcomes_and_preserves_cache(monkeypatch):
     service = PKMAgentLabService()
     outcome = {

@@ -12,8 +12,10 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from google.adk.tools.function_tool import FunctionTool
 
 from scripts import eval_one_consent_tool_selection as wrapper
 from scripts import eval_one_first_tool as harness
@@ -21,7 +23,7 @@ from scripts import eval_one_first_tool as harness
 CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[2]
 
 FAMILY_MINIMUMS = {
-    "consent": 13,
+    "consent": 18,
     "location": 7,
     "email": 5,
     "finance": 6,
@@ -29,6 +31,7 @@ FAMILY_MINIMUMS = {
     "general": 5,
     "delegation": 4,
     "calendar": 3,
+    "drive": 2,
 }
 ORIGINAL_CONSENT_PROMPTS = [
     "is there anything waiting for me to approve",
@@ -86,7 +89,8 @@ def test_every_family_present_with_minimum_count(cases):
 
 def test_consent_family_carries_the_original_thirteen_verbatim(cases):
     prompts = [case.prompt for case in cases if case.family == "consent"]
-    assert prompts == ORIGINAL_CONSENT_PROMPTS
+    assert prompts[:13] == ORIGINAL_CONSENT_PROMPTS
+    assert len(prompts) >= 18
 
 
 def test_load_rejects_duplicate_ids(tmp_path):
@@ -118,6 +122,59 @@ def test_load_rejects_wrong_schema_version(tmp_path):
 def test_roster_is_the_production_roster(roster_names):
     assert len(roster_names) >= 40
     assert {"run_app_action", "ask_consent_agent", "google_search", "finance"} <= roster_names
+    assert {"discover_google_drive_tools", "read_google_drive"} <= roster_names
+
+
+def test_drive_email_first_tool_must_identify_file_before_draft(cases):
+    case = next(case for case in cases if case.id == "drive.email_selected_file")
+    assert set(case.expected) == {"discover_google_drive_tools", "read_google_drive"}
+    assert not harness.is_hit("open_gmail_email_draft", case.expected)
+
+
+def test_selected_drive_share_status_has_its_own_first_tool_fixture(roster_names):
+    path = (
+        harness.CONSENT_PROTOCOL_ROOT
+        / "scripts/eval_cases/one_selected_drive_status_first_tool.v1.json"
+    )
+    cases = harness.load_cases(path)
+    assert len(cases) == 4
+    assert {case.id for case in cases} >= {
+        "drive.generic_account_access",
+        "drive.new_chat_named_selection",
+    }
+    assert {case.expected for case in cases} == {("inspect_selected_drive_files",)}
+    assert "inspect_selected_drive_files" in roster_names
+    assert not harness.is_hit("list_my_connections", cases[0].expected)
+    assert not harness.is_hit("open_gmail_email_draft", cases[0].expected)
+
+
+def test_generic_drive_case_is_admitted_by_actual_one_head_and_tool_schema(monkeypatch):
+    from hushh_mcp.one_adk import agent_tree
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    agent = agent_tree.build_one_text_agent(model="test-model")
+    instruction = agent.instruction(
+        SimpleNamespace(
+            state={
+                agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+                agent_tree.STATE_USER_ID: "owner",
+            }
+        )
+    )
+    assert "file_name as an empty string" in instruction
+    assert agent_tree.inspect_selected_drive_files in agent.tools
+    declaration = FunctionTool(func=agent_tree.inspect_selected_drive_files)._get_declaration()
+    assert declaration.name == "inspect_selected_drive_files"
+    assert 'file_name=""' in declaration.description
+    assert "file_name" in str(declaration.parameters_json_schema)
+
+
+def test_granted_readback_uses_grant_authority_not_open_outgoing_requests(cases):
+    case = next(case for case in cases if case.id == "consent.granted_readback")
+    assert case.expected == ("list_information_shared_with_me",)
+    assert not harness.is_hit("list_my_outgoing_information_requests", case.expected)
 
 
 def test_every_expected_tool_exists_on_the_roster(cases, roster_names):
@@ -158,9 +215,15 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert text == (
         agent_tree.ONE_IDENTITY_INSTRUCTION
         + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
-        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim access to the selected-file library. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
+        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim the owner is disconnected or that a named file is absent without a current status check. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
     )
     assert "discover_person_information" in text
+    assert "Preserve the selected recipient and selection handle" in text
+    assert "identify its exact file ID" in text
+    assert "Never infer an ID from a similar filename" in text
+    assert '"X approved; can I see it now?": call list_information_shared_with_me' in text
+    assert "Open outgoing requests cannot establish a grant" in text
+    assert "do not send the person to Profile automatically" in text
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +260,64 @@ def test_is_hit_semantics():
     assert harness.is_hit(None, ("google_search", "no_tool"))
     assert not harness.is_hit(None, ("list_active_grants",))
     assert not harness.is_hit("google_search", ("no_tool",))
+
+
+def test_case_id_selection_is_bounded_ordered_and_fails_closed(cases):
+    selected = harness.select_cases(
+        cases,
+        None,
+        ["drive.email_selected_file", "consent.granted_readback"],
+    )
+    assert [case.id for case in selected] == [
+        "consent.granted_readback",
+        "drive.email_selected_file",
+    ]
+    assert harness.select_cases(cases, ["consent"], ["drive.email_selected_file"]) == []
+    with pytest.raises(ValueError, match="unknown case ids"):
+        harness.select_cases(cases, None, ["consent.nonexistent"])
+
+
+def test_case_id_filter_limits_probe_calls(cases, tmp_path):
+    selected_id = "consent.granted_readback"
+    calls = []
+
+    def probe(_instruction, prompt, _screen):
+        calls.append(prompt)
+        return "list_information_shared_with_me"
+
+    assert (
+        harness.run_eval(
+            case_ids=[selected_id],
+            first_tool=probe,
+            report_dir=tmp_path,
+            reps=2,
+            quiet=True,
+        )
+        == 0
+    )
+    assert len(calls) == 2
+    report = json.loads((tmp_path / harness.LATEST_REPORT_NAME).read_text())
+    assert [row["id"] for row in report["cases"]] == [selected_id]
+
+
+def test_case_id_cli_is_repeatable():
+    parsed = harness.parse_args(
+        ["--case-id", "consent.granted_readback", "--case-id", "drive.email_selected_file"]
+    )
+    assert parsed.case_id == ["consent.granted_readback", "drive.email_selected_file"]
+
+
+def test_quota_errors_stop_without_retry_while_transient_outages_can_retry():
+    class ProviderError(Exception):
+        def __init__(self, code):
+            self.code = code
+            super().__init__("provider failure")
+
+    assert not harness._is_transient_provider_error(ProviderError(429))
+    assert not harness._is_transient_provider_error(RuntimeError("RESOURCE_EXHAUSTED 429"))
+    assert harness._is_transient_provider_error(ProviderError(503))
+    assert harness._is_transient_provider_error(TimeoutError("DEADLINE_EXCEEDED"))
+    assert not harness._is_transient_provider_error(ValueError("bad arguments"))
 
 
 @pytest.mark.parametrize("gap", [-1, float("inf"), float("-inf"), float("nan")])
@@ -281,7 +402,27 @@ def test_first_tool_from_response_scores_run_app_action_with_action_id():
         == "run_app_action:consent.revoke"
     )
     assert harness.first_tool_from_response(_response([grants, revoke])) == "list_active_grants"
-    assert harness.first_tool_from_response(SimpleNamespace(candidates=[])) is None
+    with pytest.raises(RuntimeError, match="missing_candidates"):
+        harness.first_tool_from_response(SimpleNamespace(candidates=[]))
+
+
+def test_first_tool_rejects_blocked_and_thought_only_model_responses():
+    from types import SimpleNamespace
+
+    def response(parts, reason="STOP"):
+        candidate = SimpleNamespace(
+            content=SimpleNamespace(parts=parts),
+            finish_reason=SimpleNamespace(name=reason),
+        )
+        return SimpleNamespace(candidates=[candidate])
+
+    thought = SimpleNamespace(function_call=None, text="internal", thought=True)
+    with pytest.raises(RuntimeError, match="missing_answer"):
+        harness.first_tool_from_response(response([thought]))
+    with pytest.raises(RuntimeError, match="not_completed"):
+        harness.first_tool_from_response(response([SimpleNamespace(text="partial")], "MAX_TOKENS"))
+    with pytest.raises(RuntimeError, match="not_completed"):
+        harness.first_tool_from_response(response([SimpleNamespace(text="blocked")], "SAFETY"))
 
 
 def test_all_hits_exit_zero_and_report_is_written(cases, tmp_path):

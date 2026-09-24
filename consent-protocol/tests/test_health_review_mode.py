@@ -18,8 +18,8 @@ def test_health_reports_one_led_agent_model(monkeypatch):
         health,
         "_one_runtime_dependency_evidence",
         lambda: {
-            "google_adk_expected": "2.4.0",
-            "google_adk_installed": "2.4.0",
+            "google_adk_expected": "2.9.0",
+            "google_adk_installed": "2.9.0",
             "google_adk_compatible": True,
         },
     )
@@ -35,8 +35,8 @@ def test_health_reports_one_led_agent_model(monkeypatch):
             "specialists": ["kai", "nav"],
         },
         "one_runtime": {
-            "google_adk_expected": "2.4.0",
-            "google_adk_installed": "2.4.0",
+            "google_adk_expected": "2.9.0",
+            "google_adk_installed": "2.9.0",
             "google_adk_compatible": True,
         },
     }

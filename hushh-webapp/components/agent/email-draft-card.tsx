@@ -389,6 +389,7 @@ export function EmailDraftCard({
 
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
+  const needsGeneratedDraft = autoDraft && !draft.body.trim();
 
   return (
     <section
@@ -580,17 +581,29 @@ export function EmailDraftCard({
           ) : null}
           {busy === "attachment" ? <p role="status" className="text-sm text-muted-foreground">Checking the selected Drive file…</p> : null}
           {error ? (
-            <p
-              className="rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive"
-              role="alert"
-            >
-              {error.message}{" "}
-              {error.needsGmailReconnect ? (
-                <Link className="font-medium underline" href="/one/gmail">
-                  Reconnect Mail
-                </Link>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive" role="alert">
+              <span>
+                {error.message}{" "}
+                {error.needsGmailReconnect ? (
+                  <Link className="font-medium underline" href="/one/gmail">
+                    Reconnect Mail
+                  </Link>
+                ) : null}
+              </span>
+              {autoDraft && !sourceBoundReply ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
+                  data-testid="one-email-draft-retry"
+                  onClick={() => void askOneToDraft()}
+                  disabled={disabled}
+                >
+                  Try drafting again
+                </Button>
               ) : null}
-            </p>
+            </div>
           ) : null}
         </div>
       )}
@@ -610,7 +623,7 @@ export function EmailDraftCard({
           size="sm"
           className="gap-2 rounded-xl px-4 sm:min-w-32"
           onClick={() => void send()}
-          disabled={disabled}
+          disabled={disabled || needsGeneratedDraft}
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />

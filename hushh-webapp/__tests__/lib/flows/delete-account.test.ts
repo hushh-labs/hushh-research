@@ -11,6 +11,7 @@ const {
   mockBackendInvalidationCode,
   mockFirebaseInvalidationCode,
   mockGetAccountSessionStatus,
+  mockRevokeAllVaultPlaid,
 } = vi.hoisted(() => ({
   mockDeleteAccount: vi.fn(),
   mockOnAccountDeleted: vi.fn(),
@@ -22,6 +23,11 @@ const {
   mockBackendInvalidationCode: vi.fn(),
   mockFirebaseInvalidationCode: vi.fn(),
   mockGetAccountSessionStatus: vi.fn(),
+  mockRevokeAllVaultPlaid: vi.fn(),
+}));
+
+vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
+  revokeAllVaultPlaidAtPlaid: mockRevokeAllVaultPlaid,
 }));
 
 vi.mock("@/lib/auth/session-invalidation", () => ({
@@ -63,6 +69,7 @@ import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE,
   AccountDeletionOutcomeUncertainError,
+  AccountErasureBanksNotDisconnectedError,
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
@@ -447,5 +454,69 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(mockClearForUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("banks sealed in the vault are revoked before the account is erased", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: true });
+  });
+
+  it("revokes every connection at Plaid before the delete request", async () => {
+    mockRevokeAllVaultPlaid.mockResolvedValue({ revoked: 2, failed: 0 });
+    await executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-owner-token",
+      sessionUser: makeSessionUser(),
+      vaultKey: "vault-key",
+    }).catch(() => undefined);
+
+    expect(mockRevokeAllVaultPlaid).toHaveBeenCalledWith({
+      userId: "user_123",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner-token",
+    });
+    expect(mockRevokeAllVaultPlaid.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDeleteAccount.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("deletes nothing when a connection could not be revoked", async () => {
+    mockRevokeAllVaultPlaid.mockResolvedValue({ revoked: 1, failed: 1 });
+    const action = executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-owner-token",
+      sessionUser: makeSessionUser(),
+      vaultKey: "vault-key",
+    });
+
+    await expect(action).rejects.toBeInstanceOf(AccountErasureBanksNotDisconnectedError);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+    expect(accountDeletionErrorMessage(await action.catch((e: unknown) => e))).toMatch(/nothing was deleted/);
+  });
+
+  it("deletes nothing when the vault cannot be read", async () => {
+    mockRevokeAllVaultPlaid.mockRejectedValue(new Error("network"));
+    await expect(
+      executeVerifiedAccountDeletion({
+        userId: "user_123",
+        vaultOwnerToken: "vault-owner-token",
+        sessionUser: makeSessionUser(),
+        vaultKey: "vault-key",
+      }),
+    ).rejects.toBeInstanceOf(AccountErasureBanksNotDisconnectedError);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("skips the step when the vault is not open on this device", async () => {
+    await executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-owner-token",
+      sessionUser: makeSessionUser(),
+    }).catch(() => undefined);
+
+    expect(mockRevokeAllVaultPlaid).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).toHaveBeenCalled();
   });
 });

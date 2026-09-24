@@ -46,6 +46,7 @@ import { ConsentScopeNestedList } from "@/components/consent/consent-scope-neste
 import { DecryptedGrantCard } from "@/components/connections/decrypted-grant-card";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
+import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
 import {
   PersonProfileService,
   mergePersonScopePage,
@@ -414,11 +415,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
   const selectedScopes = useMemo(
     () =>
-      allScopes.filter(
-        (scope) =>
-          scope.scopeRef &&
-          selectedScopeRefs.has(scope.scopeRef) &&
-          !grantedScopeRefs.has(scope.scopeRef),
+      selectedRequestScopes(allScopes, selectedScopeRefs).filter(
+        (scope) => !grantedScopeRefs.has(scope.scopeRef),
       ),
     [allScopes, selectedScopeRefs, grantedScopeRefs],
   );
@@ -1197,19 +1195,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
-                  // A branch arrives as every reference underneath it, so
-                  // "everything financial" is one gesture rather than four
-                  // folders and eleven taps.
                   onToggleMany: (ids, select) =>
-                    setSelectedScopeRefs((current) => {
-                      const next = new Set(current);
-                      for (const id of ids) {
-                        if (grantedScopeRefs.has(id)) continue;
-                        if (select) next.add(id);
-                        else next.delete(id);
-                      }
-                      return next;
-                    }),
+                    setSelectedScopeRefs((current) => toggleRequestScopes(
+                      allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
+                    )),
                 }}
               />
               {viewerProfile.scopeCatalog?.hasMore ? (

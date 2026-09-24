@@ -52,6 +52,8 @@ export type ConsentScopeItem = {
    * Empty for a scope with nothing below the domain.
    */
   pathSegments: string[];
+  /** Only an authored wildcard can cover descendants; never infer this from an opaque id. */
+  wildcard?: boolean;
   /** The heading a person reads. Humanised once, here. */
   domainLabel: string;
   badge?: string | null;
@@ -152,6 +154,7 @@ export function scopeItemsFromRequestable(
       // navigable hierarchy: hierarchy comes from the protocol's attr path,
       // not from an identifier that only the service is allowed to interpret.
       pathSegments: scope.pathSegments ?? (parsedScope.domain ? scopePathSegments(scope.scopeRef) : []),
+      wildcard: scope.wildcard,
       domainLabel: domainLabelFor(domainKey),
       badge: sensitivityBadge(scope.sensitivity),
       searchText: haystack([scope.label, scope.description, domainKey]),

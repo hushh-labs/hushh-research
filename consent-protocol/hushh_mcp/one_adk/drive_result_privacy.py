@@ -8,8 +8,11 @@ from typing import Any
 from ag_ui.core import BaseEvent, EventType
 
 from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_NAME
+from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
 
 _OUTCOMES = frozenset({"ok", "blocked", "unavailable"})
+_PRIVATE_TOOLS = frozenset({DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files"})
+_PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE})
 
 
 def _safe_result(value: object) -> dict[str, Any]:
@@ -33,19 +36,19 @@ def redact_drive_session_json(serialized: str) -> str:
     The live ADK session remains untouched until the model finishes this turn.
     Restored sessions retain the invocation and safe outcome, not provider text.
     """
-    if DRIVE_READ_TOOL_NAME not in serialized:
+    if not any(name in serialized for name in _PRIVATE_TOOLS):
         return serialized
     document: dict[str, Any] = json.loads(serialized)
     changed = False
     for event in document.get("events", []):
         for part in (event.get("content") or {}).get("parts") or []:
             call = part.get("functionCall")
-            if isinstance(call, dict) and call.get("name") == DRIVE_READ_TOOL_NAME:
+            if isinstance(call, dict) and call.get("name") in _PRIVATE_TOOLS:
                 call["args"] = {}
                 call["partialArgs"] = None
                 changed = True
             response = part.get("functionResponse")
-            if isinstance(response, dict) and response.get("name") == DRIVE_READ_TOOL_NAME:
+            if isinstance(response, dict) and response.get("name") in _PRIVATE_TOOLS:
                 response["response"] = _safe_result(response.get("response"))
                 response["parts"] = None
                 changed = True
@@ -59,19 +62,19 @@ def _is_private_result(content: object) -> bool:
         value = json.loads(content)
     except (TypeError, ValueError):
         return False
-    return isinstance(value, dict) and value.get("source") == DRIVE_PRIVATE_SOURCE
+    return isinstance(value, dict) and value.get("source") in _PRIVATE_SOURCES
 
 
 def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> BaseEvent | None:
     """Project a safe AG-UI event while preserving model-visible tool output."""
     event_type = getattr(event, "type", None)
     if event_type == EventType.TOOL_CALL_START:
-        if getattr(event, "tool_call_name", None) == DRIVE_READ_TOOL_NAME:
+        if getattr(event, "tool_call_name", None) in _PRIVATE_TOOLS:
             private_call_ids.add(str(getattr(event, "tool_call_id", "")))
         return event
     if event_type == EventType.TOOL_CALL_CHUNK:
         if (
-            getattr(event, "tool_call_name", None) == DRIVE_READ_TOOL_NAME
+            getattr(event, "tool_call_name", None) in _PRIVATE_TOOLS
             or str(getattr(event, "tool_call_id", "")) in private_call_ids
         ):
             return None
@@ -102,7 +105,7 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
                 call_changed = False
                 for call in calls:
                     if (
-                        getattr(call.function, "name", None) == DRIVE_READ_TOOL_NAME
+                        getattr(call.function, "name", None) in _PRIVATE_TOOLS
                         or str(getattr(call, "id", "")) in private_call_ids
                     ):
                         safe_calls.append(

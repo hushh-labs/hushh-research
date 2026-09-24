@@ -100,10 +100,16 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
+  await page.route(/\/icons\/agents\/(?:gmail|calendar)\.svg$/, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
+    }),
+  );
   await page.route("http://localhost/connections-fixture", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html><head><title>One Connections contract</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html><head><title>One Connectors contract</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.route("**/api/connectors**", async (route) => {
@@ -189,22 +195,22 @@ for (const width of [320, 390, 768, 1440])
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.setViewportSize({ width, height: 820 });
-    await expect(page).toHaveTitle("One Connections contract");
+    await expect(page).toHaveTitle("One Connectors contract");
     await expect(page).toHaveURL("http://localhost/connections-fixture");
     const draft = page.getByRole("textbox", { name: "Chat draft" });
     await draft.fill("Keep this draft and conversation");
     const original = await draft.elementHandle();
     const receipt = page.getByRole("region", { name: "Mail read details" });
     await expect(receipt).toHaveText(/Reconnect Mail to continue/);
-    const button = receipt.getByRole("button", { name: "Open Connections" });
+    const button = receipt.getByRole("button", { name: "Open Connectors" });
     const bounds = (await button.boundingBox())!;
     expect(bounds.height).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     await button.click();
-    await expect(page.getByRole("dialog", { name: "Connections", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Connections", exact: true })).not.toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).not.toBeVisible();
     await expect(button).toBeFocused();
     await expect(draft).toHaveValue("Keep this draft and conversation");
     expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
@@ -228,29 +234,36 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("searchbox", { name: "Search chats" })
       .fill("History filter");
-    await page.getByLabel("Open Connections", { exact: true }).click();
-    const drawer = page.getByRole("dialog", {
-      name: "Connections",
-      exact: true,
-    });
-    await expect(
-      drawer.getByRole("heading", { name: "Gmail", exact: true }),
-    ).toBeVisible();
-    await expect(
-      drawer.getByRole("heading", { name: "Google Drive", exact: true }),
-    ).toBeVisible();
-    await expect(
-      drawer.getByText("drive-owner@synthetic.invalid"),
-    ).toBeVisible();
-    await expect(
-      drawer.getByText("mail-owner@synthetic.invalid"),
-    ).toBeVisible();
-    for (const name of [
-      "Disconnect Mail",
-      "Disconnect Drive",
-      "Choose files",
-      "Retry Drive",
-    ]) {
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
+    await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
+    await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
+    await drawer.getByRole("searchbox", { name: "Search connectors" }).fill("drive");
+    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toHaveCount(0);
+    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
+    await drawer.getByRole("searchbox", { name: "Search connectors" }).clear();
+    for (const [connector, account, names] of [
+      ["Gmail", "mail-owner@synthetic.invalid", ["Disconnect Mail"]],
+      ["Google Drive", "drive-owner@synthetic.invalid", ["Disconnect Drive", "Choose files", "Retry Drive"]],
+    ] as const) {
+      await drawer.getByRole("button", { name: connector, exact: true }).click();
+      await expect(drawer.getByRole("button", { name: "Back to connectors" })).toBeFocused();
+      await expect(drawer.getByText(account)).toBeVisible();
+      for (const name of names) {
+        const button = drawer.getByRole("button", { name, exact: true });
+        await button.scrollIntoViewIfNeeded();
+        const bounds = (await button.boundingBox())!;
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      }
+      await drawer.getByRole("button", { name: "Back to connectors" }).click();
+      await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeFocused();
+    }
+    for (const name of ["Gmail", "Google Drive"]) {
       const button = drawer.getByRole("button", { name, exact: true });
       await button.scrollIntoViewIfNeeded();
       const bounds = (await button.boundingBox())!;
@@ -269,7 +282,9 @@ for (const width of [320, 390, 768, 1440])
       }),
       contentType: "image/png",
     });
-    await drawer.getByRole("button", { name: "Back to Chats" }).click();
+    await drawer.getByRole("button", { name: "Close connectors" }).click();
+    await expect(drawer).not.toBeVisible();
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     await expect(
       page.getByRole("searchbox", { name: "Search chats" }),
     ).toHaveValue("History filter");
@@ -285,18 +300,40 @@ for (const width of [320, 390, 768, 1440])
     await expect(page.getByTestId("stream")).toHaveText("Streaming turn 2");
   });
 
+test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 820 });
+  const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
+  const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+
+  await hamburger.click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await expect(connectors).toBeVisible();
+  await page.mouse.click(24, 400);
+  await expect(connectors).not.toBeVisible();
+  await hamburger.click();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(connectors).not.toBeVisible();
+  await hamburger.click();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+});
+
 test("Picker focus, explicit admission, removal, and independent disconnect", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByLabel("Open Connections", { exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Choose files", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Synthetic Google Picker" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("dialog", { name: "Connections", exact: true }),
+    page.getByRole("dialog", { name: "Connectors", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose files", exact: true }),
@@ -334,6 +371,8 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await expect(
     page.getByText(/Google revocation was not confirmed/),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Back to connectors" }).click();
+  await page.getByRole("button", { name: "Gmail", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Disconnect Mail" }),
   ).toBeEnabled();
@@ -347,7 +386,8 @@ test("background processing needs explicit consent and can be paused without rem
   });
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Keep my draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByLabel("Open Connections", { exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   const selectFile = async () => {
     await page.getByRole("button", { name: "Choose files", exact: true }).click();
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
@@ -402,7 +442,8 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   );
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByLabel("Open Connections", { exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await page.evaluate(() => {
@@ -461,7 +502,8 @@ test("real popup ignores forged settlement and reconciles server status after cl
       }),
   );
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByLabel("Open Connections", { exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   const popupEvent = page.waitForEvent("popup");

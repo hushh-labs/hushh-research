@@ -113,6 +113,12 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_NOT_CONNECTED") {
     return "Connect Mail before you draft or send mail.";
   }
+  if (code === "DRAFT_INVALID") {
+    return "One could not make a usable draft. Try drafting again or edit it yourself.";
+  }
+  if (code === "DRAFT_UNAVAILABLE" || code === "GMAIL_DELIVERY_UNAVAILABLE" || status === 504) {
+    return "One could not finish the draft right now. Please try again.";
+  }
   if (code === "EMAIL_ACTION_EXPIRED") {
     return "This mail review expired. Review the unchanged draft again.";
   }

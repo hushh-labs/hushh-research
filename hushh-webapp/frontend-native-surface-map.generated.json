@@ -1140,68 +1140,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/kai/alpaca/oauth/return",
-      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/alpaca/oauth/return surface.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.kai.alpaca.oauth.return",
-          "purpose": "Help the person understand and use the return screen through its generated controls.",
-          "screen": "kai_alpaca_oauth_return",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/kai/alpaca/oauth/return",
-        "classification": "native-required-callback",
-        "initialRoute": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
-        "expectedMarker": "native-route-kai-alpaca-return",
-        "expectedRoute": "/one/kai/alpaca/oauth/return",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "redirect-valid",
-          "unavailable-valid"
-        ],
-        "legacyAlias": true
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/kai/analysis",
       "page_file": "app/kai/analysis/page.tsx",
       "physical_page_exists": true,
@@ -3025,70 +2963,6 @@
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/one/kai/alpaca/oauth/return",
-      "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/kai/alpaca/oauth/return/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageContentRegion"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.one.kai.alpaca.oauth.return",
-          "purpose": "Help the person understand and use the return screen through its generated controls.",
-          "screen": "kai_alpaca_oauth_return",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/one/kai/alpaca/oauth/return",
-        "classification": "native-required-callback",
-        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Falpaca%2Foauth%2Freturn",
-        "expectedMarker": "native-route-kai-alpaca-return",
-        "expectedRoute": "/one/kai/alpaca/oauth/return",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "redirect-valid",
-          "unavailable-valid"
-        ]
-      },
-      "shell": {
-        "app_page_shell": true,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -9577,5 +9451,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "fbbbc1fc63fc55018da31c440339203715fbe1ae305c1f2b7573ec64d74e0873"
+  "content_sha256": "8c76736237174380eda4150e0c869fce8b6be0024f8b19df2bfc55dd12609498"
 }

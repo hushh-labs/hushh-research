@@ -223,6 +223,10 @@ if [[ "$ATTACHED" == "1" ]]; then
   # and deletes it at once, and the card deletes it again after the run.
   # (printf is a shell builtin, so no process on the Mac carries it either.)
   PASSPHRASE_DEVICE_FILE=/data/local/tmp/hushh-perf-passphrase
+  # adb shell re-parses the command on the phone, so bank names with spaces
+  # are quoted for that shell (unquoted, `am instrument` read the words as
+  # options and failed with "Invalid userId -2" while exiting 0).
+  PLAID_BANKS_ARG="${PLAID_BANKS:-Platypus OAuth Bank,First Gingham Credit Union}"
   for attempt in 1 2; do
     # Written per attempt: a first attempt may already have consumed it.
     printf '%s' "$REVIEWER_VAULT_PASSPHRASE" \
@@ -232,6 +236,8 @@ if [[ "$ATTACHED" == "1" ]]; then
       -e passphraseFile "$PASSPHRASE_DEVICE_FILE" \
       -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
       -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
+      -e plaidBanks "${(q)PLAID_BANKS_ARG}" \
+      -e oauthHostDrive "${PLAID_OAUTH_HOST_DRIVE:-0}" \
       -e class com.hussh.app.AttachedRenderPerfTest \
       com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
     TEST_STATUS=$?
@@ -254,6 +260,7 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
   grep -E "^PERF_" "$OUT_DIR/logcat.log" > "$OUT_DIR/gestures.log" || true
   grep -q "INSTRUMENTATION_STATUS_CODE: -1\|INSTRUMENTATION_RESULT: shortMsg=" "$OUT_DIR/instrument.log" && TEST_STATUS=1
+  grep -q "^Error: " "$OUT_DIR/instrument.log" && TEST_STATUS=1
   grep -E "PERF_DISPLAY" "$OUT_DIR/gestures.log" > "$OUT_DIR/display.txt" || true
   # Exports and gfxinfo dumps: the test copies them into Download/hushh-perf
   # through MediaStore (readable by adb on every build type, run-as is not);
@@ -261,6 +268,9 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" pull /sdcard/Download/hushh-perf "$OUT_DIR/pull" >/dev/null 2>&1 || true
   if [[ -d "$OUT_DIR/pull" ]]; then
     for f in "$OUT_DIR"/pull/*.json(N); do [[ -f "$f" ]] && mv "$f" "$OUT_DIR/probe/"; done
+    # plaid-vault checkpoint screenshots (sandbox screens; review, then delete).
+    mkdir -p "$OUT_DIR/shots"
+    for f in "$OUT_DIR"/pull/plaid-*.png(N); do [[ -f "$f" ]] && mv "$f" "$OUT_DIR/shots/"; done
     for f in "$OUT_DIR"/pull/gfx-*.txt(N); do
       [[ -f "$f" ]] || continue
       name="$(basename "$f" .txt)"; name="${name#gfx-}"
@@ -294,6 +304,11 @@ for f in "$OUT_DIR"/*.log(N) "$OUT_DIR"/probe/*.json(N) "$OUT_DIR"/gfx/*(N); do
   fi
 done
 
+if [[ "$SECTION" == "plaid-vault" ]]; then
+  grep -E "^(PLAID_|PERF_UNLOCK|PERF_APP_READY|PERF_SKIPPED)" "$OUT_DIR/logcat.log" || true
+  echo "plaid-vault: shots in $OUT_DIR/shots (status $TEST_STATUS)"
+  exit "$TEST_STATUS"
+fi
 COUNT="$(ls "$OUT_DIR"/probe/*.json(N) 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "$COUNT" == "0" ]]; then
   echo "No probe exports were pulled (status $TEST_STATUS); see $OUT_DIR/gestures.log" >&2

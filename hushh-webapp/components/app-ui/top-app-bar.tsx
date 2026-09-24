@@ -1355,7 +1355,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 function OnboardingRouteActions() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1414,6 +1414,7 @@ function OnboardingRouteActions() {
             userId: user.uid,
             vaultOwnerToken: resolution.token,
             sessionUser: user,
+            vaultKey,
           }),
           {
             loading: "Deleting your account...",

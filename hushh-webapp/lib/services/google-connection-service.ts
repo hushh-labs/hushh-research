@@ -14,10 +14,10 @@ export type GoogleConnectionStatus = {
 };
 
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {
-  service: "calendar" | "drive";
+  service: "calendar";
 };
 
-/** One callback transport; the server's consumed attempt identifies the service. */
+/** Legacy Calendar callback transport; Drive uses `/api/connectors` instead. */
 export class GoogleConnectionService {
   static async completeConnect(params: {
     idToken: string;
@@ -59,7 +59,7 @@ export class GoogleConnectionService {
       throw new DOMException("The connection session changed.", "AbortError");
     if (
       !result ||
-      !["calendar", "drive"].includes(result.service) ||
+      result.service !== "calendar" ||
       typeof result.connected !== "boolean" ||
       !["connected", "needs_reauth", "disconnected"].includes(result.status)
     ) {

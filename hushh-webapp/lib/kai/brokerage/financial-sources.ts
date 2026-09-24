@@ -5,8 +5,6 @@ import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { toPortfolioData as toVaultPortfolioData } from "@/lib/kai/plaid-vault/projection";
 
 import type {
-  PlaidItemSummary,
-  PlaidPortfolioStatusResponse,
   PortfolioSource,
   StatementSnapshotOption,
 } from "@/lib/kai/brokerage/portfolio-sources";
@@ -45,10 +43,6 @@ function getSources(financial: AnyObj | null | undefined): AnyObj {
 
 function getStatementSource(financial: AnyObj | null | undefined): AnyObj {
   return asRecord(getSources(financial).statement) ?? {};
-}
-
-function getPlaidSource(financial: AnyObj | null | undefined): AnyObj {
-  return asRecord(getSources(financial).plaid) ?? {};
 }
 
 function getPortfolioAnalytics(portfolio: AnyObj | null | undefined): AnyObj | null {
@@ -208,12 +202,7 @@ export function getPlaidPortfolio(financial: AnyObj | null | undefined): Portfol
   }
   const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
   if (v7Portfolio && getActiveSource(financial) === "plaid") return v7Portfolio;
-  const plaidSource = getPlaidSource(financial);
-  const aggregate = asRecord(plaidSource.aggregate);
-  const candidate = asRecord(aggregate?.portfolio_data);
-  if (!candidate) return null;
-  const normalized = normalizeStoredPortfolio(candidate) as PortfolioData;
-  return hasHoldings(normalized) ? normalized : null;
+  return null;
 }
 
 export function getFinancialCompatibilityView(
@@ -265,163 +254,30 @@ export function buildStatementSource(
 }
 
 /**
- * The shape of the Plaid mirror written into memory. Bump it whenever what is
- * kept changes, so every stored mirror is re-projected on its next load.
- * v2 (2026-09-23): memory holds facts about the person's connections only; no
- * error text, webhook codes, refresh runs or institution "official" names.
+ * Plaid connections live in the vault tiers (`connections_v1` and siblings);
+ * the older `sources.plaid` copy of the server's Plaid status is retired and
+ * dropped on the next save.
  */
-const PLAID_MIRROR_SHAPE = "plaid-mirror-v2";
-
-/**
- * Memory holds information about the person, not app state: which bank, which
- * accounts, and when the information was last current. Error messages,
- * webhook codes and refresh-run records stay out; so does `official_name`.
- */
-function toMemoryPlaidItem(item: PlaidItemSummary): AnyObj {
-  return {
-    item_id: item.item_id,
-    institution_id: item.institution_id ?? null,
-    institution_name: item.institution_name ?? null,
-    status: item.status,
-    last_synced_at: item.last_synced_at ?? null,
-    accounts: (item.accounts || []).map((account) => ({
-      account_id: account.account_id,
-      persistent_account_id: account.persistent_account_id ?? null,
-      name: account.name,
-      mask: account.mask ?? null,
-      type: account.type ?? null,
-      subtype: account.subtype ?? null,
-      balances: account.balances ?? {},
-      institution_id: account.institution_id ?? null,
-      institution_name: account.institution_name ?? null,
-      item_id: account.item_id,
-    })),
-  };
+function withoutRetiredPlaidCopy(sources: AnyObj): AnyObj {
+  const next = { ...sources };
+  delete next.plaid;
+  return next;
 }
 
-function buildPlaidMirrorSignature(plaidStatus: PlaidPortfolioStatusResponse): string {
-  const itemSignature = (plaidStatus.items || [])
-    .map((item) =>
-      [
-        item.item_id,
-        item.last_synced_at || "",
-        item.sync_status || "",
-        item.status || "",
-        item.accounts?.length || 0,
-      ].join(":")
-    )
-    .sort()
-    .join("|");
-  return [
-    PLAID_MIRROR_SHAPE,
-    plaidStatus.aggregate?.last_synced_at || "",
-    plaidStatus.aggregate?.item_count || 0,
-    plaidStatus.aggregate?.account_count || 0,
-    itemSignature,
-  ].join("::");
-}
-
-export function isPlaidMirrorStale(
-  financial: AnyObj | null | undefined,
-  plaidStatus: PlaidPortfolioStatusResponse | null | undefined
-): boolean {
-  if (!plaidStatus || !plaidStatus.configured) return false;
-  const plaidSource = getPlaidSource(financial);
-  const storedSignature = cleanText(plaidSource.signature);
-  if ((plaidStatus.aggregate?.item_count || 0) <= 0 && !storedSignature) return false;
-  return storedSignature !== buildPlaidMirrorSignature(plaidStatus);
-}
-
-export function upsertPlaidSource(
-  financial: AnyObj | null | undefined,
-  plaidStatus: PlaidPortfolioStatusResponse,
-  preferredSource: PortfolioSource,
-  updatedAt: string
-): AnyObj {
-  const nextFinancial = { ...(financial ?? {}) };
-  const nextSources = getSources(financial);
-  const nextPlaidSource = {
-    ...getPlaidSource(financial),
-    source_type: "plaid",
-    source_label: "Plaid",
-    connection_type: "plaid_brokerage",
-    is_editable: false,
-    active_item_ids: (plaidStatus.items || []).map((item) => item.item_id).filter(Boolean),
-    items: (plaidStatus.items || []).map(toMemoryPlaidItem),
-    aggregate: plaidStatus.aggregate || {},
-    projected_at: updatedAt,
-    projected_from_last_synced_at: plaidStatus.aggregate?.last_synced_at || null,
-    sync_status: plaidStatus.aggregate?.sync_status || "idle",
-    signature: buildPlaidMirrorSignature(plaidStatus),
-  };
-
-  const nextActiveSource =
-    preferredSource === "plaid" || preferredSource === "statement"
-      ? preferredSource
-      : (cleanText(nextSources.active_source) as PortfolioSource | null) ?? "statement";
-
-  nextFinancial.sources = {
-    ...nextSources,
-    active_source: nextActiveSource,
-    plaid: nextPlaidSource,
-  };
-
-  if (
-    nextActiveSource === "plaid" &&
-    hasHoldings(plaidStatus.aggregate?.portfolio_data)
-  ) {
-    const plaidPortfolio = normalizeStoredPortfolio(
-      plaidStatus.aggregate.portfolio_data as AnyObj
-    ) as PortfolioData;
-    nextFinancial.portfolio = plaidPortfolio;
-    nextFinancial.analytics =
-      asRecord((plaidStatus.aggregate?.portfolio_data as AnyObj | undefined)?.analytics_v2) ??
-      asRecord(plaidPortfolio.analytics_v2) ??
-      null;
-  }
-
-  nextFinancial.updated_at = updatedAt;
-  return nextFinancial;
-}
-
+/** Makes the vault's Plaid holdings the active portfolio; null when there are none. */
 export function setActivePlaidSource(
   financial: AnyObj | null | undefined,
-  plaidStatus: PlaidPortfolioStatusResponse | null | undefined,
   updatedAt: string
 ): AnyObj | null {
+  const plaidPortfolio = getPlaidPortfolio(financial);
+  if (!plaidPortfolio) return null;
   const nextFinancial = { ...(financial ?? {}) };
-  const nextSources = getSources(nextFinancial);
-  const nextPlaidSource = getPlaidSource(nextFinancial);
-  const aggregateFromStatus = plaidStatus?.aggregate
-    ? (plaidStatus.aggregate as unknown as AnyObj)
-    : null;
-  const aggregate = aggregateFromStatus ?? asRecord(nextPlaidSource.aggregate);
-  const candidate = asRecord(aggregate?.portfolio_data);
-  if (!candidate) return null;
-
-  const normalized = normalizeStoredPortfolio(candidate) as PortfolioData;
   nextFinancial.sources = {
-    ...nextSources,
+    ...withoutRetiredPlaidCopy(getSources(nextFinancial)),
     active_source: "plaid",
-    plaid: aggregateFromStatus
-      ? {
-          ...nextPlaidSource,
-          source_type: "plaid",
-          source_label: "Plaid",
-          connection_type: "plaid_brokerage",
-          is_editable: false,
-          active_item_ids: (plaidStatus?.items || []).map((item) => item.item_id).filter(Boolean),
-          items: plaidStatus?.items || [],
-          aggregate,
-          projected_at: updatedAt,
-          projected_from_last_synced_at: plaidStatus?.aggregate?.last_synced_at || null,
-          sync_status: plaidStatus?.aggregate?.sync_status || "idle",
-          signature: plaidStatus ? buildPlaidMirrorSignature(plaidStatus) : cleanText(nextPlaidSource.signature),
-        }
-      : nextPlaidSource,
   };
-  nextFinancial.portfolio = normalized;
-  nextFinancial.analytics = getPortfolioAnalytics(candidate) ?? getPortfolioAnalytics(normalized as AnyObj);
+  nextFinancial.portfolio = plaidPortfolio;
+  nextFinancial.analytics = getPortfolioAnalytics(plaidPortfolio as AnyObj);
   nextFinancial.updated_at = updatedAt;
   return nextFinancial;
 }
@@ -502,11 +358,9 @@ export function removeStatementSnapshot(
     return nextFinancial;
   }
 
-  const plaidSource = getPlaidSource(financial);
-  const plaidAggregate = asRecord(plaidSource.aggregate);
-  const plaidPortfolio = asRecord(plaidAggregate?.portfolio_data);
+  const plaidPortfolio = getPlaidPortfolio(financial);
   nextFinancial.sources = {
-    ...nextSources,
+    ...withoutRetiredPlaidCopy(nextSources),
     active_source: plaidPortfolio ? "plaid" : "statement",
     statement: {
       ...getStatementSource(financial),
@@ -521,40 +375,9 @@ export function removeStatementSnapshot(
   };
 
   if (plaidPortfolio) {
-    const normalized = normalizeStoredPortfolio(plaidPortfolio) as PortfolioData;
-    nextFinancial.portfolio = normalized;
-    nextFinancial.analytics = getPortfolioAnalytics(plaidPortfolio);
+    nextFinancial.portfolio = plaidPortfolio;
+    nextFinancial.analytics = getPortfolioAnalytics(plaidPortfolio as AnyObj);
   } else {
-    delete nextFinancial.portfolio;
-    delete nextFinancial.analytics;
-  }
-
-  nextFinancial.updated_at = updatedAt;
-  return nextFinancial;
-}
-
-export function removePlaidSource(
-  financial: AnyObj | null | undefined,
-  updatedAt: string,
-  options?: { clearActivePortfolio?: boolean }
-): AnyObj {
-  const nextFinancial = { ...(financial ?? {}) };
-  const nextSources = { ...getSources(financial) };
-  delete nextSources.plaid;
-  nextSources.active_source = "statement";
-  nextFinancial.sources = nextSources;
-
-  const activeStatement = getActiveStatementSnapshot(financial);
-  if (activeStatement) {
-    const canonical = asRecord(activeStatement.canonical_v2) ?? activeStatement;
-    const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
-    nextFinancial.portfolio = normalized;
-    nextFinancial.analytics =
-      getPortfolioAnalytics(activeStatement) ??
-      getPortfolioAnalytics(canonical) ??
-      asRecord(financial?.analytics) ??
-      null;
-  } else if (options?.clearActivePortfolio === true || getActiveSource(financial) === "plaid") {
     delete nextFinancial.portfolio;
     delete nextFinancial.analytics;
   }
@@ -631,8 +454,11 @@ function computeAllocationPct(holdings: HoldingLike[]): {
 export function buildFinancialDomainSummary(financial: AnyObj | null | undefined): AnyObj {
   const activeSource = cleanText(getSources(financial).active_source) ?? "statement";
   const statementSnapshots = getStatementSnapshots(financial);
-  const plaidItems = asArray<AnyObj>(getPlaidSource(financial).items);
-  const portfolio = getStatementPortfolio(financial) ?? (normalizeStoredPortfolio(asRecord(financial?.portfolio) ?? {}) as PortfolioData);
+  const plaidConnections = asRecord(financial?.connections_v1) ?? {};
+  const portfolio =
+    (activeSource === "plaid" ? getPlaidPortfolio(financial) : null) ??
+    getStatementPortfolio(financial) ??
+    (normalizeStoredPortfolio(asRecord(financial?.portfolio) ?? {}) as PortfolioData);
   const holdings = Array.isArray(portfolio?.holdings) ? portfolio.holdings : [];
   const accountInfo = asRecord(portfolio?.account_info);
 
@@ -651,7 +477,7 @@ export function buildFinancialDomainSummary(financial: AnyObj | null | undefined
     investable_positions_count: investableHoldings.length,
     cash_positions_count: cashHoldings.length,
     documents_count: statementSnapshots.length,
-    plaid_item_count: plaidItems.length,
+    plaid_item_count: Object.keys(plaidConnections).length,
     risk_profile: riskProfile,
     asset_allocation_pct: allocationPct,
     last_brokerage:

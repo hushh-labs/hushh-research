@@ -64,7 +64,11 @@ import {
   type PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import { createVaultLink, sealVaultPlaidConnection } from "@/lib/kai/plaid-vault/vault-sync";
+import {
+  createVaultLink,
+  rememberVaultOAuthReturn,
+  sealVaultPlaidConnection,
+} from "@/lib/kai/plaid-vault/vault-sync";
 import { clearPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
@@ -3444,6 +3448,8 @@ export function KaiFlow({
           }
         }
         const Plaid = await loadPlaidLink();
+        // Web OAuth banks leave the page; the return page finishes from here.
+        rememberVaultOAuthReturn({ userId, link: vaultLink, onboardingAttemptId });
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           const finish = (callback: () => void) => {

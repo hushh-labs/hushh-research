@@ -9,6 +9,18 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
+def test_live_chat_does_not_register_legacy_account_wide_drive_tools():
+    from api.routes.one import agent_chat
+
+    names = {
+        getattr(tool, "name", getattr(tool, "__name__", ""))
+        for tool in agent_chat._app.root_agent.tools
+    }
+    assert "ask_documents_agent" in names
+    assert drive_tools.DRIVE_READ_TOOL_NAME not in names
+    assert drive_tools.DRIVE_DISCOVERY_TOOL_NAME not in names
+
+
 def _context(user_id="owner", admitted=True):
     return SimpleNamespace(
         user_id=user_id,
@@ -82,5 +94,5 @@ async def test_drive_mcp_missing_grant_does_not_misrepresent_selected_file_conne
     monkeypatch.setattr(drive_tools, "_service", Service)
     result = await drive_tools.read_google_drive("search_files", {"query": "notes"}, _context())
     assert result["status"] == "permission_required"
-    assert "selected-file library in Connections is separate" in result["message"]
+    assert "selected-file library in Connectors is separate" in result["message"]
     assert "private provider detail" not in str(result)

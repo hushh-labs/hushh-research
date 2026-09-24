@@ -19,6 +19,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
+  revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -36,7 +37,7 @@ import { useVault } from "@/lib/vault/vault-context";
 
 export function AccountLifecycleStepBridge() {
   const { user, signOut } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const router = useRouter();
   const handledRef = useRef<Set<string>>(new Set());
 
@@ -51,7 +52,15 @@ export function AccountLifecycleStepBridge() {
         currentUid: sessionUser?.uid ?? null,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
         resolveAuth: resolveDeleteAccountAuth,
-        resetAccount: (token) => AccountService.resetAccount(token),
+        resetAccount: async (token) => {
+          if (!sessionUser) throw new Error("Signed out before reset could run.");
+          await revokeVaultBanksBeforeErasure({
+            userId: sessionUser.uid,
+            vaultKey,
+            vaultOwnerToken: token,
+          });
+          return AccountService.resetAccount(token);
+        },
         afterReset: async (uid) => {
           CacheSyncService.onAccountDeleted(uid);
           await UserLocalStateService.clearForUser(uid);
@@ -65,6 +74,7 @@ export function AccountLifecycleStepBridge() {
             userId,
             vaultOwnerToken: token,
             sessionUser,
+            vaultKey,
           });
         },
         afterDelete: async (uid) => {

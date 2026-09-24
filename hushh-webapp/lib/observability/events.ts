@@ -643,7 +643,7 @@ export interface EventPayloadMap {
   agent_pkm_context_resolved: {
     route_id: "agent";
     result: "success";
-    context_mode: "relevant" | "broad";
+    context_mode: "full";
     total_fact_count_bucket: PkmFactCountBucket;
     selected_fact_count_bucket: PkmFactCountBucket;
     context_clipped: boolean;

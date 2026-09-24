@@ -107,6 +107,67 @@ async def test_actual_one_runner_blocks_parallel_followup_and_restores_next_user
     assert first[0].invocation_id != second[0].invocation_id
 
 
+async def test_selected_file_status_is_answer_only_and_redacted_from_durable_history(monkeypatch):
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    executed = []
+
+    async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext) -> dict:
+        executed.append(("status", file_name))
+        return {
+            "source": "google_drive_selected_status",
+            "status": "ok",
+            "matches": [{"name": "PRIVATE_FILENAME.pdf", "status": "parsing"}],
+        }
+
+    async def forbidden_action() -> dict:
+        executed.append(("action", ""))
+        return {"status": "ok"}
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="inspect_selected_drive_files",
+                        args={"file_name": "PRIVATE_FILENAME.pdf"},
+                    )
+                ),
+                _call("forbidden_action"),
+            ],
+            [types.Part(text="The selected file is still processing.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [inspect_selected_drive_files, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="selected")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="selected",
+                new_message=types.Content(role="user", parts=[types.Part(text="Share my CV")]),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        assert executed == [("status", "PRIVATE_FILENAME.pdf")]
+        assert model._advertised == [{"inspect_selected_drive_files", "forbidden_action"}, set()]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert (
+            next(r for r in responses if r.name == "forbidden_action").response["status"]
+            == "blocked"
+        )
+        session = await sessions.get_session(app_name="one", user_id="owner", session_id="selected")
+        assert "PRIVATE_FILENAME" not in durable_external_read_projection(session).model_dump_json()
+    finally:
+        await runner.close()
+
+
 def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_tools():
     context = SimpleNamespace(
         invocation_id="turn", state={STATE_EXTERNAL_READ: "turn"}, user_id="owner"
@@ -185,7 +246,7 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
     import httpx
 
     from hushh_mcp.adk_bridge import email_agent
-    from hushh_mcp.agents.email import runtime
+    from hushh_mcp.hushh_adk import single_turn
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
     from hushh_mcp.services import gmail_metadata_reader
     from hushh_mcp.services.email_chat_service import EmailChatService
@@ -288,8 +349,7 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
         AsyncMock(return_value=SimpleNamespace(user_id="owner")),
     )
     monkeypatch.setattr(email_agent, "_singleton", email_agent.EmailAgentA2A(service=service))
-    monkeypatch.setattr(runtime, "build_managed_runtime_client", lambda _: object())
-    monkeypatch.setattr(runtime, "Gemini", lambda **kwargs: genes.pop(0))
+    monkeypatch.setattr(single_turn, "build_managed_gemini_adk_model", lambda _: genes.pop(0))
     monkeypatch.setattr(gmail_metadata_reader.httpx, "AsyncClient", FixedClient)
     root = agent_tree.build_one_text_agent(model=model)
     root.tools = [agent_tree.ask_email_agent]  # Real registered dispatch, not a tool double.

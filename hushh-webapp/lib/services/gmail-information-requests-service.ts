@@ -50,12 +50,19 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
+  backfill_pending?: boolean;
   retry_pending?: boolean;
 };
 
 export type GmailInformationRequestCandidateRefresh = {
   workflow_id: string;
   candidate_scopes: GmailInformationRequestCandidateScope[];
+};
+
+export type GmailInformationRequestSourcePreview = {
+  from: string;
+  subject: string;
+  body: string;
 };
 
 export type GmailPreparedInformationRequestReply = {
@@ -172,6 +179,18 @@ export class GmailInformationRequestsService {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
       },
+    );
+  }
+
+  /** Fetches the source email only for the unlocked workflow owner on demand. */
+  static getSourcePreview(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<GmailInformationRequestSourcePreview> {
+    return apiJson<GmailInformationRequestSourcePreview>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/source-preview`,
+      { headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken) },
     );
   }
 

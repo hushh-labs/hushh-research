@@ -29,8 +29,11 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
   navigateToAgentChat: handoffMocks.navigateToAgentChat,
 }));
 vi.mock("@/lib/agent/one-conversation-session", () => ({
-  useOneConversationSession: (selector: (state: { createHandoff: typeof handoffMocks.createHandoff }) => unknown) =>
-    selector({ createHandoff: handoffMocks.createHandoff }),
+  useOneConversationSession: (
+    selector: (state: {
+      createHandoff: typeof handoffMocks.createHandoff;
+    }) => unknown,
+  ) => selector({ createHandoff: handoffMocks.createHandoff }),
 }));
 
 function renderSection(
@@ -140,9 +143,7 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByText("KYC requests")).toBeVisible(),
-    );
+    await waitFor(() => expect(screen.getByText("KYC requests")).toBeVisible());
     expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
   });
 
@@ -164,11 +165,13 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     const start = await screen.findByRole("button", {
-      name: "Start KYC monitoring",
+      name: "Start monitoring",
     });
     await waitFor(() => expect(start).not.toBeDisabled());
     fireEvent.click(start);
-    fireEvent.click(await screen.findByRole("button", { name: "Start monitoring" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start monitoring" }),
+    );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Personal Gmail monitoring is temporarily unavailable. Please try again.",
@@ -190,7 +193,7 @@ describe("personal Gmail information-request scope boundary", () => {
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Unlock to start monitoring",
+        name: "Unlock to start",
       }),
     );
 
@@ -201,7 +204,7 @@ describe("personal Gmail information-request scope boundary", () => {
     );
   });
 
-  it("scans the latest 30 Inbox emails for existing KYC mail", async () => {
+  it("starts an incremental KYC scan when the unlocked KYC workspace opens", async () => {
     gmailServiceMocks.getPreference.mockResolvedValue({
       user_id: "owner",
       monitoring_enabled: true,
@@ -232,22 +235,23 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Scan inbox" }),
-    );
-
     await waitFor(() =>
       expect(gmailServiceMocks.scan).toHaveBeenCalledWith({
         firebaseIdToken: "firebase-token",
         vaultOwnerToken: "vault-owner-token",
         maxResults: 30,
-        includeRecentInbox: true,
       }),
     );
-    expect(await screen.findByText("Mail messages checked")).toBeVisible();
-    expect(screen.getByText("Newly classified")).toBeVisible();
+    expect(await screen.findByText("Emails checked")).toBeVisible();
     expect(screen.getByText("KYC requests found")).toBeVisible();
-    expect(screen.getAllByText("1")).toHaveLength(3);
+    expect(screen.getAllByText("1")).toHaveLength(2);
+    expect(screen.getByText("Gmail monitoring is on")).toBeVisible();
+    expect(
+      screen.queryByText(/We process new Inbox messages first/i),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/Processing up to 30 previously unprocessed/i),
+    ).toBeNull();
   });
 
   it("shows partial scan progress and tells the owner that a retry is pending", async () => {
@@ -282,12 +286,19 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Scan inbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
     expect(
-      await screen.findByText("1 mail message could not be classified. Scan again to retry."),
+      await screen.findByText(
+        "We couldn’t check 1 email. Try again in a moment.",
+      ),
     ).toBeVisible();
-    expect(screen.getByText("Mail messages checked").nextElementSibling).toHaveTextContent("3");
+    expect(
+      screen.getByText("Emails checked").nextElementSibling,
+    ).toHaveTextContent("1");
+    expect(
+      screen.getByText("KYC requests found").nextElementSibling,
+    ).toHaveTextContent("0");
   });
 
   it("keeps the server's safe scan error visible", async () => {
@@ -316,9 +327,7 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Scan inbox" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Personal Gmail monitoring is temporarily unavailable.",
@@ -354,13 +363,13 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     const turnOff = await screen.findByRole("button", {
-      name: "Turn off monitoring",
+      name: /^Turn off$/,
     });
     fireEvent.click(turnOff);
 
     expect(await screen.findByText("Turn off monitoring?")).toBeVisible();
     expect(
-      screen.getByText(/Your Mail messages are not deleted/i),
+      screen.getByText(/Your Gmail emails are not deleted/i),
     ).toBeVisible();
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
 
@@ -377,7 +386,7 @@ describe("personal Gmail information-request scope boundary", () => {
     );
   });
 
-  it("loads verification activity once and keeps it separate from the request queue", async () => {
+  it("loads verification activity with the request queue and keeps it separate", async () => {
     gmailServiceMocks.getPreference.mockResolvedValue({
       user_id: "owner",
       monitoring_enabled: true,
@@ -402,21 +411,21 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    await screen.findByRole("tab", { name: "Requests" });
-    const activity = screen.getByRole("tab", { name: "Activity" });
+    await screen.findByRole("tab", { name: "Active requests" });
+    const activity = screen.getByRole("tab", { name: /^Activity/ });
     fireEvent.click(activity);
     fireEvent.click(activity);
 
     await waitFor(() =>
       expect(gmailServiceMocks.list).toHaveBeenCalledWith(
-        expect.objectContaining({ view: "activity", offset: 0 }),
+        expect.objectContaining({ view: "activity", limit: 100 }),
       ),
     );
     expect(
       gmailServiceMocks.list.mock.calls.filter(
         ([input]) => input.view === "activity",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it("keeps request metadata in the queue and moves disclosure controls into review", async () => {
@@ -432,7 +441,7 @@ describe("personal Gmail information-request scope boundary", () => {
           status: "detected",
           gmail_thread_id: "thread-1",
           received_at: "2026-09-02T00:00:00.000Z",
-          requested_field_labels: ["Passport number"],
+          requested_field_labels: ["passport_number", "education_history"],
           candidate_scopes: [],
           attachment_review_required: false,
         },
@@ -452,7 +461,9 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    expect(await screen.findByText("Passport number")).toBeVisible();
+    expect(
+      await screen.findByText("Passport number, Education history"),
+    ).toBeVisible();
     expect(
       screen.queryByLabelText("Private information reply draft"),
     ).toBeNull();
@@ -503,7 +514,9 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Draft with One" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Draft with One" }),
+    );
 
     expect(handoffMocks.createHandoff).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -514,7 +527,10 @@ describe("personal Gmail information-request scope boundary", () => {
         }),
       }),
     );
-    const handoff = handoffMocks.createHandoff.mock.calls[0]?.[0] as Record<string, unknown>;
+    const handoff = handoffMocks.createHandoff.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
     expect(handoff.transcript).toBeUndefined();
     expect(JSON.stringify(handoff)).not.toContain("private-value");
     expect(handoffMocks.navigateToAgentChat).toHaveBeenCalledOnce();

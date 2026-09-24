@@ -56,7 +56,24 @@ export async function prepareReviewerRehearsal({
     ...identityOptions,
     required: false,
   });
-  if (!configuredIdentity.reviewerUid || !configuredIdentity.reviewerVaultPassphrase) {
+  // An explicitly selected Secret Manager project is the environment's
+  // current reviewer pair. Ignored local overlays can outlive a rotation and
+  // otherwise pass preflight while the browser receives a different UID from
+  // the backend. Preserve a complete, explicit process-level pair for
+  // deliberate counterpart runs; never write either secret to disk.
+  const explicitUid = configuredValue(process.env.REVIEWER_UID);
+  const explicitPassphrase = configuredValue(process.env.REVIEWER_VAULT_PASSPHRASE);
+  if (secretProject && Boolean(explicitUid) !== Boolean(explicitPassphrase)) {
+    throw new Error("A process-level reviewer override requires both UID and passphrase; refusing to mix reviewer identities.");
+  }
+  if (secretProject && !explicitUid && !explicitPassphrase) {
+    process.env.REVIEWER_UID = secretManagerValue(secretProject, "REVIEWER_UID");
+    process.env.REVIEWER_VAULT_PASSPHRASE = secretManagerValue(
+      secretProject,
+      "REVIEWER_VAULT_PASSPHRASE",
+    );
+    identitySource = "secret_manager_memory";
+  } else if (!configuredIdentity.reviewerUid || !configuredIdentity.reviewerVaultPassphrase) {
     if (!secretProject) {
       throw new Error(
         "Canonical reviewer identity is unavailable. Set REVIEWER_SECRET_PROJECT to the approved environment project; do not copy reviewer secrets into a command or file.",

@@ -153,7 +153,7 @@ function GoogleOAuthReturnContent() {
         if (!current || authority.current.generation !== active.generation)
           return;
         if (
-          !["calendar", "drive"].includes(completed.service) ||
+          completed.service !== "calendar" ||
           (attempt && completed.service !== attempt.service) ||
           !completed.connected ||
           completed.status !== "connected"
@@ -167,11 +167,7 @@ function GoogleOAuthReturnContent() {
           settleGoogleOAuthPopup(attempt, "succeeded");
         } else {
           router.replace(
-            completed.service === "drive"
-              ? ROUTES.PROFILE_CONNECTORS
-              : active.returnToSetup
-                ? ROUTES.ONE_SETUP_CALENDAR
-                : ROUTES.CALENDAR,
+            active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
           );
         }
       })

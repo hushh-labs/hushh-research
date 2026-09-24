@@ -116,6 +116,9 @@ async def complete_connect(
             code=payload.code,
             state=payload.state,
             redirect_uri=payload.redirect_uri,
+            # Reject and consume a retired Drive attempt before any provider
+            # exchange. Calendar starts are the only attempts this route owns.
+            expected_service="calendar",
         )
     except Exception as exc:
         raise _http(exc) from exc

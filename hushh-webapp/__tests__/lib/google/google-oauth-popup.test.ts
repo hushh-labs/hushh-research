@@ -7,11 +7,11 @@ import {
 } from "@/lib/google/google-oauth-popup";
 
 describe("openGoogleOAuthPopup", () => {
-  it("recognizes a fresh Drive attempt without credentials in metadata", () => {
+  it("recognizes a fresh Calendar attempt without credentials in metadata", () => {
     const attempt = {
       version: 1,
-      attemptId: "synthetic-drive-attempt",
-      service: "drive",
+      attemptId: "synthetic-calendar-attempt",
+      service: "calendar",
       startedAt: Date.now(),
     };
     window.sessionStorage.setItem(
@@ -22,17 +22,17 @@ describe("openGoogleOAuthPopup", () => {
     window.sessionStorage.removeItem("one_google_oauth_popup_attempt_v1");
   });
 
-  it("accepts Drive settlements and rejects unrecognized services", () => {
+  it("accepts Calendar settlements and rejects retired Drive settlements", () => {
     const settlement = {
       schemaVersion: 1,
       type: "google_oauth_settlement",
-      attemptId: "synthetic-drive-attempt",
-      service: "drive",
+      attemptId: "synthetic-calendar-attempt",
+      service: "calendar",
       outcome: "succeeded",
     };
     expect(isGoogleOAuthPopupSettlement(settlement)).toBe(true);
     expect(
-      isGoogleOAuthPopupSettlement({ ...settlement, service: "other" }),
+      isGoogleOAuthPopupSettlement({ ...settlement, service: "drive" }),
     ).toBe(false);
   });
   it("falls back when a popup cannot persist its settlement attempt", () => {

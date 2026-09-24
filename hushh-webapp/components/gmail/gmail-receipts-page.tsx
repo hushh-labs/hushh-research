@@ -853,7 +853,7 @@ export default function GmailReceiptsPage({
     onConnectionStateChange?.(isConnected);
   }, [isConnected, onConnectionStateChange]);
 
-  const handleConnectGmail = useCallback((): Promise<boolean> => {
+  const handleConnectGmail = useCallback((purpose: "read" | "send" = "read"): Promise<boolean> => {
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
 
     if (Capacitor.isNativePlatform()) {
@@ -878,7 +878,7 @@ export default function GmailReceiptsPage({
           const idToken = await user.getIdToken();
           const nativeStart = await GmailReceiptsService.startNativeConnect({
             idToken,
-            purpose: "read",
+            purpose,
           });
           if (!nativeStart.configured || !nativeStart.server_client_id) {
             throw new Error(
@@ -903,7 +903,7 @@ export default function GmailReceiptsPage({
           });
           await refreshGmailStatus({ force: true });
 
-          if (fromSetup && journey) {
+          if (purpose === "read" && fromSetup && journey) {
             await PreVaultUserStateService.syncOnboardingJourney({
               userId: user.uid,
               phase: "capability_setup",
@@ -914,7 +914,9 @@ export default function GmailReceiptsPage({
           }
 
           toast.success(
-            "Mail connected. Your receipt scan will continue in the background.",
+            purpose === "send"
+              ? "Mail sending is enabled. Review your reply again before sending it."
+              : "Mail connected. Your receipt scan will continue in the background.",
           );
           return true;
         } catch (error) {
@@ -952,7 +954,8 @@ export default function GmailReceiptsPage({
               }).catch(() => null)
             : null;
         const fromSetup = Boolean(
-          journeyVariant === "onboarding" &&
+          purpose === "read" &&
+            journeyVariant === "onboarding" &&
           journey &&
           !PreVaultUserStateService.isSetupResolved(journey) &&
           journey.onboardingActiveCapability === "gmail",
@@ -967,8 +970,8 @@ export default function GmailReceiptsPage({
           idToken,
           userId: user.uid,
           loginHint: isGoogleProvider ? user.email : null,
-          includeGrantedScopes: isGoogleProvider,
-          purpose: "read",
+          includeGrantedScopes: purpose === "send" || isGoogleProvider,
+          purpose,
         });
 
         if (!payload.configured || !payload.authorize_url) {
@@ -1032,6 +1035,10 @@ export default function GmailReceiptsPage({
       }
     })();
   }, [gmailActionBusy, journeyVariant, refreshGmailStatus, user]);
+
+  const handleEnableGmailSend = useCallback(() => {
+    void handleConnectGmail("send");
+  }, [handleConnectGmail]);
 
   /**
    * Opens One with an empty composer.
@@ -1793,7 +1800,7 @@ export default function GmailReceiptsPage({
           // Named for the source, not the artefact: the breadcrumb on both
           // routes that render this page says "Gmail", and the setup checklist
           // row that leads here says "Connect Gmail".
-          title="Mail"
+          title="Gmail"
           description={pageTitle}
           actions={
             isConnected &&
@@ -1852,21 +1859,21 @@ export default function GmailReceiptsPage({
               {loadingStatus ? (
                 <div
                   aria-busy="true"
-                  aria-label="Checking your Mail status"
+                  aria-label="Checking your Gmail status"
                   className="space-y-3"
                 >
                   <div className="space-y-1">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                      Mail
+                      Gmail
                     </p>
                     <h2 className="text-lg font-semibold tracking-tight text-foreground">
                       {oauthCompletionPending
-                        ? "Finishing Mail connection"
-                        : "Checking your Mail status"}
+                        ? "Finishing Gmail connection"
+                        : "Checking your Gmail status"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
                       {oauthCompletionPending
-                        ? "Your Mail page is ready. Inbox details and receipts will appear here in the background."
+                        ? "Your Gmail page is ready. Inbox details and receipts will appear here in the background."
                         : "Your inbox and receipts will appear here as they are ready."}
                     </p>
                   </div>
@@ -2141,6 +2148,7 @@ export default function GmailReceiptsPage({
                 isConnected
                 idTokenProvider={user?.getIdToken ? idTokenProvider : null}
                 onRequestVaultUnlock={requestVaultUnlock}
+                onEnableGmailSend={handleEnableGmailSend}
               />
             </GmailVerificationOnboarding>
           ) : null}

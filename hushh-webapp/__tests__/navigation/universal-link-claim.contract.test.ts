@@ -82,9 +82,9 @@ describe("Universal Link / App Link claim", () => {
     // The query carries the OAuth state; dropping it strands the flow.
     expect(
       resolveDeepLinkPath(
-        "https://uat.one.hushh.ai/one/kai/alpaca/oauth/return?code=1#x",
+        "https://uat.one.hushh.ai/one/kai/plaid/oauth/return?code=1#x",
       ),
-    ).toBe("/one/kai/alpaca/oauth/return?code=1#x");
+    ).toBe("/one/kai/plaid/oauth/return?code=1#x");
 
     // An incoming link is attacker-influenced: anyone can send one.
     expect(
@@ -182,8 +182,13 @@ describe("Universal Link / App Link claim", () => {
     // window.location.href is app://localhost/... once the Universal Link claim
     // works, and Plaid matches receivedRedirectUri against what the token was
     // minted with, so the native return would fail a second time.
+    // The return is finished in vault-sync from the https URI remembered
+    // when the link token was minted.
     const page = read("app/one/kai/plaid/oauth/return/page.tsx");
-    expect(page).toContain("resume.redirect_uri");
+    const vaultSync = read("lib/kai/plaid-vault/vault-sync.ts");
+    expect(page).toContain("completeVaultOAuthReturn");
+    expect(vaultSync).toContain("mergePlaidCallbackQuery(session.redirectUri, params.currentUrl)");
     expect(page).not.toContain("receivedRedirectUri: window.location.href");
+    expect(vaultSync).not.toContain("receivedRedirectUri: window.location.href");
   });
 });

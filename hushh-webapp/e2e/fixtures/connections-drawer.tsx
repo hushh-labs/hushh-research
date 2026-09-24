@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentConnectionsDrawer,
+  transitionConnectionsDrawer,
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
@@ -100,6 +101,13 @@ function Fixture() {
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
+  const changeOpen = (nextOpen: boolean) => {
+    const next = transitionConnectionsDrawer(
+      { open, mode }, { type: "set-open", open: nextOpen },
+    );
+    setOpen(next.open);
+    setMode(next.mode);
+  };
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"
@@ -108,14 +116,21 @@ function Fixture() {
       <button
         ref={triggerRef}
         className="h-14 shrink-0"
-        onClick={(event) => { triggerRef.current = event.currentTarget; setOpen(!open); }}
+        onClick={(event) => {
+          triggerRef.current = event.currentTarget;
+          const next = transitionConnectionsDrawer(
+            { open, mode }, { type: "toggle-chats" },
+          );
+          setOpen(next.open);
+          setMode(next.mode);
+        }}
       >
         Open drawer
       </button>
       <AgentConnectionsDrawer
         triggerRef={triggerRef}
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={changeOpen}
         mode={mode}
         externalModalOpen={external}
         chats={
@@ -138,6 +153,7 @@ function Fixture() {
           <ConnectorsPanel
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
+            onClose={() => changeOpen(false)}
             onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
             onPrepareRecovery={async (request) => {
