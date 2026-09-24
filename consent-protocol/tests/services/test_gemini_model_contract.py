@@ -31,6 +31,9 @@ from hushh_mcp.runtime_providers import (
 )
 
 SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
+# Measured 2026-09-24 (see registry._MEASURED_VERTEX_LOCATIONS); anything
+# unmeasured stays global-only.
+MEASURED = {"gemini-3.8-flash": ("global", "us", "eu")}
 ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
 
 
@@ -222,30 +225,32 @@ def test_thinking_config_for_works_with_a_duck_typed_types_module() -> None:
     assert built.thinking_level == "LOW"
 
 
-def test_supported_models_are_text_only_on_global_vertex() -> None:
+def test_supported_models_are_text_only_and_serve_only_measured_vertex_locations() -> None:
     for model in SUPPORTED:
         entry = resolve_model_entry("gemini", model)
         assert entry.supports_streaming is True
         assert entry.supports_function_calling is True
         assert entry.supports_native_realtime is False
-        assert entry.supported_vertex_locations == ("global",)
+        assert entry.supported_vertex_locations == MEASURED.get(model, ("global",))
+        assert entry.supported_vertex_locations[0] == "global"
 
 
 def test_gemini_default_resolves_to_a_supported_release() -> None:
     entry = resolve_model_entry("gemini", "default")
     assert entry.model == GEMINI_MODEL
     assert entry.model in SUPPORTED
-    assert entry.supported_vertex_locations == ("global",)
+    assert entry.supported_vertex_locations == MEASURED.get(GEMINI_MODEL, ("global",))
 
 
 def test_managed_binding_filters_unsupported_failover_locations() -> None:
     binding = ManagedGeminiRuntimeBinding(
         project="test-project",
-        locations=("global", "us", "eu"),
+        locations=("global", "us", "asia-south1", "eu"),
         auth_mode="vertex_adc",
     )
-    for model in SUPPORTED:
-        assert binding.locations_for_model(model) == ("global",)
+    assert binding.locations_for_model("gemini-3.7-flash") == ("global",)
+    # Configured order is kept; an unmeasured endpoint is never used for failover.
+    assert binding.locations_for_model("gemini-3.8-flash") == ("global", "us", "eu")
 
 
 def test_managed_binding_fails_when_global_is_not_configured() -> None:
@@ -255,4 +260,5 @@ def test_managed_binding_fails_when_global_is_not_configured() -> None:
         auth_mode="vertex_adc",
     )
     with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
-        binding.locations_for_model(GEMINI_MODEL)
+        binding.locations_for_model("gemini-3.7-flash")
+    assert binding.locations_for_model("gemini-3.8-flash") == ("us", "eu")

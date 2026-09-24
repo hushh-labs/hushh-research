@@ -106,6 +106,23 @@ def test_unrelated_sessions_and_events_are_preserved():
     assert durable_external_read_projection(session) is session
 
 
+@pytest.mark.parametrize("in_state", [False, True])
+def test_mcp_approval_reference_is_never_durable_even_in_event_only(in_state):
+    key = "temp:hussh:mcp_approval"
+    reference = "one_secret_ref:private-reference"
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={key: reference} if in_state else {},
+        events=[Event(author="one", actions=EventActions(state_delta={key: reference}))],
+    )
+    projected = durable_external_read_projection(session)
+    assert reference not in projected.model_dump_json()
+    assert key not in projected.model_dump_json()
+    assert session.events[0].actions.state_delta[key] == reference
+
+
 def test_selected_gmail_reply_context_and_draft_body_are_not_durable():
     session = Session(
         id="thread",

@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -17,6 +18,7 @@ from google.genai import types
 from hushh_mcp.adk_bridge import documents_agent
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask, SpecialistReadResult
 from hushh_mcp.hushh_adk import single_turn
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
@@ -191,7 +193,7 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
             ]
         ]
     )
-    monkeypatch.setattr(single_turn, "build_managed_gemini_adk_model", lambda _: gene)
+    monkeypatch.setattr(single_turn, "build_managed_regional_gemini_adk_model", lambda _: gene)
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
     selected = Mock(side_effect=AssertionError("Live root must not use the selected index"))
     monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
@@ -275,7 +277,9 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
         interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
-    source.find.assert_awaited_once_with(query=["statement"])
+    source.find.assert_awaited_once_with(
+        query=["statement"], file_kind="any", shared_with_me=False, recent=False
+    )
     if not failure:
         source.read_matches.assert_awaited_once()
     selected.assert_not_called()
@@ -391,3 +395,27 @@ async def test_missing_planner_mode_can_only_find_metadata(monkeypatch):
     )
     assert response.structured.metadata_only is True
     source.read_matches.assert_not_awaited()
+
+
+def test_every_document_gene_has_a_thinking_level_and_room_to_answer():
+    """Thinking tokens count against max_output_tokens on the fleet model.
+
+    With no thinking level and a 150-token cap, the live search planner spent its
+    budget thinking and returned the prose "Here is the JSON", so every live Drive
+    chat turn answered "temporarily unavailable" (reproduced 2026-09-24 against
+    gemini-3.8-flash). Each gene must bound its thinking and keep real headroom.
+    """
+    manifest = ManifestLoader.load(
+        str(Path(documents_agent.__file__).resolve().parents[1] / "agents/documents/agent.yaml")
+    )
+    genes = {gene.id: gene for gene in manifest.subagents}
+    assert {
+        "agent_documents_live_search",
+        "agent_documents_interpreter",
+        "agent_documents_suggestions",
+    } <= genes.keys()
+    for gene in genes.values():
+        if gene.runtime.adk_mode != "single_turn":
+            continue
+        assert gene.model.thinking_level == "low", gene.id
+        assert gene.performance.max_output_tokens >= 2048, gene.id

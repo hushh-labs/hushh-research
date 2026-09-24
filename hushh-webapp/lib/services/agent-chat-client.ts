@@ -551,8 +551,14 @@ export async function streamAgentChat(input: {
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
-        ? {} : toolCallArgs;
+      const workspaceConnectorTool =
+        toolCallName === "discover_workspace_tools" ||
+        toolCallName === "read_workspace_tool";
+      const safeArgs = workspaceConnectorTool
+        ? { provider: toolCallArgs.provider }
+        : toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
+          ? {}
+          : toolCallArgs;
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -560,6 +566,9 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      const workspaceConnectorTool =
+        toolName === "discover_workspace_tools" ||
+        toolName === "read_workspace_tool";
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
       if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
@@ -579,6 +588,27 @@ export async function streamAgentChat(input: {
               ? `${source} needs more detail.`
               : `${source} could not complete that read.`;
         payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
+        return;
+      }
+      if (workspaceConnectorTool) {
+        const safeArgs = toolArgs.get(event.toolCallId) || {};
+        const experience = parseAgentToolResultExperience(
+          toolName,
+          event.content,
+          safeArgs,
+        );
+        const payload = toolPayload(event.toolCallId, toolName, safeArgs);
+        payload.execution = "server";
+        payload.message = "One checked a Google Workspace connector.";
+        payload.raw = {
+          protocol: "ag-ui",
+          toolName,
+          provider: safeArgs.provider,
+        };
         handlers.onToolResult?.(payload);
         if (experience) {
           handlers.onStructuredExperience?.(experience, event.toolCallId);
@@ -643,7 +673,11 @@ export async function streamAgentChat(input: {
           stopAfterConfirmation();
         }
       }
-      const experience = parseAgentToolResultExperience(toolName, event.content);
+      const experience = parseAgentToolResultExperience(
+        toolName,
+        event.content,
+        toolArgs.get(event.toolCallId),
+      );
       if (experience) {
         // Redelivery can assign a new transport message while retaining the
         // same invocation. One invocation owns one evolving card.

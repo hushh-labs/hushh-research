@@ -9,7 +9,7 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
-- Emit SSE using canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`.
+- Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
 - Keep payload object-only.
@@ -36,7 +36,37 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Validate envelopes with `hushh-webapp/lib/streaming/kai-stream-types.ts`.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
-- In Agent Chat, consume the Agent SSE protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; `token` frames are the only source of incremental assistant response text.
+- In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+
+### Private connector events
+
+The existing `one_adk/drive_result_privacy.py` projection also covers governed
+dynamic MCP names (`mcp_` followed by a 40-character lowercase hexadecimal digest).
+Strip their argument chunks, raw start metadata and raw results from browser
+events and persisted session copies. Preserve safe invocation identity and outcome.
+For resumed snapshots, collect private call identities before projecting messages;
+a result may precede its call and no start event may have been observed. The live
+model-turn object remains unchanged. This redaction does not authorize a tool,
+prove receipt consumption, or activate the shared toolset on the Chat roster.
+
+ADK confirmation events duplicate the original call under `originalFunctionCall`.
+The durable projection strips those nested arguments and private confirmation
+payloads too, retaining a non-actionable identity skeleton. Restore reviewed
+arguments only into the authenticated live invocation and revalidate exact-call
+authority before execution; a historical confirmation is not permission to replay.
+The browser resume receipt travels through scrubbed forwarded properties into a
+request-memory reference, never a model-visible tool response. Remove that
+reference from both persisted state deltas and public AG-UI state projections.
+
+Pending MCP call recovery uses the existing expiring request-secret store and a
+task-local resume scope. A server-issued handle binds the owner, conversation,
+tool and original function-call ID. The encrypted session reader restores both
+argument copies only on a deep-copied live session; normal history reads remain
+redacted. Expiration, another server instance, or a restart requires review again.
+`review_or_resume_call` requests native ADK confirmation on the first call and
+requires an app-ledger receipt on resume. It is not live roster activation:
+the browser review-card transport, pending-handle confirmation API, and governed
+roster must be connected and verified together before exposing custom tools.
 
 ## 4.1 UI Stream Mapping
 

@@ -9,12 +9,34 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from hushh_mcp.one_adk import agent_tree
 
 
+def test_consent_routing_is_not_reauthored_by_runtime_instruction():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction).strip()
+    composed = agent_tree.ONE_IDENTITY_INSTRUCTION
+    assert authored in composed
+    overlay = composed.removeprefix(authored)
+    assert "withdraw that" not in overlay
+    assert "Nav answers from structured lookups" not in overlay
+    assert 'ask_consent_agent with target "connections"' in authored
+    assert "Do not hand consent questions to a specialist" in authored
+    assert 'run_app_action("consent.cancel_request", {})' in authored
+
+
 def test_one_chat_receives_authored_cross_connector_semantic_policy():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
     assert "When a request spans connected services" in authored
     assert authored.strip() in composed
-    assert "A connection or a read grant is not permission" in composed
+    assert "You may combine read results with a draft or another supported action" in composed
+    assert (
+        "A connection or a read grant is not permission to publish, attach, send, or change sharing"
+        in composed
+    )
+    assert (
+        "Any outward mutation needs its own reviewed details and explicit app confirmation"
+        in composed
+    )
+    assert "never call provider mutation tools directly" in composed
+    assert "Selected-file Drive and account-wide Drive reading are separate permissions" in composed
     assert "Live access needs no file selection" in composed
     assert "explicit document trust rule" in composed
     assert "share this file with Chris" in composed
@@ -93,16 +115,16 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: False)
     baseline = agent_tree._one_roster_tools(specialist_model="test-model")
     admitted = agent_tree._one_roster_tools(
-        specialist_model="test-model", allow_owner_drive_tools=True
+        specialist_model="test-model", allow_workspace_tools=True
     )
-    for tool in (agent_tree.discover_google_drive_tools, agent_tree.read_google_drive):
+    for tool in (agent_tree.discover_workspace_tools, agent_tree.read_workspace_tool):
         assert tool not in baseline
         assert tool in admitted
-    assert agent_tree._one_roster_tools(tool_mode="proposal", allow_owner_drive_tools=True) == [
+    assert agent_tree._one_roster_tools(tool_mode="proposal", allow_workspace_tools=True) == [
         agent_tree.list_app_actions,
         agent_tree.propose_app_action,
     ]
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
-    assert agent_tree.read_google_drive not in agent_tree._one_roster_tools(
-        specialist_model="test-model", allow_owner_drive_tools=True
+    assert agent_tree.read_workspace_tool not in agent_tree._one_roster_tools(
+        specialist_model="test-model", allow_workspace_tools=True
     )

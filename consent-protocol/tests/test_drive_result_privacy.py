@@ -23,6 +23,157 @@ from hushh_mcp.one_adk.drive_result_privacy import (
 )
 
 
+async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from google.adk.agents import LlmAgent
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.events import Event, EventActions
+    from google.adk.flows.llm_flows.functions import generate_request_confirmation_event
+    from google.adk.flows.llm_flows.request_confirmation import _resolve_confirmation_targets
+    from google.adk.sessions import InMemorySessionService, Session
+    from google.adk.tools.tool_confirmation import ToolConfirmation
+    from google.genai import types
+
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.mcp_pending_call import (
+        capture_pending_call,
+        pending_resume_scope,
+        restore_pending_call,
+    )
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
+    name = "mcp_" + "a" * 40
+    private = "PRIVATE_REVIEW_ARGUMENT"
+    session = Session(id="thread", app_name="hussh_one", user_id="owner")
+    invocation = InvocationContext(
+        agent=LlmAgent(name="one", model="gemini-test"),
+        session=session,
+        session_service=InMemorySessionService(),
+        invocation_id="turn",
+    )
+    call = Event(
+        author="one",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(
+                        id="call", name=name, args={"recipient": private}
+                    ),
+                )
+            ]
+        ),
+    )
+    response = Event(
+        author="one",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="call", name=name, response={"status": "pending"}
+                    ),
+                )
+            ]
+        ),
+        actions=EventActions(
+            requested_tool_confirmations={
+                "call": ToolConfirmation(hint=private, payload={"preview": private}),
+            }
+        ),
+    )
+    confirmation = generate_request_confirmation_event(invocation, call, response)
+    assert confirmation is not None
+    confirmation_id = confirmation.get_function_calls()[0].id
+    reply = Event(
+        author="user",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=confirmation_id,
+                        name="adk_request_confirmation",
+                        response={"confirmed": True, "payload": private},
+                    ),
+                )
+            ]
+        ),
+    )
+    session.events = [reply, call, response, confirmation]
+    serialized = session.model_dump_json(by_alias=True)
+    assert private in serialized
+    projected = redact_drive_session_json(serialized)
+    assert private not in projected
+    restored = Session.model_validate_json(projected)
+    nested = restored.events[3].get_function_calls()[0]
+    assert nested.args["originalFunctionCall"] == {"id": "call", "name": name, "args": {}}
+    assert restored.events[2].actions.requested_tool_confirmations["call"].confirmed is False
+    # The installed ADK can still identify the exact pending call from this
+    # skeleton. Restoring private arguments belongs at the governed execution
+    # boundary, not by replacing stored conversation events. This SDK check is
+    # deliberately NOT app approval: the exact-call ledger must still pass.
+    resumed_context = InvocationContext(
+        agent=invocation.agent,
+        session=restored,
+        session_service=InMemorySessionService(),
+        invocation_id="resume",
+    )
+    confirmations, calls = await _resolve_confirmation_targets(
+        resumed_context,
+        restored.events,
+        {confirmation_id},
+        {confirmation_id: ToolConfirmation(confirmed=True)},
+        {name: SimpleNamespace(check_require_confirmation=AsyncMock(return_value=True))},
+    )
+    assert set(confirmations) == {"call"}
+    assert calls["call"].name == name
+    assert calls["call"].args == {}
+    handle = capture_pending_call(
+        SimpleNamespace(
+            user_id="owner",
+            function_call_id="call",
+            state={
+                "hussh:user_id": "owner",
+                "hussh:conversation_id": "thread",
+            },
+        ),
+        tool_name=name,
+        arguments={"recipient": private},
+    )
+    live = restore_pending_call(restored, handle)
+    resumed_context.session = live
+    _, recovered = await _resolve_confirmation_targets(
+        resumed_context,
+        live.events,
+        {confirmation_id},
+        {confirmation_id: ToolConfirmation(confirmed=True)},
+        {name: SimpleNamespace(check_require_confirmation=AsyncMock(return_value=True))},
+    )
+    assert recovered["call"].args == {"recipient": private}
+    assert restored.events[1].get_function_calls()[0].args == {}
+    assert private not in redact_drive_session_json(live.model_dump_json(by_alias=True))
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(restored)
+    row = {f"payload_{key}": value for key, value in encoded.items()}
+    row["revision"] = 1
+    monkeypatch.setattr(service, "_execute", AsyncMock(return_value=SimpleNamespace(data=[row])))
+    reference = store_request_secret(json.dumps({"pendingHandle": handle}))
+    async with pending_resume_scope(reference):
+        recovered_session = await service.get_session(
+            app_name="hussh_one",
+            user_id="owner",
+            session_id="thread",
+        )
+        assert recovered_session.events[1].get_function_calls()[0].args == {"recipient": private}
+    outside = await service.get_session(app_name="hussh_one", user_id="owner", session_id="thread")
+    assert outside.events[1].get_function_calls()[0].args == {}
+    # Projection must never strip the live call before the model/review sees it.
+    assert session.events[1].get_function_calls()[0].args == {"recipient": private}
+    assert session.events[3].get_function_calls()[0].args["originalFunctionCall"]["args"] == {
+        "recipient": private
+    }
+
+
 def test_drive_result_and_snapshot_are_redacted_but_other_tools_unchanged():
     secret = "PRIVATE_DRIVE_SENTINEL"
     result = json.dumps({"source": "google_drive_mcp", "result": secret})
@@ -138,6 +289,97 @@ def test_failed_read_keeps_only_safe_outcome():
         "truncated": False,
     }
     assert "PRIVATE_DRIVE_SENTINEL" not in safe.model_dump_json()
+
+
+@pytest.mark.parametrize("provider", ["drive", "gmail", "calendar"])
+def test_missing_workspace_grant_retains_only_provider_for_connect_card(provider):
+    secret = "PRIVATE_PROVIDER_SENTINEL"
+    known = {"workspace-call"}
+    event = ToolCallResultEvent(
+        message_id="result-connect",
+        tool_call_id="workspace-call",
+        content=json.dumps(
+            {
+                "status": "permission_required",
+                "provider": provider,
+                "message": secret,
+            }
+        ),
+    )
+    safe = redact_drive_wire_event(event, known)
+    assert json.loads(safe.content) == {
+        "status": "permission_required",
+        "private_result": "not_retained",
+        "truncated": False,
+        "provider": provider,
+    }
+    assert secret not in safe.model_dump_json()
+
+
+def test_untrusted_workspace_provider_is_not_projected():
+    event = ToolCallResultEvent(
+        message_id="result-untrusted",
+        tool_call_id="workspace-call",
+        content=json.dumps(
+            {
+                "status": "permission_required",
+                "provider": "attacker-controlled-provider",
+            }
+        ),
+    )
+    safe = redact_drive_wire_event(event, {"workspace-call"})
+    assert "provider" not in json.loads(safe.content)
+
+
+def test_dynamic_mcp_snapshot_before_call_and_storage_are_private():
+    name = "mcp_" + "a" * 40
+    private = "SYNTHETIC_PRIVATE_CONNECTOR_VALUE"
+    snapshot = MessagesSnapshotEvent(
+        messages=[
+            ToolMessage(id="result", tool_call_id="dynamic-1", content=private),
+            AssistantMessage(
+                id="call",
+                tool_calls=[
+                    ToolCall(id="dynamic-1", function=FunctionCall(name=name, arguments=private))
+                ],
+            ),
+        ]
+    )
+    safe = redact_drive_wire_event(snapshot, set())
+    assert private not in safe.model_dump_json()
+    assert private in snapshot.model_dump_json()  # live model event is unchanged
+    document = {
+        "events": [
+            {
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": name, "args": {"secret": private}}},
+                        {"functionResponse": {"name": name, "response": {"result": private}}},
+                    ]
+                }
+            }
+        ]
+    }
+    assert private not in redact_drive_session_json(json.dumps(document))
+
+
+def test_dynamic_mcp_start_metadata_and_argument_chunks_are_private():
+    name = "mcp_" + "b" * 40
+    private = "SYNTHETIC_PRIVATE_CONNECTOR_VALUE"
+    known = set()
+    start = ToolCallStartEvent(
+        tool_call_id="dynamic",
+        tool_call_name=name,
+        metadata={"secret": private},
+        raw_event={"secret": private},
+    )
+    assert private not in redact_drive_wire_event(start, known).model_dump_json()
+    assert (
+        redact_drive_wire_event(ToolCallArgsEvent(tool_call_id="dynamic", delta=private), known)
+        is None
+    )
+    ordinary = ToolCallStartEvent(tool_call_id="other", tool_call_name="mcp_help")
+    assert redact_drive_wire_event(ordinary, known) is ordinary
 
 
 @pytest.mark.parametrize("status", ["ok", "blocked", "unavailable"])

@@ -110,6 +110,7 @@ describe("current-authority inline Chat catalog", () => {
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       personRef: person, scopeRefs: ["opaque-professional-root"],
     })));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
   it("turns a bound Chat submission into the submitted card and opens only its current grant", async () => {

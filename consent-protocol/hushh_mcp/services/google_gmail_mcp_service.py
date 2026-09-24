@@ -6,7 +6,6 @@ service and confirmation authority; a discovered draft tool is not a send grant.
 
 from __future__ import annotations
 
-import time
 from copy import deepcopy
 from typing import Any
 
@@ -18,6 +17,7 @@ from hushh_mcp.services.mcp_capability_policy import (
     arguments_bounded,
     arguments_valid,
 )
+from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
 
 GOOGLE_GMAIL_MCP_ENDPOINT = "https://gmailmcp.googleapis.com/mcp/v1"
 # Draft contents and arbitrary message bodies are outside typed Chat's existing
@@ -146,24 +146,27 @@ def _policy_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
 class GoogleGmailMcpService:
     def __init__(self, *, connections: GmailReceiptsService | None = None) -> None:
         self._connections = connections or GmailReceiptsService()
-        self._catalog: tuple[float, list[dict[str, Any]]] | None = None
+        self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
-    async def _catalog_for_token(self, token: str) -> list[dict[str, Any]]:
-        if self._catalog is not None and self._catalog[0] > time.monotonic():
-            return deepcopy(self._catalog[1])
-        tools = await list_tools(
-            endpoint=GOOGLE_GMAIL_MCP_ENDPOINT,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        result = admit_catalog(tools, allowed_names=GOOGLE_GMAIL_READ_TOOLS)
-        self._catalog = (time.monotonic() + _CATALOG_TTL_SECONDS, result)
-        return deepcopy(result)
+    async def _catalog_for_token(
+        self, token: str, *, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
+        async def discover() -> list[dict[str, Any]]:
+            tools = await list_tools(
+                endpoint=GOOGLE_GMAIL_MCP_ENDPOINT,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            return admit_catalog(tools, allowed_names=GOOGLE_GMAIL_READ_TOOLS)
 
-    async def discover_read_tools(self, *, user_id: str) -> list[dict[str, Any]]:
+        return await self._catalog.load(token, discover, force_refresh=force_refresh)
+
+    async def discover_read_tools(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         if not user_id:
             raise GmailApiError("Connect Gmail first", status_code=403)
         token = await self._connections.get_read_access_token(user_id=user_id)
-        catalog = await self._catalog_for_token(token)
+        catalog = await self._catalog_for_token(token, force_refresh=force_refresh)
         return [narrowed for item in catalog if (narrowed := _narrowed_capability(item))]
 
     async def read_tool(

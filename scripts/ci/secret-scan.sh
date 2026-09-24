@@ -46,13 +46,13 @@ if [ -n "${GITLEAKS_LOG_OPTS:-}" ]; then
   LOG_OPTS="${GITLEAKS_LOG_OPTS}"
 elif git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
   MERGE_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)"
-  LOG_OPTS="--ancestry-path ${MERGE_BASE}..HEAD"
+  LOG_OPTS="${MERGE_BASE}..HEAD"
 else
   LOG_OPTS="HEAD"
 fi
 
 # A bounded range is only meaningful if it CONTAINS the commits under review.
-# `--ancestry-path <default-branch-tip>..<head>` looks perfectly bounded and matches
+# An ancestry-filtered range from the default branch tip looks bounded but matches
 # ZERO commits whenever the default branch has moved past the branch point, because
 # no commit on the branch descends from that tip. gitleaks then prints
 # "0 commits scanned / no leaks found" and the gate goes green having inspected
@@ -101,6 +101,7 @@ fi
 # cost is that the LAST thing printed is whichever check ran last -- which made an
 # unrelated "non-blocking" advisory look like the cause of a gitleaks failure, and
 # cost a wrong diagnosis. Name the actual source before exiting.
+python3 "$REPO_ROOT/scripts/ci/test_secret_scan_ranges.py"
 EXIT_CODE=0
 FAILED_CHECKS=""
 gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" ||

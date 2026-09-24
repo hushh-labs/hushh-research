@@ -240,7 +240,7 @@ def _canonical_roster() -> list[Any]:
     from google.adk.tools import BaseTool, FunctionTool
 
     agent = _agent_tree().build_one_text_agent(
-        model="eval-first-tool-dummy-model", allow_owner_drive_tools=True
+        model="eval-first-tool-dummy-model", allow_workspace_tools=True
     )
     roster: list[Any] = []
     for entry in agent.tools:

@@ -14,7 +14,10 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
+import {
+  ConnectorReadReceipt,
+  WorkspaceConnectorSetupCard,
+} from "@/components/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
@@ -44,6 +47,7 @@ import type {
   ScopeDiscoveryExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
+import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 
 export const AgentPersonSelectionContext = createContext<((handle: string, name: string) => void) | null>(null);
 
@@ -59,13 +63,15 @@ export function AgentStructuredExperienceView({
   onInformationRequestSubmitted,
 }: {
   experience: AgentStructuredExperience;
-  onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
     case "one.connector_read.v1":
       return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.workspace_connector_setup.v1":
+      return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
@@ -328,7 +334,7 @@ function ScopeDiscoveryView({
     <section
       aria-label={`Information available from ${experience.person.displayName}`}
       data-experience-type={experience.type}
-      className="space-y-4"
+      className="space-y-3"
     >
       <header className="flex items-start gap-3 px-1">
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-accent-surface text-accent-strong">
@@ -375,7 +381,7 @@ function ScopeDiscoveryView({
         </MorphyButton>
       </div> : unavailable ? <MorphyButton type="button" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
 
-      {reviewing && profile ? <section aria-label="Review information request" className="space-y-3 rounded-2xl border border-border p-4">
+      {reviewing && profile ? <section aria-label="Review information request" className="space-y-3 rounded-2xl border border-border p-3 sm:p-4">
         <h4 className="font-semibold">Request information from {profile.displayName}</h4>
         <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
         <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
@@ -399,10 +405,13 @@ function ScopeDiscoveryView({
               setReviewing(false); setSelectedIds(new Set()); setPurpose("");
             })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
-      </section> : items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}
-        onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
+      </section> : null}
+      {!reviewing ? <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
+        {items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}
+          onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
+        <Link href={experience.person.profilePath} className="inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
+      </div> : <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>}
       {sent ? <p role="status" className="text-sm">Request sent. They can now review your choices; access is not granted yet.</p> : null}
-      <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
     </section>
   );
 }

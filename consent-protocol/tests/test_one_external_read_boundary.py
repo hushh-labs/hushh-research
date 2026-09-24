@@ -459,7 +459,9 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
         AsyncMock(return_value=SimpleNamespace(user_id="owner")),
     )
     monkeypatch.setattr(email_agent, "_singleton", email_agent.EmailAgentA2A(service=service))
-    monkeypatch.setattr(single_turn, "build_managed_gemini_adk_model", lambda _: genes.pop(0))
+    monkeypatch.setattr(
+        single_turn, "build_managed_regional_gemini_adk_model", lambda _: genes.pop(0)
+    )
     monkeypatch.setattr(gmail_metadata_reader.httpx, "AsyncClient", FixedClient)
     root = agent_tree.build_one_text_agent(model=model)
     root.tools = [agent_tree.ask_email_agent]  # Real registered dispatch, not a tool double.

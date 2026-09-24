@@ -108,6 +108,29 @@ async def _drain(agent: TimedADKAgent) -> list[BaseEvent]:
 
 
 @pytest.mark.asyncio
+async def test_disconnect_closes_bridge_before_turn_resources(monkeypatch):
+    from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
+
+    observed = []
+
+    async def run(self, input):
+        scope = current_mcp_turn()
+        try:
+            yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        finally:
+            # The bridge may still need its MCP resources during teardown.
+            assert current_mcp_turn() is scope
+            observed.append(scope)
+
+    monkeypatch.setattr(ADKAgent, "run", run)
+    stream = _agent().run(_input())
+    await anext(stream)
+    await stream.aclose()
+    assert len(observed) == 1
+    assert observed[0]._closed
+
+
+@pytest.mark.asyncio
 async def test_measures_first_visible_and_elapsed_and_counts(monkeypatch, caplog):
     monkeypatch.setattr(ADKAgent, "run", _scripted_run(_normal_script()))
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)

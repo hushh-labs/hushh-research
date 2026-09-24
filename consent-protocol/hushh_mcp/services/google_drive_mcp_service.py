@@ -8,8 +8,6 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 
 from __future__ import annotations
 
-import time
-from copy import deepcopy
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -28,6 +26,7 @@ from hushh_mcp.services.mcp_capability_policy import (
     arguments_bounded,
     arguments_valid,
 )
+from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
 
 GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
 # Explicit reviewed capabilities, not server-supplied annotations, names with
@@ -43,7 +42,8 @@ GOOGLE_DRIVE_READ_TOOLS = frozenset(
     }
 )
 _CATALOG_TTL_SECONDS = 300
-_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "viewUrl"})
+_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "createdTime", "viewUrl"})
+_LISTING_TOOLS = frozenset({"search_files", "list_recent_files"})
 
 
 def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
@@ -66,25 +66,29 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 class GoogleDriveMcpService:
     def __init__(self, *, oauth=None) -> None:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
-        self._catalog: tuple[float, list[dict[str, Any]]] | None = None
+        self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
-    async def discover_read_tools(self, *, access_token: str | None = None) -> list[dict[str, Any]]:
+    async def discover_read_tools(
+        self, *, access_token: str | None = None, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         """Discover official tool descriptions/schemas without an owner grant.
 
         The public catalog is capability metadata. It supplies no execution
         authority, credential, or private file result.
         """
-        if self._catalog is not None and self._catalog[0] > time.monotonic():
-            return deepcopy(self._catalog[1])
-        tools = await list_tools(
-            endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
-            headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
-        )
-        result = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
-        self._catalog = (time.monotonic() + _CATALOG_TTL_SECONDS, result)
-        return deepcopy(result)
 
-    async def discover_for_owner(self, *, user_id: str) -> list[dict[str, Any]]:
+        async def discover() -> list[dict[str, Any]]:
+            tools = await list_tools(
+                endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
+                headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
+            )
+            return admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
+
+        return await self._catalog.load(access_token, discover, force_refresh=force_refresh)
+
+    async def discover_for_owner(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
         row, credential = await self._oauth.current_credential(
@@ -96,7 +100,9 @@ class GoogleDriveMcpService:
             or row["verified_policy_hash"] != LIVE_POLICY_HASH
         ):
             raise DriveOAuthError("reconnect_required", status_code=401)
-        result = await self.discover_read_tools(access_token=credential["accessToken"])
+        result = await self.discover_read_tools(
+            access_token=credential["accessToken"], force_refresh=force_refresh
+        )
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if not current or current["connection_generation"] != row["connection_generation"]:
             raise DriveOAuthError("connection_changed", status_code=409)
@@ -171,7 +177,7 @@ class GoogleDriveMcpService:
             arguments,
             endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
             headers={"Authorization": f"Bearer {credential['accessToken']}"},
-            **({"project": _search_metadata} if tool_name == "search_files" else {}),
+            **({"project": _search_metadata} if tool_name in _LISTING_TOOLS else {}),
         )
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (

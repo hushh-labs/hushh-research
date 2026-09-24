@@ -93,7 +93,6 @@ from hushh_mcp.one_adk.agui_turn_timing import (
     timed_one_after_model,
     timed_one_before_model,
 )
-from hushh_mcp.one_adk.drive_tools import discover_google_drive_tools, read_google_drive
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     before_external_read_tool,
@@ -325,14 +324,6 @@ ONE_IDENTITY_INSTRUCTION: str = (
     + _ONE_PERSONA_GROUNDING  # nosec B608 - prompt text, not SQL
     + "\n\n"
     # Section 2: conversational rules.
-    "CONSENT CANCELLATION PRIORITY: if the person's latest turn says "
-    "'cancel that request I just sent', 'cancel the request I just sent', or "
-    "'withdraw that', call run_app_action with action id "
-    "'consent.cancel_request' and an empty slot object immediately. Do not call "
-    "list_app_actions, list_my_outgoing_information_requests, or any other tool "
-    "first. The server finds and revalidates the newest open request, then the "
-    "app stages the one confirmation card. This exact rule overrides the general "
-    "action-discovery rule below.\n\n"
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
     "for a visible action, asking about the current screen, continuing the "
@@ -419,11 +410,6 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "conversational KYC tool or claim a workflow changed before the app confirms it.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: saved knowledge the user can review (PKM).\n"
-    "- Consent Center (Nav): what the user has shared and with whom, approvals, "
-    "and revocations. Nav answers from structured lookups, not open-ended "
-    "reasoning -- ask it direct, specific questions rather than broad ones it "
-    "cannot interpret. Its Connections subagent handles the trusted-people "
-    "graph itself; both surface in the Consent Center.\n"
     + (
         "- Connected Systems: CRM and external system workflows.\n\n"
         if _CRM_PRODUCT_AVAILABLE
@@ -458,11 +444,6 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "run_app_action with the exact action id. Call list_app_actions first unless "
     "their words are already a close match to one of the visible labels -- do not "
     "rely on a feeling of confidence. "
-    "Consent cancellation is an explicit exception: for 'cancel that request I "
-    "just sent', 'cancel the request I just sent', or 'withdraw that', call "
-    "run_app_action with consent.cancel_request and no id immediately; do not "
-    "call list_app_actions first. The server revalidates the newest open request "
-    "and stages the one confirmation card. "
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
@@ -637,12 +618,7 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "Preserve the selected recipient and selection handle for follow-ups. Cards own field details; "
     "prose adds clarification or warnings without repeating them. Keep consent in Chat and use "
     "the existing proposal and confirmation actions. Only offer a valid, visibly labeled profile "
-    "link when requested; never claim navigation or submission happened without a result. "
-    "For 'cancel that request I just sent', 'cancel the request I just sent', "
-    "or 'withdraw that', call "
-    "run_app_action with consent.cancel_request and no id immediately; the server refreshes "
-    "the newest open request and stages one app confirmation. Only list outgoing requests first "
-    "when the person names a different request or asks to compare several.\n\n"
+    "link when requested; never claim navigation or submission happened without a result.\n\n"
     "When the person asks what information a connection has shared with them, whether "
     "a request was approved, or to see approved information, call "
     "list_information_shared_with_me for the selected person. Open outgoing requests "
@@ -2170,7 +2146,6 @@ def _one_roster_tools(
     *,
     specialist_model: Any | None = None,
     tool_mode: str = "full",
-    allow_owner_drive_tools: bool = False,
     allow_workspace_tools: bool = False,
 ) -> list:
     """The /one specialist roster, shared by every One head.
@@ -2250,8 +2225,6 @@ def _one_roster_tools(
         tools.index(ask_email_agent),
         AgentTool(agent=_build_wallet_agent(model=specialist_model)),
     )
-    if allow_owner_drive_tools and not pod_mode():
-        tools.extend([discover_google_drive_tools, read_google_drive])
     if allow_workspace_tools and not pod_mode():
         tools.extend([discover_workspace_tools, read_workspace_tool])
     return tools
@@ -2267,7 +2240,6 @@ def build_one_root_agent(
 def build_one_text_agent(
     *,
     model: Any | None = None,
-    allow_owner_drive_tools: bool = False,
     allow_workspace_tools: bool = False,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
@@ -2288,7 +2260,6 @@ def build_one_text_agent(
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(
             specialist_model=text_model,
-            allow_owner_drive_tools=allow_owner_drive_tools,
             allow_workspace_tools=allow_workspace_tools,
         ),
         before_tool_callback=before_external_read_tool,

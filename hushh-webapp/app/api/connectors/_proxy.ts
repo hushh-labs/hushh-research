@@ -14,6 +14,36 @@ const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 const LONG_DRIVE_SHARING_POST =
   /^google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/allow)$/;
 
+class McpReviewBodyError extends Error {
+  constructor(readonly status: number) {
+    super("Invalid connector review body");
+  }
+}
+
+async function readMcpReviewBody(request: NextRequest): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new McpReviewBodyError(408)), 5_000);
+  });
+  try {
+    const decoder = new TextDecoder();
+    let bytes = 0,
+      text = "";
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) return text + decoder.decode();
+      bytes += value.byteLength;
+      if (bytes > 64_000) throw new McpReviewBodyError(413);
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
 function connectorPath(path: string[]): string {
   const suffix = path.map((segment) => encodeURIComponent(segment)).join("/");
   return suffix ? `/api/connectors/${suffix}` : "/api/connectors";
@@ -41,7 +71,24 @@ export async function proxyExternalConnectorRequest(
         ? contentType
         : "application/json",
     );
-    body = await request.text();
+    const isMcpReview =
+      path.length === 3 &&
+      path[1] === "mcp" &&
+      (path[2] === "review" || path[2] === "confirm");
+    try {
+      body = isMcpReview
+        ? await readMcpReviewBody(request)
+        : await request.text();
+    } catch (error) {
+      return withRequestIdJson(
+        requestId,
+        { error: "Connector request could not be read." },
+        {
+          status: error instanceof McpReviewBodyError ? error.status : 400,
+          headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+        },
+      );
+    }
   }
 
   try {
@@ -50,8 +97,10 @@ export async function proxyExternalConnectorRequest(
       headers,
       body,
       signal: AbortSignal.timeout(
-        request.method === "POST" && LONG_DRIVE_SHARING_POST.test(path.join("/"))
-          ? 170_000 : CONNECTOR_PROXY_TIMEOUT_MS,
+        request.method === "POST" &&
+          LONG_DRIVE_SHARING_POST.test(path.join("/"))
+          ? 170_000
+          : CONNECTOR_PROXY_TIMEOUT_MS,
       ),
     });
     const payload = await response

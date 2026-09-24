@@ -44,4 +44,11 @@ describe("Next proxy root-entry contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
+
+  it("keeps the canonical connector settings page out of the legacy profile redirect", () => {
+    const response = proxy(request("/one/profile/connectors"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });

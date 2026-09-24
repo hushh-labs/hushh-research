@@ -1,5 +1,83 @@
 # ADK consent and connector checkpoint — 2026-09-24
 
+## Active continuation — release and user-journey closeout
+
+The user authorized this sequence on the existing `feat/adk-orchestration-runtime`
+worktree: reconcile the latest `main`, preserve both branches' intent, commit and
+push the exact verified source, use the Admin release SOP and merge queue, deploy
+the landed `main` SHA to UAT, then ship that UAT-backed SHA to TestFlight. These
+are distinct gates; neither a local merge nor a green PR means deployment or
+TestFlight is complete. Do not initiate Drive OAuth for the user.
+
+### Plan
+
+1. Finish source reconciliation and generated projections; prove the Professional
+   root request remains one reviewed bundle and the Chat/Profile actions stay
+   reachable. Keep current consent, owner and browser-decryption authorities.
+2. Run changed-surface and canonical pre-PR checks, DCO and secret hygiene. Push
+   the exact branch head and open a fresh PR (the former PR is already merged).
+3. Require terminal-green checks, clean freshness/mergeability and resolved
+   conversations. Enter the ordinary merge queue; use Admin PR landing only if
+   review policy alone blocks queue entry and the SOP's exact-head gates pass.
+4. Verify landed `main` SHA and its successful post-merge smoke. Deploy that
+   exact SHA to UAT with automatic scope selection; inspect workflow artifacts,
+   service provenance, health and the connector/consent surface.
+5. Ship the same green, UAT-backed `main` SHA through the TestFlight workflow.
+   Verify the run's terminal result and Apple processing/distribution state.
+
+### Current evidence at this checkpoint
+
+- **Main integration:** fetched and normally merged `origin/main`
+  `1703b8900cd019faa5c850103511995a554848c3` (PR #7041) as `fd4e19510` on the
+  existing ADK branch. The incoming delta was five People-mobile files and
+  merged without conflict; the earlier ADK/Drive integration at `4ac22d155`
+  remains an ancestor. No branch switch, reset, or history rewrite occurred.
+- **Security gate repair:** commit `30b8513e8` removes `--ancestry-path` from
+  secret-scan ranges, adds a synthetic merge-graph regression, renames test-only
+  idempotency sentinels, and adds only exact gitleaks fingerprints for the old
+  synthetic values. The regression passes; gitleaks scanned 21 commits / about
+  280 KB with zero findings, and GitHub reports zero secret-scanning alerts.
+  Eighteen existing Dependabot alerts remain advisory in this lane.
+- **Automated after current main merge:** 43 focused consent receipt/service
+  backend tests, 79 focused consent/Chat/connector/People web tests, and 521
+  One Voice/native contract tests pass. TypeScript typecheck passes. One Voice
+  generated checks first identified stale capability projections; the owning
+  generator was run and its four projection files are included in this
+  checkpoint. The canonical Capacitor build passed; `verify:native:css` reports
+  5,869 selectors and zero missing. Full canonical pre-PR verification has not
+  yet run on this exact head.
+- **Browser/runtime:** frontend `3000` and backend `8000` were previously
+  verified as this worktree and healthy. The read-only reviewer root-scope trial
+  passed for both identities: one Professional root selection, one review, and
+  a hit-testable Send action across phone/tablet/desktop layouts; both dialogs
+  were cancelled, so no request was submitted. Connector settings route and
+  same-session/cold-unlock preflight have historical browser proof, not current
+  Drive provider proof. Revalidate the served source pair before final browser
+  acceptance.
+- **Connector state:** the Settings catalog and Chat entry are implemented.
+  Local reviewer configuration keeps Drive connect disabled; existing UAT
+  rollout configuration is enabled. No rollout values were changed and no OAuth
+  was started. A real Drive read still requires the user's normal authorization.
+- **Native:** a physical iPhone is paired; installed apps are `com.hushh.app`
+  1.4.0 (69) and `ai.hushh.app` 1.0.0 (232), not this branch's build. No app
+  was installed, launched, or erased. The current branch's UAT-backed native
+  export built successfully and passed the CSS freshness check, but current-
+  source physical interaction remains unverified; TestFlight must build the
+  exact landed main SHA and processing/distribution must be checked.
+- **Release:** no open PR currently targets this branch, and the former PR is
+  merged. The branch includes the current main merge; fetch the feature ref
+  again before push. Canonical pre-PR, exact-head
+  PR checks/review resolution, queue/Admin SOP landing, post-merge main smoke,
+  exact-SHA UAT, and TestFlight remain pending.
+- **Still open:** fresh live root-scope submission/approval/readback, three-account
+  Memory fixtures, the full 12-journey Chat/Profile matrix, Drive OAuth and a
+  real provider read, current-source physical iOS interaction, deployed UAT, and
+  TestFlight evidence. Do not promote automated tests or the cancelled dialog
+  trial into live-consent acceptance.
+
+This active continuation supersedes the older status and plans below. Those
+entries remain historical evidence with their original revisions and limits.
+
 ## Visual Context
 
 Architecture owner: [One agent hierarchy](../one/one-agent-hierarchy.md).
@@ -7,12 +85,12 @@ Canonical visual index: [Architecture reference](../architecture/README.md).
 
 | Boundary | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Main → ADK branch | Integrated, concurrent edits preserved | No main landing authorized here |
-| Connector → One | Guarded read path committed and regression-tested | Live provider and native proof |
+| Main → ADK branch | Latest fetched main `1703b8900` merged locally at `fd4e19510` | Freshness, PR checks, queue/Admin SOP, landed-SHA smoke |
+| Connector → One | Owner-bound Drive MCP read path and 93 backend/126 web tests pass | User OAuth, actual provider read, and native proof |
 | Consent → Chat | Metadata-only receipt and restoration committed | Browser revisit and fresh encrypted readback |
 | Sidebar → connection authority | Calendar/Plaid owning status, 11 tests | Real authenticated visual rehearsal |
 
-## Implementation update (supersedes initial audit below)
+## Historical implementation update — 2026-09-24 MCP integration
 
 Concurrent documentation was preserved in `8efdd610b`. Main at `79ed54dd9`
 was merged into the existing ADK branch in `493ef2c30`; the integration is no

@@ -18,6 +18,7 @@ _EPHEMERAL = frozenset(
         STATE_EXECUTION_SURFACE,
         STATE_EXTERNAL_READ,
         "temp:hussh:workspace_chat_admission",
+        "temp:hussh:mcp_approval",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
@@ -67,6 +68,9 @@ def durable_external_read_projection(session: Session) -> Session:
         not read_invocations
         and not private_draft_invocations
         and not any(key in session.state for key in _EPHEMERAL)
+        and not any(
+            key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
+        )
     ):
         return session
     projected = session.model_copy(deep=True)

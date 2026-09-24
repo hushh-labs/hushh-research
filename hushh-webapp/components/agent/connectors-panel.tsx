@@ -64,13 +64,17 @@ type Props = {
   open: boolean;
   onBack: () => void;
   onClose?: () => void;
-  onAvailableChange: (available: boolean) => void;
-  onExternalModalChange: (open: boolean) => void;
-  onPrepareRecovery: (input: {
+  /** Reports whether account-backed connector management is currently ready. */
+  onAvailableChange?: (available: boolean) => void;
+  onCatalogStateChange?: (state: "loading" | "loaded" | "unavailable-valid") => void;
+  surface?: "drawer" | "settings";
+  initialConnector?: "google_drive" | "gmail" | null;
+  onExternalModalChange?: (open: boolean) => void;
+  onPrepareRecovery?: (input: {
     attemptId: string;
     reason: DriveChatRecoveryReason;
   }) => Promise<"ready" | "busy" | "unavailable">;
-  onClearRecovery: () => Promise<void>;
+  onClearRecovery?: () => Promise<void>;
 };
 const touch = "min-h-11 min-w-11 whitespace-normal";
 const labels: Record<string, string> = {
@@ -218,7 +222,10 @@ function OwnerConnectorsPanel({
   open,
   onBack,
   onClose = onBack,
+  surface = "drawer",
+  initialConnector = null,
   onAvailableChange,
+  onCatalogStateChange,
   onExternalModalChange,
   onPrepareRecovery,
   onClearRecovery,
@@ -238,9 +245,10 @@ function OwnerConnectorsPanel({
   const [mailBusy, setMailBusy] = useState(false);
   const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const [activeConnector, setActiveConnector] = useState<string | null>(null);
+  const [activeConnector, setActiveConnector] = useState<string | null>(initialConnector);
   const [search, setSearch] = useState("");
   const previousActiveConnector = useRef<string | null>(null);
+  const appliedInitialConnector = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const detailBackRef = useRef<HTMLButtonElement>(null);
   const controller = useRef<AbortController | null>(null);
@@ -308,10 +316,14 @@ function OwnerConnectorsPanel({
     : [];
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const token = currentToken.current;
-    if (!token) return false;
+    if (!token) {
+      onCatalogStateChange?.("unavailable-valid");
+      return false;
+    }
     const request = ++overviewRead.current;
     setStatusChecked(false);
     setLoading(true);
+    onCatalogStateChange?.("loading");
     try {
       const result = await ExternalConnectorService.overview(token);
       if (
@@ -322,6 +334,7 @@ function OwnerConnectorsPanel({
         return false;
       setOverview(result);
       setStatusChecked(true);
+      onCatalogStateChange?.("loaded");
       return true;
     } catch {
       if (
@@ -332,6 +345,9 @@ function OwnerConnectorsPanel({
         setDriveMessage(
           "Could not check Drive. Retry before starting another connection.",
         );
+      if (!signal?.aborted && currentToken.current === token && request === overviewRead.current) {
+        onCatalogStateChange?.("unavailable-valid");
+      }
       return false;
     } finally {
       if (
@@ -341,7 +357,7 @@ function OwnerConnectorsPanel({
       )
         setLoading(false);
     }
-  }, []);
+  }, [onCatalogStateChange]);
   const refreshDocuments = useCallback(async (signal: AbortSignal) => {
     const token = currentToken.current;
     if (!token) return;
@@ -359,12 +375,22 @@ function OwnerConnectorsPanel({
     controller.current = lifetime;
     return () => {
       lifetime.abort();
-      onExternalModalChange(false);
+      onExternalModalChange?.(false);
     };
   }, [onExternalModalChange]);
   useEffect(() => {
+    if (!initialConnector) {
+      appliedInitialConnector.current = null;
+      return;
+    }
+    if (!open || appliedInitialConnector.current === initialConnector) return;
+    appliedInitialConnector.current = initialConnector;
+    setActiveConnector(initialConnector);
+  }, [initialConnector, open]);
+  useEffect(() => {
     if (vaultOwnerToken) void refresh(controller.current?.signal);
-  }, [vaultOwnerToken, refresh]);
+    else onCatalogStateChange?.("unavailable-valid");
+  }, [vaultOwnerToken, refresh, onCatalogStateChange]);
   useEffect(() => {
     if (previousOpen.current === open) return;
     previousOpen.current = open;
@@ -407,7 +433,7 @@ function OwnerConnectorsPanel({
     drive && !["not_connected", "revoked"].includes(drive.status),
   );
   useEffect(() => {
-    onAvailableChange(
+    onAvailableChange?.(
       Boolean(
         vaultOwnerToken &&
         (overview?.features.connections_panel_v2 === true || hasDriveGrant),
@@ -698,10 +724,14 @@ function OwnerConnectorsPanel({
         ) {
           throw new Error("invalid_start");
         }
-        const readiness = await onPrepareRecovery({
-          attemptId: start.attemptId,
-          reason: "native_oauth",
-        });
+        // Chat supplies a recovery writer for its in-flight draft. Settings
+        // has no conversation draft, so there is nothing to capsule there.
+        const readiness = onPrepareRecovery
+          ? await onPrepareRecovery({
+              attemptId: start.attemptId,
+              reason: "native_oauth",
+            })
+          : "ready";
         if (readiness !== "ready") {
           setDriveMessage(readiness === "busy"
             ? "Finish the current chat action before connecting Drive."
@@ -721,7 +751,7 @@ function OwnerConnectorsPanel({
         } finally {
           // A killed WebView never runs this cleanup; its encrypted one-use
           // capsule is then available after the owner's next vault unlock.
-          if (returned && isEffectCurrent()) await onClearRecovery();
+          if (returned && isEffectCurrent()) await onClearRecovery?.();
         }
         if (!isEffectCurrent()) return;
         if (result.attemptId !== start.attemptId) {
@@ -781,10 +811,12 @@ function OwnerConnectorsPanel({
           authorizeUrl.hostname !== "accounts.google.com" ||
           authorizeUrl.pathname !== "/o/oauth2/v2/auth"
         ) throw new Error("invalid_drive_authorize_url");
-        const readiness = await onPrepareRecovery({
-          attemptId: start.attemptId,
-          reason: "web_full_page",
-        });
+        const readiness = onPrepareRecovery
+          ? await onPrepareRecovery({
+              attemptId: start.attemptId,
+              reason: "web_full_page",
+            })
+          : "ready";
         if (readiness !== "ready") {
           setDriveMessage(readiness === "busy"
             ? "Finish the current chat action or allow popups before connecting Drive."
@@ -792,13 +824,13 @@ function OwnerConnectorsPanel({
           return;
         }
         if (signal.aborted) {
-          await onClearRecovery();
+          await onClearRecovery?.();
           return;
         }
         try {
           window.location.assign(authorizeUrl.href);
         } catch {
-          await onClearRecovery();
+          await onClearRecovery?.();
           throw new Error("drive_navigation_failed");
         }
       });
@@ -904,10 +936,12 @@ function OwnerConnectorsPanel({
         ) {
           throw new Error("invalid_picker_start");
         }
-        const readiness = await onPrepareRecovery({
-          attemptId: start.attemptId,
-          reason: "native_picker",
-        });
+        const readiness = onPrepareRecovery
+          ? await onPrepareRecovery({
+              attemptId: start.attemptId,
+              reason: "native_picker",
+            })
+          : "ready";
         if (readiness !== "ready") {
           setDriveMessage(readiness === "busy"
             ? "Finish the current chat action before choosing Drive files."
@@ -925,7 +959,7 @@ function OwnerConnectorsPanel({
           });
           returned = true;
         } finally {
-          if (returned && isEffectCurrent()) await onClearRecovery();
+          if (returned && isEffectCurrent()) await onClearRecovery?.();
         }
         if (!isEffectCurrent()) return;
         if (result.attemptId !== start.attemptId) {
@@ -960,7 +994,7 @@ function OwnerConnectorsPanel({
         session.accessToken = "";
         return;
       }
-      onExternalModalChange(true);
+      onExternalModalChange?.(true);
       try {
         const files = await GoogleDrivePickerService.choose(session, signal);
         if (!signal.aborted && files.length)
@@ -973,7 +1007,7 @@ function OwnerConnectorsPanel({
       } finally {
         session.accessToken = "";
         if (!signal.aborted) {
-          onExternalModalChange(false);
+          onExternalModalChange?.(false);
           restorePickerFocus.current = true;
           await refresh(signal);
         }
@@ -1150,8 +1184,8 @@ function OwnerConnectorsPanel({
       detail: mailConnected
         ? gmail.status?.needs_reauth
           ? "Reconnect needed"
-          : gmail.status?.google_email || undefined
-        : undefined,
+          : `Google Workspace MCP · ${gmail.status?.google_email || "Connected"}`
+        : "Google Workspace MCP · Read access after connection",
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       action: mailConnected
@@ -1196,9 +1230,9 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : calendar.status?.status === "needs_reauth"
             ? "Reconnect needed"
-            : calendar.connected
-              ? "Read your calendar · changes need confirmation"
-              : "Not connected",
+          : calendar.connected
+              ? "Google Workspace MCP · Connected"
+              : "Google Workspace MCP · Not connected",
       action: {
         label: "Manage Calendar",
         onClick: () => {
@@ -1217,9 +1251,9 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Reconnect needed"
-            : plaidConnections.length > 0
-              ? "Vault-connected accounts · sharing needs approval"
-              : "Not connected",
+          : plaidConnections.length > 0
+              ? "Finance connection · sharing needs approval (not MCP)"
+              : "Finance connection · not connected (not MCP)",
       action: {
         label: "Manage Plaid",
         onClick: () => {
@@ -1260,19 +1294,21 @@ function OwnerConnectorsPanel({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col border-l border-border bg-background text-foreground"
+      className={`flex h-full min-h-0 flex-col bg-background text-foreground ${surface === "drawer" ? "border-l border-border" : ""}`}
       data-connections-panel
+      data-surface={surface}
     >
       <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
-        {activeConnector ? (
+        {activeConnector || surface === "settings" ? (
           <ShellActionSurface
             ref={detailBackRef}
             className="size-11"
             onClick={() => {
               setConfirm(null);
-              setActiveConnector(null);
+              if (activeConnector) setActiveConnector(null);
+              else onBack();
             }}
-            aria-label="Back to connectors"
+            aria-label={activeConnector ? "Back to connectors" : "Back to profile"}
           >
             <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
           </ShellActionSurface>
@@ -1282,16 +1318,18 @@ function OwnerConnectorsPanel({
             ? entries.find((entry) => entry.id === activeConnector)?.name || "Connector"
             : "Connectors"}
         </h2>
-        <ShellActionSurface
-          className="size-11"
-          onClick={() => {
-            setConfirm(null);
-            onClose();
-          }}
-          aria-label="Close connectors"
-        >
-          <XIcon className="size-4" aria-hidden="true" />
-        </ShellActionSurface>
+        {surface === "drawer" ? (
+          <ShellActionSurface
+            className="size-11"
+            onClick={() => {
+              setConfirm(null);
+              onClose();
+            }}
+            aria-label="Close connectors"
+          >
+            <XIcon className="size-4" aria-hidden="true" />
+          </ShellActionSurface>
+        ) : null}
       </header>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
         {!vaultOwnerToken ? (

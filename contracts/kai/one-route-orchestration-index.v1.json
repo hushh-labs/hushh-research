@@ -3628,13 +3628,13 @@
     {
       "route_pattern": "/one/profile/connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.connectors",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.connectors",
-        "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+        "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
         "screen": "profile_connectors",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -3650,8 +3650,8 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-        "next_route": "/",
-        "return_policy": "navigate",
+        "next_route": null,
+        "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -3662,7 +3662,7 @@
       "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",

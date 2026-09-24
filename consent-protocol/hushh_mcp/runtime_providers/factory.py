@@ -9,9 +9,12 @@ managed Gemini uses Vertex workload ADC and never falls back to a hosted key.
 
 from __future__ import annotations
 
+import functools
 import os
 import re
+import threading
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Literal
 
 from google.genai.types import HttpOptions, HttpOptionsDict
@@ -247,6 +250,62 @@ class ManagedGeminiRuntimeBinding:
                 **transport_options,
             },
         )
+
+    def build_regional_adk_model(self, model: str) -> Any:
+        """An ADK model whose requests fail over across configured Vertex locations.
+
+        Only for tool-less single-turn genes: one request with no tools and no
+        side effects, so a transient provider failure (429/500/503) may replay in
+        the next location. The process-local ``VertexRegionalClient`` is shared per
+        project and location list, so a cooling-down endpoint is skipped by every
+        later gene instead of failing each one first. Live sessions and
+        tool-using turns keep the pinned primary region from ``build_adk_model``.
+        """
+        clean_model = self.validate_model(model)
+        if self.auth_mode != VERTEX_ADC_AUTH_MODE:
+            return self.build_adk_model(clean_model)
+        locations = self.locations_for_model(clean_model)
+        if len(locations) < 2:
+            return self.build_adk_model(clean_model)
+        key = (self.project, locations)
+        with _REGIONAL_ADK_CLIENTS_LOCK:
+            client = _REGIONAL_ADK_CLIENTS.get(key)
+            if client is None:
+                from google import genai
+
+                client = VertexRegionalClient(
+                    project=self.project,
+                    locations=locations,
+                    client_factory=genai.Client,
+                    cooldown_seconds=_vertex_location_cooldown_seconds(),
+                )
+                _REGIONAL_ADK_CLIENTS[key] = client
+        return _regional_gemini_type()(model=clean_model, regional_client=client)
+
+
+_REGIONAL_ADK_CLIENTS: dict[tuple[str, tuple[str, ...]], VertexRegionalClient] = {}
+_REGIONAL_ADK_CLIENTS_LOCK = threading.Lock()
+
+
+@functools.cache
+def _regional_gemini_type() -> type:
+    from google.adk.models import Gemini
+    from pydantic import Field
+
+    class RegionalGemini(Gemini):
+        """ADK Gemini that sends every request through a shared regional client.
+
+        ADK's ``client`` field only accepts a real ``genai.Client``; overriding
+        ``api_client`` is the documented seam its requests go through.
+        """
+
+        regional_client: Any = Field(default=None, exclude=True)
+
+        @cached_property
+        def api_client(self) -> Any:
+            return self.regional_client
+
+    return RegionalGemini
 
 
 def _clean_env(name: str) -> str:
@@ -498,6 +557,12 @@ def build_managed_gemini_adk_model(
         location=vertex_location,
         http_options=http_options,
     )
+
+
+def build_managed_regional_gemini_adk_model(model: str) -> Any:
+    """Build a tool-less single-turn ADK model with bounded regional failover."""
+
+    return ManagedGeminiRuntimeBinding.from_environment().build_regional_adk_model(model)
 
 
 def build_gemini_byok_adk_model(

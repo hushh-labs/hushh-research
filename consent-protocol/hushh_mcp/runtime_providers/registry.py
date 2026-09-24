@@ -52,6 +52,14 @@ class ModelEntry:
 # OpenAI's realtime API base. Grok speaks the OpenAI wire format on its own host.
 OPENAI_REALTIME_PROVIDERS: tuple[ProviderId, ...] = ("gemini", "openai")
 
+# Vertex endpoints measured to serve a text model; unmeasured models stay
+# global-only. 2026-09-24: gemini-3.8-flash answered generateContent on the
+# `us` and `eu` multi-region endpoints while `global` returned 429
+# RESOURCE_EXHAUSTED on 7 of 7 calls, so HUSHH_VERTEX_LOCATIONS failover is real.
+_MEASURED_VERTEX_LOCATIONS: dict[str, tuple[str, ...]] = {
+    "gemini-3.8-flash": ("global", "us", "eu"),
+}
+
 _MODELS: tuple[ModelEntry, ...] = (
     # Gemini text models use generateContent and are not valid Live transports.
     # Native realtime is model-specific; never infer it from the provider.
@@ -61,14 +69,14 @@ _MODELS: tuple[ModelEntry, ...] = (
         provider="gemini",
         model=GEMINI_MODEL,
         supports_prompt_caching=True,
-        supported_vertex_locations=("global",),
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS.get(GEMINI_MODEL, ("global",)),
         aliases=("gemini-default", "default"),
     ),
     ModelEntry(
         provider="gemini",
         model="gemini-3.8-flash",
         supports_prompt_caching=True,
-        supported_vertex_locations=("global",),
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.8-flash"],
     ),
     ModelEntry(
         provider="gemini",

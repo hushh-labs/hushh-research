@@ -10,7 +10,9 @@ from hushh_mcp.one_adk import workspace_mcp_tools as tools
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.google_calendar_mcp_service import GOOGLE_CALENDAR_READ_TOOLS
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.google_drive_mcp_service import GOOGLE_DRIVE_READ_TOOLS
 from hushh_mcp.services.google_gmail_mcp_service import GOOGLE_GMAIL_READ_TOOLS
 
@@ -205,14 +207,31 @@ async def test_discovery_rejects_schema_enum_prompt_injection(admission):
 
 @pytest.mark.asyncio
 async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
-    gmail = SimpleNamespace(read_grant_binding=AsyncMock(return_value=("gmail-binding",)))
-    google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=("google-binding",)))
+    gmail_binding = ("owner-a", "gmail", "google-sub", "connected-at", "revision-1")
+    calendar_binding = ("owner-a", "calendar", "google-sub", "connected-at", "revision-2")
+    gmail = SimpleNamespace(read_grant_binding=AsyncMock(return_value=gmail_binding))
+    google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=calendar_binding))
     monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
     monkeypatch.setattr(tools, "get_google_connection_service", lambda: google)
-    assert await tools._grant_binding("owner-a", "gmail") == ("gmail-binding",)
-    assert await tools._grant_binding("owner-a", "calendar") == ("google-binding",)
+    assert await tools._grant_binding("owner-a", "gmail") == gmail_binding
+    assert await tools._grant_binding("owner-a", "calendar") == calendar_binding
     gmail.read_grant_binding.assert_awaited_once_with(user_id="owner-a")
     google.read_grant_binding.assert_awaited_once_with(user_id="owner-a", service="calendar")
+
+
+@pytest.mark.asyncio
+async def test_grant_binding_rejects_malformed_or_cross_owner_observations(monkeypatch):
+    gmail = SimpleNamespace(
+        read_grant_binding=AsyncMock(
+            side_effect=[
+                ("owner-a", "gmail", "google-sub"),
+                ("owner-b", "gmail", "google-sub", "connected-at", "revision-1"),
+            ]
+        )
+    )
+    monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
+    assert await tools._grant_binding("owner-a", "gmail") is None
+    assert await tools._grant_binding("owner-a", "gmail") is None
 
 
 @pytest.mark.asyncio
@@ -220,6 +239,38 @@ async def test_empty_catalog_is_not_ready(admission):
     result = await tools.discover_workspace_tools("gmail", context())
     assert result["status"] == "unavailable"
     assert result["tools"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "error"),
+    [
+        ("gmail", GmailApiError("private provider detail", status_code=401)),
+        ("calendar", GoogleConnectionError("private provider detail", status_code=403)),
+    ],
+)
+async def test_discovery_preserves_only_safe_reconnect_state(provider, error, admission):
+    admission.discover_read_tools.side_effect = error
+    result = await tools.discover_workspace_tools(provider, context())
+    assert result == {
+        "status": "permission_required",
+        "provider": provider,
+        "message": "Check this connection and its reading permission, then try again.",
+    }
+    assert "private provider detail" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["gmail", "calendar"])
+async def test_missing_grant_names_only_admitted_provider(provider, admission, monkeypatch):
+    monkeypatch.setattr(tools, "_grant_binding", AsyncMock(return_value=None))
+    result = await tools.read_workspace_tool(provider, "list_events", {}, context())
+    assert result == {
+        "status": "permission_required",
+        "provider": provider,
+        "message": "Connect this service to read it.",
+    }
+    admission.read_tool.assert_not_awaited()
 
 
 def test_workspace_read_blocks_followup_mutation_and_redacts_stored_payload():

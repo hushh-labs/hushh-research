@@ -1,7 +1,11 @@
 "use client";
 
 import { Button } from "@/lib/morphy-ux/button";
-import type { ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
+import type {
+  ConnectorReadExperience,
+  WorkspaceConnectorProvider,
+  WorkspaceConnectorSetupExperience,
+} from "@/lib/agent/connector-read-receipt";
 
 const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
   ok: "Mail metadata checked",
@@ -30,7 +34,7 @@ const DRIVE_STATUS: Record<ConnectorReadExperience["status"], string> = {
 
 export function ConnectorReadReceipt({ experience, onOpenConnections }: {
   experience: ConnectorReadExperience;
-  onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
   const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
   const drive = experience.connector === "drive";
@@ -49,8 +53,46 @@ export function ConnectorReadReceipt({ experience, onOpenConnections }: {
         </>
       ) : null}
       {needsConnection && onOpenConnections ? (
-        <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(event.currentTarget)}>
-          Open Connectors
+        <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(drive ? "drive" : "gmail", event.currentTarget)}>
+          {experience.status === "connect_required"
+            ? `Connect ${drive ? "Drive" : "Gmail"}`
+            : `Review ${drive ? "Drive" : "Gmail"} access`}
+        </Button>
+      ) : null}
+    </section>
+  );
+}
+
+const WORKSPACE_PROVIDER_LABEL: Record<WorkspaceConnectorProvider, string> = {
+  drive: "Drive",
+  gmail: "Gmail",
+  calendar: "Calendar",
+};
+
+export function WorkspaceConnectorSetupCard({
+  experience,
+  onOpenConnections,
+}: {
+  experience: WorkspaceConnectorSetupExperience;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+}) {
+  const label = WORKSPACE_PROVIDER_LABEL[experience.provider];
+  return (
+    <section
+      aria-label={`${label} connection needed`}
+      className="min-w-0 space-y-2 text-sm text-muted-foreground"
+      data-testid="workspace-connector-setup"
+    >
+      <p role="status">Connect {label} to continue.</p>
+      <p>One will use only the access you approve. Connecting does not share information with anyone.</p>
+      {onOpenConnections ? (
+        <Button
+          type="button"
+          variant="muted"
+          size="compact"
+          onClick={(event) => onOpenConnections(experience.provider, event.currentTarget)}
+        >
+          Connect {label}
         </Button>
       ) : null}
     </section>

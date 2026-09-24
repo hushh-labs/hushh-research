@@ -11,15 +11,63 @@ import { proxyExternalConnectorRequest } from "@/app/api/connectors/_proxy";
 afterEach(() => vi.restoreAllMocks());
 
 describe("connector proxy privacy", () => {
-  it("never caches the short-lived owner-only Picker credential", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          accessToken: "synthetic-short-lived",
-          sessionId: "opaque",
+  it("rejects an oversized review before forwarding it", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const response = await proxyExternalConnectorRequest(
+      new NextRequest(
+        "https://app.test/api/connectors/custom_synthetic/mcp/review",
+        { method: "POST", body: "x".repeat(64_001) },
+      ),
+      ["custom_synthetic", "mcp", "review"],
+    );
+    expect(response.status).toBe(413);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it.each(["review", "confirm"])(
+    "forwards MCP %s only through the owner-authenticated no-store path",
+    async (operation) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(Response.json({ receipt: "synthetic-receipt" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const path = ["custom_synthetic", "mcp", operation];
+      const body = JSON.stringify({
+        conversationId: "synthetic-thread",
+        arguments: { q: "private-fixture" },
+      });
+      const response = await proxyExternalConnectorRequest(
+        new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer synthetic-owner",
+            "x-hushh-consent": "synthetic-vault",
+            "content-type": "application/json",
+          },
+          body,
         }),
+        path,
       );
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(`https://backend.test/api/connectors/${path.join("/")}`);
+      expect(url).not.toContain("private-fixture");
+      expect(init.body).toBe(body);
+      expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+      expect(init.headers.get("x-hushh-consent")).toBe("synthetic-vault");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ receipt: "synthetic-receipt" });
+    },
+  );
+
+  it("never caches the short-lived owner-only Picker credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        accessToken: "synthetic-short-lived",
+        sessionId: "opaque",
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const request = new NextRequest(
       "https://app.test/api/connectors/google_drive/picker/session",

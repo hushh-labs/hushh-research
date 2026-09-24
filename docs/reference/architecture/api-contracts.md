@@ -1093,6 +1093,62 @@ No silent success is emitted on terminal failures.
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
 
+### Owner-private MCP registration checkpoint
+
+`POST /api/connectors/registrations` requires a Vault Owner token and accepts only
+`registrationId` (a stable retry UUID), `displayName`, `endpoint`, and `authStyle`
+(`api_key` or `oauth`). The server derives the owner and connector identity. It admits
+public HTTPS endpoints on port 443 without URL credentials, query parameters, or
+fragments; transport-time public-address validation is a separate required boundary.
+Registration neither authenticates a provider nor grants tool execution permission.
+The response is a safe connector summary with `registrationKind=private` and
+`status=not_connected`, never endpoint or credential configuration.
+
+Listing and API-key connection lookup are owner-scoped. Legacy ownerless registry
+reads remain curated-only. Repeating an unchanged registration UUID is idempotent;
+changing its definition returns 409, as does exceeding 32 active private registrations.
+Owner-scoped reads require migration 243; unavailable registry storage returns 503,
+not a misleading empty catalog. Validation responses omit submitted input and use
+`Cache-Control: no-store`.
+
+This is a backend registration boundary, not certification of custom OAuth,
+Settings controls, ADK invocation, or native acceptance. Those remain separate gates.
+
+### Owner-private MCP exact-call review
+
+`POST /api/connectors/{connector_id}/mcp/review` requires a Vault Owner token,
+`conversationId`, namespaced `toolName`, and bounded JSON `arguments` (32 KB).
+The request stream is capped at 64 KB before JSON parsing, with a five-second
+body-read deadline; chunked input cannot bypass that cap.
+It verifies the owner's private registration and encrypted ADK conversation,
+resolves current credentials, rediscovers tools and validates the exact schema.
+It issues metadata-only authority through the existing action ledger (migration
+244), returning the complete arguments for transient browser review plus the
+directive ID and expiry. It does not invoke the provider tool.
+
+For a native ADK pending call, include `pendingHandle`. Review resolves its
+owner/thread/tool/call-bound transient arguments and verifies both stored native
+call identities and the current catalog. It returns the original directive,
+never a second directive; send `{}` as `arguments` when fetching that preview.
+Confirmation includes the same handle and exact reviewed arguments. A changed
+directive, call, arguments or catalog is rejected. The native resume separately
+checks the pending handle's function-call ID before consuming the receipt.
+
+`POST /api/connectors/{connector_id}/mcp/confirm` accepts those same terms,
+`directiveId` and strict boolean `confirmed=true`. It reconstructs current terms
+and confirms only an exact, unexpired ledger match. The returned short-lived
+receipt belongs in browser/request memory only—not Chat history, model input,
+logs or persistent storage. The resumed native ADK tool must consume it once
+before dispatch. There is no separate HTTP tool-execution endpoint.
+
+Both routes use the existing Next connector proxy and return `no-store`, including
+errors. Validation/errors never echo private input or provider diagnostics.
+These endpoints currently admit owner-private registrations only; curated
+Workspace adapters, Chat review-card/resume wiring and live acceptance remain
+separate integration gates. Confirmation is not proof that a tool executed.
+
+### Drive lifecycle
+
 The Drive lifecycle extends the existing external-connector registry and credential store;
 it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
 routes remain default-off and do **not** enable chat reads or indexing.

@@ -31,6 +31,7 @@ import {
 import {
   AccountProfileIcon,
   ConsentAgentIcon,
+  ConnectedSystemsAgentIcon,
   DeveloperToolsProfileIcon,
   DevicesProfileIcon,
   FingerprintProfileIcon,
@@ -4592,6 +4593,15 @@ function ProfilePageContent({
                 onClick={() =>
                   openVaultBackedPanel("security", "trusted-devices")
                 }
+              />
+              <SettingsRow
+                icon={ConnectedSystemsAgentIcon}
+                iconTone="capability"
+                title="Connectors"
+                description="Google Workspace and finance connections"
+                chevron
+                density="compact"
+                onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
                 icon={RiaAgentIcon}

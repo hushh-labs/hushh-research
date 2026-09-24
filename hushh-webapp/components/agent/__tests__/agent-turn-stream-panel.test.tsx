@@ -114,8 +114,9 @@ describe("AgentTurnStreamPanel", () => {
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
       isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
       onOpenConnections={onOpenConnections} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Connectors" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Gmail access" }));
     expect(onOpenConnections).toHaveBeenCalledOnce();
+    expect(onOpenConnections).toHaveBeenCalledWith("gmail", expect.any(HTMLButtonElement));
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
   });
   it("renders tool progress without leaking raw action payloads", () => {

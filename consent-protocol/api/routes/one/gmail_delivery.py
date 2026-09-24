@@ -155,9 +155,18 @@ async def gmail_save_draft(
 ) -> dict[str, str]:
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        return await GoogleGmailMcpService().create_reviewed_draft(
+        result = await GoogleGmailMcpService().create_reviewed_draft(
             user_id=owner, draft_payload=payload.model_dump(exclude_none=True)
         )
+        status_value = result.get("status")
+        draft_id = result.get("draft_id")
+        if (
+            status_value != "saved"
+            or not isinstance(draft_id, str)
+            or not 1 <= len(draft_id) <= 256
+        ):
+            raise GmailApiError("Gmail draft outcome is unknown", status_code=502)
+        return {"status": status_value, "draft_id": draft_id}
     except Exception as exc:
         logger.warning("one.gmail_delivery.save_draft_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from None
