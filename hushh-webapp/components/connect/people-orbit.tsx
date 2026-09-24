@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { User } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
@@ -20,6 +21,7 @@ function OrbitLayout({
   emptyAdornment,
   emptySlots,
   onOpenPerson,
+  profileHrefForPerson,
   className,
 }: {
   people: readonly OrbitPerson[];
@@ -29,6 +31,7 @@ function OrbitLayout({
   emptyAdornment?: ReactNode;
   emptySlots: number;
   onOpenPerson?: (personRef: string) => void;
+  profileHrefForPerson?: (personRef: string) => string;
   className: string;
 }) {
   const count = Math.max(0, totalCount);
@@ -82,11 +85,22 @@ function OrbitLayout({
         );
         const sharedClass =
           "group absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]";
-        return onOpenPerson && person.publicPersonRef ? (
+        return profileHrefForPerson && person.publicPersonRef ? (
+          <Link
+            key={person.id}
+            href={profileHrefForPerson(person.publicPersonRef)}
+            className={`${sharedClass} cursor-pointer`}
+            style={style}
+            title={person.name}
+            aria-label={`Open ${person.name}'s profile`}
+          >
+            {avatar}
+          </Link>
+        ) : onOpenPerson && person.publicPersonRef ? (
           <button
             key={person.id}
             type="button"
-            className={sharedClass}
+            className={`${sharedClass} cursor-pointer`}
             style={style}
             title={person.name}
             aria-label={`Open ${person.name}'s profile`}
@@ -151,6 +165,7 @@ export function PeopleOrbit({
   emptyAdornment,
   emptySlots = 0,
   onOpenPerson,
+  profileHrefForPerson,
 }: {
   people: readonly OrbitPerson[];
   totalCount: number;
@@ -159,6 +174,7 @@ export function PeopleOrbit({
   /** Decorative open spots only; never included in member or overflow counts. */
   emptySlots?: number;
   onOpenPerson?: (personRef: string) => void;
+  profileHrefForPerson?: (personRef: string) => string;
 }) {
   return (
     <div
@@ -173,6 +189,7 @@ export function PeopleOrbit({
         emptyAdornment={emptyAdornment}
         emptySlots={emptySlots}
         onOpenPerson={onOpenPerson}
+        profileHrefForPerson={profileHrefForPerson}
         className="relative size-full sm:hidden"
       />
       <OrbitLayout
@@ -183,6 +200,7 @@ export function PeopleOrbit({
         emptyAdornment={emptyAdornment}
         emptySlots={emptySlots}
         onOpenPerson={onOpenPerson}
+        profileHrefForPerson={profileHrefForPerson}
         className="relative hidden size-full sm:block"
       />
     </div>

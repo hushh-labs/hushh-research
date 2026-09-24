@@ -6,7 +6,7 @@ import { Plus, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { Button } from "@/components/ui/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -54,6 +54,11 @@ export function LivingCirclePanel({
   const [overCircle, setOverCircle] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
+  const owner = members.find((member) => member.role === "owner");
+  const orbitMembers = owner
+    ? members.filter((member) => member.userId !== owner.userId)
+    : members;
+  const orbitMemberCount = Math.max(0, memberCount - (owner ? 1 : 0));
   // Keep the first four positions stable while a new circle grows. These are
   // illustrations, not member records or a representation of the circle limit.
   const emptySlots =
@@ -70,6 +75,23 @@ export function LivingCirclePanel({
     if (!canInvite || addingUserId || remainingCapacity <= 0) return;
     if (candidates.some((candidate) => candidate.userId === userId)) onAdd(userId);
   };
+  const profileHref = (publicPersonRef: string) =>
+    buildPersonProfileRoute(publicPersonRef, { from: ROUTES.CONNECT });
+  const ownerAvatar = owner ? (
+    <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] p-1 text-[color:var(--app-accent)] shadow-sm transition-transform duration-150 hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none">
+      <ConnectionPersonAvatar
+        size="profile"
+        className="!size-12"
+        photoUrl={owner.photoUrl}
+        label={owner.displayName}
+        verified={Boolean(owner.isRia)}
+      />
+    </span>
+  ) : (
+    <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)] shadow-sm">
+      <UsersRound aria-hidden="true" className="size-7" />
+    </span>
+  );
 
   return (
     <section
@@ -96,19 +118,31 @@ export function LivingCirclePanel({
         }}
       >
         <PeopleOrbit
-          people={members.map((member) => ({
+          people={orbitMembers.map((member) => ({
             id: member.userId,
             name: member.displayName,
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
+            publicPersonRef: member.publicPersonRef,
           }))}
-          totalCount={memberCount}
+          totalCount={orbitMemberCount}
           emptySlots={emptySlots}
           center={
-            <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)] shadow-sm">
-              <UsersRound aria-hidden="true" className="size-7" />
-            </span>
+            owner?.publicPersonRef ? (
+              <Link
+                data-testid="circle-owner-profile"
+                className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                title={owner.displayName}
+                aria-label={`Open ${owner.displayName}'s profile`}
+                href={profileHref(owner.publicPersonRef)}
+              >
+                {ownerAvatar}
+              </Link>
+            ) : (
+              ownerAvatar
+            )
           }
+          profileHrefForPerson={profileHref}
         />
       </div>
       <p aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
