@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +13,10 @@ from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes import external_connectors as routes
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import ExternalConnectorOAuthError
+from hushh_mcp.services.external_connector_registry_service import (
+    ConnectorRegistrationError,
+    ExternalMcpConnectorDefinition,
+)
 
 
 @pytest.fixture
@@ -35,6 +40,80 @@ def route_client(monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     return TestClient(app), app, drive
+
+
+def test_private_registration_derives_owner_and_never_echoes_secrets(route_client, monkeypatch):
+    client, app, _ = route_client
+    body = {
+        "registrationId": "550e8400-e29b-41d4-a716-446655440000",
+        "displayName": "Synthetic MCP",
+        "endpoint": "https://mcp.example.com/mcp",
+        "authStyle": "api_key",
+    }
+    assert client.post("/api/connectors/registrations", json=body).status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    definition = ExternalMcpConnectorDefinition.from_row(
+        {
+            "connector_id": "custom_synthetic",
+            "display_name": "Synthetic MCP",
+            "mcp_endpoint": body["endpoint"],
+            "auth_style": "api_key",
+            "user_id": "verified-owner",
+            "owner_enabled": True,
+        }
+    )
+    registry = SimpleNamespace(register_private=AsyncMock(return_value=definition))
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", lambda: registry)
+    for extra in (
+        {"userId": "another-owner"},
+        {"apiKey": "synthetic-private-input"},
+        {"capabilityPolicy": {"allow": "*"}},
+    ):
+        response = client.post("/api/connectors/registrations", json={**body, **extra})
+        assert response.status_code == 422
+        assert response.headers["cache-control"] == "no-store"
+        assert "synthetic-private-input" not in response.text
+    registry.register_private.assert_not_called()
+    response = client.post("/api/connectors/registrations", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "not_connected"
+    assert response.json()["registrationKind"] == "private"
+    assert "endpoint" not in response.json()
+    registry.register_private.assert_awaited_once_with(
+        user_id="verified-owner",
+        registration_id=UUID(body["registrationId"]),
+        display_name=body["displayName"],
+        endpoint=body["endpoint"],
+        auth_style="api_key",
+    )
+    registry.register_private.side_effect = ConnectorRegistrationError(
+        "connector_registry_unavailable", status_code=503
+    )
+    response = client.post("/api/connectors/registrations", json=body)
+    assert response.status_code == 503 and response.headers["cache-control"] == "no-store"
+    assert response.json()["detail"]["code"] == "connector_registry_unavailable"
+
+
+def test_connector_catalog_and_key_lookup_are_owner_scoped(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    registry = SimpleNamespace(
+        list_active_connectors=AsyncMock(return_value=[]),
+        get_connector=AsyncMock(return_value=None),
+    )
+    credentials = SimpleNamespace(
+        list_statuses=AsyncMock(return_value=[]), store_credential=AsyncMock()
+    )
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", lambda: registry)
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", lambda: credentials)
+    assert client.get("/api/connectors").status_code == 200
+    registry.list_active_connectors.assert_awaited_once_with(user_id="verified-owner")
+    response = client.post(
+        "/api/connectors/custom_other/connect/api-key", json={"apiKey": "synthetic"}
+    )
+    assert response.status_code == 404
+    registry.get_connector.assert_awaited_once_with("custom_other", user_id="verified-owner")
+    credentials.store_credential.assert_not_called()
 
 
 @pytest.mark.parametrize(

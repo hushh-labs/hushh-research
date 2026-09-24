@@ -15,7 +15,9 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -33,11 +35,44 @@ from hushh_mcp.services.external_connector_oauth_service import (
     get_external_connector_oauth_service,
 )
 from hushh_mcp.services.external_connector_registry_service import (
+    ConnectorRegistrationError,
     get_external_connector_registry_service,
 )
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
 
-router = APIRouter(prefix="/api/connectors", tags=["external-connectors"])
+
+class PrivateConnectorRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_handler(request: Request):
+            try:
+                response = await handler(request)
+            except RequestValidationError:
+                # Validation errors otherwise echo submitted credentials/URLs.
+                response = JSONResponse(
+                    status_code=422, content={"detail": "Invalid connector request."}
+                )
+            except ConnectorRegistrationError as error:
+                response = JSONResponse(
+                    status_code=error.status_code,
+                    content={
+                        "detail": {
+                            "code": error.code,
+                            "message": "The connector registration could not be completed. Please check your details or retry.",
+                        }
+                    },
+                )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return private_handler
+
+
+router = APIRouter(
+    prefix="/api/connectors", tags=["external-connectors"], route_class=PrivateConnectorRoute
+)
 
 
 def _user_id(token_data: dict) -> str:
@@ -57,11 +92,44 @@ class ConnectorSummary(BaseModel):
     revocationOutcome: str = "not_attempted"
     lastErrorCode: Optional[str] = None
     available: bool = True
+    registrationKind: Literal["curated", "private"] = "curated"
 
 
 class ConnectorsResponse(BaseModel):
     connectors: list[ConnectorSummary]
     features: dict[str, bool] = Field(default_factory=dict)
+
+
+class RegisterConnectorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    registrationId: UUID
+    displayName: str = Field(min_length=1, max_length=100)
+    endpoint: str = Field(min_length=1, max_length=4096)
+    authStyle: Literal["api_key", "oauth"]
+
+
+@router.post("/registrations", response_model=ConnectorSummary)
+async def register_connector(
+    body: RegisterConnectorRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        connector = await get_external_connector_registry_service().register_private(
+            user_id=_user_id(token_data),
+            registration_id=body.registrationId,
+            display_name=body.displayName,
+            endpoint=body.endpoint,
+            auth_style=body.authStyle,
+        )
+    except UnsafeMcpEndpoint:
+        raise HTTPException(
+            status_code=400,
+            detail="Use a public HTTPS connector endpoint without credentials, query parameters or a fragment.",
+            headers={"Cache-Control": "private, no-store"},
+        ) from None
+    return ConnectorSummary(
+        **connector.to_public_dict(), status="not_connected", registrationKind="private"
+    )
 
 
 class ConnectApiKeyRequest(BaseModel):
@@ -398,7 +466,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
     credentials = get_external_connector_credentials_service()
-    connectors = await registry.list_active_connectors()
+    connectors = await registry.list_active_connectors(user_id=user_id)
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
     result = ConnectorsResponse(
         features=connector_features(user_id),
@@ -408,6 +476,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 displayName=connector.display_name,
                 description=connector.description,
                 authStyle=connector.auth_style,
+                registrationKind="private" if connector.owner_user_id else "curated",
                 status=statuses.get(connector.connector_id, {}).get("status", "not_connected"),
                 accountLabel=statuses.get(connector.connector_id, {}).get("accountLabel"),
                 connectedAt=statuses.get(connector.connector_id, {}).get("connectedAt"),
@@ -456,7 +525,7 @@ async def connect_with_api_key(
 ):
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
-    connector = await registry.get_connector(connector_id)
+    connector = await registry.get_connector(connector_id, user_id=user_id)
     if connector is None:
         raise HTTPException(status_code=404, detail="Connector not found")
     if connector.auth_style != "api_key":

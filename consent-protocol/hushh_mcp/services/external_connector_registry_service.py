@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.db_client import get_db
+from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
@@ -99,7 +99,12 @@ class ExternalConnectorRegistryService:
     async def _execute(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        result = await asyncio.to_thread(self.db.execute_raw, sql, params)
+        try:
+            result = await asyncio.to_thread(self.db.execute_raw, sql, params)
+        except DatabaseExecutionError:
+            raise ConnectorRegistrationError(
+                "connector_registry_unavailable", status_code=503
+            ) from None
         return result.data or []
 
     async def register_private(

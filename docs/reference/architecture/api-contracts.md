@@ -1053,6 +1053,29 @@ No silent success is emitted on terminal failures.
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
 
+### Owner-private MCP registration checkpoint
+
+`POST /api/connectors/registrations` requires a Vault Owner token and accepts only
+`registrationId` (a stable retry UUID), `displayName`, `endpoint`, and `authStyle`
+(`api_key` or `oauth`). The server derives the owner and connector identity. It admits
+public HTTPS endpoints on port 443 without URL credentials, query parameters, or
+fragments; transport-time public-address validation is a separate required boundary.
+Registration neither authenticates a provider nor grants tool execution permission.
+The response is a safe connector summary with `registrationKind=private` and
+`status=not_connected`, never endpoint or credential configuration.
+
+Listing and API-key connection lookup are owner-scoped. Legacy ownerless registry
+reads remain curated-only. Repeating an unchanged registration UUID is idempotent;
+changing its definition returns 409, as does exceeding 32 active private registrations.
+Owner-scoped reads require migration 243; unavailable registry storage returns 503,
+not a misleading empty catalog. Validation responses omit submitted input and use
+`Cache-Control: no-store`.
+
+This is a backend registration boundary, not certification of custom OAuth,
+Settings controls, ADK invocation, or native acceptance. Those remain separate gates.
+
+### Drive lifecycle
+
 The Drive lifecycle extends the existing external-connector registry and credential store;
 it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
 routes remain default-off and do **not** enable chat reads or indexing.
