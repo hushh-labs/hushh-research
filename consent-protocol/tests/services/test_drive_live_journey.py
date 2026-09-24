@@ -175,8 +175,22 @@ async def test_zero_index_foreground_then_new_file_trusted_repeat_and_revocation
         await permissions.claim_grant(user_id="owner", operation_id=str(operation["operation_id"]))
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        {"relative_days": 2, "mode": "find", "time_intent": "file_activity"},
+        # Calendar days and a file type must keep the metadata-only path and the type.
+        {
+            "date_from": "2026-09-22",
+            "date_to": "2026-09-24",
+            "file_kind": "pdf",
+            "mode": "find",
+            "time_intent": "file_activity",
+        },
+    ],
+)
 async def test_recency_card_dates_bind_private_metadata_through_approved_permission_plan(
-    live_journey,
+    live_journey, plan
 ):
     store, _, service_factory, _ = live_journey
     created = await store.create_request(
@@ -246,12 +260,11 @@ async def test_recency_card_dates_bind_private_metadata_through_approved_permiss
     owner = AsyncMock()
     service = service_factory(owner)
     service.reader_factory = reader_factory
-    service.search_planner = AsyncMock(
-        return_value={"relative_days": 2, "mode": "find", "time_intent": "file_activity"}
-    )
+    service.search_planner = AsyncMock(return_value=plan)
     service.interpreter = AsyncMock()
     assert await service.run_one(user_id="owner", request_id=request_id) == "review_ready"
     assert observed["find"]["query"] == []
+    assert observed["find"].get("file_kind", "any") == plan.get("file_kind", "any")
     assert observed["find"]["time_field"] == "modifiedTime"
     assert observed["bind"]["start_time"] == observed["find"]["start_time"]
     assert observed["bind"]["end_time"] == observed["find"]["end_time"]
