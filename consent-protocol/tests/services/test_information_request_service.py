@@ -23,7 +23,7 @@ from hushh_mcp.services.information_request_service import (
 @pytest.mark.asyncio
 async def test_submission_receipt_requires_owner_bound_creation_key(monkeypatch):
     service = InformationRequestService()
-    key = "synthetic-submission-key-123"
+    key = "synthetic-idempotency-key"
     owner = "owner-a"
     digest = hashlib.sha256(f"{owner}|{key}".encode()).hexdigest()
     bundle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hussh:information-request:{digest}"))

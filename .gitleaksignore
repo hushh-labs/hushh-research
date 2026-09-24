@@ -5,3 +5,7 @@
 72d1e7c060c7c8aaffafc768f232572afc9b16f5:consent-protocol/tests/services/test_gmail_delivery_service.py:generic-api-key:133
 # Cache record name for the Plaid orphan guard (SecureResourceCacheService key); never a credential.
 9b64f097e2250f9ad1bfeb1eae829aafc515ae9a:hushh-webapp/lib/kai/plaid-vault/pending-seal.ts:generic-api-key:20
+# Synthetic owner-scoped request idempotency sentinels in consent tests; not credentials.
+5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/services/test_information_request_service.py:generic-api-key:26
+5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/routes/test_agent_chat_history_descriptors.py:generic-api-key:282
+5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/routes/test_agent_chat_history_descriptors.py:generic-api-key:326

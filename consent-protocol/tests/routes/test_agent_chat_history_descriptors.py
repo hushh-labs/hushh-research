@@ -255,7 +255,7 @@ async def test_inline_submission_receipt_restores_one_card_without_model_replay(
             if (requester_user_id, bundle_id, idempotency_key) != (
                 "owner",
                 "11111111-1111-1111-1111-111111111111",
-                "receipt-key-123456789",
+                "synthetic-receipt-key",
             ):
                 raise InformationRequestError("Request receipt was not found.", status_code=404)
             return {
@@ -279,7 +279,7 @@ async def test_inline_submission_receipt_restores_one_card_without_model_replay(
     payload = agent_chat.RecordInformationRequestSubmission(
         source_activity_id="discover-call",
         bundle_id=UUID(bundle_id),
-        idempotency_key="receipt-key-123456789",
+        idempotency_key="synthetic-receipt-key",
     )
     result = await agent_chat.record_information_request_submission(
         "thread", payload, {"user_id": "owner"}
@@ -323,7 +323,7 @@ async def test_inline_submission_receipt_restores_one_card_without_model_replay(
     with pytest.raises(HTTPException) as wrong_receipt:
         await agent_chat.record_information_request_submission(
             "thread",
-            payload.model_copy(update={"idempotency_key": "wrong-receipt-key-123"}),
+            payload.model_copy(update={"idempotency_key": "different-synthetic-receipt-key"}),
             {"user_id": "owner"},
         )
     assert wrong_receipt.value.status_code == 404
