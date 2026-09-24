@@ -570,17 +570,349 @@ def test_scheduler_attempt_requires_fresh_concrete_http_success() -> None:
     )
 
 
-def test_production_backend_is_blocked_before_migration_201() -> None:
-    workflow_path = ROOT / ".github" / "workflows" / "deploy-production.yml"
-    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["deploy"]["steps"]
-    names = [str(step.get("name") or "") for step in steps]
-    block_name = "Block production migration 201 until lifecycle rollout controls exist"
-    migration_name = "Apply production release migrations"
+PRODUCTION_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-production.yml"
 
-    assert names.index(block_name) < names.index(migration_name)
-    block = next(step for step in steps if step.get("name") == block_name)
-    assert block.get("if") == "steps.scope.outputs.deploy_backend == 'true'"
-    block_run = str(block.get("run") or "")
-    assert "201_account_deletion_tombstones.sql" in block_run
-    assert "exit 1" in block_run
+
+def _production_workflow() -> dict:
+    return yaml.safe_load(PRODUCTION_WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+
+def _production_steps() -> list[dict]:
+    return _production_workflow()["jobs"]["deploy"]["steps"]
+
+
+def _production_step(name: str) -> dict:
+    for step in _production_steps():
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"Missing production workflow step: {name}")
+
+
+def _assert_no_uat_target(run: str) -> None:
+    for uat_marker in (
+        "hushh-pda-uat",
+        "hushh-uat-pg",
+        "api.uat.hushh.ai",
+        "/tmp/uat-",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "--port 6543",
+        "--release-environment uat",
+        "account-deletion-cleanup-uat",
+        '"uat"',
+    ):
+        assert uat_marker not in run, uat_marker
+
+
+def test_production_no_longer_hard_blocks_migration_201() -> None:
+    names = [str(step.get("name") or "") for step in _production_steps()]
+    text = PRODUCTION_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "Block production migration 201 until lifecycle rollout controls exist" not in names
+    assert "Apply production release migrations" not in names
+    assert "201_account_deletion_tombstones.sql" not in text
+
+
+def test_production_release_orders_image_fence_schema_runtime_and_activation() -> None:
+    names = [str(step.get("name") or "") for step in _production_steps()]
+    expected_order = [
+        "Pre-deploy Cloud SQL backup posture gate",
+        "Build and pin backend image before lifecycle migration",
+        "Install Cloud SQL Auth Proxy",
+        "Install fail-closed account deletion release fence",
+        "Apply production DB migrations behind account deletion fence",
+        "Migration governance and DB drift gate",
+        "Deploy backend using Cloud Build",
+        "Resolve backend candidate revision",
+        "Verify backend candidate readiness and exact-SHA provenance",
+        "Resolve deployed candidate revisions",
+        "Promote deployed revisions to production traffic",
+        "Classify production release outcome",
+        "Roll back backend revision",
+        "Roll back frontend revision",
+        "Activate tombstone-aware account deletion",
+        "Resolve final Cloud Run state",
+        "Write production release status artifact",
+    ]
+    positions = [names.index(name) for name in expected_order]
+    assert positions == sorted(positions)
+
+    for name, step_id in (
+        ("Build and pin backend image before lifecycle migration", "build-backend-image"),
+        ("Install fail-closed account deletion release fence", "install-account-deletion-fence"),
+        ("Apply production DB migrations behind account deletion fence", "predeploy-db-gate"),
+        ("Deploy backend using Cloud Build", "deploy-backend"),
+        ("Resolve backend candidate revision", "backend-candidate-state"),
+        ("Activate tombstone-aware account deletion", "activate-account-deletion"),
+    ):
+        step = _production_step(name)
+        assert step.get("id") == step_id
+    for name in (
+        "Build and pin backend image before lifecycle migration",
+        "Install fail-closed account deletion release fence",
+        "Apply production DB migrations behind account deletion fence",
+        "Resolve backend candidate revision",
+        "Verify backend candidate readiness and exact-SHA provenance",
+    ):
+        assert _production_step(name).get("if") == "steps.scope.outputs.deploy_backend == 'true'"
+
+
+def test_production_fence_and_migration_target_only_the_production_database() -> None:
+    fence_run = str(_production_step("Install fail-closed account deletion release fence")["run"])
+    migrate_run = str(
+        _production_step("Apply production DB migrations behind account deletion fence")["run"]
+    )
+
+    for run in (fence_run, migrate_run):
+        assert '"${GCP_PROJECT_ID}" != "hushh-pda"' in run
+        assert '"${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db"' in run
+        assert "--port 6544" in run
+        assert 'export PGDATABASE="${PROD_DB_NAME}"' in run
+        assert "install_release_fence.sql" in run
+        assert "HUSSH_RELEASE_ENVIRONMENT" not in run
+        _assert_no_uat_target(run)
+    assert "/tmp/prod-account-deletion-fence-install.log" in fence_run  # noqa: S108 - workflow evidence path literal, not a temp file
+    assert "--release-environment production" in migrate_run
+    assert "--migration-mode replay" in migrate_run
+    assert migrate_run.index("install_release_fence.sql") < migrate_run.index("db/migrate.py")
+    assert migrate_run.index("db/migrate.py") < migrate_run.index("verify_release_boundary.sql")
+    assert "SELECT count(*) FROM public.account_deletion_tombstones" in migrate_run
+    assert 'echo "tombstone_count=${tombstone_count}" >> "$GITHUB_OUTPUT"' in migrate_run
+
+
+def test_production_backend_deploy_consumes_the_pinned_digest_without_rebuilding() -> None:
+    build_run = str(
+        _production_step("Build and pin backend image before lifecycle migration").get("run") or ""
+    )
+    deploy_run = str(_production_step("Deploy backend using Cloud Build").get("run") or "")
+    readiness_run = str(
+        _production_step("Verify backend candidate readiness and exact-SHA provenance").get("run")
+        or ""
+    )
+    candidate_run = str(_production_step("Resolve deployed candidate revisions").get("run") or "")
+
+    assert "deploy/backend-image.cloudbuild.yaml" in build_run
+    assert 'image_tag="prod-${{ github.event.inputs.sha }}"' in build_run
+    assert "image_summary.digest" in build_run
+    assert "^sha256:[0-9a-f]{64}$" in build_run
+    assert "resolve-cloud-run-image.py" in build_run
+    assert "/tmp/prod-backend-image.json" in build_run  # noqa: S108 - workflow evidence path literal, not a temp file
+    assert ",_SKIP_IMAGE_BUILD=true," in deploy_run
+    assert (
+        ",_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}," in deploy_run
+    )
+    assert ",_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}," in deploy_run
+    assert ",_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}," in deploy_run
+    assert 'containers[0].get("image") == expected_image_reference' in readiness_run
+    assert 'labels.get("account-deletion-contract") == "v201"' in readiness_run
+    assert 'labels.get("deploy-env") == "production"' in readiness_run
+    assert 'labels.get("deploy-source") == "deploy-production"' in readiness_run
+    _assert_no_uat_target(readiness_run)
+    readiness_env = _production_step("Verify backend candidate readiness and exact-SHA provenance")[
+        "env"
+    ]
+    assert readiness_env["EXPECTED_SHA"] == "${{ github.event.inputs.sha }}"
+    assert readiness_env["EXPECTED_IMAGE_REFERENCE"] == (
+        "${{ steps.build-backend-image.outputs.image_reference }}"
+    )
+    # Promotion targets the tagged, readiness-proven candidate, not "latest".
+    assert "steps.backend-candidate-state.outputs.backend_revision" in candidate_run
+    assert "latestCreatedRevisionName" not in candidate_run.split("deploy_frontend")[0]
+
+
+def test_production_build_step_pins_executable_manifest(tmp_path: Path) -> None:
+    child_digest = "sha256:" + "d" * 64
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:" + "e" * 64,
+                    "size": 1234,
+                    "platform": {"os": "unknown", "architecture": "unknown"},
+                    "annotations": {"vnd.docker.reference.type": "attestation-manifest"},
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": child_digest,
+                    "size": 1234,
+                    "platform": {"os": "linux", "architecture": "amd64"},
+                },
+            ],
+        }
+    )
+    index_digest = "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
+    repository = "gcr.io/hushh-pda/consent-protocol"
+    script = _production_step("Build and pin backend image before lifecycle migration")["run"]
+    script = script.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda")
+    script = script.replace("${{ github.event.inputs.sha }}", "f" * 40)
+    for name in ("prod-backend-image.json", "prod-backend-image-manifest.json"):
+        script = script.replace(
+            f"/tmp/{name}",  # noqa: S108 - replace workflow paths with pytest isolation
+            (tmp_path / name).as_posix(),
+        )
+    assert "${{" not in script
+    # Only the digest resolver runs for real; every registry/build call is stubbed.
+    guards = (
+        'gcloud() { case "$1 $2" in '
+        "'builds submit'|'auth configure-docker') return 0 ;; "
+        f"'container images') printf '%s' '{index_digest}' ;; "
+        "*) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\n"
+        "docker() { "
+        f"if [[ \"$*\" != *'{repository}@{index_digest}'* ]]; then "
+        "echo UNEXPECTED_MUTABLE_LOOKUP >&2; return 96; fi; "
+        f"printf '%s' '{manifest}'; }};\n"
+        f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
+    )
+    output_path = tmp_path / "github-output"
+    environment = os.environ.copy()
+    environment.pop("BASH_ENV", None)
+    environment["GITHUB_OUTPUT"] = output_path.as_posix()
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the workflow behavior test"
+    result = subprocess.run(  # noqa: S603 - trusted workflow, fixed inputs, guarded cloud commands
+        [bash, "-c", guards + script],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert "UNEXPECTED_" not in result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output_path.read_text().strip() == f"image_reference={repository}@{child_digest}"
+
+
+def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -> None:
+    deploy_run = str(_production_step("Deploy backend using Cloud Build").get("run") or "")
+    cloudbuild = yaml.safe_load(
+        (ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
+    )
+    declared = set((cloudbuild.get("substitutions") or {}).keys())
+    for name in (
+        "_SKIP_IMAGE_BUILD",
+        "_IMAGE_REFERENCE",
+        "_CLOUD_RUN_TAG",
+        "_ACCOUNT_DELETION_CLEANUP_AUDIENCE",
+        "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL",
+    ):
+        assert f"{name}=" in deploy_run
+        assert name in declared
+
+
+def test_production_activation_retires_legacy_revisions_before_removing_fence() -> None:
+    activation = _production_step("Activate tombstone-aware account deletion")
+    activation_run = str(activation.get("run") or "")
+
+    assert activation.get("if") == (
+        "steps.classify.outputs.release_failed == 'false' && "
+        "steps.scope.outputs.deploy_backend == 'true'"
+    )
+    assert activation_run.index('"${PROJECT_ID}" != "hushh-pda"') < activation_run.index(
+        "setup_cleanup_scheduler.sh"
+    )
+    assert activation["env"]["JOB_NAME"] == "${{ env.ACCOUNT_DELETION_SCHEDULER_JOB }}"
+    assert activation["env"]["PROJECT_ID"] == "${{ env.GCP_PROJECT_ID }}"
+    assert activation["env"]["BACKEND_URL"] == "${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+    assert activation["env"]["OIDC_AUDIENCE"] == "${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+    assert "https://api.hushh.ai/api/account/deletion-cleanup/drain?limit=10" in activation_run
+    assert "'audience': oidc.get('audience') == 'https://api.hushh.ai'" in activation_run
+    assert "gcloud scheduler jobs run" in activation_run
+    assert "gcloud logging read" in activation_run
+    assert "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" in activation_run
+    assert "verify-cloud-scheduler-attempt.py" in activation_run
+    assert "job.get('lastAttemptTime')" not in activation_run
+    assert "gcloud run revisions delete" in activation_run
+    assert "remaining_pre_v201_count" in activation_run
+    assert "--port 6544" in activation_run
+    assert 'export PGDATABASE="${{ env.PROD_DB_NAME }}"' in activation_run
+    _assert_no_uat_target(activation_run)
+    drain_verified = activation_run.index("verify-cloud-scheduler-attempt.py")
+    retired = activation_run.index("gcloud run revisions delete")
+    boundary = activation_run.index("verify_release_boundary.sql")
+    removal = activation_run.index("remove_release_fence.sql")
+    assert drain_verified < retired < boundary < removal
+
+    workflow = _production_workflow()
+    assert workflow["env"]["ACCOUNT_DELETION_SCHEDULER_JOB"] == (
+        "account-deletion-cleanup-production"
+    )
+    assert workflow["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
+
+
+def test_production_scheduler_service_account_id_is_valid_and_consistent() -> None:
+    workflow = _production_workflow()
+    scheduler_account_id = workflow["env"]["ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID"]
+    deploy_run = str(_production_step("Deploy backend using Cloud Build").get("run") or "")
+    activation = _production_step("Activate tombstone-aware account deletion")
+
+    assert scheduler_account_id == "account-deletion-cleanup"
+    assert workflow["env"]["GCP_PROJECT_ID"] == "hushh-pda"
+    assert activation["env"]["SCHEDULER_SERVICE_ACCOUNT_NAME"] == (
+        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"
+    )
+    assert (
+        "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL="
+        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@"
+        "${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+    ) in deploy_run
+
+
+def test_production_pre_v201_rollback_requires_fence_and_empty_tombstones() -> None:
+    rollback = _production_step("Roll back backend revision")
+    rollback_run = str(rollback.get("run") or "")
+
+    assert "steps.predeploy-state.outputs.backend_revision != ''" in str(rollback.get("if"))
+    assert 'rollback_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in (
+        rollback_run
+    )
+    assert "Cannot authorize rollback from ambiguous backend traffic" in rollback_run
+    assert '"${{ steps.predeploy-db-gate.outcome }}" != "success"' in rollback_run
+    assert "install_release_fence.sql" in rollback_run
+    assert "SELECT count(*) FROM public.account_deletion_tombstones" in rollback_run
+    assert '"${rollback_contract}" != "v201"' in rollback_run
+    assert '"${tombstone_count}" != "0"' in rollback_run
+    assert "Refusing rollback to a pre-v201 backend" in rollback_run
+    assert "--port 6544" in rollback_run
+    assert "${{ env.PROD_CLOUDSQL_INSTANCE }}" in rollback_run
+    assert rollback_run.index('"${tombstone_count}" != "0"') < rollback_run.index(
+        "cloudrun-rollback.sh"
+    )
+
+
+def test_production_predeploy_and_final_state_use_order_safe_resolver() -> None:
+    for name in ("Capture predeploy Cloud Run state", "Resolve final Cloud Run state"):
+        run = str(_production_step(name).get("run") or "")
+        assert "resolve-cloud-run-serving-state.py" in run
+        assert "status.traffic[0]" not in run
+    final_run = str(_production_step("Resolve final Cloud Run state").get("run") or "")
+    assert 'echo "backend_serving=${backend_serving}" >> "$GITHUB_OUTPUT"' in final_run
+    assert 'echo "frontend_serving=${frontend_serving}" >> "$GITHUB_OUTPUT"' in final_run
+
+
+def test_production_status_blocks_until_account_deletion_is_activated() -> None:
+    status_run = str(_production_step("Write production release status artifact").get("run"))
+    upload = _production_step("Upload production deploy artifacts")
+    upload_paths = str((upload.get("with") or {}).get("path") or "")
+
+    assert '"${{ steps.activate-account-deletion.outcome }}" != "success"' in status_run
+    assert '"account_deletion_activation"' in status_run
+    assert '"account_deletion_activated"' in status_run
+    for evidence in (
+        "/tmp/prod-backend-image.json",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-backend-image-manifest.json",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-backend-candidate-readiness.json",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-account-deletion-fence-install.log",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-account-deletion-scheduler-evidence.json",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-account-deletion-revision-retirement.json",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/prod-account-deletion-fence-removal.log",  # noqa: S108 - workflow evidence path literal, not a temp file
+        "/tmp/cloud-sql-proxy-prod.log",  # noqa: S108 - workflow evidence path literal, not a temp file
+    ):
+        assert evidence in upload_paths
+
+
+def test_production_deploys_share_one_global_concurrency_group() -> None:
+    concurrency = _production_workflow()["concurrency"]
+
+    assert concurrency == {"group": "deploy-production", "cancel-in-progress": False}
