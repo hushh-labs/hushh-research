@@ -34,6 +34,7 @@ tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py
 tests/services/test_drive_suggestions.py
 tests/services/test_drive_suggestion_coverage.py
+tests/services/test_drive_suggestion_recency.py
 tests/services/test_document_review_authority_postgres.py
 tests/services/test_drive_sharing_store.py
 tests/services/test_drive_permission_executor.py

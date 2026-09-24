@@ -144,24 +144,29 @@ class GoogleDriveRestTransport:
                 query="trashed = false",
                 page_size=page_size,
                 page_token=page_token,
-                order_by="recency",
+                order_by="recency desc",
             )
         else:
             query = arguments.get("query")
             if not isinstance(query, str) or not 1 <= len(query) <= _MAX_QUERY_CHARS:
                 raise DriveOAuthError("invalid_argument", status_code=400)
+            # Drive ranks fullText matches by relevance and cannot sort them;
+            # every other search comes back newest first, so a page cut keeps
+            # the most recent files.
             page = await self.adapter.list_files(
                 access_token=token,
                 query=rest_query(query),
                 page_size=page_size,
                 page_token=page_token,
+                order_by=None if "fullText" in query else "modifiedTime desc",
             )
         files = page.get("files", [])
         if not isinstance(files, list):
             raise DriveReadError("provider_response_invalid")
-        return _search_metadata(
+        projected: dict = _search_metadata(
             {
                 "files": [_as_mcp_file(item) for item in files if isinstance(item, dict)],
                 "nextPageToken": page.get("nextPageToken"),
             }
         )
+        return projected
