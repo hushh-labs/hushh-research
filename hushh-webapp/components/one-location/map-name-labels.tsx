@@ -12,9 +12,9 @@ export interface MapNameLabelsProps {
   labels: PlacedMapNameLabel[];
   /**
    * The camera is moving and the coordinates below describe where it WAS. Only
-   * iOS and Android ever set this: those renderers report the camera once it
-   * settles, so the honest thing to do mid-gesture is fade out rather than drag
-   * a name across the map away from the pin it belongs to.
+   * the map renderer knows its authoritative in-flight transform, so the
+   * honest thing to do mid-gesture is fade out rather than drag a name across
+   * the map away from the pin it belongs to.
    */
   stalePositions?: boolean;
 }
@@ -69,9 +69,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
           >
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                isSelf
-                  ? "hidden"
-                  : ""
+                isSelf ? "hidden" : ""
               }`}
               style={
                 isSelf
