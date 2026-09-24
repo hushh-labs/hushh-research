@@ -1,18 +1,37 @@
 """Curated and owner-private definitions in one external MCP registry.
 
-Mirrors `crm_registry_repo.py`'s shape (a small, environment-wide table any
-signed-in user can read the *catalog* of, but only an operator can write to
-via `scripts/ops/configure_external_mcp_connector.py`) rather than
-`enterprise_crm_registry` itself, which stays CRM-only and untouched.
+Operator-curated definitions and private owner registrations share one table.
+Only the former appear in the environment-wide catalog. Registration creates
+configuration, not a connected grant or permission to execute a tool.
+`enterprise_crm_registry` stays CRM-only and untouched.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+from uuid import NAMESPACE_URL, UUID, uuid5
+
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from db.db_client import get_db
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
+
+
+class ConnectorRegistrationError(RuntimeError):
+    """Safe registration failure; never include SQL, endpoints or credentials."""
+
+    def __init__(self, code: str, *, status_code: int = 400) -> None:
+        super().__init__(code)
+        self.code = code
+        self.status_code = status_code
+
+
+_MAX_PRIVATE_CONNECTORS = 32
 
 
 def _clean(value: object | None) -> str:
@@ -82,6 +101,103 @@ class ExternalConnectorRegistryService:
     ) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(self.db.execute_raw, sql, params)
         return result.data or []
+
+    async def register_private(
+        self,
+        *,
+        user_id: str,
+        registration_id: UUID,
+        display_name: str,
+        endpoint: str,
+        auth_style: Literal["api_key", "oauth"],
+    ) -> ExternalMcpConnectorDefinition:
+        """Register configuration, never authenticate, discover or authorize tools.
+
+        The browser supplies a fresh registration UUID and reuses it for retries.
+        The server binds it to the authenticated owner. A changed draft needs a
+        fresh UUID; reset/removed registrations cannot be revived by replay.
+        """
+        if not user_id or user_id != user_id.strip() or not isinstance(registration_id, UUID):
+            raise ConnectorRegistrationError("invalid_registration")
+        name = display_name.strip()
+        if not name or len(name) > 100 or any(ord(c) < 32 for c in name):
+            raise ConnectorRegistrationError("invalid_connector_name")
+        if auth_style not in {"api_key", "oauth"}:
+            raise ConnectorRegistrationError("invalid_connector_auth")
+        validate_mcp_endpoint(endpoint)
+        connector_id = (
+            "custom_"
+            + uuid5(
+                NAMESPACE_URL,
+                json.dumps(
+                    ["hushh-private-mcp", user_id, str(registration_id)], separators=(",", ":")
+                ),
+            ).hex
+        )
+        params = dict(
+            user_id=user_id,
+            connector_id=connector_id,
+            name=name,
+            endpoint=endpoint,
+            auth_style=auth_style,
+        )
+
+        def register() -> ExternalMcpConnectorDefinition:
+            try:
+                with self.db.engine.begin() as connection:
+                    connection.execute(text("SET LOCAL statement_timeout = '5s'"))
+                    connection.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    lock_connection_graph_users(connection, user_ids=[user_id])
+                    existing = (
+                        connection.execute(
+                            text("""SELECT * FROM external_mcp_connectors
+                            WHERE connector_id=:connector_id AND user_id=:user_id"""),
+                            params,
+                        )
+                        .mappings()
+                        .first()
+                    )
+                    if existing:
+                        if (
+                            not existing["owner_enabled"]
+                            or existing["display_name"] != name
+                            or existing["mcp_endpoint"] != endpoint
+                            or existing["auth_style"] != auth_style
+                        ):
+                            raise ConnectorRegistrationError(
+                                "registration_revision_conflict", status_code=409
+                            )
+                        return ExternalMcpConnectorDefinition.from_row(dict(existing))
+                    count = connection.execute(
+                        text("""SELECT count(*) FROM external_mcp_connectors
+                            WHERE user_id=:user_id AND owner_enabled=TRUE"""),
+                        params,
+                    ).scalar_one()
+                    if count >= _MAX_PRIVATE_CONNECTORS:
+                        raise ConnectorRegistrationError(
+                            "connector_registration_limit", status_code=409
+                        )
+                    row = (
+                        connection.execute(
+                            text("""INSERT INTO external_mcp_connectors
+                            (connector_id, display_name, mcp_endpoint, auth_style,
+                             user_id, created_by, is_active, owner_enabled, transport_kind,
+                             capability_policy, api_key_header_name)
+                            VALUES (:connector_id, :name, :endpoint, :auth_style,
+                                    :user_id, :user_id, FALSE, TRUE, 'mcp', '{}', 'Authorization')
+                            RETURNING *"""),
+                            params,
+                        )
+                        .mappings()
+                        .one()
+                    )
+                    return ExternalMcpConnectorDefinition.from_row(dict(row))
+            except SQLAlchemyError:
+                raise ConnectorRegistrationError(
+                    "connector_registry_unavailable", status_code=503
+                ) from None
+
+        return await asyncio.to_thread(register)
 
     async def list_active_connectors(
         self, *, user_id: str | None = None
