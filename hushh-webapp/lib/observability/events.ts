@@ -181,6 +181,7 @@ export type ObservabilityEventName =
   | "one_location_activation_completed"
   | "one_location_setup_completed"
   | "one_location_check_in_completed"
+  | "one_location_check_out_completed"
   | "one_location_visit_rated"
   | "one_location_review_handoff_opened"
   | "one_location_circle_created"
@@ -348,6 +349,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_activation_completed: "funnel",
   one_location_setup_completed: "funnel",
   one_location_check_in_completed: "feature",
+  one_location_check_out_completed: "feature",
   one_location_visit_rated: "feature",
   one_location_review_handoff_opened: "feature",
   one_location_circle_created: "feature",
@@ -749,6 +751,11 @@ export interface EventPayloadMap {
     failure_count: number;
     /** Whether a Circle was the target rather than hand-picked people. */
     circle_targeted: boolean;
+  };
+  /** A confirmed end of an active Nearby presence, with no place or coordinates. */
+  one_location_check_out_completed: {
+    route_id: RouteId;
+    result: EventResult;
   };
   /**
    * Somebody rated the place they just checked out of.
