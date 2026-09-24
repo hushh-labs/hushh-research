@@ -3932,6 +3932,10 @@ export class PersonalKnowledgeModelService {
     const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
       const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
       this.setValueAtNestedPath(next, parsed.keys, secret);
+      if (parsed.domain === "runtime_secrets" && parsed.keys[0] === "connectors" &&
+          this.isPlainObject(next.connectors) && Object.keys(next.connectors).length > 32) {
+        throw new Error("Remove a connector before adding another.");
+      }
       return next;
     };
 

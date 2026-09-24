@@ -696,6 +696,23 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
     });
   });
 
+  it("rechecks connector capacity after a concurrent vault update", async () => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData")
+      .mockResolvedValueOnce({ connectors: {} })
+      .mockResolvedValueOnce({ connectors: Object.fromEntries(
+        Array.from({ length: 32 }, (_, i) => [`existing_${i}`, "synthetic-record"]),
+      ) });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: false, conflict: true });
+    await expect(PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.new_connector", secret: "synthetic-record",
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    })).rejects.toThrow("Remove a connector before adding another.");
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
   it("stores a connector record only in ciphertext with fixed internal metadata", async () => {
     const record = JSON.stringify({
       version: 1, name: "Synthetic private connector",

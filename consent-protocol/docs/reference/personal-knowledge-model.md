@@ -394,6 +394,14 @@ payload. The branch is internal-only, non-externalizable and has no enabled
 consent exposure. This is a storage contract, not proof that Settings or hosted
 ADK already uses vault-backed connector registration.
 
+`lib/connections/custom-connector-configuration.ts` provides the browser-side
+typed load/save/remove boundary over this writer. Each saved record gets a fresh
+revision and is stored whole under its validated opaque connector ID. The writer
+checks the 32-record bound again after conflict recovery. The client keeps no
+module-level decrypted cache; consumers must still fence results against the
+current owner and vault session. Client URL syntax checks are not SSRF admission:
+the hosted MCP boundary must independently validate every endpoint and credential.
+
 Connections-owned Gemini configuration uses the existing encrypted PKM store,
 not a new database table or native secret store. The primary references are
 `pkm:runtime_secrets.llm.credential_mode` and
