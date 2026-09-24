@@ -35,7 +35,6 @@ import {
   Pencil,
   RotateCcw,
   Send,
-  Sparkles,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -2024,7 +2023,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
-  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerExpanded, setComposerExpandedState] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
@@ -2183,6 +2182,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const composerExpandedRef = useRef(composerExpanded);
+  composerExpandedRef.current = composerExpanded;
+  const composerTransitionRectRef = useRef<DOMRect | null>(null);
+  const composerSurfaceAnimationRef = useRef<Animation | null>(null);
+  const manuallyCollapsedComposerDraftsRef = useRef(new Set<string>());
+  const composerDraftKey = conversationId ?? "__new_chat__";
+  const setComposerExpanded = useCallback((
+    expanded: boolean,
+    originRect?: DOMRect | null,
+  ) => {
+    if (composerExpandedRef.current === expanded) return;
+    const surface = composerSurfaceRef.current;
+    // Capture the currently presented box before cancelling an in-flight FLIP
+    // animation, so a quick second toggle continues smoothly from this frame.
+    const currentRect = originRect === undefined
+      ? surface?.getBoundingClientRect() ?? null
+      : originRect;
+    composerSurfaceAnimationRef.current?.cancel();
+    composerSurfaceAnimationRef.current = null;
+    composerTransitionRectRef.current = currentRect;
+    composerExpandedRef.current = expanded;
+    setComposerExpandedState(expanded);
+  }, []);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
@@ -2765,27 +2788,115 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
+    const surface = composerSurfaceRef.current;
+    const wasExpanded = composerExpanded;
+    const previousHeight = textarea.style.height;
+    const rectBeforeEmptyCollapse =
+      wasExpanded && !input.trim() ? surface?.getBoundingClientRect() ?? null : null;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    if (!input.trim()) setComposerExpanded(false);
     // The compact pill grows to its CSS ceiling; text that outgrows it moves
     // into the expanded writing surface (the same place the expand button
     // opens) instead of scrolling inside the pill, which drew a scrollbar
     // beside the expand icon (founder report, 2026-09-22).
-    const compactCeiling = Number.parseFloat(
-      window.getComputedStyle(textarea).maxHeight,
-    );
-    if (
-      !composerExpanded &&
-      Number.isFinite(compactCeiling) &&
-      nextHeight > compactCeiling + 1
-    ) {
+    const compactStyles = window.getComputedStyle(textarea);
+    const compactCeiling = Number.parseFloat(compactStyles.maxHeight);
+    const lineHeight = Number.parseFloat(compactStyles.lineHeight);
+    const verticalPadding =
+      Number.parseFloat(compactStyles.paddingTop) +
+      Number.parseFloat(compactStyles.paddingBottom);
+    const oneLineHeight = lineHeight + verticalPadding;
+    const hasSecondLine = Number.isFinite(oneLineHeight)
+      ? nextHeight > oneLineHeight + 1
+      : Number.isFinite(compactCeiling) && nextHeight > compactCeiling + 1;
+
+    if (!input.trim()) {
+      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+      if (wasExpanded) {
+        textarea.style.height = previousHeight;
+        setComposerExpanded(false, rectBeforeEmptyCollapse);
+        return;
+      }
+    } else if (!hasSecondLine) {
+      // Re-arm automatic expansion after the person edits the draft back to a
+      // single line. A manual collapse remains respected while it is long.
+      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+    }
+
+    const shouldAutoExpand =
+      !composerExpanded && hasSecondLine &&
+      !manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey);
+    if (shouldAutoExpand) {
+      // Restore the current compact geometry before recording the FLIP origin.
+      textarea.style.height = previousHeight;
       setComposerExpanded(true);
       return;
     }
     // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
-  }, [composerExpanded, input, voiceActive]);
+  }, [composerDraftKey, composerExpanded, input, setComposerExpanded, voiceActive]);
+
+  useLayoutEffect(() => {
+    const fromRect = composerTransitionRectRef.current;
+    composerTransitionRectRef.current = null;
+    const surface = composerSurfaceRef.current;
+    const textarea = composerTextareaRef.current;
+    if (!fromRect || !surface || !textarea) return;
+
+    // Set the destination dimensions before measuring. The actual layout only
+    // changes once; the short transition below is compositor-only.
+    if (composerExpanded) {
+      textarea.style.height = "";
+    } else {
+      textarea.style.height = "0px";
+      const compactStyles = window.getComputedStyle(textarea);
+      const maxHeight = Number.parseFloat(compactStyles.maxHeight);
+      const desiredHeight = textarea.scrollHeight;
+      textarea.style.height = `${Number.isFinite(maxHeight)
+        ? Math.min(desiredHeight, maxHeight)
+        : desiredHeight}px`;
+    }
+
+    const toRect = surface.getBoundingClientRect();
+    if (
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      fromRect.width <= 0 || fromRect.height <= 0 ||
+      toRect.width <= 0 || toRect.height <= 0
+    ) {
+      return;
+    }
+
+    const easing =
+      window.getComputedStyle(document.documentElement)
+        .getPropertyValue("--motion-ease-emphasized")
+        .trim() || "cubic-bezier(0.2, 0, 0, 1)";
+    // FLIP keeps the composer's bottom edge as its anchor, so the expanded
+    // surface grows upward from the same place as the compact pill.
+    const animation = surface.animate(
+      [
+        {
+          transformOrigin: "left bottom",
+          transform: `translate3d(${fromRect.left - toRect.left}px, ${fromRect.bottom - toRect.bottom}px, 0) scale(${fromRect.width / toRect.width}, ${fromRect.height / toRect.height})`,
+        },
+        {
+          transformOrigin: "left bottom",
+          transform: "translate3d(0, 0, 0) scale(1, 1)",
+        },
+      ],
+      { duration: 120, easing, fill: "none" },
+    );
+    composerSurfaceAnimationRef.current = animation;
+    animation.onfinish = () => {
+      if (composerSurfaceAnimationRef.current === animation) {
+        composerSurfaceAnimationRef.current = null;
+      }
+    };
+    animation.oncancel = () => {
+      if (composerSurfaceAnimationRef.current === animation) {
+        composerSurfaceAnimationRef.current = null;
+      }
+    };
+  }, [composerExpanded]);
 
   useEffect(() => {
     if (!composerExpanded) return;
@@ -3655,6 +3766,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     getVaultOwnerToken,
     restoreConversationMessages,
     rootChatReady,
+    setComposerExpanded,
     updateConversationId,
     user?.uid,
     vaultKey,
@@ -5537,8 +5649,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (longPromptAttachment?.isExpanded) {
       setLongPromptAttachment(createPendingTextAttachment(input));
       setInput("");
+    } else if (input.trim()) {
+      manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey);
     }
     setComposerExpanded(false);
+  };
+
+  const expandComposer = () => {
+    manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+    setComposerExpanded(true);
   };
 
   const removeLongPromptAttachment = () => {
@@ -7329,6 +7448,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                    * text box now stays the same element; only its size, the
                    * corner control and the labels change. */}
                   <div
+                    ref={composerSurfaceRef}
                     data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
                     className={cn(
                       composerExpanded
@@ -7350,14 +7470,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           : "relative flex min-h-0 min-w-0 flex-1 items-center"
                       }
                     >
-                      {!composerExpanded ? (
-                        <span
-                          className="mr-2 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-accent)]/20 bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)] sm:inline-flex"
-                          aria-hidden="true"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                        </span>
-                      ) : null}
                       <textarea
                         ref={composerTextareaRef}
                         data-testid={
@@ -7368,11 +7480,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         aria-label={composerExpanded ? "Expanded message One" : "Message One"}
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
-                        onFocus={() => {
-                          if (isCanonicalChatRoute) {
-                            snapKaiBottomChromeVisible();
-                          }
-                        }}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -7405,7 +7512,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         rows={1}
                         className={
                           composerExpanded
-                            ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            ? "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                                 : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         }
                       />
@@ -7427,7 +7534,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             : !input.trim() ||
                               isVoiceConnecting || emailDraftOpen
                         }
-                        onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
+                        onClick={composerExpanded ? collapseComposer : expandComposer}
                       >
                         {composerExpanded ? (
                           <Minimize2 className="h-4 w-4" />

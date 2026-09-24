@@ -2240,7 +2240,7 @@ body:has(.profile-account-content)
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }

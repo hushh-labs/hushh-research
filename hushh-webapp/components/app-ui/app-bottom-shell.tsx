@@ -111,6 +111,10 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
           style={maskStyle}
         />
       ) : null}
+      {/* The fixed wrapper keeps its original hit box while the chrome
+          inside it rides the scroll transform. Let taps pass through that
+          empty area to content (especially Chat's composer); the actual nav
+          controls opt back into pointer events in Navbar. */}
       <div
         ref={shellRef}
         data-app-bottom-shell
@@ -124,7 +128,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
-        className="fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
       >
         <div
           data-bottom-shell-motion-stack
