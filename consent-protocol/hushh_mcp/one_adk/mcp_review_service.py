@@ -15,9 +15,13 @@ from google.adk.sessions import Session
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
 from hushh_mcp.one_adk.mcp_call_approval import McpCallApproval
+from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
 from hushh_mcp.one_adk.request_secrets import store_request_secret
-from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore
+from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
+    ActionDirectiveStore,
+)
 from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
@@ -96,7 +100,16 @@ async def prepare_review(
     conversation_id: str,
     tool_name: str,
     arguments: dict[str, Any],
+    pending_handle: str | None = None,
 ) -> dict[str, Any]:
+    if pending_handle:
+        return await prepare_pending_review(
+            token=token,
+            connector_id=connector_id,
+            conversation_id=conversation_id,
+            tool_name=tool_name,
+            pending_handle=pending_handle,
+        )
     async with review_tool(
         token=token, connector_id=connector_id, conversation_id=conversation_id, tool_name=tool_name
     ) as (context, tool):
@@ -122,7 +135,18 @@ async def confirm_review(
     arguments: dict[str, Any],
     directive_id: str,
     confirmed: bool,
+    pending_handle: str | None = None,
 ) -> dict[str, Any]:
+    if pending_handle:
+        pending = await prepare_pending_review(
+            token=token,
+            connector_id=connector_id,
+            conversation_id=conversation_id,
+            tool_name=tool_name,
+            pending_handle=pending_handle,
+        )
+        if directive_id != pending["directiveId"] or arguments != pending["arguments"]:
+            raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
     ledger = ActionDirectiveStore()
     async with review_tool(
         token=token, connector_id=connector_id, conversation_id=conversation_id, tool_name=tool_name
@@ -138,4 +162,45 @@ async def confirm_review(
             "directiveId": directive_id,
             "receipt": receipt.receipt,
             "expiresAt": receipt.expires_at.isoformat(),
+        }
+
+
+async def prepare_pending_review(
+    *, token, connector_id, conversation_id, tool_name, pending_handle
+):
+    """Preview the already-issued native call; never issue another directive."""
+    session = await EncryptedAdkSessionService().get_session(
+        app_name="hussh_one",
+        user_id=str(token["user_id"]),
+        session_id=conversation_id,
+    )
+    if session is None:
+        raise ActionDirectiveAuthorityError("Conversation unavailable.")
+    pending = pending_call_details(session, pending_handle)
+    restore_pending_call(session, pending_handle)  # Require both native call identities.
+    review = pending.get("review")
+    if (
+        not isinstance(review, dict)
+        or review.get("connectorId") != connector_id
+        or pending["tool_name"] != tool_name
+    ):
+        raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
+    async with review_tool(
+        token=token,
+        connector_id=connector_id,
+        conversation_id=conversation_id,
+        tool_name=tool_name,
+    ) as (context, tool):
+        if tool.revision != review.get("catalogRevision"):
+            raise ActionDirectiveAuthorityError("Connector tools changed. Review again.")
+        approval = current_approval(context, tool, pending["arguments"])
+        return {
+            "directiveId": review["directiveId"],
+            "expiresAt": review["expiresAt"],
+            "connectorId": connector_id,
+            "toolName": tool_name,
+            "toolLabel": tool.descriptor["name"],
+            "arguments": approval.arguments,
+            "status": "review_required",
+            "pendingHandle": pending_handle,
         }

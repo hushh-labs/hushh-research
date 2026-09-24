@@ -134,3 +134,86 @@ async def test_review_fails_closed_and_never_dispatches(harness, failure):
     h.ledger.issue.assert_not_called()
     if failure in {"registration", "session"}:
         h.resolver.assert_not_called()
+
+
+@pytest.fixture
+def pending_harness(harness):
+    from google.adk.events import Event
+    from google.genai import types
+
+    from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call
+
+    h = harness
+    original = {"id": "call", "name": h.tool.name, "args": {}}
+    h.sessions.get_session.return_value.events = [
+        Event(
+            author="one",
+            content=types.Content(
+                parts=[
+                    types.Part(function_call=types.FunctionCall(**original)),
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            id="confirmation",
+                            name="adk_request_confirmation",
+                            args={
+                                "originalFunctionCall": original,
+                                "toolConfirmation": {"confirmed": False},
+                            },
+                        )
+                    ),
+                ]
+            ),
+        )
+    ]
+    h.directive = "dir_" + "d" * 32
+    h.handle = capture_pending_call(
+        SimpleNamespace(
+            user_id="owner",
+            function_call_id="call",
+            state={"hussh:user_id": "owner", "hussh:conversation_id": "thread"},
+        ),
+        tool_name=h.tool.name,
+        arguments=h.request["arguments"],
+        review={
+            "connectorId": "custom",
+            "directiveId": h.directive,
+            "catalogRevision": "rev1",
+            "expiresAt": "2099-01-01T00:00:00+00:00",
+        },
+    )
+    h.request["pending_handle"] = h.handle
+    return h
+
+
+async def test_pending_review_reuses_native_directive_without_reissuing(pending_harness):
+    h = pending_harness
+    preview = await module.prepare_review(**{**h.request, "arguments": {}})
+    assert preview["directiveId"] == h.directive
+    assert preview["arguments"] == {"q": "synthetic query"}
+    assert preview["pendingHandle"] == h.handle
+    result = await module.confirm_review(**h.request, directive_id=h.directive, confirmed=True)
+    assert result["status"] == "confirmed"
+    assert h.ledger.confirm.await_args.kwargs["directive_id"] == h.directive
+    h.ledger.issue.assert_not_called()
+    h.tool.run_async.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["owner", "call", "catalog", "arguments", "directive"])
+async def test_pending_confirmation_rejects_mismatched_call(pending_harness, failure):
+    h = pending_harness
+    directive = h.directive
+    if failure == "owner":
+        h.sessions.get_session.return_value.user_id = "other"
+    elif failure == "call":
+        h.sessions.get_session.return_value.events = []
+    elif failure == "catalog":
+        h.tool.revision = "rev2"
+    elif failure == "arguments":
+        h.request["arguments"] = {"q": "changed"}
+    else:
+        directive = "dir_" + "f" * 32
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await module.confirm_review(**h.request, directive_id=directive, confirmed=True)
+    h.ledger.confirm.assert_not_called()
+    h.ledger.issue.assert_not_called()
+    h.tool.run_async.assert_not_called()

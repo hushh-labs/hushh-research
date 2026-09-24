@@ -1086,6 +1086,14 @@ It issues metadata-only authority through the existing action ledger (migration
 244), returning the complete arguments for transient browser review plus the
 directive ID and expiry. It does not invoke the provider tool.
 
+For a native ADK pending call, include `pendingHandle`. Review resolves its
+owner/thread/tool/call-bound transient arguments and verifies both stored native
+call identities and the current catalog. It returns the original directive,
+never a second directive; send `{}` as `arguments` when fetching that preview.
+Confirmation includes the same handle and exact reviewed arguments. A changed
+directive, call, arguments or catalog is rejected. The native resume separately
+checks the pending handle's function-call ID before consuming the receipt.
+
 `POST /api/connectors/{connector_id}/mcp/confirm` accepts those same terms,
 `directiveId` and strict boolean `confirmed=true`. It reconstructs current terms
 and confirms only an exact, unexpired ledger match. The returned short-lived

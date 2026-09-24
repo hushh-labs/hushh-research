@@ -14,12 +14,14 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from google.adk.sessions import Session
+
 from hushh_mcp.one_adk.governed_mcp_toolset import (
     AuthorizeCall,
     McpConnectionBinding,
     mcp_tool_name,
 )
-from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call
+from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call, pending_call_details
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
     MCP_ACTION_ID,
@@ -43,11 +45,23 @@ async def review_or_resume_call(context, binding, tool_name, revision, arguments
     if confirmation is not None:
         if confirmation.confirmed is not True:
             return {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
-        return await consume_resume_receipt(context, binding, tool_name, revision, arguments)
+        return await consume_resume_receipt(
+            context, binding, tool_name, revision, arguments, require_pending=True
+        )
     approval = McpCallApproval.from_call(context, binding, tool_name, revision, arguments)
     issued = await approval.issue(ActionDirectiveStore())
     public_name = mcp_tool_name(binding.connector_id, tool_name)
-    pending = capture_pending_call(context, tool_name=public_name, arguments=arguments)
+    pending = capture_pending_call(
+        context,
+        tool_name=public_name,
+        arguments=arguments,
+        review={
+            "directiveId": issued.directive_id,
+            "connectorId": binding.connector_id,
+            "catalogRevision": revision,
+            "expiresAt": issued.expires_at.isoformat(),
+        },
+    )
     context.request_confirmation(
         hint="Review this connector call before continuing.",
         payload={
@@ -94,7 +108,9 @@ def admit_resume_receipt(forwarded: dict, *, owner_id: str, conversation_id: str
     return store_request_secret(json.dumps({**value, "owner": owner_id, "thread": conversation_id}))
 
 
-async def consume_resume_receipt(context, binding, tool_name, revision, arguments):
+async def consume_resume_receipt(
+    context, binding, tool_name, revision, arguments, *, require_pending=False
+):
     """Native tool approval port for a current authenticated browser resume."""
     reference = context.state.get(STATE_MCP_APPROVAL)
     if not isinstance(reference, str) or not reference.startswith("one_secret_ref:"):
@@ -113,6 +129,26 @@ async def consume_resume_receipt(context, binding, tool_name, revision, argument
         )
     ):
         raise ActionDirectiveAuthorityError("Connector review changed.")
+    if require_pending or value.get("pendingHandle"):
+        pending = pending_call_details(
+            Session(
+                id=context.state["hussh:conversation_id"],
+                user_id=context.user_id,
+                app_name="hussh_one",
+            ),
+            value.get("pendingHandle"),
+        )
+        review = pending.get("review")
+        if (
+            not isinstance(review, dict)
+            or pending["call_id"] != context.function_call_id
+            or pending["tool_name"] != value["toolName"]
+            or pending["arguments"] != arguments
+            or review.get("directiveId") != value["directiveId"]
+            or review.get("connectorId") != binding.connector_id
+            or review.get("catalogRevision") != revision
+        ):
+            raise ActionDirectiveAuthorityError("Pending connector call changed.")
     authorize = receipt_authorizer(
         ActionDirectiveStore(), directive_id=value["directiveId"], receipt=value["receipt"]
     )

@@ -49,7 +49,9 @@ def restore_current_pending_call(session: Session) -> Session:
     return restore_pending_call(session, handle) if handle else session
 
 
-def capture_pending_call(context: Any, *, tool_name: str, arguments: dict) -> str:
+def capture_pending_call(
+    context: Any, *, tool_name: str, arguments: dict, review: dict | None = None
+) -> str:
     owner = context.user_id
     thread = context.state.get("hussh:conversation_id")
     call_id = context.function_call_id
@@ -81,18 +83,14 @@ def capture_pending_call(context: Any, *, tool_name: str, arguments: dict) -> st
                 "call_id": call_id,
                 "tool_name": tool_name,
                 "arguments": arguments,
+                "review": review,
             }
         )
     )
 
 
-def restore_pending_call(session: Session, handle: str) -> Session:
-    """Restore both ADK argument copies on a private live copy, not history.
-
-    Call only on the authenticated resume path. Matching identity is necessary
-    but not sufficient authority: current schema/connection and one-use ledger
-    checks remain mandatory inside the governed tool.
-    """
+def pending_call_details(session: Session, handle: str) -> dict:
+    """Resolve a transient record under the authenticated session's identity."""
     if not isinstance(handle, str) or not handle.startswith("one_secret_ref:"):
         raise ActionDirectiveAuthorityError("Connector review expired. Review again.")
     try:
@@ -110,6 +108,16 @@ def restore_pending_call(session: Session, handle: str) -> Session:
         or not isinstance(pending.get("arguments"), dict)
     ):
         raise ActionDirectiveAuthorityError("Connector review context changed.")
+    return pending
+
+
+def restore_pending_call(session: Session, handle: str) -> Session:
+    """Restore both ADK argument copies on a private live copy, not history.
+
+    Identity is not authority: current schema/connection and one-use ledger
+    checks remain mandatory inside the governed tool.
+    """
+    pending = pending_call_details(session, handle)
     direct = []
     nested = []
     projected = session.model_copy(deep=True)

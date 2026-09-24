@@ -174,6 +174,33 @@ def test_mcp_review_errors_never_echo_private_diagnostics(route_client, monkeypa
     assert "synthetic-private-diagnostic" not in response.text
 
 
+@pytest.mark.parametrize(
+    "action,operation", [("review", "prepare_review"), ("confirm", "confirm_review")]
+)
+def test_native_pending_handle_reaches_owning_review_service(
+    route_client, monkeypatch, action, operation
+):
+    client, app, _ = route_client
+    token = {"user_id": "owner", "token": "synthetic"}
+    app.dependency_overrides[require_vault_owner_token] = lambda: token
+    service = AsyncMock(return_value={"status": "review_required"})
+    monkeypatch.setattr(routes.mcp_review_service, operation, service)
+    handle = "one_secret_ref:" + "a" * 32
+    body = {
+        "conversationId": "thread",
+        "toolName": "mcp_" + "a" * 40,
+        "arguments": {},
+        "pendingHandle": handle,
+    }
+    if action == "confirm":
+        body.update(directiveId="dir_" + "b" * 32, confirmed=True)
+    response = client.post(f"/api/connectors/custom_synthetic/mcp/{action}", json=body)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert service.await_args.kwargs["pending_handle"] == handle
+    assert service.await_args.kwargs["token"] is token
+
+
 def test_connector_catalog_and_key_lookup_are_owner_scoped(route_client, monkeypatch):
     client, app, _ = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}

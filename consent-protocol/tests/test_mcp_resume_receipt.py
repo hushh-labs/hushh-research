@@ -194,3 +194,38 @@ async def test_first_call_uses_native_confirmation_without_executing(monkeypatch
     context.tool_confirmation = ToolConfirmation(confirmed=True)
     with pytest.raises(ActionDirectiveAuthorityError):
         await approval.review_or_resume_call(context, binding, "search", "revision", {})
+    forwarded = {
+        "mcpApproval": {
+            **payload(),
+            "pendingHandle": requested.payload["pendingHandle"],
+        }
+    }
+    context.state[approval.STATE_MCP_APPROVAL] = approval.admit_resume_receipt(
+        forwarded,
+        owner_id="owner",
+        conversation_id="thread",
+    )
+    authorize = AsyncMock(return_value=None)
+    monkeypatch.setattr(approval, "receipt_authorizer", lambda *args, **kwargs: authorize)
+    assert (
+        await approval.review_or_resume_call(
+            context,
+            binding,
+            "search",
+            "revision",
+            {"q": "PRIVATE_ARGUMENT"},
+        )
+        is None
+    )
+    authorize.assert_awaited_once()
+    other = SimpleNamespace(
+        user_id="owner",
+        function_call_id="different-call",
+        state=context.state,
+        tool_confirmation=ToolConfirmation(confirmed=True),
+    )
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await approval.review_or_resume_call(
+            other, binding, "search", "revision", {"q": "PRIVATE_ARGUMENT"}
+        )
+    assert authorize.await_count == 1

@@ -143,6 +143,7 @@ class McpReviewRequest(BaseModel):
     conversationId: str = Field(min_length=1, max_length=256)
     toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
     arguments: dict[str, Any]
+    pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
 
     @field_validator("arguments")
     @classmethod
@@ -191,6 +192,7 @@ async def prepare_mcp_review(
         conversation_id=body.conversationId,
         tool_name=body.toolName,
         arguments=body.arguments,
+        **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 
 
@@ -209,6 +211,7 @@ async def confirm_mcp_review(
         arguments=body.arguments,
         directive_id=body.directiveId,
         confirmed=body.confirmed,
+        **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 
 
