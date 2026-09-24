@@ -97,6 +97,20 @@ function logIngestion(event: string, fields: PkmIngestionLogFields): void {
   console.info(`[PKM_INGEST] ${event}`, fields);
 }
 
+const EXPLICIT_PKM_SAVE_INTENT =
+  /\b(?:save|store|remember|add|keep)\b[\s\S]{0,100}\b(?:my\s+)?(?:pkm|memory|vault)\b/i;
+const KYC_IDENTITY_FIELD_HINT =
+  /\b(?:aadha{1,2}r|pan(?:\s+(?:number|no))?|passport(?:\s+number)?|driving\s+licen[cs]e(?:\s+number)?|voter\s*id(?:\s+number)?|roll\s*(?:number|no)|student\s*id|address)\b/i;
+
+/**
+ * The person can explicitly request that a supplied KYC field is saved in
+ * PKM. This gates the restricted KYC writer; ordinary chat remains on the
+ * existing review/auto-save policy.
+ */
+export function isExplicitKycIdentitySaveRequest(message: string): boolean {
+  return EXPLICIT_PKM_SAVE_INTENT.test(message) && KYC_IDENTITY_FIELD_HINT.test(message);
+}
+
 function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
   return preview.preview_summary?.split_recommended === true;
 }

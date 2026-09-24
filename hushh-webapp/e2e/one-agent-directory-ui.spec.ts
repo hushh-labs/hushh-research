@@ -47,7 +47,7 @@ test.describe("first post-login Agent Directory visual contract", () => {
       await openOneDirectory(page);
 
       await expect(
-        page.getByRole("heading", { name: "Agents (7)" }),
+        page.getByRole("heading", { name: "Agents (6)" }),
       ).toBeVisible();
       // Search is switched off for now (SHOW_AGENT_SEARCH = false in
       // one-agent-roster.tsx) -- no longer rendered.
@@ -92,7 +92,7 @@ test.describe("first post-login Agent Directory visual contract", () => {
       expect(metrics.titleFontWeight).toBe("700");
       expect(metrics.titleLineHeight).toBe("41px");
       expect(metrics.listRadius).toBe("22px");
-      expect(metrics.rowCount).toBe(7);
+      expect(metrics.rowCount).toBe(6);
       expect(metrics.rowHeights.every((height) => height >= 64)).toBe(true);
       expect(new Set(metrics.metricRightEdges).size).toBe(1);
     });

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,10 +68,13 @@ def test_classifier_result_requires_high_confidence_and_normalizes_domains():
 
 
 @pytest.mark.asyncio
-async def test_chat_reply_context_refetches_the_source_without_returning_address_headers(
+async def test_source_preview_and_chat_context_refetch_the_verified_sender(
     monkeypatch,
 ):
     message = _message(body="Please provide your current education details.")
+    message["payload"]["headers"].append(
+        {"name": "Reply-To", "value": "Replies <replies@example.com>"}
+    )
 
     class GmailService:
         async def get_personal_inbox_message_for_monitoring(
@@ -110,13 +114,50 @@ async def test_chat_reply_context_refetches_the_source_without_returning_address
         lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
     )
     monkeypatch.setattr(monitor_module, "get_pool", get_pool)
-    context = await PersonalGmailInformationRequestService(
-        gmail_service=GmailService()
-    ).get_chat_reply_context(user_id="owner", workflow_id="workflow-1")
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+    preview = await service.get_source_preview(user_id="owner", workflow_id="workflow-1")
+    context = await service.get_chat_reply_context(user_id="owner", workflow_id="workflow-1")
 
+    assert preview["from"] == "Verifier <verify@example.com>"
+    assert preview["reply_to"] == "Replies <replies@example.com>"
+    assert preview["subject"] == "KYC details"
+    assert preview["body"] == "Please provide your current education details."
     assert "Subject: KYC details" in context
     assert "Please provide your current education details." in context
-    assert "verify@example.com" not in context
+    assert "From: Verifier <verify@example.com>" in context
+
+
+@pytest.mark.asyncio
+async def test_workflow_list_orders_by_received_time_before_creation_time(monkeypatch):
+    queries: list[str] = []
+
+    class Connection:
+        async def fetch(self, query: str, *_args):
+            queries.append(query)
+            return []
+
+        async def fetchval(self, _query: str, *_args):
+            return 0
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.setattr(monitor_module, "get_pool", get_pool)
+
+    await PersonalGmailInformationRequestService().list_workflows(user_id="owner")
+
+    assert "ORDER BY received_at DESC NULLS LAST, created_at DESC, workflow_id DESC" in queries[0]
 
 
 @pytest.mark.asyncio
@@ -796,7 +837,6 @@ async def test_missing_history_checkpoint_establishes_baseline_and_starts_backfi
 
     assert result["baseline_established"] is True
     assert result["scanned_count"] == 0
-    assert result["backfill_pending"] is False
     assert checkpoints == [
         {
             "user_id": "owner",
@@ -883,9 +923,8 @@ async def test_pending_initial_inbox_backfill_runs_after_incremental_history(mon
 
 
 @pytest.mark.asyncio
-async def test_initial_inbox_backfill_resumes_from_the_saved_gmail_page(monkeypatch):
-    first_message = _message()
-    second_message = {**_message(), "id": "message-2", "threadId": "thread-2"}
+async def test_initial_inbox_scan_stops_after_the_newest_page(monkeypatch):
+    message = _message()
     requested_cursors: list[str | None] = []
     persisted_cursors: list[tuple[str | None, bool]] = []
     state = {
@@ -893,6 +932,7 @@ async def test_initial_inbox_backfill_resumes_from_the_saved_gmail_page(monkeypa
         "monitor_cursor": None,
         "monitor_message_offset": 0,
         "monitoring_generation": 7,
+        "initial_inbox_scan_completed": False,
         "initial_inbox_backfill_completed": False,
         "initial_inbox_cursor": None,
     }
@@ -903,7 +943,7 @@ async def test_initial_inbox_backfill_resumes_from_the_saved_gmail_page(monkeypa
 
         async def list_personal_inbox_monitor_page(self, *, page_token, **_kwargs):
             requested_cursors.append(page_token)
-            return ([first_message], "page-two") if page_token is None else ([second_message], None)
+            return [message], "older-page"
 
     service = PersonalGmailInformationRequestService(gmail_service=GmailService())
 
@@ -924,6 +964,7 @@ async def test_initial_inbox_backfill_resumes_from_the_saved_gmail_page(monkeypa
 
     async def set_initial_checkpoint(*, initial_inbox_cursor, completed, **_kwargs):
         persisted_cursors.append((initial_inbox_cursor, completed))
+        state["initial_inbox_scan_completed"] = True
         state["initial_inbox_cursor"] = initial_inbox_cursor
         state["initial_inbox_backfill_completed"] = completed
         return True
@@ -943,12 +984,59 @@ async def test_initial_inbox_backfill_resumes_from_the_saved_gmail_page(monkeypa
     first = await service.scan_recent(user_id="owner", max_results=30)
     second = await service.scan_recent(user_id="owner", max_results=30)
 
-    assert requested_cursors == [None, "page-two"]
-    assert persisted_cursors == [("page-two", False), (None, True)]
-    assert first["backfill_pending"] is True
-    assert second["backfill_pending"] is False
+    assert requested_cursors == [None]
+    assert persisted_cursors == [(None, True)]
     assert first["workflow_ids"] == ["workflow-message-1"]
-    assert second["workflow_ids"] == ["workflow-message-2"]
+    assert second["workflow_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_initial_backfill_cursor_is_retired_without_fetching_old_mail(monkeypatch):
+    state = {
+        "monitor_history_id": "history-at-opt-in",
+        "monitor_cursor": None,
+        "monitor_message_offset": 0,
+        "monitoring_generation": 7,
+        "initial_inbox_scan_completed": True,
+        "initial_inbox_backfill_completed": False,
+        "initial_inbox_cursor": "older-page",
+    }
+    checkpoints: list[dict[str, object]] = []
+
+    class GmailService:
+        async def list_personal_inbox_monitor_history_page(self, **_kwargs):
+            return [], None, "history-high-water", None
+
+        async def list_personal_inbox_monitor_page(self, **_kwargs):
+            raise AssertionError("legacy cursor must not fetch older Inbox mail")
+
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+
+    async def monitor_state(**_kwargs):
+        return dict(state)
+
+    async def set_monitor_checkpoint(**_kwargs):
+        return True
+
+    async def set_initial_checkpoint(**kwargs):
+        checkpoints.append(kwargs)
+        return True
+
+    monkeypatch.setattr(service, "_monitor_state", monitor_state)
+    monkeypatch.setattr(service, "_set_monitor_checkpoint", set_monitor_checkpoint)
+    monkeypatch.setattr(service, "_set_initial_inbox_backfill_checkpoint", set_initial_checkpoint)
+
+    result = await service.scan_recent(user_id="owner")
+
+    assert result["scanned_count"] == 0
+    assert checkpoints == [
+        {
+            "user_id": "owner",
+            "initial_inbox_cursor": None,
+            "completed": True,
+            "expected_generation": 7,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1048,7 +1136,6 @@ async def test_owner_confirmed_recent_unread_scan_classifies_preexisting_inbox_m
         "matched_count": 1,
         "failed_count": 0,
         "workflow_ids": ["workflow-1"],
-        "backfill_pending": False,
     }
     assert recorded[0]["gmail_message_id"] == "message-1"
 
@@ -1101,27 +1188,16 @@ async def test_owner_confirmed_recent_unread_scan_deduplicates_existing_mail(mon
 
 
 @pytest.mark.asyncio
-async def test_classifier_policy_refresh_rechecks_only_the_newest_page(monkeypatch):
-    message = _message()
-
+async def test_classifier_policy_update_does_not_recheck_terminal_messages(monkeypatch):
     class GmailService:
         async def list_personal_inbox_monitor_history_page(self, **_kwargs):
             return [], None, "history-high-water", None
 
-        async def list_personal_inbox_monitor_page(self, *, page_token, **_kwargs):
-            assert page_token is None
-            return [message], "newer-page"
+        async def list_personal_inbox_monitor_page(self, **_kwargs):
+            raise AssertionError("policy updates must not fetch the Inbox")
 
     service = PersonalGmailInformationRequestService(gmail_service=GmailService())
-    checkpoints: list[dict[str, object]] = []
-    recorded: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        monitor_module,
-        "get_core_security_settings",
-        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
-    )
-    source_hmac = _source_fingerprint(message)
+    policy_updates: list[dict[str, object]] = []
 
     async def monitor_state(**_kwargs):
         return {
@@ -1135,43 +1211,25 @@ async def test_classifier_policy_refresh_rechecks_only_the_newest_page(monkeypat
             "initial_inbox_cursor": None,
         }
 
-    async def scan_state(**_kwargs):
-        return {"message-1": source_hmac}
-
-    async def classify_and_record(**_kwargs):
-        return "workflow-1"
-
-    async def record_scan_state(**kwargs):
-        recorded.append(kwargs)
-        return True
-
     async def set_monitor_checkpoint(**_kwargs):
         return True
 
-    async def set_initial_checkpoint(**kwargs):
-        checkpoints.append(kwargs)
+    async def set_classifier_policy_version(**kwargs):
+        policy_updates.append(kwargs)
         return True
 
     monkeypatch.setattr(service, "_monitor_state", monitor_state)
-    monkeypatch.setattr(service, "_scan_state_by_message", scan_state)
-    monkeypatch.setattr(service, "_classify_and_record", classify_and_record)
-    monkeypatch.setattr(service, "_record_scan_state", record_scan_state)
     monkeypatch.setattr(service, "_set_monitor_checkpoint", set_monitor_checkpoint)
-    monkeypatch.setattr(service, "_set_initial_inbox_backfill_checkpoint", set_initial_checkpoint)
+    monkeypatch.setattr(service, "_set_classifier_policy_version", set_classifier_policy_version)
 
     result = await service.scan_recent(user_id="owner")
 
-    assert result["classifier_policy_refreshed"] is True
-    assert result["scanned_count"] == 1
-    assert result["backfill_pending"] is False
-    assert len(recorded) == 1
-    assert checkpoints == [
+    assert result["classifier_policy_updated"] is True
+    assert result["scanned_count"] == 0
+    assert policy_updates == [
         {
             "user_id": "owner",
-            "initial_inbox_cursor": None,
-            "completed": True,
             "expected_generation": 7,
-            "classifier_policy_version": monitor_module._CLASSIFIER_POLICY_VERSION,
         }
     ]
 
@@ -1229,6 +1287,58 @@ async def test_incomplete_classification_does_not_advance_the_monitor_checkpoint
         "retry_pending": True,
     }
     assert checkpoints == []
+
+
+@pytest.mark.asyncio
+async def test_classification_progress_emits_a_persisted_request_in_completion_order(monkeypatch):
+    service = PersonalGmailInformationRequestService()
+    first = _message()
+    second = {**_message(), "id": "message-2", "threadId": "thread-2"}
+    progress: list[tuple[int, str | None]] = []
+
+    async def scan_state(**_kwargs):
+        return {}
+
+    async def classify_and_record(*, message, **_kwargs):
+        if message["id"] == "message-1":
+            await asyncio.sleep(0.01)
+            return None
+        return "workflow-2"
+
+    async def record_scan_state(**_kwargs):
+        return True
+
+    async def public_workflow(*, workflow_id, **_kwargs):
+        return {
+            "workflow_id": workflow_id,
+            "status": "detected",
+            "requested_field_labels": ["Passport number"],
+            "candidate_scopes": [],
+            "attachment_review_required": False,
+        }
+
+    async def on_progress(scanned_count, workflow):
+        progress.append((scanned_count, workflow and workflow["workflow_id"]))
+
+    monkeypatch.setattr(
+        monitor_module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    monkeypatch.setattr(service, "_scan_state_by_message", scan_state)
+    monkeypatch.setattr(service, "_classify_and_record", classify_and_record)
+    monkeypatch.setattr(service, "_record_scan_state", record_scan_state)
+    monkeypatch.setattr(service, "_public_workflow_by_id", public_workflow)
+
+    result = await service._classify_messages(
+        user_id="owner",
+        messages=[first, second],
+        expected_generation=1,
+        on_progress=on_progress,
+    )
+
+    assert result == (2, 0, 0, ["workflow-2"])
+    assert progress == [(1, "workflow-2"), (2, None)]
 
 
 @pytest.mark.asyncio

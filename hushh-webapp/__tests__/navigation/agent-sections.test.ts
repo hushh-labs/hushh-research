@@ -82,4 +82,9 @@ describe("agent sections", () => {
       resolveAgentSectionForPath(ROUTES.PROFILE_GOOGLE_OAUTH_RETURN)?.id,
     ).toBe("calendar");
   });
+
+  it("hides the standalone KYC compatibility surface from the agent switcher", () => {
+    expect(getAgentSection("email")).toBeNull();
+    expect(getAgentSections().map((section) => section.id)).not.toContain("email");
+  });
 });

@@ -165,6 +165,13 @@ function inferSensitivityLabel(path: string): string | null {
   if (
     normalized.includes("ssn") ||
     normalized.includes("tax") ||
+    normalized.includes("aadhaar") ||
+    normalized.includes("aadhar") ||
+    normalized.includes("pan_number") ||
+    normalized.includes("passport_number") ||
+    normalized.includes("licence_number") ||
+    normalized.includes("license_number") ||
+    normalized.includes("voter_id") ||
     normalized.includes("account_number") ||
     normalized.includes("routing")
   ) {

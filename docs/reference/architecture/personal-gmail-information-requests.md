@@ -27,11 +27,12 @@ flowchart LR
 
 1. An owner explicitly enables monitoring from the Gmail workspace.
 2. Enabling captures the connected Gmail account's current History API marker,
-   then transiently checks its newest 30 Inbox messages, whether read or unread.
-   The scheduled monitor subsequently reads only Inbox messages added after
-   that marker. **Scan inbox** repeats the bounded newest-30 Inbox check and
-   also advances the incremental History cursor; it never scans the full
-   mailbox. Sent, draft, spam, and trash messages are excluded.
+   then transiently checks one newest-first page of up to 30 Inbox messages,
+   whether read or unread. The scheduled monitor and **Check now** then read
+   only Inbox messages added after that marker. A burst larger than 30 is
+   drained through the saved History cursor on later bounded scans; neither
+   path returns to older pre-opt-in Inbox pages. Sent, draft, spam, and trash
+   messages are excluded.
 3. Gemini classifies messages transiently as possible personal-information or
    KYC requests. It receives only the opted-in email during classification and
    must return field labels and domains, never extracted values. If one message
@@ -42,27 +43,36 @@ flowchart LR
    confidence, requested field labels, exact manifest-leaf scope handles and
    segment identifiers, attachment-presence metadata, and keyed fingerprints.
    A separate keyed scan state prevents unchanged messages from being
-   reclassified. All workflow and scan state metadata expire after 30 days. It
-   retains no email subject, body, address, attachment content, PKM value,
-   decrypted export, or draft.
+   reclassified for the active monitoring generation. Terminal workflow
+   activity expires after 30 days; scan-state metadata remains only while the
+   owner keeps monitoring enabled, then is deleted on opt-out. It retains no
+   email subject, body, address, attachment content, PKM value, decrypted
+   export, or draft.
 5. The Gmail workspace presents the opt-in copy and a metadata-only review
-   queue. The owner selects only exact manifest-backed leaf scope handles;
+   queue. During an owner-requested check, it shows a simple completed-email
+   count and adds each newly persisted request to that queue as soon as it is
+   classified; it never waits to render a match until the whole bounded scan is
+   complete. The stream contains only the same queue metadata, never the source
+   email content, address, or provider cursor. The owner selects only exact manifest-backed leaf scope handles;
    wildcard, domain, and subtree scopes are never eligible for automatic
    drafting. `Draft with One` passes the workflow/thread reference plus
    canonical KYC field IDs into One. The unlocked client resolves those field
    aliases against the shared KYC registry and decrypts only the selected PKM
    segments. With complete coverage, One opens the existing editable,
    source-bound Gmail reply surface. With incomplete coverage, One asks for
-   only the missing fields in the normal chat composer; its KYC extraction
-   profile saves eligible owner-entered facts, refreshes the local lookup, and
-   then prepares that same reply surface. Attachment content is never read
+   only the missing fields in the normal chat composer; the owner's next typed
+   KYC reply confirms the restricted on-device PKM save. The client refreshes
+   the local lookup after a successful write, then prepares that same reply
+   surface. Attachment content is never read
    automatically; the owner must inspect it in Gmail. Opening an original
    message always goes back to Gmail.
-6. The backend derives the reply recipient, subject, reply headers, and thread
-   id from the original message for both prepare and final send. It rechecks a
-   keyed source fingerprint immediately before both actions. The owner reviews
-   the exact draft, prepares a ten-minute confirmation action, then explicitly
-   sends it.
+6. The KYC reply uses the same owner-approved Gmail prepare and send routes as
+   an ordinary personal email, passing only the opaque workflow reference. The
+   backend derives the reply recipient, subject, reply headers, and thread id
+   from the original message and ignores caller-provided envelope fields. It
+   rechecks a keyed source fingerprint immediately before both actions. The
+   owner reviews the exact draft, prepares a ten-minute confirmation action,
+   then explicitly sends it.
 
 `POST /api/one/email/information-requests/scan-enabled` is the maintenance
 entrypoint for background runs. In hosted environments it accepts only a
