@@ -21,7 +21,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
-from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
@@ -93,7 +93,9 @@ class DriveLiveReader:
         self.user_id = user_id
         self.require_access = require_access
         self.oauth = oauth or get_external_connector_oauth_service().drive()
-        self.mcp = mcp or GoogleDriveMcpService(oauth=self.oauth)
+        # The GA REST API, not the preview Drive MCP server, which refuses tool
+        # calls for this project. Same tool contract, so nothing else changes.
+        self.mcp = mcp or GoogleDriveRestTransport(oauth=self.oauth)
         self.adapter = adapter or GoogleDriveAdapter()
         self._rows: list[dict] = []
         self._generation: int | None = None

@@ -549,12 +549,10 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("connector_unavailable", status_code=403)
         row, credential = await self.current_credential(user_id=user_id, required_profile="live")
         await GoogleDriveAdapter().account(access_token=credential["accessToken"])
-        # Local import avoids a module cycle: the MCP service uses DriveOAuthError.
-        from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+        # Local import avoids a module cycle: the transport uses DriveOAuthError.
+        from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
-        await GoogleDriveMcpService(oauth=self).probe_live_search(
-            access_token=credential["accessToken"]
-        )
+        await GoogleDriveRestTransport(oauth=self).probe(access_token=credential["accessToken"])
         return await self.lifecycle.mark_verified(
             user_id=user_id,
             connector_id=CONNECTOR_ID,
