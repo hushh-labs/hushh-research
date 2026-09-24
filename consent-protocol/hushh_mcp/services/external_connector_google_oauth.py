@@ -540,11 +540,17 @@ class ExternalConnectorGoogleOAuth:
         )
 
     async def verify_live(self, *, user_id: str) -> bool:
-        """Prove the current broad grant against Drive before exposing it as connected."""
+        """Prove both Drive identity and authenticated MCP search readiness."""
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
         row, credential = await self.current_credential(user_id=user_id, required_profile="live")
         await GoogleDriveAdapter().account(access_token=credential["accessToken"])
+        # Local import avoids a module cycle: the MCP service uses DriveOAuthError.
+        from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+
+        await GoogleDriveMcpService(oauth=self).probe_live_search(
+            access_token=credential["accessToken"]
+        )
         return await self.lifecycle.mark_verified(
             user_id=user_id,
             connector_id=CONNECTOR_ID,

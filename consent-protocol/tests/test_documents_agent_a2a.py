@@ -63,7 +63,29 @@ def task(**changes):
 
 
 def reader():
+    found = {
+        "file_id": "file-1",
+        "name": "March statement.pdf",
+        "mime_type": "application/pdf",
+        "modified_time": "2026-04-01T00:00:00Z",
+        "source_ref": REF,
+        "open_url": "https://drive.google.com/open?id=file-1",
+    }
     return SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [found], "truncated": False}),
+        read_matches=AsyncMock(
+            return_value={
+                "untrusted_external_content": [
+                    {
+                        "source_ref": REF,
+                        "page": 2,
+                        "text": "PRIVATE statement",
+                        "name": "March statement.pdf",
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
         search=AsyncMock(
             return_value={
                 "untrusted_external_content": [
@@ -150,7 +172,7 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
     monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
     service = DriveChatService(
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
-        search_planner=AsyncMock(return_value={"terms": ["statement"]}),
+        search_planner=AsyncMock(return_value={"terms": ["statement"], "mode": "read"}),
     )
     monkeypatch.setattr(documents_agent, "DriveChatService", lambda: service)
     root_model = _Model(
@@ -213,24 +235,103 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
     from unittest.mock import Mock
 
     source = reader()
-    source.search.return_value["untrusted_external_content"][0]["page"] = None
+    source.read_matches.return_value["untrusted_external_content"][0]["page"] = None
     if failure:
-        source.search.side_effect = DriveReadError("provider_unavailable")
+        source.find.side_effect = DriveReadError("provider_unavailable")
     live = Mock(return_value=source)
     selected = Mock(side_effect=AssertionError("Selected index must not be opened"))
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", live)
     monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
     oauth = SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"})))
-    planner = AsyncMock(return_value={"terms": ["statement"]})
+    planner = AsyncMock(return_value={"terms": ["statement"], "mode": "read"})
     service = DriveChatService(
         oauth=oauth,
         search_planner=planner,
         interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
-    source.search.assert_awaited_once_with(query=["statement"])
+    source.find.assert_awaited_once_with(query=["statement"])
+    if not failure:
+        source.read_matches.assert_awaited_once()
     selected.assert_not_called()
     assert response.structured.status == ("unavailable" if failure else "ok")
     if not failure:
         assert response.structured.sources[0].page is None
     assert "select" not in response.text.lower()
+
+
+async def test_live_find_lists_recording_with_open_action_without_content_read(monkeypatch):
+    source = reader()
+    source.find.return_value["matches"] = [
+        {
+            "file_id": "video-1",
+            "name": "Board recording.mp4",
+            "mime_type": "video/mp4",
+            "modified_time": "2026-09-23T10:00:00Z",
+            "source_ref": REF,
+            "open_url": "https://drive.google.com/open?id=video-1",
+        }
+    ]
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value={"terms": ["Board recording"], "mode": "find"}),
+        interpreter=AsyncMock(side_effect=AssertionError("find must not interpret content")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(
+            message="Find my board recording",
+            previous_answer="The second one was Board recording.mp4",
+        )
+    )
+    assert response.structured.status == "ok"
+    assert response.structured.metadata_only is True
+    assert response.structured.sources[0].kind == "metadata"
+    assert "[Open in Drive](https://drive.google.com/open?id=video-1)" in response.text
+    source.read_matches.assert_not_awaited()
+    assert "previous_answer" in service.search_planner.await_args.kwargs["prompt"]
+
+
+async def test_live_followup_requires_exact_current_title(monkeypatch):
+    source = reader()
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={"terms": ["March statement"], "mode": "read", "exact_title": "Other.pdf"}
+        ),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="Read the second one", previous_answer="2. Other.pdf")
+    )
+    assert response.structured.status == "input_required"
+    source.read_matches.assert_not_awaited()
+
+
+async def test_unresolved_followup_never_reads_broad_search_hits(monkeypatch):
+    source = reader()
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value={"terms": ["statement"], "mode": "read"}),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="Read the second one", previous_answer="1. First.pdf\n2. March statement.pdf")
+    )
+    assert response.structured.status == "input_required"
+    source.find.assert_not_awaited()
+    source.read_matches.assert_not_awaited()
+
+
+async def test_missing_planner_mode_can_only_find_metadata(monkeypatch):
+    source = reader()
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value={"terms": ["statement"]}),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="Find my statement")
+    )
+    assert response.structured.metadata_only is True
+    source.read_matches.assert_not_awaited()

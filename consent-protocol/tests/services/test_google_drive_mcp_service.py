@@ -11,6 +11,7 @@ from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.google_drive_mcp_service import (
     GOOGLE_DRIVE_READ_TOOLS,
     GoogleDriveMcpService,
+    _search_metadata,
 )
 
 
@@ -110,7 +111,25 @@ async def test_read_uses_current_live_credential_and_fixed_endpoint(monkeypatch)
         {"query": "name contains 'statement'"},
         endpoint="https://drivemcp.googleapis.com/mcp/v1",
         headers={"Authorization": "Bearer synthetic-live-token"},
+        project=_search_metadata,
     )
+
+
+@pytest.mark.asyncio
+async def test_live_probe_requires_authenticated_search_and_read_capabilities(monkeypatch):
+    service = GoogleDriveMcpService(oauth=oauth())
+    catalog = [
+        {"name": name, "inputSchema": {"type": "object"}}
+        for name in ("search_files", "read_file_content")
+    ]
+    service.discover_read_tools = AsyncMock(return_value=catalog)
+    transport = AsyncMock(return_value=ExternalMcpToolResult(False, {"files": []}, False))
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
+    await service.probe_live_search(access_token="synthetic")  # noqa: S106 - fake test token
+    assert transport.await_args.kwargs["headers"] == {"Authorization": "Bearer synthetic"}
+    service.discover_read_tools.return_value = catalog[:1]
+    with pytest.raises(DriveOAuthError, match="connector_unavailable"):
+        await service.probe_live_search(access_token="synthetic")  # noqa: S106
 
 
 @pytest.mark.asyncio

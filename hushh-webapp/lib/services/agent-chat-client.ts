@@ -564,11 +564,20 @@ export async function streamAgentChat(input: {
       // smuggle a parked navigation/send directive alongside it.
       if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
+        const readExperience = experience?.type === "one.connector_read.v1" ? experience : null;
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
         const statusChecked = toolName === "inspect_selected_drive_files" && parseRecord(event.content)?.status === "ok";
-        payload.message = statusChecked ? "Drive status checked." : experience ? `${source} read finished.` : `${source} could not complete that read.`;
+        payload.message = statusChecked
+          ? "Drive status checked."
+          : readExperience?.status === "ok"
+            ? readExperience.connector === "drive" && readExperience.metadataOnly
+              ? "Drive search finished."
+              : `${source} read finished.`
+            : readExperience?.status === "input_required"
+              ? `${source} needs more detail.`
+              : `${source} could not complete that read.`;
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         if (experience) {
