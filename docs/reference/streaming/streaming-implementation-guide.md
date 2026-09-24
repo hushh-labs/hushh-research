@@ -98,6 +98,23 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 
 ## 5. UI State Machines
 
+- Native MCP confirmation references use the ephemeral `onMcpReview` Chat
+  callback only after the matching AG-UI interrupt is available. They are not
+  structured history descriptors or generic diagnostic tool arguments.
+- `ExternalConnectorService.reviewMcpCall` retrieves the exact pending call for
+  an active owner/vault review; `confirmMcpCall` returns the existing ledger's
+  receipt. Both reject stale effects and mismatched references. The receipt
+  travels through scrubbed `forwardedProps.mcpApproval`; the ADK resume payload
+  contains only `confirmed`. Cancellation sends `confirmed: false` without a
+  receipt. Uncertain resumes are not retried automatically.
+- The review callback exposes the initiating validated-owner/vault-epoch guard;
+  the review surface uses it for fetches and invalidates private previews when
+  it changes. Resume rechecks the same guard rather than relying only on a
+  component having aborted its old turn.
+- The transport does not establish visual acceptance: the owning Chat review
+  surface and governed tool roster must be wired and verified before enabling
+  remote tools. Private previews and receipts must not enter persistence.
+
 - Drive state transitions from canonical `event` + `payload`.
 - Do not use thought events as control-plane requirements.
 - Require explicit terminal handling and resource cleanup.
