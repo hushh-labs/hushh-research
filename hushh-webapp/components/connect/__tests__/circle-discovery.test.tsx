@@ -19,6 +19,7 @@ import {
   type ConnectCirclesSnapshot,
 } from "../circle-discovery";
 import { VaultContext } from "@/lib/vault/vault-context";
+import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -102,6 +103,33 @@ beforeEach(() => {
 });
 
 describe("circle discovery actions", () => {
+  it("reuses home icon colours while keeping selection and actions independent", () => {
+    render(ui());
+    const expected = {
+      family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
+      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
+      investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
+      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+      location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
+      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
+    };
+    for (const [id, style] of Object.entries(expected)) {
+      const node = screen.getByTestId(`circle-starter-${id}`);
+      for (const [property, value] of Object.entries(style)) {
+        expect(node.style.getPropertyValue(property)).toBe(value);
+      }
+      fireEvent.click(node);
+      expect(node).toHaveAttribute("aria-pressed", "true");
+      expect(
+        screen
+          .getByTestId("connect-living-connections")
+          .style.getPropertyValue("--agent-icon-profile-bg"),
+      ).toBe(style["--agent-icon-profile-bg"]);
+    }
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.sms).not.toHaveBeenCalled();
+  });
+
   it("explores without writes, guides zero connections and creates the selected starter once", async () => {
     let resolve!: (circle: OneLocationCircleDetail) => void;
     mocks.create.mockReturnValue(

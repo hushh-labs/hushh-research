@@ -16,6 +16,8 @@ import {
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { Button } from "@/lib/morphy-ux/button";
+import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
+import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
 import {
@@ -35,6 +37,20 @@ const STARTER_ICONS = {
   location: MapPin,
   sms: SmsTextIcon,
 };
+
+// Reuse the home launcher's light/dark colours without changing circle kinds
+// or implying that creating a circle enables a specialist agent.
+const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
+  family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
+  finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
+  investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
+  business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+  location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
+  sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
+};
+
+const STARTER_TONE_CLASSNAME =
+  "[--circle-tint:var(--agent-icon-profile-bg)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
 
 export type CircleDiscoveryCardProps = {
   ownerName: string;
@@ -91,7 +107,12 @@ export function CircleDiscoveryCard({
     <section
       aria-labelledby={headingId}
       data-testid="connect-living-connections"
-      className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
+      className={cn(
+        CONNECT_HERO_CLASSNAME,
+        STARTER_TONE_CLASSNAME,
+        "motion-step-enter",
+      )}
+      style={STARTER_ICON_STYLES[selected]}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -132,7 +153,7 @@ export function CircleDiscoveryCard({
               cx="50"
               cy="50"
               r="35"
-              fill="none"
+              fill="color-mix(in oklab, var(--circle-tint) 28%, transparent)"
               stroke="var(--app-card-border-standard)"
               strokeWidth="0.4"
             />
@@ -145,13 +166,11 @@ export function CircleDiscoveryCard({
                   y1="50"
                   x2={50 + Math.cos(angle) * 35}
                   y2={50 + Math.sin(angle) * 35}
-                  stroke={
-                    item.id === selected
-                      ? "var(--app-accent)"
-                      : "var(--app-card-border-standard)"
-                  }
+                  className={STARTER_TONE_CLASSNAME}
+                  style={STARTER_ICON_STYLES[item.id]}
+                  stroke="var(--circle-ink)"
                   strokeWidth="0.5"
-                  opacity={item.id === selected ? 0.7 : 0.5}
+                  opacity={item.id === selected ? 0.45 : 0.15}
                 />
               );
             })}
@@ -188,8 +207,12 @@ export function CircleDiscoveryCard({
                 onClick={() => setSelected(item.id)}
                 title={existing?.name ?? item.name}
                 data-testid={`circle-starter-${item.id}`}
-                className="group absolute flex w-12 sm:w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-xl py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait"
+                className={cn(
+                  STARTER_TONE_CLASSNAME,
+                  "group absolute flex w-12 sm:w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-xl py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait",
+                )}
                 style={{
+                  ...STARTER_ICON_STYLES[item.id],
                   left: `${50 + Math.cos(angle) * 35}%`,
                   top: `${50 + Math.sin(angle) * 35}%`,
                 }}
@@ -199,11 +222,12 @@ export function CircleDiscoveryCard({
                   style={{ animationDelay: `${80 + index * 45}ms` }}
                 >
                   <span
+                    data-circle-starter-icon={item.id}
                     className={cn(
-                      "relative flex size-8 sm:size-11 items-center justify-center rounded-full border bg-[color:var(--app-card-surface-default-solid)] transition-transform duration-150 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none",
+                      "relative flex size-8 sm:size-11 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] transition-transform duration-150 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none",
                       active
-                        ? "scale-105 border-[color:var(--app-accent)] text-[color:var(--app-accent)] ring-4 ring-[color:var(--app-accent-ring)]"
-                        : "border-[color:var(--app-card-border-standard)] text-[color:var(--app-secondary-label)]",
+                        ? "scale-105 border-[color:var(--app-accent)] ring-4 ring-[color:var(--app-accent-ring)]"
+                        : "border-[color:color-mix(in_oklab,var(--circle-ink)_16%,transparent)] shadow-sm",
                     )}
                   >
                     <Icon
@@ -235,7 +259,7 @@ export function CircleDiscoveryCard({
         <div
           key={selected}
           id={descriptionId}
-          className="motion-step-enter grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-secondary-surface)] px-3 py-2 sm:block sm:p-5"
+          className="motion-step-enter grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:color-mix(in_oklab,var(--circle-tint)_55%,var(--app-card-surface-default-solid))] px-3 py-2 sm:block sm:p-5"
           data-testid="circle-discovery-preview"
         >
           <div
@@ -243,7 +267,7 @@ export function CircleDiscoveryCard({
             aria-live="polite"
             aria-atomic="true"
           >
-            <p className="hidden sm:block text-xs font-medium text-[color:var(--app-accent)]">
+            <p className="hidden sm:block text-xs font-medium text-[color:var(--circle-ink)]">
               {circle ? "Your circle" : "Make it yours"}
             </p>
             <h3 className="ui-text-card-title !text-base sm:!text-xl row-start-1 col-start-1 sm:mt-1 break-words text-[color:var(--app-label)]">
@@ -364,7 +388,10 @@ export function CircleDiscoveryCard({
             </div>
           ) : (
             <div className="flex min-w-0 items-center gap-2.5">
-              <span aria-hidden="true" className="flex shrink-0 -space-x-2">
+              <span
+                aria-hidden="true"
+                className="hidden min-[360px]:flex shrink-0 -space-x-2"
+              >
                 {shownConnections.map((person) => (
                   <span
                     key={person.connectionId}

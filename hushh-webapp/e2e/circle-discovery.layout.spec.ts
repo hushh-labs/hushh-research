@@ -109,6 +109,51 @@ for (const width of [320, 390, 640, 768, 1440]) {
     await awaitProductFont(page);
     const hero = page.getByTestId("connect-living-connections");
     await expect(hero).toBeVisible();
+    const checkIconColours = async () => {
+      const colours = await page
+        .locator("[data-circle-starter-icon]")
+        .evaluateAll((icons) =>
+          icons.map((icon) => {
+            const style = getComputedStyle(icon);
+            return {
+              id: icon.getAttribute("data-circle-starter-icon"),
+              foreground: style.color,
+              background: style.backgroundColor,
+            };
+          }),
+        );
+      expect(colours).toHaveLength(6);
+      expect(new Set(colours.map((icon) => icon.background)).size).toBe(6);
+      const luminance = (colour: string) => {
+        const channels = colour
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number)
+          .map((channel) => channel / 255)
+          .map((channel) =>
+            channel <= 0.04045
+              ? channel / 12.92
+              : ((channel + 0.055) / 1.055) ** 2.4,
+          );
+        return (
+          channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        );
+      };
+      for (const icon of colours) {
+        expect(icon.background).toMatch(/^rgb\(/);
+        expect(icon.foreground).toMatch(/^rgb\(/);
+        const foreground = luminance(icon.foreground);
+        const background = luminance(icon.background);
+        expect(
+          (Math.max(foreground, background) + 0.05) /
+            (Math.min(foreground, background) + 0.05),
+          `${icon.id} icon contrast`,
+          // Graphical icons need 3:1; the SMS glyph is small text (4.5:1).
+        ).toBeGreaterThanOrEqual(icon.id === "sms" ? 4.5 : 3);
+      }
+      return colours.map((icon) => icon.background);
+    };
+    const lightColours = await checkIconColours();
     const checkGeometry = async () => {
       const bounds = await hero.boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -166,12 +211,24 @@ for (const width of [320, 390, 640, 768, 1440]) {
     await page.getByRole("button", { name: "Add connection" }).click();
     await expect(page.getByRole("status")).toHaveText("Find people");
     await page.getByLabel("Fixture state").selectOption("connected");
-    await expect(page.getByText("+45", { exact: true })).toBeVisible();
+    const remaining = page.getByText("+45", { exact: true });
+    if (width >= 360) await expect(remaining).toBeVisible();
+    else await expect(remaining).toBeHidden();
+    if (width < 640) {
+      const count = await page
+        .getByText("48 connected", { exact: true })
+        .boundingBox();
+      const add = await page
+        .getByRole("button", { name: "Add connection" })
+        .boundingBox();
+      expect(count!.x + count!.width).toBeLessThanOrEqual(add!.x);
+    }
     await checkGeometry();
     await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
     await page.evaluate(() => document.documentElement.classList.add("dark"));
     await page.getByRole("button", { name: "Explore Investor Circle" }).click();
     await expect(page.getByText(/investor and RIA/)).toBeVisible();
+    expect(await checkIconColours()).not.toEqual(lightColours);
     await checkGeometry();
     await hero.screenshot({
       path: testInfo.outputPath("connected-dark-investor.png"),
