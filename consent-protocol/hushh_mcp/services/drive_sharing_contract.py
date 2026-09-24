@@ -167,6 +167,25 @@ class SharingApproval(BaseModel):
         payload["sources"] = sorted(payload["sources"], key=lambda source: source["document_id"])
         return payload
 
+    def narrowed_to(self, document_ids: list[str]) -> SharingApproval:
+        """The owner's chosen part of this exact reviewed set, never a file outside it."""
+        try:
+            chosen = [str(UUID(str(item))) for item in document_ids]
+        except ValueError:
+            raise DriveSharingError("review_changed") from None
+        reviewed = {str(source.document_id) for source in self.sources}
+        if not chosen or len(set(chosen)) != len(chosen) or not set(chosen) <= reviewed:
+            raise DriveSharingError("review_changed")
+        # model_validate, not model_copy: the source validators must run again.
+        return SharingApproval.model_validate(
+            {
+                **self.model_dump(),
+                "sources": [
+                    source for source in self.sources if str(source.document_id) in set(chosen)
+                ],
+            }
+        )
+
 
 class DriveSharingCipher:
     """Receipt key is independent of the removable document index/OAuth store.

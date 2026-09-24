@@ -125,7 +125,7 @@ describe("private sharing transport", () => {
       guard,
     );
     expect(review.coverage?.gaps).toEqual(["February–June"]);
-    await DriveSharingService.approve("owner-token", requestId, review, guard);
+    await DriveSharingService.approve("owner-token", requestId, review, guard, [documentId]);
     const [url, options] = fetcher.mock.calls[1];
     expect(url).toBe(
       `/api/connectors/google_drive/sharing/requests/${requestId}/approve`,
@@ -167,7 +167,7 @@ describe("private sharing transport", () => {
     );
     const review = await DriveSharingService.review("t", requestId, guard);
     expect(() =>
-      DriveSharingService.approve("t", requestId, review, guard),
+      DriveSharingService.approve("t", requestId, review, guard, [documentId]),
     ).toThrow(DriveSharingError);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -177,7 +177,7 @@ describe("private sharing transport", () => {
       fetcher.mockResolvedValueOnce(reply(rawReview()));
       const review = await DriveSharingService.review("t", requestId, guard);
       expect(() =>
-        DriveSharingService.approve("t", requestId, review, guard, false, undefined, selection),
+        DriveSharingService.approve("t", requestId, review, guard, selection),
       ).toThrow(DriveSharingError);
       expect(fetcher).toHaveBeenCalledTimes(1);
     },

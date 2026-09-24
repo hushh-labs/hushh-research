@@ -126,8 +126,6 @@ describe("exact-file document review", () => {
       requestId,
       expect.objectContaining({ revision: 3, files: review().files }),
       expect.any(Function),
-      false,
-      undefined,
       ["document-one"],
     );
     expect(changed).toHaveBeenCalledTimes(1);
@@ -266,7 +264,7 @@ describe("exact-file document review", () => {
     fireEvent.click(trust);
     fireEvent.click(screen.getByRole("button", { name: "Share files" }));
     await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
-      "owner-a", requestId, expect.anything(), expect.any(Function), true, "any_requested_drive_file", ["document-one"]));
+      "owner-a", requestId, expect.anything(), expect.any(Function), ["document-one"], true, "any_requested_drive_file"));
   });
 
   it("shares only the files A keeps selected, and never an empty selection", async () => {
@@ -288,7 +286,7 @@ describe("exact-file document review", () => {
     expect(screen.getByRole("checkbox", { name: /^Trust b@example\.invalid/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Share 1 of 2 files" }));
     await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
-      "owner-a", requestId, expect.anything(), expect.any(Function), false, undefined, ["document-one"]));
+      "owner-a", requestId, expect.anything(), expect.any(Function), ["document-one"]));
   });
 
 });

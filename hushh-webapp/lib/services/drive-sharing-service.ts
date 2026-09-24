@@ -534,9 +534,10 @@ export class DriveSharingService {
     requestId: string,
     review: SharingReview,
     guard: SharingSessionGuard,
+    // Required: a caller that forgets the selection must not share the whole review.
+    documentIds: string[],
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
-    documentIds: string[] = review.files.map((file) => file.documentId),
   ) {
     if (
       !review.canApprove ||
