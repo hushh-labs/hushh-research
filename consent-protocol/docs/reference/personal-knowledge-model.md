@@ -387,6 +387,13 @@ must reread successfully before rebuilding. Only transient send failures replay
 the identical commit. A recovery failure never retries the already-stale payload
 or replaces sibling settings with an empty domain.
 
+The runtime-settings artifact builder also supports a private `connectors`
+branch. Its manifest describes only that fixed branch; individual registration
+IDs, names, endpoints and credentials remain inside the browser-encrypted
+payload. The branch is internal-only, non-externalizable and has no enabled
+consent exposure. This is a storage contract, not proof that Settings or hosted
+ADK already uses vault-backed connector registration.
+
 Connections-owned Gemini configuration uses the existing encrypted PKM store,
 not a new database table or native secret store. The primary references are
 `pkm:runtime_secrets.llm.credential_mode` and

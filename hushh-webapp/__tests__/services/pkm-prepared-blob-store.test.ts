@@ -696,6 +696,45 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
     });
   });
 
+  it("stores a connector record only in ciphertext with fixed internal metadata", async () => {
+    const record = JSON.stringify({
+      version: 1, name: "Synthetic private connector",
+      endpoint: "https://synthetic-private.example/mcp", credential: "synthetic-credential",
+    });
+    const sibling = "synthetic-other-connector";
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: { gemini_api_key: "synthetic-model-key" },
+      connectors: { existing: sibling },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.synthetic_id", secret: record,
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    });
+    const payload = store.mock.calls[0]![0];
+    expect(payload.domainData).toEqual({
+      llm: { gemini_api_key: "synthetic-model-key" },
+      connectors: { existing: sibling, synthetic_id: record },
+    });
+    const metadata = JSON.stringify([payload.manifest, payload.summary, payload.structureDecision]);
+    for (const privateValue of ["synthetic_id", sibling, "Synthetic private connector", "synthetic-private.example", "synthetic-credential"]) {
+      expect(metadata).not.toContain(privateValue);
+    }
+    expect(payload.manifest?.externalizable_paths).toEqual([]);
+    expect(payload.manifest?.scope_registry).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        segment_ids: ["connectors"], scope_kind: "internal_secret",
+        exposure_enabled: false, visibility_posture: "private",
+      }),
+    ]));
+    expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({
+      plaintext: JSON.stringify(payload.domainData),
+    }));
+  });
+
   it.each([
     ["store", "loadDomainData"], ["remove", "loadDomainData"],
     ["store", "getDomainManifest"], ["remove", "getDomainManifest"],

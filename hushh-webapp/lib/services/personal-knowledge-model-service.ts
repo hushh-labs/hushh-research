@@ -1336,7 +1336,7 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
     /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
-    scopeHandles: Record<"llm" | "agent_memory", string>;
+    scopeHandles: Record<"llm" | "agent_memory" | "connectors", string>;
   }): {
     summary: Record<string, unknown>;
     structureDecision: StructureDecision;
@@ -1446,6 +1446,19 @@ export class PersonalKnowledgeModelService {
         scope_handle: "runtime_secrets.agent_memory",
         source_agent: "runtime_secret_settings",
       },
+      {
+        // Only the fixed branch is metadata. Never enumerate connector IDs,
+        // endpoints, names or credentials into the manifest.
+        json_path: "connectors",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Private connector settings",
+        sensitivity_label: "restricted",
+        segment_id: "connectors",
+        scope_handle: "runtime_secrets.connectors",
+        source_agent: "runtime_secret_settings",
+      },
     ];
     const summary = {
       domain_intent: params.domain,
@@ -1471,7 +1484,7 @@ export class PersonalKnowledgeModelService {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
       json_paths: paths.map((path) => path.json_path),
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
       summary_projection: summary,
       sensitivity_labels: {
@@ -1482,6 +1495,7 @@ export class PersonalKnowledgeModelService {
         "llm.credential_mode": "restricted",
         agent_memory: "restricted",
         "agent_memory.auto_save_policy": "restricted",
+        connectors: "restricted",
       },
       confidence: 1,
       source_agent: "runtime_secret_settings",
@@ -1497,15 +1511,33 @@ export class PersonalKnowledgeModelService {
       upgraded_at: nowIso,
       structure_decision: structureDecision,
       summary_projection: summary,
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
-      segment_ids: ["llm", "agent_memory"],
+      segment_ids: ["llm", "agent_memory", "connectors"],
       path_count: paths.length,
       externalizable_path_count: 0,
       last_structured_at: nowIso,
       last_content_at: nowIso,
       paths,
       scope_registry: [
+        {
+          scope_handle: reusableHandle("connectors") || params.scopeHandles.connectors,
+          scope_label: "Private connector settings",
+          segment_ids: ["connectors"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "connectors",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "Private connector settings are not shareable information.",
+            storage_mode: "encrypted_domain",
+          },
+        },
         {
           // The plan builder copies this into target_scope_handle; the server
           // only accepts opaque handles, so a dotted label 422s the first write.
@@ -3996,6 +4028,7 @@ export class PersonalKnowledgeModelService {
       scopeHandles: {
         llm: `s_${(await sha256Hex(`${params.userId}:${params.domain}:llm`)).slice(0, 12)}`,
         agent_memory: `s_${(await sha256Hex(`${params.userId}:${params.domain}:agent_memory`)).slice(0, 12)}`,
+        connectors: `s_${(await sha256Hex(`${params.userId}:${params.domain}:connectors`)).slice(0, 12)}`,
       },
     });
     const mutationPlan = await buildConfirmedPkmMutationPlanV2({
