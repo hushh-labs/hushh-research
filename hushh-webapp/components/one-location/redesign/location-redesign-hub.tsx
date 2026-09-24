@@ -3680,7 +3680,7 @@ export function PersonRow({
     <div
       className={cn(
         hasQuickActions
-          ? "grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 shadow-[var(--app-card-shadow-standard)] min-[360px]:grid-cols-[minmax(0,1fr)_auto]"
+          ? "grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 shadow-[var(--app-card-shadow-standard)] min-[400px]:grid-cols-[minmax(0,1fr)_auto]"
           : "relative",
         !first &&
           !hasQuickActions &&
@@ -3745,7 +3745,7 @@ export function PersonRow({
       </button>
       {hasQuickActions ? (
         <div
-          className="grid w-full grid-cols-2 gap-2 min-[360px]:flex min-[360px]:w-auto"
+          className="grid w-full grid-cols-2 gap-2 min-[400px]:flex min-[400px]:w-auto"
           role="group"
           aria-label={`Actions for ${name}`}
         >
@@ -3755,10 +3755,10 @@ export function PersonRow({
               variant="secondary"
               size="compact"
               onClick={onAsk}
-              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
+              className="w-full min-w-0 gap-1 bg-[color:var(--app-accent-tint)] px-2 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[400px]:w-auto min-[400px]:min-w-16 sm:min-w-[104px] sm:gap-1.5 sm:px-3"
               aria-label={`Ask ${name} for their location`}
             >
-              <span className="hidden sm:block">
+              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
                 <LocationMenuGlyph name="ask" size={17} />
               </span>
               Ask
@@ -3771,10 +3771,10 @@ export function PersonRow({
               size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
+              className="w-full min-w-0 gap-1 bg-[color:var(--app-accent-tint)] px-2 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[400px]:w-auto min-[400px]:min-w-16 sm:min-w-[104px] sm:gap-1.5 sm:px-3"
               aria-label={`Share your location with ${name}`}
             >
-              <span className="hidden sm:block">
+              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
                 <LocationMenuGlyph name="share" size={17} />
               </span>
               Share
@@ -3957,7 +3957,7 @@ function CircleIdentityStack({
       {overflowCount > 0 ? (
         <span
           data-circle-overflow-count
-          className="ml-2 inline-flex h-9 min-w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] px-2 text-[13px] font-semibold text-[color:var(--app-accent)]"
+          className="ml-2 inline-flex shrink-0 items-center text-[13px] font-semibold leading-none text-[color:var(--app-accent)]"
         >
           +{overflowCount}
         </span>
@@ -4492,6 +4492,7 @@ export function PeopleHub({
     <ActionMenu
       label="Add or manage people"
       title="People"
+      showMobileTitle={false}
       triggerIcon={Plus}
       testId="one-location-add-people"
       items={[
