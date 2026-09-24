@@ -396,10 +396,10 @@ export function CircleDiscoveryCard({
                       ? "Open circle"
                       : `Create ${starter.name}`
               }
-              className="row-start-1 col-start-2 !h-9 !min-h-9 !rounded-[var(--app-radius-md)] !px-2.5 !text-[13px] whitespace-nowrap sm:!h-11 sm:!min-h-11 sm:!rounded-full sm:!px-5 sm:!text-base sm:mt-3 sm:w-full sm:whitespace-normal"
+              className="row-start-1 col-start-2 !h-11 !min-h-11 !bg-transparent !px-0 hover:!bg-transparent whitespace-nowrap sm:!rounded-full sm:!bg-[color:var(--app-accent)] sm:hover:!bg-[color:var(--app-accent-hover)] sm:!px-5 sm:!text-base sm:mt-3 sm:w-full sm:whitespace-normal"
               data-testid="circle-discovery-primary"
             >
-              <span className="inline-flex items-center justify-center gap-2">
+              <span className="inline-flex h-9 rounded-[var(--app-radius-md)] bg-[color:var(--app-accent)] px-2.5 text-[13px] items-center justify-center gap-2 sm:h-auto sm:rounded-none sm:bg-transparent sm:px-0 sm:text-inherit">
                 <span className="sm:hidden">
                   {creating
                     ? "Creating…"
