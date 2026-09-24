@@ -10,6 +10,7 @@ export type McpCallReviewReference = {
 };
 
 export type McpCallPreview = McpCallReviewReference & {
+  connectorLabel: string;
   toolLabel: string;
   arguments: Record<string, unknown>;
 };
@@ -66,10 +67,12 @@ export function parseMcpCallPreview(
   const args = record(preview.arguments);
   if (!args || typeof preview.toolLabel !== "string" ||
       !preview.toolLabel.trim() || preview.toolLabel.length > 256) return null;
+  if (typeof preview.connectorLabel !== "string" || !preview.connectorLabel.trim() ||
+      preview.connectorLabel.length > 100) return null;
   try {
     if (new TextEncoder().encode(JSON.stringify(args)).length > 32_768) return null;
   } catch { return null; }
-  return { ...reference, toolLabel: preview.toolLabel, arguments: args };
+  return { ...reference, connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
 }
 
 /** Approval travels only in scrubbed forwardedProps, not native tool output. */

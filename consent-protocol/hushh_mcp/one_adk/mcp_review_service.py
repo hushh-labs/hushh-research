@@ -71,6 +71,7 @@ async def review_tool(
                 "hussh:conversation_id": conversation_id,
                 "hussh:consent_token": store_request_secret(token["token"]),
                 "temp:one_execution_surface": "typed_chat",
+                "temp:mcp_connector_label": definition.display_name,
             },
         ),
     )
@@ -121,6 +122,7 @@ async def prepare_review(
             "connectorId": connector_id,
             "toolName": tool_name,
             "toolLabel": tool.descriptor["name"],
+            "connectorLabel": context.state.get("temp:mcp_connector_label", "Connected app"),
             "arguments": approval.arguments,
             "status": "review_required",
         }
@@ -200,6 +202,7 @@ async def prepare_pending_review(
             "connectorId": connector_id,
             "toolName": tool_name,
             "toolLabel": tool.descriptor["name"],
+            "connectorLabel": context.state.get("temp:mcp_connector_label", "Connected app"),
             "arguments": approval.arguments,
             "status": "review_required",
             "pendingHandle": pending_handle,

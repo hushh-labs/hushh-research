@@ -111,9 +111,16 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
   the review surface uses it for fetches and invalidates private previews when
   it changes. Resume rechecks the same guard rather than relying only on a
   component having aborted its old turn.
-- The transport does not establish visual acceptance: the owning Chat review
-  surface and governed tool roster must be wired and verified before enabling
-  remote tools. Private previews and receipts must not enter persistence.
+- `McpCallReviewCard` is the transient Chat review surface. It displays the
+  registered connector label, tool label and exact inputs, serializes visible
+  reviews, confirms once, and clears private inputs before resume. Unmounting
+  aborts the review operation; unknown outcomes offer no execution retry.
+  Expired or unavailable previews cannot be approved. A native denial returns
+  before argument validation or provider access, since recovered private
+  arguments are intentionally absent without an approval receipt.
+- Component tests do not establish live acceptance: the governed tool roster
+  still needs integration, authenticated browser/native proof and release
+  gates. Private previews and receipts must not enter persistence.
 
 - Drive state transitions from canonical `event` + `payload`.
 - Do not use thought events as control-plane requirements.

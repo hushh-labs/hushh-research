@@ -281,6 +281,11 @@ class _GovernedMcpTool(McpTool):
             return {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
 
     async def _run_governed(self, *, args, tool_context):
+        # A denial needs neither private argument recovery nor provider access.
+        # Durable native events intentionally contain empty private arguments.
+        confirmation = getattr(tool_context, "tool_confirmation", None)
+        if confirmation is not None and confirmation.confirmed is False:
+            return {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
         owner = self.toolset
         dispatched = False
         try:

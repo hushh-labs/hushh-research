@@ -84,7 +84,7 @@ export type AgentChatStreamHandlers = {
     reference: McpCallReviewReference;
     conversationId: string;
     isCurrent: () => boolean;
-    resume: (approval: McpCallApproval | null) => Promise<void>;
+    resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
   }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
@@ -813,8 +813,8 @@ export async function streamAgentChat(input: {
             reference,
             conversationId: threadId,
             isCurrent: mcpSessionCurrent,
-            resume: async (approval) => {
-              if (attempted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= Date.now()) {
+            resume: async (approval, signal) => {
+              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= Date.now()) {
                 throw new Error("This connector review expired or was already used.");
               }
               if (approval && (
@@ -828,6 +828,7 @@ export async function streamAgentChat(input: {
               attempted = true;
               const abortResume = () => agent.abortRun();
               input.signal?.addEventListener("abort", abortResume, { once: true });
+              signal?.addEventListener("abort", abortResume, { once: true });
               try {
                 await agent.runAgent({
                   tools, context: [],
@@ -844,10 +845,11 @@ export async function streamAgentChat(input: {
                   },
                   resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
                 }, subscriber);
-                if (!mcpSessionCurrent()) throw new Error("The connector session changed.");
+                if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
                 if (failure) throw failure;
               } finally {
                 input.signal?.removeEventListener("abort", abortResume);
+                signal?.removeEventListener("abort", abortResume);
               }
             },
           });

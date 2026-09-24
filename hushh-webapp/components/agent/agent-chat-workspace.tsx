@@ -48,6 +48,7 @@ import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -2187,6 +2188,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     execute: () => Promise<AgentActionRuntimeResult>;
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
+  const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
   const [specialistBusy, setSpecialistBusy] = useState(false);
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
     string | null
@@ -2286,6 +2288,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback(() => {
+    setPendingMcpReviews([]);
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
     for (const controller of pkmAbortControllersRef.current) {
@@ -3805,6 +3808,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       isLoadingHistory ||
       activeActionRun ||
       pendingAppAction ||
+      pendingMcpReviews.length > 0 ||
       pendingSpecialistDirective ||
       emailDraftOpen ||
       gmailKycReplyRequest ||
@@ -3852,7 +3856,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
     hasChatAccess, historyInteractionDisabled, input,
     isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
-    isPuppySurface, longPromptAttachment, pendingAppAction,
+    isPuppySurface, longPromptAttachment, pendingAppAction, pendingMcpReviews.length,
     pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
   ]);
 
@@ -4232,6 +4236,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
+    setPendingMcpReviews([]);
 
     const userId = user.uid;
     const token = getVaultOwnerToken();
@@ -4831,6 +4836,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
+          onMcpReview: (review) => {
+            if (streamAbortController.signal.aborted || !review.isCurrent()) return;
+            // Ephemeral only: never copy pending references or private previews
+            // into messages, stream diagnostics, or restored history.
+            const boundReview: McpChatReview = {
+              ...review,
+              isCurrent: () => review.isCurrent() &&
+                conversationIdRef.current === review.conversationId &&
+                latestVisibleTurnIdRef.current === debugTurnId,
+              resume: async (approval, signal) => {
+                const abort = () => streamAbortController.abort();
+                signal?.addEventListener("abort", abort, { once: true });
+                try {
+                  await review.resume(approval, signal);
+                } finally {
+                  signal?.removeEventListener("abort", abort);
+                }
+              },
+            };
+            setPendingMcpReviews((current) => current.some((item) =>
+              item.reference.directiveId === review.reference.directiveId)
+              ? current : [...current, boundReview]);
+          },
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) {
@@ -6705,6 +6733,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   />
                 ),
               )}
+
+              {pendingMcpReviews.slice(0, 1).map((review) => (
+                <McpCallReviewCard
+                  key={review.reference.directiveId}
+                  review={review}
+                  vaultOwnerToken={vaultOwnerToken || ""}
+                  onDismiss={() => setPendingMcpReviews((current) => current.filter((item) =>
+                    item.reference.directiveId !== review.reference.directiveId))}
+                />
+              ))}
 
               {pendingAppAction ? (
                 <SpecialistDirectiveCard

@@ -18,7 +18,7 @@ const nativeArgs = () => ({
   originalFunctionCall: { id: "original-call", name: reference.toolName, args: {} },
   toolConfirmation: { confirmed: false, payload: { ...reference } },
 });
-const preview = { ...reference, status: "review_required", toolLabel: "find_files", arguments: { query: "synthetic" } };
+const preview = { ...reference, status: "review_required", connectorLabel: "Synthetic connector", toolLabel: "find_files", arguments: { query: "synthetic" } };
 const input = () => ({
   reference, conversationId: "synthetic-thread", vaultOwnerToken: "synthetic",
   signal: new AbortController().signal, isEffectCurrent: () => true,
