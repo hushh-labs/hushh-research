@@ -56,14 +56,17 @@ export function projectCustomConnectorTurnConfigurations(
 ): CustomConnectorTurnConfiguration[] {
   if (configurations.length > 32) throw invalidConfiguration();
   const seen = new Set<string>();
-  return configurations.map(configuration => {
+  return configurations.flatMap(configuration => {
     const record = parseCustomConnectorConfiguration(configuration);
     if (seen.has(record.connectorId)) throw invalidConfiguration();
     seen.add(record.connectorId);
+    // An explicit empty catalog already blocks legacy registry fallback.
+    // Disabled connections therefore need not disclose credentials at all.
+    if (!record.enabled) return [];
     const auth = record.authentication;
-    return { ...record, authentication: auth.kind === "oauth"
+    return [{ ...record, authentication: auth.kind === "oauth"
       ? { kind: auth.kind, accessToken: auth.accessToken, expiresAt: auth.expiresAt }
-      : auth };
+      : auth }];
   });
 }
 
@@ -143,10 +146,14 @@ export async function saveCustomConnectorConfiguration(
 export async function removeCustomConnectorConfiguration(
   access: VaultAccess, connectorId: string, confirmation: PkmUserConfirmation,
   expectedRevision: string,
+  isCurrent?: () => boolean,
 ) {
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   const credentialRef = reference(connectorId);
   const expectedValue = await expectedRecord(access, connectorId, expectedRevision);
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   return PersonalKnowledgeModelService.removeRuntimeSecret({
     ...access, confirmation, credentialRef, expectedValue,
+    ...(isCurrent ? { mayPublish: isCurrent } : {}),
   });
 }

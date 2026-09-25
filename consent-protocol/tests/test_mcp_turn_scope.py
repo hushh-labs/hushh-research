@@ -12,7 +12,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, Resolve
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
-def test_configuration_handoff_scrubs_input_and_is_single_use():
+async def test_configuration_handoff_scrubs_input_and_is_single_use():
     forwarded = {"mcpConfigurations": [], "timezone": "UTC"}
     reference = module.admit_turn_configurations(
         forwarded, owner_id="owner", conversation_id="thread"
@@ -30,7 +30,7 @@ def test_configuration_handoff_scrubs_input_and_is_single_use():
 
 
 @pytest.mark.parametrize("owner,thread", [("other", "thread"), ("owner", "other")])
-def test_configuration_handoff_rejects_changed_identity(owner, thread):
+async def test_configuration_handoff_rejects_changed_identity(owner, thread):
     reference = module.admit_turn_configurations(
         {"mcpConfigurations": []}, owner_id="owner", conversation_id="thread"
     )
@@ -40,7 +40,7 @@ def test_configuration_handoff_rejects_changed_identity(owner, thread):
         )
 
 
-def test_configuration_handoff_rejects_unauthenticated_and_literal_input():
+async def test_configuration_handoff_rejects_unauthenticated_and_literal_input():
     forwarded = {"mcpConfigurations": []}
     with pytest.raises(ExternalMcpError):
         module.admit_turn_configurations(forwarded, owner_id="", conversation_id="thread")
@@ -51,6 +51,25 @@ def test_configuration_handoff_rejects_unauthenticated_and_literal_input():
             owner_id="owner",
             conversation_id="thread",
         )
+
+
+async def test_abandoned_handoff_schedules_active_memory_cleanup(monkeypatch):
+    from hushh_mcp.one_adk import request_secrets
+
+    scheduled = []
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "call_later",
+        lambda delay, callback, *args: scheduled.append((delay, callback, args)),
+    )
+    reference = module.admit_turn_configurations(
+        {"mcpConfigurations": []}, owner_id="owner", conversation_id="thread"
+    )
+    assert reference in request_secrets._values
+    delay, callback, args = scheduled[0]
+    assert delay == 60
+    callback(*args)
+    assert reference not in request_secrets._values
 
 
 @pytest.fixture

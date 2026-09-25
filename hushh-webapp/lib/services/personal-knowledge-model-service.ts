@@ -3974,6 +3974,7 @@ export class PersonalKnowledgeModelService {
     credentialRef: string;
     confirmation: PkmUserConfirmation;
     expectedValue?: string | null;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     if (!parsed) {
@@ -4008,6 +4009,7 @@ export class PersonalKnowledgeModelService {
       initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
       initialSnapshot: existing.snapshot,
       applyMutation,
+      mayPublish: params.mayPublish,
     });
   }
 

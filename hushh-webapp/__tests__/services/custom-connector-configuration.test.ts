@@ -27,14 +27,13 @@ describe("vault-backed custom connector configuration", () => {
     expect(storage.loadDomainData).not.toHaveBeenCalled();
   });
   it("projects only transient access credentials without mutating vault configuration", () => {
-    const oauth = { ...record, enabled: false, authentication: { kind: "oauth" as const,
+    const oauth = { ...record, enabled: true, authentication: { kind: "oauth" as const,
       accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };
     const projected = projectCustomConnectorTurnConfigurations([oauth]);
     expect(projected[0]?.authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 2000000000 });
     expect(JSON.stringify(projected)).not.toContain("synthetic-refresh");
     expect(oauth.authentication.refreshToken).toBe("synthetic-refresh");
-    // Retain explicit disabled state so the server never falls back to an old registration.
-    expect(projected[0]?.enabled).toBe(false);
+    expect(projectCustomConnectorTurnConfigurations([{ ...oauth, enabled: false }])).toEqual([]);
   });
   it("rejects duplicate or oversized turn catalogs", () => {
     expect(() => projectCustomConnectorTurnConfigurations([record, record])).toThrow();

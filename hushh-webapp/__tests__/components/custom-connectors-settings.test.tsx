@@ -2,10 +2,10 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
-vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn() }));
+vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size: _s, variant: _v, effect: _e, ...props }: any) => <button {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
@@ -35,4 +35,15 @@ it("does not enable adding when the vault catalog cannot be read", async () => {
   render(<CustomConnectorsSettings access={access} />);
   await screen.findByText(/Could not load saved connectors/);
   expect(screen.getByRole("button", { name: "Add connector" })).toBeDisabled();
+});
+
+it("requires confirmation and the displayed revision before removal", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Remove Synthetic" }));
+  expect(removeCustomConnectorConfiguration).not.toHaveBeenCalled();
+  expect(screen.getByText(/does not revoke access/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Remove connector" }));
+  await waitFor(() => expect(removeCustomConnectorConfiguration).toHaveBeenCalledWith(access, record.connectorId, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function)));
 });

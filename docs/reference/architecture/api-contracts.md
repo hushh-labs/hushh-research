@@ -1110,7 +1110,10 @@ The existing Connectors panel includes a custom-server editor for public HTTPS
 endpoints with no authentication or a supplied Authorization header. It writes
 through browser-encrypted runtime settings, never the private-registration API,
 and labels records as saved rather than connected. This editor does not yet
-implement remote OAuth, tool-list refresh, permissions management, or removal.
+implement remote OAuth, tool-list refresh, or permissions management. Removal
+requires an explicit confirmation and the displayed record revision, and deletes
+only its encrypted vault settings; it does not revoke the provider's grant or
+undo completed actions.
 Those remain explicit integration gaps; do not advertise a saved definition as
 a verified provider connection. Owner/vault guards fence preparation, dispatch,
 retry and cache publication through the existing encrypted write service.
@@ -1118,7 +1121,9 @@ retry and cache publication through the existing encrypted write service.
 Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
 Owner authority. It removes that private field before handing the input to
 AG-UI, validates the bounded catalog, and stages it in the existing process-local
-secret store for at most 60 seconds. The owner/conversation-bound reference is
+secret store with a 60-second expiry and event-loop cleanup of abandoned
+handoffs. Disabled connector credentials are excluded from browser projections.
+The owner/conversation-bound reference is
 consumed once and removed from state before the ADK bridge runs. The turn-local
 toolset receives the configuration, rechecks authority per call, and closes at
 turn completion. An explicit empty catalog cannot resurrect a custom connector

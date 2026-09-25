@@ -8,6 +8,7 @@ its newly validated VAULT_OWNER token.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import threading
 import time
@@ -29,6 +30,18 @@ def store_request_secret(value: str, *, ttl_seconds: int = _TTL_SECONDS) -> str:
         for key in expired:
             _values.pop(key, None)
         _values[reference] = (now + min(_TTL_SECONDS, max(1, ttl_seconds)), clean)
+    # Short-lived request handoffs are created on the ASGI event loop. Purge
+    # abandoned credentials even when no subsequent request touches the store.
+    if ttl_seconds != _TTL_SECONDS:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Synchronous callers must not create a short-lived handoff that
+            # can outlive its cleanup scheduler.
+            with _lock:
+                _values.pop(reference, None)
+            raise RuntimeError("Short-lived handoffs require an active event loop.") from None
+        loop.call_later(min(_TTL_SECONDS, max(1, ttl_seconds)), consume_request_secret, reference)
     return reference
 
 
