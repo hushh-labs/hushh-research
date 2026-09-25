@@ -128,6 +128,25 @@ test("circle discovery advances every three seconds until a circle is explored",
   await expect(investor).toHaveAttribute("aria-pressed", "true");
 });
 
+for (const width of [320, 390, 1440]) {
+  test(`existing circle shows two real member avatars beside the owner at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.setContent(
+      `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    );
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByLabel("Fixture state").selectOption("populated");
+    await page.getByRole("button", { name: "Explore Location Circle, already created" }).click();
+    const hero = page.getByTestId("connect-living-connections");
+    await expect(hero.getByTestId("circle-discovery-member-avatar")).toHaveCount(2);
+    await expect(hero.getByTestId("circle-discovery-empty-slot")).toHaveCount(0);
+    await expect(hero.getByTestId("circle-discovery-primary")).toHaveText("Open circle");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await hero.screenshot({ path: testInfo.outputPath("populated-location.png"), animations: "disabled" });
+  });
+}
+
 for (const width of [320, 390, 768, 1440]) {
   test(`new circle placeholders stay responsive and give way to members at ${width}px`, async ({
     page,
@@ -248,11 +267,12 @@ for (const width of [320, 390, 640, 768, 1440]) {
       expect(colours).toHaveLength(6);
       expect(new Set(colours.map((icon) => icon.background)).size).toBe(6);
       const luminance = (colour: string) => {
+        const unitChannels = colour.startsWith("color(srgb ");
         const channels = colour
           .match(/[\d.]+/g)!
           .slice(0, 3)
           .map(Number)
-          .map((channel) => channel / 255)
+          .map((channel) => unitChannels ? channel : channel / 255)
           .map((channel) =>
             channel <= 0.04045
               ? channel / 12.92
@@ -263,7 +283,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
         );
       };
       for (const icon of colours) {
-        expect(icon.background).toMatch(/^rgb\(/);
+        expect(icon.background).toMatch(/^(rgb|color\(srgb)/);
         expect(icon.foreground).toMatch(/^rgb\(/);
         const foreground = luminance(icon.foreground);
         const background = luminance(icon.background);

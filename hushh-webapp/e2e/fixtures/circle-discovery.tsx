@@ -6,7 +6,7 @@ import type {
   CircleStarter,
   ConnectCirclesSnapshot,
 } from "../../components/connect/circle-discovery";
-import type { OneLocationCircleSummary } from "../../lib/one-location/types";
+import type { OneLocationCircleMember, OneLocationCircleSummary } from "../../lib/one-location/types";
 import type { ConnectionSummaryEntry } from "../../lib/services/connections-service";
 import {
   AppPageShell,
@@ -26,6 +26,20 @@ const connections = ["Alex Chen", "Jordan Lee", "Casey Brooks"].map(
     displayName,
   }),
 ) as ConnectionSummaryEntry[];
+const populatedCircle: OneLocationCircleSummary = {
+  id: "location-with-members",
+  name: "Location Circle",
+  kind: "other",
+  role: "owner",
+  memberCount: 3,
+  memberLimit: 100,
+};
+const populatedMembers: OneLocationCircleMember[] = [
+  { userId: "test-owner", displayName: "Taylor Kim", role: "owner", phoneVerified: true, secureLocationReady: true },
+  { userId: "alex", displayName: "Alex Chen", role: "member", phoneVerified: true, secureLocationReady: true },
+  { userId: "jordan", displayName: "Jordan Lee", role: "member", phoneVerified: true, secureLocationReady: true },
+];
+const loadCircleMembers = async () => populatedMembers;
 function Fixture() {
   const [state, setState] = useState("new");
   const [circles, setCircles] = useState<OneLocationCircleSummary[]>([]);
@@ -34,10 +48,12 @@ function Fixture() {
     ownerId: "test-owner",
     loading: state === "loading",
     error: state === "error" ? "unavailable" : null,
-    count: circles.length,
+    count: state === "populated" ? 1 : circles.length,
     available: true,
     circles:
-      state === "connected"
+      state === "populated"
+        ? [populatedCircle]
+        : state === "connected"
         ? [
             ...circles,
             {
@@ -75,6 +91,7 @@ function Fixture() {
       loading={false}
       error={false}
       snapshot={snapshot}
+      loadCircleMembers={loadCircleMembers}
       creating={null}
       onUseStarter={create}
       onFindPeople={() => setAction("Find people")}
@@ -98,6 +115,7 @@ function Fixture() {
           >
             <option value="new">New user</option>
             <option value="connected">Connected user</option>
+            <option value="populated">Circle with members</option>
             <option value="error">Unavailable</option>
             <option value="loading">Loading</option>
           </select>

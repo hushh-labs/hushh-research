@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   ArrowRight,
   Briefcase,
   Check,
   Heart,
-  Lock,
   MapPin,
   MessageCircle,
   Plus,
@@ -20,6 +19,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
 import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 import {
   CIRCLE_STARTERS,
@@ -39,6 +39,14 @@ const STARTER_ICONS = {
   sms: MessageCircle,
 };
 
+// The supplied design uses simple solid glyphs. Keep its exact wallet, pin,
+// and message silhouettes, then render the remaining product icons filled too.
+const FIGMA_STARTER_PATHS: Partial<Record<CircleStarterId, string>> = {
+  finance: "M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.11.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
+  location: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+  sms: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z",
+};
+
 // Reuse the home palette, but map it to the supplied design's semantic tones
 // across both Connect tabs. These colours do not imply access has been granted.
 const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
@@ -50,7 +58,7 @@ const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
   sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.marketplace,
 };
 const STARTER_TONE_CLASSNAME =
-  "[--circle-tint:var(--agent-icon-profile-bg)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
+  "[--circle-tint:color-mix(in_srgb,var(--agent-icon-profile-bg)_60%,white)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
 const CIRCLE_TOUR_INTERVAL_MS = 3_000;
 
 export type CircleDiscoveryCardProps = {
@@ -61,6 +69,7 @@ export type CircleDiscoveryCardProps = {
   loading: boolean;
   error: boolean;
   snapshot: ConnectCirclesSnapshot;
+  loadCircleMembers?: (circleId: string) => Promise<readonly OneLocationCircleMember[]>;
   creating: CircleStarterId | null;
   onFindPeople: () => void;
   onCreateCircle: () => void;
@@ -80,6 +89,7 @@ export function CircleDiscoveryCard({
   loading,
   error,
   snapshot,
+  loadCircleMembers,
   creating,
   onFindPeople,
   onCreateCircle,
@@ -91,10 +101,22 @@ export function CircleDiscoveryCard({
 }: CircleDiscoveryCardProps) {
   const [selected, setSelected] = useState<CircleStarterId>("family");
   const [autoTourActive, setAutoTourActive] = useState(true);
+  const [memberPreview, setMemberPreview] = useState<{
+    circleId: string;
+    source: readonly OneLocationCircleSummary[];
+    members: readonly OneLocationCircleMember[];
+  } | null>(null);
+  const memberRequests = useRef<{
+    source: readonly OneLocationCircleSummary[];
+    loader: CircleDiscoveryCardProps["loadCircleMembers"];
+    requests: Map<string, Promise<readonly OneLocationCircleMember[]>>;
+  }>({ source: snapshot.circles, loader: loadCircleMembers, requests: new Map() });
   const headingId = useId();
   const descriptionId = useId();
   const starter = CIRCLE_STARTERS.find((item) => item.id === selected)!;
   const circle = findStarterCircle(snapshot.circles, starter);
+  const circleId = circle?.id;
+  const circleMemberCount = circle?.memberCount;
   const trusted = snapshot.circles.find(
     (item) => item.role === "owner" && item.systemKind === "trusted",
   );
@@ -104,6 +126,57 @@ export function CircleDiscoveryCard({
   const circlesUnavailable = !snapshot.loading && Boolean(snapshot.error);
   const shownConnections = connections.slice(0, 3);
   const moreConnections = Math.max(0, totalCount - shownConnections.length);
+  const previewMembers =
+    memberPreview?.circleId === circle?.id && memberPreview?.source === snapshot.circles
+      ? memberPreview.members
+      : [];
+
+  useEffect(() => {
+    if (
+      memberRequests.current.source !== snapshot.circles ||
+      memberRequests.current.loader !== loadCircleMembers
+    ) {
+      memberRequests.current = {
+        source: snapshot.circles,
+        loader: loadCircleMembers,
+        requests: new Map(),
+      };
+    }
+    if (!circleId || !circleMemberCount || circleMemberCount <= 1 || !snapshot.ownerId || !loadCircleMembers) {
+      return;
+    }
+    const source = snapshot.circles;
+    const key = `${circleId}:${circleMemberCount}`;
+    let active = true;
+    let request = memberRequests.current.requests.get(key);
+    if (!request) {
+      request = loadCircleMembers(circleId).then((members) =>
+        members.filter((member) => member.userId !== snapshot.ownerId).slice(0, 2),
+      );
+      memberRequests.current.requests.set(key, request);
+    }
+    void request.then((members) => {
+      if (active) setMemberPreview({ circleId, source, members });
+    }).catch(() => {
+      if (memberRequests.current.source === source) {
+        memberRequests.current.requests.delete(key);
+      }
+    });
+    return () => { active = false; };
+  }, [circleId, circleMemberCount, loadCircleMembers, snapshot.circles, snapshot.ownerId]);
+
+  const memberSlot = (index: number) => {
+    const member = previewMembers[index];
+    return member ? (
+      <span key={index} data-testid="circle-discovery-member-avatar" title={member.displayName} className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm sm:size-9">
+        <ConnectionPersonAvatar size="compact" className="!size-full" photoUrl={member.photoUrl} label={member.displayName} />
+      </span>
+    ) : (
+      <span key={index} data-testid="circle-discovery-empty-slot" className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] shadow-sm sm:size-9">
+        <UserPlus className="size-3 sm:size-4" />
+      </span>
+    );
+  };
 
   const stopAutoTour = useCallback(() => setAutoTourActive(false), []);
   const selectStarter = useCallback(
@@ -178,23 +251,19 @@ export function CircleDiscoveryCard({
             <circle cx="50" cy="50" r="36" fill="none" stroke="var(--app-card-border-standard)" strokeWidth="0.4" />
           </svg>
           <div
-            className="pointer-events-none absolute left-1/2 top-1/2 size-[52%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,var(--app-secondary-surface)_0%,transparent_72%)]"
+            className="pointer-events-none absolute left-1/2 top-1/2 size-[68%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--app-secondary-fill)_30%,var(--app-card-surface-default-solid))_0%,transparent_76%)]"
             aria-hidden="true"
           />
           <div
             className="absolute left-1/2 top-1/2 flex w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center sm:w-28"
             data-testid="circle-discovery-owner"
           >
-            <div className="flex items-center -space-x-2.5" aria-hidden="true">
-              <span className="flex size-6 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] shadow-sm sm:size-9">
-                <UserPlus className="size-3 sm:size-4" />
-              </span>
+            <div className="flex items-center -space-x-2 sm:-space-x-2.5" aria-hidden="true">
+              {memberSlot(0)}
               <span className="relative z-10 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm">
-                <ConnectionPersonAvatar size="profile" className="!size-8 sm:!size-11" photoUrl={ownerPhotoUrl} label={ownerName} />
+                <ConnectionPersonAvatar size="list" className="!size-9 sm:!size-11 [&_[data-slot=avatar-fallback]]:!text-base" photoUrl={ownerPhotoUrl} label={ownerName} />
               </span>
-              <span className="flex size-6 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] shadow-sm sm:size-9">
-                <UserPlus className="size-3 sm:size-4" />
-              </span>
+              {memberSlot(1)}
             </div>
             <span className="mt-1.5 max-w-full truncate text-xs font-semibold text-[color:var(--app-label)] sm:text-sm">
               {starter.label}
@@ -253,7 +322,13 @@ export function CircleDiscoveryCard({
                         : "border-[color:color-mix(in_oklab,var(--circle-ink)_14%,transparent)]",
                     )}
                   >
-                    <Icon aria-hidden="true" className="size-4 sm:size-5" />
+                    {FIGMA_STARTER_PATHS[item.id] ? (
+                      <svg aria-hidden="true" data-circle-icon-fill="true" data-icon-source="figma" viewBox="0 0 24 24" fill="currentColor" className="size-4 sm:size-5">
+                        <path d={FIGMA_STARTER_PATHS[item.id]} />
+                      </svg>
+                    ) : (
+                      <Icon aria-hidden="true" data-circle-icon-fill="true" weight="fill" className="size-4 sm:size-5" />
+                    )}
                     {existing ? (
                       <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] sm:size-4">
                         <Check aria-hidden="true" className="size-2.5 sm:size-3" />
@@ -291,19 +366,6 @@ export function CircleDiscoveryCard({
               {starter.description}
             </p>
           </div>
-          <div className="mt-1 flex items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-surface)] px-2 py-1 md:mt-4 md:px-3 md:py-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-secondary-label)] shadow-sm md:size-9">
-              <Lock aria-hidden="true" className="size-3.5 md:size-4" />
-            </span>
-            <span className="min-w-0 text-left">
-              <span className="block text-[11px] font-semibold leading-4 text-[color:var(--app-label)] sm:text-xs">
-                Nothing is shared automatically.
-              </span>
-              <span className="block text-[10px] leading-3 text-[color:var(--app-secondary-label)] sm:text-xs sm:leading-4">
-                You can change access anytime.
-              </span>
-            </span>
-          </div>
           <div className="mt-1 grid gap-1.5 min-[360px]:grid-cols-2 sm:gap-2 md:mt-4 md:grid-cols-1">
             {needsSetup ? (
               <Button type="button" size="standard" variant="blue" effect="fill" onClick={onSetupCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)]">
@@ -329,11 +391,10 @@ export function CircleDiscoveryCard({
                 onFocus={stopAutoTour}
                 onClick={handlePrimaryAction}
                 aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle — ${starter.name}`}
-                className="relative !h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3 !text-xs sm:!text-base"
+                className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3 !text-xs sm:!text-base"
                 data-testid="circle-discovery-primary"
               >
                 {creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : "Create a Circle"}
-                {!creating && !snapshot.loading ? <ArrowRight aria-hidden="true" className="absolute right-2 size-3 sm:right-4 sm:size-4" /> : null}
               </Button>
             )}
             <Button
