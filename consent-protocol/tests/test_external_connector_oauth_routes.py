@@ -72,6 +72,9 @@ def test_private_oauth_begin_requires_owner_and_fixed_return(route_client, monke
     response = client.post(path, json=body)
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+    assert (
+        response.json()["redirectUri"] == "https://app.example/one/profile/connectors/oauth/return"
+    )
     assert begin.await_args.kwargs["owner_id"] == "owner"
     assert (
         begin.await_args.kwargs["redirect_uri"]

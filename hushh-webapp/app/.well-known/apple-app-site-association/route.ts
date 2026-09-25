@@ -17,6 +17,7 @@ export const UNIVERSAL_LINK_PATHS = [
   "/one/kai/plaid/oauth/return",
   "/one/profile/google/oauth/return",
   "/one/profile/gmail/oauth/return",
+  "/one/profile/connectors/oauth/return",
   "/kai/plaid/oauth/return",
   "/profile/google/oauth/return",
   "/profile/gmail/oauth/return",

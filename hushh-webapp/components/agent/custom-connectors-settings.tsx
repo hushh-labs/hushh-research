@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
+import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -103,7 +104,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
   };
 
   const connect = async (item: SavedConnector) => {
-    if (inFlight.current || !lifetime.current() || !onPrepareRecovery || Capacitor.isNativePlatform()) return;
+    if (inFlight.current || !lifetime.current() || !onPrepareRecovery) return;
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const controller = new AbortController(); refreshAbort.current = controller;
@@ -118,17 +119,22 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         payload: { revision: item.revision, endpoint: configuration.endpoint,
           ...(configuration.oauthRegistration ? { registeredClient: configuration.oauthRegistration } : {}) },
         signal: controller.signal, isEffectCurrent: current,
-      }) as { attemptId?: unknown; authorizeUrl?: unknown };
+      }) as { attemptId?: unknown; authorizeUrl?: unknown; redirectUri?: unknown };
       if (!result || typeof result.attemptId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(result.attemptId) || typeof result.authorizeUrl !== "string") throw new Error("Invalid connection response.");
       attemptId = result.attemptId;
       const url = new URL(result.authorizeUrl);
-      if (url.protocol !== "https:" || url.username || url.password || result.authorizeUrl.length > 16000) throw new Error("Invalid authorization address.");
+      if (url.protocol !== "https:" || url.username || url.password || url.hash || result.authorizeUrl.length > 16000) throw new Error("Invalid authorization address.");
+      if (Capacitor.isNativePlatform() && !isNativeCustomConnectorReturnUri(result.redirectUri)) throw new Error("This connection cannot return to the app.");
       const ready = await onPrepareRecovery({ attemptId, reason: "web_full_page", customConnector: {
         connectorId: item.connectorId, revision: item.revision,
       } });
       if (!current() || ready !== "ready") throw new Error("Finish the current chat action first.");
-      // Explicit tap, same tab, encrypted chat recovery already saved.
-      window.location.assign(url.href);
+      // Explicit tap only. The app-owned HTTPS callback resumes the same
+      // conversation; no provider credential is handed to the native plugin.
+      if (Capacitor.isNativePlatform()) {
+        await HushhOAuthReturn.openAuthorization({ authorizeUrl: url.href,
+          redirectUri: result.redirectUri as string, attemptId, expectedUserId: access.userId });
+      } else window.location.assign(url.href);
     })();
     morphyToast.promise(operation, { loading: "Preparing sign-in…", success: "Continue at your provider.", error: "Could not start sign-in. Check this server supports OAuth and try again." });
     try { await operation; } catch {
@@ -187,7 +193,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       <p className="text-sm font-medium">{item.displayName}</p>
       <p className="text-xs text-muted-foreground">{item.enabled ? "Saved · connection not verified" : "Blocked for new turns"}</p>
       <div className="flex flex-wrap gap-2">
-        {onPrepareRecovery && !Capacitor.isNativePlatform() ? <Button size="standard" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
+        {onPrepareRecovery ? <Button size="standard" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
         <Button size="standard" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
         <Button size="standard" variant="none" effect="fade" aria-label={`${item.enabled ? "Block" : "Enable"} ${item.displayName}`} disabled={busy} onClick={() => void setEnabled(item)}>{item.enabled ? "Block" : "Enable"}</Button>
         <Button size="standard" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>

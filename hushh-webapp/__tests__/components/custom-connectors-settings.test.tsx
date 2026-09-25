@@ -5,17 +5,60 @@ import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-s
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { Capacitor } from "@capacitor/core";
+import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() } }));
+vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/capacitor/oauth-return")>()),
+  HushhOAuthReturn: { openAuthorization: vi.fn() },
+}));
 
 vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size: _s, variant: _v, effect: _e, ...props }: any) => <button {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
 beforeEach(() => {
+  vi.restoreAllMocks();
   vi.resetAllMocks();
   publishValidatedAuthSessionOwner(access.userId);
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([]);
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
+});
+
+it("admits only the app-owned HTTPS return for native connector sign-in", () => {
+  expect(isNativeCustomConnectorReturnUri("https://one.hushh.ai/one/profile/connectors/oauth/return")).toBe(true);
+  expect(isNativeCustomConnectorReturnUri("http://localhost:3001/one/profile/connectors/oauth/return")).toBe(false);
+  expect(isNativeCustomConnectorReturnUri("https://one.hushh.ai.evil.example/one/profile/connectors/oauth/return")).toBe(false);
+  expect(isNativeCustomConnectorReturnUri("https://one.hushh.ai/one/profile/connectors/oauth/return?code=leaked")).toBe(false);
+});
+
+it("opens native custom OAuth only after owner-bound recovery is ready", async () => {
+  vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  const callback = "https://one.hushh.ai/one/profile/connectors/oauth/return";
+  vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValue({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize", redirectUri: callback });
+  const prepare = vi.fn().mockResolvedValue("ready");
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={prepare} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sign in to Synthetic" }));
+  await waitFor(() => expect(HushhOAuthReturn.openAuthorization).toHaveBeenCalledWith({
+    authorizeUrl: "https://auth.example/authorize", redirectUri: callback,
+    attemptId: "a".repeat(43), expectedUserId: access.userId,
+  }));
+  expect(prepare).toHaveBeenCalledOnce();
+});
+
+it("refuses a native callback that cannot return to this app", async () => {
+  vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValueOnce({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize", redirectUri: "http://localhost:3001/one/profile/connectors/oauth/return" }).mockResolvedValueOnce(null);
+  const prepare = vi.fn();
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={prepare} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sign in to Synthetic" }));
+  await waitFor(() => expect(ExternalConnectorService.privateMcpOAuth).toHaveBeenCalledTimes(2));
+  expect(prepare).not.toHaveBeenCalled();
+  expect(HushhOAuthReturn.openAuthorization).not.toHaveBeenCalled();
 });
 
 it("saves through the vault with explicit confirmation and no connected claim", async () => {

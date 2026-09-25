@@ -250,7 +250,7 @@ async def begin_private_mcp_oauth(
     owner = _mcp_oauth_binding(connector_id, token)
     redirect_uri = _mcp_oauth_return_uri()
     try:
-        return await mcp_oauth_attempts.begin(
+        result = await mcp_oauth_attempts.begin(
             owner_id=owner,
             connector_id=connector_id,
             revision=str(body.revision),
@@ -268,6 +268,9 @@ async def begin_private_mcp_oauth(
             ),
             registered_issuer=body.registeredClient.issuer if body.registeredClient else None,
         )
+        # The native shell may leave for a system browser only when the actual
+        # server-bound return is one of its claimed HTTPS app-link routes.
+        return {**result, "redirectUri": redirect_uri}
     except Exception:
         raise HTTPException(
             status_code=503, detail="Could not start connector login. Retry connecting."

@@ -92,6 +92,7 @@
                 <data android:pathPrefix="/one/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/one/profile/google/oauth/return" />
                 <data android:pathPrefix="/one/profile/gmail/oauth/return" />
+                <data android:pathPrefix="/one/profile/connectors/oauth/return" />
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
