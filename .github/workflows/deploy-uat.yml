@@ -956,11 +956,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          revision="${{ steps.candidate-state.outputs.frontend_revision }}"
+          release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"
+          smoke_revision="${release_revision}"
+
+          # A dual-scope release needs reviewer bootstrap to reach the paired
+          # backend candidate without moving canonical backend traffic. Clone
+          # the already-built frontend revision at zero traffic, override only
+          # its server-side backend binding, and discard the clone after the
+          # smoke. The canonical-configured release revision is the one that is
+          # promoted after the smoke succeeds.
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --platform=managed \
+              --no-traffic \
+              --remove-secrets=BACKEND_URL,DEVELOPER_API_URL \
+              --update-env-vars="BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }},DEVELOPER_API_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}"
+            smoke_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format='value(status.latestCreatedRevisionName)')"
+            if [ -z "${smoke_revision}" ] || [ "${smoke_revision}" = "${release_revision}" ]; then
+              echo "Paired frontend smoke revision was not created." >&2
+              exit 1
+            fi
+          fi
+
           gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --update-tags="analytics-candidate=${revision}"
+            --update-tags="analytics-candidate=${smoke_revision}"
           candidate_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
@@ -977,7 +1003,8 @@ jobs:
           if not url.startswith("https://"):
               raise SystemExit("Frontend analytics candidate URL is unavailable")
           print(url)
-          ' "${revision}")"
+          ' "${smoke_revision}")"
+          echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"
           echo "url=${candidate_url}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node runtime for UAT analytics verification
@@ -987,17 +1014,6 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Promote paired backend candidate for analytics bootstrap
-        id: promote-paired-backend
-        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --to-revisions="${{ steps.candidate-state.outputs.backend_revision }}=100"
 
       - name: Install UAT analytics smoke dependencies
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -1038,7 +1054,7 @@ jobs:
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
-            echo "Analytics smoke failed; frontend stays unpromoted and any paired backend promotion will enter governed rollback."
+            echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
             exit 0
           fi
 

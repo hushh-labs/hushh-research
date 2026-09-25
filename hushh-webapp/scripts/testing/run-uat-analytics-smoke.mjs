@@ -515,7 +515,7 @@ try {
   if (fullJourney) {
     await navigateInApp(
       page,
-      `/kai/analysis?ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
+      `/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
     );
     const startButton = page
       .getByRole("button", {

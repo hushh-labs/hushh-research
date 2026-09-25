@@ -61,13 +61,14 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     require(
         ".github/workflows/deploy-uat.yml",
         "id: frontend-analytics-candidate",
-        '--update-tags="analytics-candidate=${revision}"',
-        "id: promote-paired-backend",
+        '--update-tags="analytics-candidate=${smoke_revision}"',
+        "--remove-secrets=BACKEND_URL,DEVELOPER_API_URL",
+        'BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}',
         'steps.scope.outputs.deploy_backend == \'true\'',
         "id: verify-analytics-uat",
         "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
         "npm run smoke:analytics:uat",
-        "Analytics smoke failed; frontend stays unpromoted and any paired backend promotion will enter governed rollback.",
+        "Analytics smoke failed; both zero-traffic candidates stay unpromoted.",
         "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
         'append_unique(blocking, ["analytics_transport_failed"])',
         'if os.environ.get("DEPLOY_BACKEND") == "true":',
@@ -75,7 +76,15 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         '"analytics_smoke": {',
     )
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
-    assert '--set-tags="analytics-candidate=${revision}"' not in content
+    assert '--set-tags="analytics-candidate=' not in content
+    assert "id: promote-paired-backend" not in content
+    require(
+        ".github/workflows/deploy-uat.yml",
+        'release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"',
+        'smoke_revision="${release_revision}"',
+        '--update-tags="analytics-candidate=${smoke_revision}"',
+        'echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"',
+    )
 
 
 def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
@@ -93,6 +102,7 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         path,
         '"page_view"',
         '"/one/kai?tab=portfolio"',
+        '`/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`',
         'payload.route_id === "kai_home"',
         'process.argv.includes("--full")',
         'params: { journey: "investor", step: "entered" }',
