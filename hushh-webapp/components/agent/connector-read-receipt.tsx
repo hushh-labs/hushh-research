@@ -119,13 +119,15 @@ function GmailConnectorChatCard({ onOpenConnections }: {
   const { user } = useAuth();
   const token = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
   const gmail = useGmailConnectorStatus({ userId: user?.uid, idTokenProvider: user ? token : null });
+  const ownerId = user?.uid;
+  const refreshStatus = gmail.refreshStatus;
   const [confirm, setConfirm] = useState(false);
   const [confirmOwner, setConfirmOwner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!user) return;
-    void gmail.refreshStatus().catch(() => undefined);
-  }, [user?.uid, gmail.refreshStatus]);
+    if (!ownerId) return;
+    void refreshStatus().catch(() => undefined);
+  }, [ownerId, refreshStatus]);
   useEffect(() => {
     if (confirmOwner && confirmOwner !== user?.uid) setConfirm(false);
   }, [confirmOwner, user?.uid]);
