@@ -18,7 +18,19 @@ vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   HushhOAuthReturn: { openAuthorization: vi.fn() },
 }));
 
-vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
+vi.mock("@/lib/connections/custom-connector-configuration", () => {
+  const loadCustomConnectorConfigurations = vi.fn();
+  return {
+    loadCustomConnectorConfigurations,
+    loadCustomConnectorSnapshot: vi.fn(async (...args) => ({
+      configurations: await loadCustomConnectorConfigurations(...args),
+      invalid: [],
+    })),
+    saveCustomConnectorConfiguration: vi.fn(),
+    removeCustomConnectorConfiguration: vi.fn(),
+    removeInvalidCustomConnectorConfiguration: vi.fn(),
+  };
+});
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size: _s, variant: _v, effect: _e, ...props }: any) => <button {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
