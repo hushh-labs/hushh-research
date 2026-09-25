@@ -74,7 +74,7 @@ export async function proxyExternalConnectorRequest(
     const isMcpReview =
       path.length === 3 &&
       path[1] === "mcp" &&
-      (path[2] === "review" || path[2] === "confirm");
+      (path[2] === "review" || path[2] === "confirm" || path[2] === "catalog");
     try {
       body = isMcpReview
         ? await readMcpReviewBody(request)

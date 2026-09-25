@@ -11,22 +11,22 @@ import { proxyExternalConnectorRequest } from "@/app/api/connectors/_proxy";
 afterEach(() => vi.restoreAllMocks());
 
 describe("connector proxy privacy", () => {
-  it("rejects an oversized review before forwarding it", async () => {
+  it.each(["review", "confirm", "catalog"])("rejects oversized MCP %s before forwarding it", async operation => {
     const upstream = vi.fn();
     vi.stubGlobal("fetch", upstream);
     const response = await proxyExternalConnectorRequest(
       new NextRequest(
-        "https://app.test/api/connectors/custom_synthetic/mcp/review",
+        `https://app.test/api/connectors/custom_synthetic/mcp/${operation}`,
         { method: "POST", body: "x".repeat(64_001) },
       ),
-      ["custom_synthetic", "mcp", "review"],
+      ["custom_synthetic", "mcp", operation],
     );
     expect(response.status).toBe(413);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it.each(["review", "confirm"])(
+  it.each(["review", "confirm", "catalog"])(
     "forwards MCP %s only through the owner-authenticated no-store path",
     async (operation) => {
       const fetchMock = vi
