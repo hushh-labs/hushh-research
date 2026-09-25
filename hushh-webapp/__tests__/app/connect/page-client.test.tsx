@@ -565,7 +565,7 @@ describe("Connect — People", () => {
   it("welcomes a new member without hiding the real people directory", async () => {
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Your life, in circles")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Circles" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add connection" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
     expect(

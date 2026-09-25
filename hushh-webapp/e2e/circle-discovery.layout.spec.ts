@@ -119,7 +119,7 @@ test("circle discovery advances every three seconds until a circle is explored",
 
   // Reading the card does not halt the guide. A direct movement within a circle
   // option is deliberate hover; merely mounting under a stationary pointer is not.
-  await hero.hover();
+  await hero.getByRole("heading", { name: "Circles" }).hover();
   await page.waitForTimeout(3_100);
   await expect(investor).toHaveAttribute("aria-pressed", "true");
   await investor.hover();
@@ -127,6 +127,25 @@ test("circle discovery advances every three seconds until a circle is explored",
   await page.waitForTimeout(3_100);
   await expect(investor).toHaveAttribute("aria-pressed", "true");
 });
+
+for (const width of [320, 390, 1440]) {
+  test(`existing circle shows two real member avatars beside the owner at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.setContent(
+      `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    );
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByLabel("Fixture state").selectOption("populated");
+    await page.getByRole("button", { name: "Explore Location Circle, already created" }).click();
+    const hero = page.getByTestId("connect-living-connections");
+    await expect(hero.getByTestId("circle-discovery-member-avatar")).toHaveCount(2);
+    await expect(hero.getByTestId("circle-discovery-empty-slot")).toHaveCount(0);
+    await expect(hero.getByTestId("circle-discovery-primary")).toHaveText("Open circle");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await hero.screenshot({ path: testInfo.outputPath("populated-location.png"), animations: "disabled" });
+  });
+}
 
 for (const width of [320, 390, 768, 1440]) {
   test(`new circle placeholders stay responsive and give way to members at ${width}px`, async ({
@@ -248,11 +267,12 @@ for (const width of [320, 390, 640, 768, 1440]) {
       expect(colours).toHaveLength(6);
       expect(new Set(colours.map((icon) => icon.background)).size).toBe(6);
       const luminance = (colour: string) => {
+        const unitChannels = colour.startsWith("color(srgb ");
         const channels = colour
           .match(/[\d.]+/g)!
           .slice(0, 3)
           .map(Number)
-          .map((channel) => channel / 255)
+          .map((channel) => unitChannels ? channel : channel / 255)
           .map((channel) =>
             channel <= 0.04045
               ? channel / 12.92
@@ -263,7 +283,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
         );
       };
       for (const icon of colours) {
-        expect(icon.background).toMatch(/^rgb\(/);
+        expect(icon.background).toMatch(/^(rgb|color\(srgb)/);
         expect(icon.foreground).toMatch(/^rgb\(/);
         const foreground = luminance(icon.foreground);
         const background = luminance(icon.background);
@@ -321,6 +341,13 @@ for (const width of [320, 390, 640, 768, 1440]) {
       ) =>
         Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1 &&
         Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
+      const subtitle = await hero
+        .getByText("Group people you trust. Choose what they can access.")
+        .boundingBox();
+      const customAction = await hero
+        .getByRole("button", { name: "Create your own circle" })
+        .boundingBox();
+      expect(overlaps(subtitle!, customAction!)).toBe(false);
       for (let i = 0; i < boxes.length; i++) {
         const box = boxes[i]!;
         expect(box.width).toBeGreaterThanOrEqual(44);
@@ -344,10 +371,11 @@ for (const width of [320, 390, 640, 768, 1440]) {
       .getByTestId("circle-discovery-primary")
       .boundingBox();
     if (width < 640) {
-      // Its blue treatment is compact, but the actual mobile tap target
-      // remains at the app-wide 44px minimum.
+      // Compact phones stack the two iOS actions; wider phones use one row
+      // so the entire introduction remains clear of bottom app chrome.
       expect(primaryAction!.height).toBe(44);
-      expect(primaryAction!.width).toBeLessThanOrEqual(76);
+      expect(primaryAction!.width).toBeGreaterThanOrEqual(width < 360 ? width * 0.65 : width * 0.4);
+      expect(primaryAction!.width).toBeLessThanOrEqual(width);
     }
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
     await expect(page.getByText(/help with your money and taxes/)).toBeVisible();
@@ -355,7 +383,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
       path: testInfo.outputPath("new-user-finance.png"),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "Create Finance Circle" }).click();
+    await page.getByRole("button", { name: "Create a Circle — Finance Circle" }).click();
     await expect(
       page.getByRole("button", {
         name: "Explore Finance Circle, already created",
@@ -373,15 +401,8 @@ for (const width of [320, 390, 640, 768, 1440]) {
     const remaining = page.getByText("+45", { exact: true });
     if (width >= 360) await expect(remaining).toBeVisible();
     else await expect(remaining).toBeHidden();
-    if (width < 640) {
-      const count = await page
-        .getByText("48 connected", { exact: true })
-        .boundingBox();
-      const add = await page
-        .getByRole("button", { name: "Add connection" })
-        .boundingBox();
-      expect(count!.x + count!.width).toBeLessThanOrEqual(add!.x);
-    }
+    if (width < 640)
+      await expect(page.getByText("48 connected", { exact: true })).toBeVisible();
     await checkGeometry();
     await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
     await page.evaluate(() => document.documentElement.classList.add("dark"));
