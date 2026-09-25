@@ -38,7 +38,7 @@ flowchart TB
     relay["Pod turn relay<br/>owner-authorized hub to pod"]
   end
 
-  subgraph pods["Per-user compute — one container per person (dev lane)"]
+  subgraph pods["Per-user compute — one Cloud Run service per owner (dev lane)"]
     podA["one-pod-&lt;HusshID&gt;<br/>Cloud Run, hub-only ingress by default"]
     podB["one-pod-&lt;HusshID&gt;<br/>...one per person"]
   end

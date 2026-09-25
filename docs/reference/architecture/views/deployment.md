@@ -74,24 +74,26 @@ Assigned-pod journey rules:
 ## Dynamic View: Puppy Inference Through the Owner's BYOC Relay
 
 The root source accepts Puppy only through an active owner `user_gcp` deployment.
-The app's turn is sent to the pinned pod; the pod checks the signed device binding,
-owner and HusshID, `puppy.inference` scope, and its local device broker. Shared and
-Hussh Pods are refused. The separate Hermes client has not yet implemented signed
-binding discovery and direct connection, so the direct lane below is a source
-contract, not an end-to-end verified product flow. The legacy hub relay remains a
-BYOC-gated compatibility path and does not prove same-pod connectivity.
+The app's active chat path enters the hub, which authorizes a BYOC relay turn.
+The direct browser-to-pod client has no production call site yet. The pod checks
+the signed device binding, owner and HusshID, `puppy.inference` scope, and its
+local device broker. Shared and Hussh Pods are refused. The separate Hermes
+client has not yet implemented signed binding discovery and direct connection,
+so the direct lane below is a source contract, not an end-to-end verified product
+flow. The BYOC-gated hub relay does not prove same-pod device connectivity.
 
 ```mermaid
 flowchart LR
   accTitle: Puppy BYOC inference
-  accDescr: Source-only BYOC binding and conditional direct pod connection; device rehearsal pending.
-  App["One app"] -->|pinned owner pod endpoint| Pod["Owner BYOC pod<br/>deployment_target = user_gcp"]
-  Hub["Hussh hub<br/>authenticated owner + device authority"] -->|signed binding with puppy.inference| Device["Trusted Puppy device"]
+  accDescr: Current hub relay and source-only direct browser and device paths; device rehearsal pending.
+  App["One app"] -->|current chat and Puppy authorization| Hub["Hussh hub<br/>authenticated owner + device authority"]
+  Hub -->|current BYOC-gated turn relay| Pod["Owner BYOC pod<br/>deployment_target = user_gcp"]
+  App -.->|direct HTTPS after admission<br/>browser caller pending| Pod
+  Hub -->|signed binding with puppy.inference| Device["Trusted Puppy device"]
   Device -.->|direct WebSocket<br/>client wiring pending| Pod
   Pod -->|verify owner, HusshID, device scope and local link| Broker["Pod-local Puppy broker"]
   Broker <--> Device
-  Pod -->|reject Shared or Hussh Pods| Refuse["No fallback inference"]
-  Hub -.->|legacy BYOC-only compatibility| OldRelay["Hub Puppy relay"]
+  Hub -->|refuse Shared or Hussh Pods| Refuse["No fallback inference"]
 ```
 
 The direct lane's server-side checks and fail-closed behavior are covered by

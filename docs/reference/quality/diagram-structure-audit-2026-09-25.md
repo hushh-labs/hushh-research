@@ -16,7 +16,7 @@ Three generic duplicate diagrams were deleted from dated history and planning ma
 
 ## Corrections and source checks
 
-- The container view places the Next.js API proxy within the frontend deployment. The backend remains Consent Protocol. The deployment view labels the pod paths by source and rollout status; it no longer asserts that this integrated revision serves in dev without a dated live readback.
+- The container view places the Next.js API proxy within the frontend deployment and identifies a Cloud Run service, rather than one container, as the owner pod unit. The backend remains Consent Protocol. The deployment view distinguishes today's hub-routed browser turn from the pending direct browser and device paths; it no longer asserts that this integrated revision serves in dev without a dated live readback.
 - One delegation distinguishes in-process AgentTool/dispatch from scoped cross-process A2A. Conditional specialist and pod paths have visible status labels. Portfolio Import depicts client review, unlock, encryption, and PKM write before an authorized Kai snapshot.
 - Main's Drive migrations 245/246 retain their deployed numbers. Pod/private-MCP, ADK chat authority, and public-profile migrations were renumbered 247–249 with rollbacks and manifest references; generated schema and runtime projections were regenerated from their owners. Database ledger and environment deployment remain separate release evidence.
 - The final main refresh brought in the bounded Drive live-metadata retry and its parity tests. The architecture-fitness baseline was remeasured after this import, so the ratchet blocks changes beyond this combined source state.
