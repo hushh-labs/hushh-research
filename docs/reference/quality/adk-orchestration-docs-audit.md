@@ -736,6 +736,13 @@ The backend `/health` and frontend `/login` returned HTTP 200. The prior
 revisions `consent-protocol-00097-nk6` and `hushh-webapp-00067-d96` remain
 the recorded workflow rollback targets.
 
+The dev backend advertises pod release
+`2026.09-dev.1+ca6ac85672f9.91476f7f` for immutable pod image digest
+`sha256:91476f7fabba487c1cad71027a5064e24c4499f8f6fe4347839eb50e1331e6b7`.
+Its metadata binds the same source SHA and dev workflow run. Its reviewed
+`supportedUpgradeDigests` list is empty, so it offers no install path for the
+older named test pod without a separate compatibility and recovery rehearsal.
+
 The pool-contention fix at `5d6a7ba` had already reached dev backend revision
 `consent-protocol-00097-nk6` in [run 36170671087](https://github.com/hushh-labs/hushh-research/actions/runs/36170671087).
 The latest dev run's semantic check passed; sustained capacity under concurrent
