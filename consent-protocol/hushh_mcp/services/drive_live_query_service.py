@@ -235,6 +235,9 @@ class DriveLiveQueryService:
         )
         if outcome["status"] in {"connect_required", "reconnect_required"}:
             raise DriveSharingError("reconnect_required")
+        if outcome["status"] not in {"ok", "input_required"}:
+            # A failed search (provider, model or timeout) is not "no match".
+            raise DriveSharingError("drive_query_unavailable", retryable=True)
         files = (outcome.get("share_files") or []) if outcome["status"] == "ok" else []
         if not any(item.get("mime_type") != FOLDER_MIME for item in files):
             # A's own words from A's own search (e.g. "Which file do you mean?").

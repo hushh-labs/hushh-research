@@ -276,3 +276,27 @@ async def test_either_account_erasure_removes_the_search(shares, user):
     with shares.db.engine.begin() as connection:
         erase_drive_account_in_transaction(connection, user_id=user, permanent=True)
         assert connection.execute(text("SELECT count(*) FROM drive_owner_shares")).scalar_one() == 0
+
+
+@pytest.mark.parametrize("status", ["unavailable", "source_changed"])
+async def test_a_failed_search_is_a_retryable_failure_not_no_match(shares, status):
+    """Review 2026-09-25: a Vertex 429 or timeout read as "No matching files found"."""
+    with pytest.raises(DriveSharingError, match="drive_query_unavailable") as raised:
+        await prepare(service(shares, chat(status=status, files=[])))
+    assert raised.value.retryable is True
+    with shares.db.engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM drive_owner_shares")).scalar_one() == 0
+
+
+async def test_an_expired_search_is_searched_again_on_the_next_tap(shares):
+    live = chat()
+    queries = service(shares, live)
+    client = str(uuid4())
+    first = await prepare(queries, client=client)
+    with shares.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_shares SET expires_at=now()-INTERVAL '1 minute'")
+        )
+    again = await prepare(queries, client=client)
+    assert live.run_live_query.await_count == 2
+    assert again["requestId"] != first["requestId"] and again["status"] == "ready"

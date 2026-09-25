@@ -95,20 +95,33 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
         return row
 
     async def existing(self, *, user_id, recipient_user_id, client_request_id):
-        """A retried tap returns the first search's files instead of searching again."""
+        """A retried tap returns the first search's files instead of searching again.
+
+        An expired, unshared search is removed so the next tap searches afresh;
+        a shared one is kept, so its status stays visible.
+        """
 
         def operation(connection):
+            params = {
+                "owner": user_id,
+                "client": str(UUID(str(client_request_id))),
+                "recipient": recipient_user_id,
+            }
+            connection.execute(
+                text("""
+                DELETE FROM drive_owner_shares WHERE user_id=:owner
+                  AND client_request_id=:client AND recipient_user_id=:recipient
+                  AND status='ready' AND expires_at<=clock_timestamp()
+            """),
+                params,
+            )
             row = self._row(
                 connection,
                 """
                 SELECT * FROM drive_owner_shares WHERE user_id=:owner
                   AND client_request_id=:client AND recipient_user_id=:recipient
             """,
-                {
-                    "owner": user_id,
-                    "client": str(UUID(str(client_request_id))),
-                    "recipient": recipient_user_id,
-                },
+                params,
             )
             return self._view(connection, row) if row else None
 

@@ -150,6 +150,31 @@ describe("DriveOwnerShareCard", () => {
     expect(screen.queryByTestId("share-review")).toBeNull();
   });
 
+  it("offers the search again when Drive didn't answer or the search expired", async () => {
+    state.service.prepareOwnerShare
+      .mockRejectedValueOnce(new DriveSharingError("drive_query_unavailable", 503))
+      .mockResolvedValue(ready);
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "Find files" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("Drive didn't answer. Try again."),
+    );
+    // Never "No matching files found" for a failed search.
+    expect(screen.queryByText("No matching files found.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Find files" }));
+    await screen.findByText("Chris onboarding 1.mp4");
+    state.service.shareOwnerFiles.mockRejectedValue(
+      new DriveSharingError("owner_share_expired", 409),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Share 2 files" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "This search expired. Find the files again.",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Find files" })).toBeTruthy();
+  });
+
   it("asks for the vault before anything else", () => {
     state.unlocked = false;
     renderCard();

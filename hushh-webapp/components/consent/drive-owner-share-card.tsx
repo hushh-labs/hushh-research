@@ -45,6 +45,8 @@ function failureCopy(code: string, name: string): string {
       return "Reconnect Google Drive, then try again.";
     case "owner_share_expired":
       return "This search expired. Find the files again.";
+    case "drive_query_unavailable":
+      return "Drive didn't answer. Try again.";
     case "request_already_decided":
       return "These files were already shared.";
     case "request_changed":
@@ -160,7 +162,10 @@ function UnlockedDriveOwnerShareCard({
         setUnshared([]);
       } catch (cause) {
         if (!current()) return;
-        setNotice(failureCopy(codeOf(cause), personName));
+        const code = codeOf(cause);
+        // A search that is gone or changed must be found again, not re-shared.
+        if (code === "owner_share_expired" || code === "request_changed") setView(null);
+        setNotice(failureCopy(code, personName));
       } finally {
         if (operation === serial.current && alive.current) {
           setPhase("idle");
