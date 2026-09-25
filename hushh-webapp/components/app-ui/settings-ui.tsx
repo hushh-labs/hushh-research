@@ -529,6 +529,12 @@ export function SettingsRow({
         >
           <Icon
             icon={icon}
+            // A semantic tone owns both halves of an icon tile: the wrapper
+            // paints the background and the glyph inherits its contrasting
+            // foreground. Registry icons carry authored colours for their
+            // transparent/capability presentation, so explicitly override
+            // those defaults only when the icon sits on a coloured tile.
+            color={isCapabilityTone ? undefined : "currentColor"}
             size={
               isCapabilityTone
                 ? resolvedDensity === "compact"
