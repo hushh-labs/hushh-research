@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   consumeSetupReturn: vi.fn(),
   getIdToken: vi.fn(),
   readAttempt: vi.fn(),
+  clearAttempt: vi.fn(),
   settle: vi.fn(),
+  trackEvent: vi.fn(),
   ownerId: "synthetic-owner" as string | null,
 }));
 vi.mock("next/navigation", () => ({
@@ -35,9 +37,11 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: { status: mocks.status },
 }));
 vi.mock("@/lib/google/google-oauth-popup", () => ({
+  clearGoogleOAuthAttempt: mocks.clearAttempt,
   readGoogleOAuthPopupAttempt: mocks.readAttempt,
   settleGoogleOAuthPopup: mocks.settle,
 }));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: mocks.trackEvent }));
 vi.mock("@/components/app-ui/hushh-loader", () => ({
   HushhLoader: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -54,7 +58,9 @@ const attempt = (service = "calendar") => ({
   attemptId: "synthetic-attempt",
   version: 1,
   startedAt: Date.now(),
+  ownerId: "synthetic-owner",
 });
+const sameWindowAttempt = () => ({ ...attempt(), returnMode: "same_window" as const });
 function pending<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -112,6 +118,10 @@ describe("GoogleOAuthReturnPage", () => {
     await waitFor(() =>
       expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"),
     );
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
   it.each([undefined, "contacts", "drive"])(
@@ -159,6 +169,36 @@ describe("GoogleOAuthReturnPage", () => {
     );
     expect(mocks.completeConnect).not.toHaveBeenCalled();
   });
+  it.each([
+    ["access_denied", "expected_error"],
+    ["provider_failure", "error"],
+  ])("records same-window provider outcome %s exactly once", async (providerError, result) => {
+    mocks.readAttempt.mockReturnValue(sameWindowAttempt());
+    mocks.searchGet.mockImplementation((key: string) => key === "error" ? providerError : null);
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result },
+    ));
+    expect(mocks.trackEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.clearAttempt).toHaveBeenCalled();
+    expect(mocks.completeConnect).not.toHaveBeenCalled();
+  });
+  it("does not attribute an earlier owner's provider failure to the active owner", async () => {
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      ownerId: "previous-owner",
+    });
+    mocks.searchGet.mockImplementation((key: string) =>
+      key === "error" ? "access_denied" : null,
+    );
+    render(<GoogleOAuthReturnPage />);
+    expect(await screen.findByText(/same account/)).toBeTruthy();
+    expect(mocks.trackEvent).not.toHaveBeenCalled();
+    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.clearAttempt).toHaveBeenCalled();
+  });
   it("consumes once and still settles under Strict Mode", async () => {
     render(
       <StrictMode>
@@ -170,7 +210,7 @@ describe("GoogleOAuthReturnPage", () => {
     );
     expect(mocks.completeConnect).toHaveBeenCalledTimes(1);
   });
-  it("never infers timeout success from an existing connection", async () => {
+  it("confirms a timed-out Calendar completion from owner-authenticated status", async () => {
     vi.useFakeTimers();
     mocks.status.mockResolvedValue(connected());
     mocks.completeConnect.mockReturnValue(new Promise(() => {}));
@@ -178,9 +218,60 @@ describe("GoogleOAuthReturnPage", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(35_001);
     });
-    expect(screen.getByText(/may still be saving/)).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.status).toHaveBeenCalledWith(
+      "synthetic-token",
+      "synthetic-owner",
+    );
+    expect(mocks.replace).toHaveBeenCalledWith("/one/calendar");
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    );
+  });
+  it("does not treat a pre-existing read connection as a completed manage upgrade", async () => {
+    vi.useFakeTimers();
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      accessLevel: "manage",
+    });
+    mocks.status.mockResolvedValue({
+      ...connected(),
+      access_level: "read",
+    });
+    mocks.completeConnect.mockReturnValue(new Promise(() => {}));
+    render(<GoogleOAuthReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_001);
+      await Promise.resolve();
+    });
+
     expect(mocks.replace).not.toHaveBeenCalled();
-    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "error" },
+    );
+  });
+  it("rejects an immediate read-only result for a manage upgrade", async () => {
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      accessLevel: "manage",
+    });
+    mocks.completeConnect.mockResolvedValue({
+      ...connected(),
+      access_level: "read",
+    });
+
+    render(<GoogleOAuthReturnPage />);
+
+    expect(await screen.findByText(/could not be verified/)).toBeTruthy();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "error" },
+    );
   });
   it("does not exchange the code after account change while awaiting identity", async () => {
     const token = pending<string>();

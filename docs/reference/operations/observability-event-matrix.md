@@ -79,15 +79,15 @@ Every emitted observability event carries centrally added shared params:
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
 | `gmail_connect_started` | Gmail connect flow started | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail onboarding baseline | GA DebugView |
-| `gmail_connect_result` | Gmail connect start/complete result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail connection quality | GA DebugView |
+| `gmail_connect_result` | Gmail web/native connect start or OAuth completion result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Connection attempts and completed connections remain separate | focused native-service test, GA DebugView |
 | `gmail_disconnect_result` | Gmail disconnect outcome | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | disconnect success/error rate | GA DebugView |
 | `gmail_sync_requested` | Manual Gmail sync requested | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync request volume | GA DebugView |
-| `gmail_sync_result` | Gmail sync queue/already-running result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync queue health | GA DebugView |
+| `gmail_sync_result` | Gmail sync queue, terminal run, or poll result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts`, `hushh-webapp/lib/profile/gmail-connector-store.ts` | Distinguishes a requested/accepted job from a completed, canceled, failed, or unobservable run | schema/service tests, GA DebugView |
 | `gmail_receipts_loaded` | Receipt list load result | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | receipts UX quality | GA DebugView |
 
 ## One feature-action observability (rollout contract)
 
-These are deliberate *feature* actions, not proof that a specialist AI agent was invoked. Each event carries only a fixed `route_id`, bounded `action`, and `result`. The common adapter adds environment and platform. No memory text/domain, card data or reveal, calendar contents, KYC scopes, counterparty, workflow ID, email, or error message may be sent. Count distinct account IDs only when GA4 actually receives a stable User-ID; device/browser counts remain a separate diagnostic.
+These are deliberate *feature* actions, not proof that a specialist AI agent was invoked. Each event carries only a fixed `route_id`, runtime-validated bounded `action`, and `result`. The common adapter adds environment and platform. `success`, `expected_error`, and `error` are recorded on completed, canceled/no-op, and failed paths respectively. No memory text/domain, card data or reveal, calendar contents, KYC scopes, counterparty, workflow ID, email, or error message may be sent. Count distinct account IDs only when GA4 actually receives a stable User-ID; device/browser counts remain a separate diagnostic.
 
 | Event | Bounded actions | Emitter | Dashboard interpretation |
 | --- | --- | --- | --- |

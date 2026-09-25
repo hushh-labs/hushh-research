@@ -130,6 +130,7 @@ export function waitForOAuthPopup(input: {
   signal: AbortSignal;
   matches: (value: unknown) => boolean;
   storageValue: (event: StorageEvent) => unknown;
+  onFinish?: (reason: "settled" | "closed" | "expired" | "aborted") => void;
 }): Promise<void> {
   if (
     !Number.isFinite(input.expiresAt) ||
@@ -137,24 +138,29 @@ export function waitForOAuthPopup(input: {
     input.expiresAt > Date.now() + MAX_AGE_MS
   ) {
     input.popup.close();
+    input.onFinish?.("expired");
     return Promise.reject(new Error("Authorization expired. Try again."));
   }
   return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    const finish = (
+      reason: "settled" | "closed" | "expired" | "aborted",
+    ) => {
       if (settled) return;
       settled = true;
       window.clearInterval(timer);
       window.removeEventListener("message", message);
       window.removeEventListener("storage", storage);
-      input.signal.removeEventListener("abort", finish);
+      input.signal.removeEventListener("abort", abort);
       try {
         input.popup.close();
       } catch {
         /* Browser owns popup policy. */
       }
+      input.onFinish?.(reason);
       resolve();
     };
+    const abort = () => finish("aborted");
     const message = (event: MessageEvent<unknown>) => {
       if (
         Date.now() < input.expiresAt &&
@@ -162,7 +168,7 @@ export function waitForOAuthPopup(input: {
         event.source === input.popup &&
         input.matches(event.data)
       )
-        finish();
+        finish("settled");
     };
     const storage = (event: StorageEvent) => {
       // Storage has no source Window. It is only a hint to reconcile server
@@ -172,15 +178,16 @@ export function waitForOAuthPopup(input: {
         Date.now() < input.expiresAt &&
         input.matches(input.storageValue(event))
       )
-        finish();
+        finish("settled");
     };
     const timer = window.setInterval(() => {
-      if (input.popup.closed || Date.now() >= input.expiresAt) finish();
+      if (input.popup.closed) finish("closed");
+      else if (Date.now() >= input.expiresAt) finish("expired");
     }, 500);
     window.addEventListener("message", message);
     window.addEventListener("storage", storage);
-    input.signal.addEventListener("abort", finish, { once: true });
-    if (input.signal.aborted) finish();
+    input.signal.addEventListener("abort", abort, { once: true });
+    if (input.signal.aborted) abort();
   });
 }
 

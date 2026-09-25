@@ -62,11 +62,22 @@ describe("Calendar same-window OAuth observability", () => {
     });
   });
 
-  it("leaves popup completions to the workspace listener to prevent double counts", async () => {
-    mocks.readAttempt.mockReturnValue({ service: "calendar", attemptId: "attempt-1" });
+  it("owns popup completion telemetry before notifying the workspace", async () => {
+    mocks.readAttempt.mockReturnValue({
+      service: "calendar",
+      attemptId: "attempt-1",
+      ownerId: "owner",
+    });
     render(<GoogleOAuthReturnPage />);
     await waitFor(() => expect(mocks.settle).toHaveBeenCalled());
-    expect(mocks.trackEvent).not.toHaveBeenCalled();
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "success",
+      },
+    );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 });

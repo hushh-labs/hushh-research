@@ -103,6 +103,20 @@ export type ConnectedSystemAgentInstruction = {
 type CrmProfileFieldKey = string;
 type CrmFieldValues = Record<string, string>;
 
+export function approveConnectedSystemIntent(params: {
+  vaultOwnerToken: string;
+  intent: ConnectedSystemIntent;
+}) {
+  const input = {
+    vaultOwnerToken: params.vaultOwnerToken,
+    systemId: params.intent.systemId,
+    intentId: params.intent.intentId,
+  };
+  return params.intent.deliveryMode === "crm-encrypted-fields.v1"
+    ? ConnectedSystemsService.approveCrmEncryptedFieldsIntent(input)
+    : ConnectedSystemsService.approveIntent(input);
+}
+
 type CrmProfileField = {
   key: CrmProfileFieldKey;
   label: string;
@@ -400,7 +414,7 @@ function connectedSystemsUserMessage(error: unknown): string {
   return message;
 }
 
-function mutationResultError(value: unknown): string | null {
+export function mutationResultError(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const status =
@@ -409,11 +423,18 @@ function mutationResultError(value: unknown): string | null {
     typeof record.resultClass === "string"
       ? record.resultClass.toLowerCase()
       : "";
-  if (status !== "failed" && resultClass !== "failed") return null;
+  const terminalFailure = ["failed", "partial"];
+  if (
+    !terminalFailure.includes(status) &&
+    !terminalFailure.includes(resultClass)
+  )
+    return null;
   return (
     cleanFieldValue(record.errorMessage) ||
     cleanFieldValue(record.errorCode) ||
-    "CRM request failed."
+    (status === "partial" || resultClass === "partial"
+      ? "CRM request could not be fully verified."
+      : "CRM request failed.")
   );
 }
 
@@ -1136,6 +1157,7 @@ export function ConnectedSystemsPanel({
       error: string;
     },
     action: () => Promise<T>,
+    options: { trackMutationOutcome?: boolean } = {},
   ): Promise<T | null> {
     const requestContext = capturePanelRequestContext();
     if (!vaultOwnerToken) {
@@ -1208,13 +1230,17 @@ export function ConnectedSystemsPanel({
     );
     try {
       const result = await promise;
-      if (isCurrentPanelRequest(requestContext) && (state === "create" || state === "update" || state === "delete")) {
+      if (options.trackMutationOutcome !== false && isCurrentPanelRequest(requestContext) && (state === "create" || state === "update" || state === "delete")) {
         const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
         trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "success" });
       }
       return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
       if (!isCurrentPanelRequest(requestContext)) return null;
+      if (options.trackMutationOutcome !== false && (state === "create" || state === "update" || state === "delete")) {
+        const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
+        trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "error" });
+      }
       const message = err instanceof Error ? err.message : messages.error;
       setError(message);
       return null;
@@ -1532,6 +1558,7 @@ export function ConnectedSystemsPanel({
           systemId: selectedSystem?.systemId,
           objectType: createObjectType,
         }),
+      { trackMutationOutcome: false },
     );
     if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);
@@ -1647,13 +1674,12 @@ export function ConnectedSystemsPanel({
     const requestContext = capturePanelRequestContext();
     const review = pendingUpdateReview;
     updateReviewSubmittingRef.current = true;
-    let preparedIntent: ConnectedSystemIntent | null = null;
-    const result = await runMutation(
+    const preparedIntent = await runMutation(
       "update",
       {
-        loading: "Updating CRM record…",
-        success: `${customerName} record updated.`,
-        error: `${customerName} record could not be updated.`,
+        loading: "Preparing CRM update…",
+        success: "CRM update is ready to apply.",
+        error: "CRM update could not be prepared.",
       },
       async () => {
         if (encryptedFieldsEnabled) {
@@ -1677,21 +1703,15 @@ export function ConnectedSystemsPanel({
             direction: "update_request",
             payload: { additionalFields: review.recordFields },
           });
-          preparedIntent =
-            await ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
+          return ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
               vaultOwnerToken,
               systemId: selectedSystem.systemId,
               objectType: updateObjectType,
               fieldNames: Object.keys(review.recordFields),
               encryptedFields: envelope,
             });
-          return ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
-            vaultOwnerToken,
-            systemId: selectedSystem.systemId,
-            intentId: preparedIntent.intentId,
-          });
         }
-        preparedIntent = await ConnectedSystemsService.updateRecordIntent(
+        return ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
           {
             systemId: selectedSystem?.systemId,
@@ -1700,22 +1720,39 @@ export function ConnectedSystemsPanel({
             recordFields: review.recordFields,
           },
         );
-        return ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: preparedIntent.systemId,
-          intentId: preparedIntent.intentId,
-        });
       },
+      { trackMutationOutcome: false },
+    );
+    if (!preparedIntent || !isCurrentPanelRequest(requestContext)) {
+      updateReviewSubmittingRef.current = false;
+      return;
+    }
+    const result = await runMutation(
+      "update",
+      {
+        loading: "Updating CRM record…",
+        success: `${customerName} record updated.`,
+        error: `${customerName} record could not be updated.`,
+      },
+      () => encryptedFieldsEnabled
+        ? ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
+            vaultOwnerToken: vaultOwnerToken || "",
+            systemId: preparedIntent.systemId,
+            intentId: preparedIntent.intentId,
+          })
+        : ConnectedSystemsService.approveIntent({
+            vaultOwnerToken: vaultOwnerToken || "",
+            systemId: preparedIntent.systemId,
+            intentId: preparedIntent.intentId,
+          }),
     );
     updateReviewSubmittingRef.current = false;
     if (!isCurrentPanelRequest(requestContext)) return;
     if (!result) {
       // A prepared intent remains safely pending server-side. Reuse it rather
       // than submitting a second update if approval has to be retried.
-      if (preparedIntent) {
-        setPendingUpdateReview(null);
-        setPendingIntent(preparedIntent);
-      }
+      setPendingUpdateReview(null);
+      setPendingIntent(preparedIntent);
       return;
     }
     setPendingUpdateReview(null);
@@ -1742,6 +1779,7 @@ export function ConnectedSystemsPanel({
           systemId: selectedSystem?.systemId,
           objectType: deleteObjectType,
         }),
+      { trackMutationOutcome: false },
     );
     if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);
@@ -1767,12 +1805,10 @@ export function ConnectedSystemsPanel({
         success: `${customerName} record ${intent.action} completed.`,
         error: `${customerName} record ${intent.action} failed.`,
       },
-      () =>
-        ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: intent.systemId,
-          intentId: intent.intentId,
-        }),
+      () => approveConnectedSystemIntent({
+        vaultOwnerToken: vaultOwnerToken || "",
+        intent,
+      }),
     );
     if (!result || !isCurrentPanelRequest(requestContext)) return;
     setPendingIntent(null);

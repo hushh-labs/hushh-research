@@ -63,6 +63,29 @@ export type GrowthLocationInviteSource =
   | "contact_sync"
   | "direct";
 
+export const ONE_MEMORY_ACTIONS = [
+  "export_saved",
+  "capture_prepared",
+  "capture_saved",
+  "detail_edited",
+  "detail_deleted",
+  "auto_save_changed",
+] as const;
+export const ONE_WALLET_ACTIONS = ["card_added", "card_deleted"] as const;
+export const ONE_CALENDAR_ACTIONS = ["connected", "disconnected", "chat_opened"] as const;
+export const ONE_KYC_ACTIONS = [
+  "redraft_completed",
+  "reply_sent",
+  "reply_rejected",
+  "workflow_refreshed",
+  "access_approved",
+  "access_denied",
+] as const;
+export const ONE_CRM_ACTIONS = ["record_created", "record_updated", "record_deleted"] as const;
+export const GMAIL_CONNECT_STARTED_ACTIONS = ["incremental", "full"] as const;
+export const GMAIL_CONNECT_RESULT_ACTIONS = ["start", "complete"] as const;
+export const GMAIL_SYNC_RESULT_ACTIONS = ["queue", "already_running", "complete", "poll"] as const;
+
 /**
  * Low-cardinality One Location actions used to connect the Location, Connect,
  * Circles and Profile surfaces without sending any record identifiers or
@@ -372,28 +395,28 @@ export interface EventPayloadMap {
   /** Deliberate feature actions only. Never include content, card data or workflow IDs. */
   one_memory_action: {
     route_id: RouteId;
-    action: "export_saved" | "capture_prepared" | "capture_saved" | "detail_edited" | "detail_deleted" | "auto_save_changed";
+    action: (typeof ONE_MEMORY_ACTIONS)[number];
     result: EventResult;
   };
   one_wallet_action: {
     route_id: RouteId;
-    action: "card_added" | "card_deleted";
+    action: (typeof ONE_WALLET_ACTIONS)[number];
     result: EventResult;
   };
   one_calendar_action: {
     route_id: RouteId;
-    action: "connected" | "disconnected" | "chat_opened";
+    action: (typeof ONE_CALENDAR_ACTIONS)[number];
     result: EventResult;
   };
   one_kyc_action: {
     route_id: RouteId;
-    action: "redraft_completed" | "reply_sent" | "reply_rejected" | "workflow_refreshed" | "access_approved" | "access_denied";
+    action: (typeof ONE_KYC_ACTIONS)[number];
     result: EventResult;
   };
   /** Development-only CRM owner actions; never a public-production KPI. */
   one_crm_action: {
     route_id: RouteId;
-    action: "record_created" | "record_updated" | "record_deleted";
+    action: (typeof ONE_CRM_ACTIONS)[number];
     result: EventResult;
   };
   page_view: {
@@ -556,11 +579,11 @@ export interface EventPayloadMap {
     status_bucket?: StatusBucket;
   };
   gmail_connect_started: {
-    action: "incremental" | "full";
+    action: (typeof GMAIL_CONNECT_STARTED_ACTIONS)[number];
     result: "success";
   };
   gmail_connect_result: {
-    action: "start" | "complete";
+    action: (typeof GMAIL_CONNECT_RESULT_ACTIONS)[number];
     result: EventResult;
   };
   gmail_disconnect_result: {
@@ -571,7 +594,7 @@ export interface EventPayloadMap {
     result: "success";
   };
   gmail_sync_result: {
-    action: "queue" | "already_running";
+    action: (typeof GMAIL_SYNC_RESULT_ACTIONS)[number];
     result: EventResult;
   };
   gmail_receipts_loaded: {

@@ -97,11 +97,13 @@ const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   clearGmailOAuthPopupAttempt,
+  consumeStoredGmailOAuthPopupSettlement,
   createGmailOAuthPopupAttempt,
   getGmailOAuthPopupSessionStorage,
   isGmailOAuthPopupSettlement,
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
+  persistGmailOAuthPopupAttempt,
   readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
@@ -438,6 +440,8 @@ export default function GmailReceiptsPage({
   const settledGmailPopupAttemptRef = useRef<string | null>(null);
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
+  const gmailOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  gmailOwnerIdRef.current = user?.uid ?? null;
   const resolvedInitialWorkspace =
     journeyVariant === "onboarding"
       ? "receipts"
@@ -701,6 +705,25 @@ export default function GmailReceiptsPage({
   useEffect(() => {
     if (!gmailPopupAttempt || !user?.uid) return;
     const attempt = gmailPopupAttempt;
+    const isAttemptOwnerCurrent = () =>
+      gmailOwnerIdRef.current === attempt.ownerId;
+    const statusSatisfiesAttemptPurpose = (
+      status: Awaited<ReturnType<typeof refreshGmailStatus>> | null,
+    ) =>
+      Boolean(
+        status?.connected &&
+          (attempt.purpose !== "send" ||
+            status.send_permission_granted === true),
+      );
+
+    if (!isAttemptOwnerCurrent()) {
+      gmailPopupRef.current?.close();
+      clearGmailOAuthPopupAttempt();
+      gmailPopupRef.current = null;
+      setGmailPopupAttempt(null);
+      setGmailActionBusy((current) => (current === "connect" ? null : current));
+      return;
+    }
 
     const clearAttempt = () => {
       clearGmailOAuthPopupAttempt();
@@ -711,15 +734,35 @@ export default function GmailReceiptsPage({
       setGmailActionBusy((current) => (current === "connect" ? null : current));
     };
 
-    const settleClosedPopup = async (message?: string) => {
+    const settleClosedPopup = async (
+      message?: string,
+      failureCode = "USER_CANCELLED",
+    ) => {
       const intent = readOnboardingConnectorIntent();
+      const callbackSettlement = consumeStoredGmailOAuthPopupSettlement(
+        attempt.attemptId,
+      );
+      if (!isAttemptOwnerCurrent()) return;
+      if (callbackSettlement && callbackSettlement.outcome !== "succeeded") {
+        settledGmailPopupAttemptRef.current = attempt.attemptId;
+        clearOnboardingConnectorIntent();
+        toast.error(
+          callbackSettlement.message ||
+            (callbackSettlement.outcome === "cancelled"
+              ? "Mail connection was cancelled."
+              : "Mail connection could not be completed."),
+        );
+        return;
+      }
       const status = await refreshGmailStatus({
         force: true,
         reconcile: false,
       }).catch(() => null);
+      if (!isAttemptOwnerCurrent()) return;
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       }).catch(() => null);
+      if (!isAttemptOwnerCurrent()) return;
       const matchesPendingSetupAttempt = Boolean(
         intent &&
         journey &&
@@ -734,15 +777,23 @@ export default function GmailReceiptsPage({
           userId: user.uid,
           phase: "capability_setup",
           activeCapability: "gmail",
-          callbackState: status?.connected ? "succeeded" : "cancelled",
+          callbackState: statusSatisfiesAttemptPurpose(status)
+            ? "succeeded"
+            : "cancelled",
           expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
           expectedCallbackAttemptId: intent.correlationId,
         }).catch(() => undefined);
       }
       clearOnboardingConnectorIntent();
-      if (status?.connected) {
+      const statusSatisfiesPurpose = statusSatisfiesAttemptPurpose(status);
+      if (statusSatisfiesPurpose) {
         toast.success("Mail connected. You can finish setup when ready.");
       } else {
+        if (!callbackSettlement) {
+          GmailReceiptsService.recordConsentFailure({
+            code: failureCode,
+          }, user.uid);
+        }
         toast.message(
           message ||
             "The Mail window closed. You can try again whenever you are ready.",
@@ -755,6 +806,8 @@ export default function GmailReceiptsPage({
       message?: string;
     }) => {
       if (settledGmailPopupAttemptRef.current === attempt.attemptId) return;
+      if (!isAttemptOwnerCurrent()) return;
+      consumeStoredGmailOAuthPopupSettlement(attempt.attemptId);
       settledGmailPopupAttemptRef.current = attempt.attemptId;
       const intent = readOnboardingConnectorIntent();
       clearAttempt();
@@ -764,11 +817,13 @@ export default function GmailReceiptsPage({
             force: true,
             reconcile: false,
           });
+          if (!isAttemptOwnerCurrent()) return;
           if (journeyVariant === "onboarding" && intent) {
             const journey = await PreVaultUserStateService.bootstrapState(
               user.uid,
               { force: true },
             ).catch(() => null);
+            if (!isAttemptOwnerCurrent()) return;
             const matchesPendingSetupAttempt = Boolean(
               journey &&
               !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -782,14 +837,16 @@ export default function GmailReceiptsPage({
                 userId: user.uid,
                 phase: "capability_setup",
                 activeCapability: "gmail",
-                callbackState: status?.connected ? "succeeded" : "cancelled",
+                callbackState: statusSatisfiesAttemptPurpose(status)
+                  ? "succeeded"
+                  : "cancelled",
                 expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
                 expectedCallbackAttemptId: intent.correlationId,
               }).catch(() => undefined);
             }
           }
           clearOnboardingConnectorIntent();
-          if (status?.connected) {
+          if (statusSatisfiesAttemptPurpose(status)) {
             toast.success("Mail connected. You can finish setup when ready.");
           } else {
             toast.error(
@@ -839,6 +896,7 @@ export default function GmailReceiptsPage({
       clearAttempt();
       void settleClosedPopup(
         "Mail is taking longer than expected. Check your connection and try again.",
+        "POPUP_TIMEOUT",
       );
     }, 500);
 
@@ -878,6 +936,7 @@ export default function GmailReceiptsPage({
           const idToken = await user.getIdToken();
           const nativeStart = await GmailReceiptsService.startNativeConnect({
             idToken,
+            userId: user.uid,
             purpose,
           });
           if (!nativeStart.configured || !nativeStart.server_client_id) {
@@ -886,20 +945,29 @@ export default function GmailReceiptsPage({
             );
           }
 
-          const { serverAuthCode } = await HushhAuth.connectGmail({
-            serverClientId: nativeStart.server_client_id,
-            purpose: nativeStart.purpose,
-          });
+          let serverAuthCode: string;
+          try {
+            ({ serverAuthCode } = await HushhAuth.connectGmail({
+              serverClientId: nativeStart.server_client_id,
+              purpose: nativeStart.purpose,
+            }));
+          } catch (error) {
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
+          }
           if (!serverAuthCode?.trim()) {
-            throw new Error(
+            const error = new Error(
               "Google did not return a Mail authorization code.",
             );
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
           }
 
           await GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
             serverAuthCode,
+            purpose,
           });
           await refreshGmailStatus({ force: true });
 
@@ -936,11 +1004,16 @@ export default function GmailReceiptsPage({
       })();
     }
 
-    const attempt = createGmailOAuthPopupAttempt();
+    const attempt = createGmailOAuthPopupAttempt(user.uid, purpose);
     const popup = openGmailOAuthPopup(attempt);
     if (popup) {
       gmailPopupRef.current = popup;
       setGmailPopupAttempt(attempt);
+    } else if (!persistGmailOAuthPopupAttempt(window, attempt)) {
+      toast.error(
+        "Mail sign-in could not be started safely. Please allow popups or try again.",
+      );
+      return Promise.resolve(false);
     }
 
     setGmailActionBusy("connect");

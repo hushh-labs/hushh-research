@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth/session-owner";
 import { consumeCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
+  clearGoogleOAuthAttempt,
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
   type GoogleOAuthPopupAttempt,
@@ -22,6 +23,7 @@ import {
   GoogleConnectionService,
   type GoogleConnectionCompletion,
 } from "@/lib/services/google-connection-service";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
 const COMPLETION_TIMEOUT_MS = 35_000;
 class CompletionUnknownError extends Error {}
@@ -58,6 +60,7 @@ function GoogleOAuthReturnContent() {
   const router = useRouter();
   const search = useSearchParams();
   const flow = useRef<CompletionFlow | null>(null);
+  const terminalOutcomeRecorded = useRef(false);
   const authority = useRef({
     ownerId: loading ? null : user?.uid,
     generation: 0,
@@ -85,10 +88,35 @@ function GoogleOAuthReturnContent() {
       authority.current.mounted = false;
     };
     const attempt = flow.current?.attempt ?? readGoogleOAuthPopupAttempt();
+    const isSameWindowCalendar =
+      attempt?.service === "calendar" && attempt.returnMode === "same_window";
     const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
       if (!current || authority.current.generation !== effectGeneration) return;
+      if (attempt && attempt.ownerId !== authority.current.ownerId) {
+        if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+        setMessage("Please return to connections and start again with the same account.");
+        return;
+      }
       setMessage(text);
-      if (attempt) settleGoogleOAuthPopup(attempt, outcome, text);
+      if (
+        flow.current &&
+        flow.current.ownerId !== authority.current.ownerId
+      ) {
+        return;
+      }
+      if (terminalOutcomeRecorded.current) return;
+      terminalOutcomeRecorded.current = true;
+      if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+      if (attempt?.service === "calendar") {
+        trackEvent("one_calendar_action", {
+          route_id: "one_calendar",
+          action: "connected",
+          result: outcome === "cancelled" ? "expected_error" : "error",
+        });
+      }
+      if (attempt && !isSameWindowCalendar) {
+        settleGoogleOAuthPopup(attempt, outcome, text);
+      }
     };
     const providerError = search.get("error");
     if (providerError) {
@@ -149,38 +177,79 @@ function GoogleOAuthReturnContent() {
       };
     }
     const active = flow.current;
+    const requestedAccessLevel =
+      attempt?.service === "calendar" ? attempt.accessLevel ?? "read" : "read";
+    const isVerifiedCalendarConnection = (connection: {
+      service?: string;
+      connected?: boolean;
+      status?: string;
+      access_level?: string | null;
+    } | null) =>
+      Boolean(
+        connection?.service === "calendar" &&
+          (!attempt || connection.service === attempt.service) &&
+          connection.connected &&
+          connection.status === "connected" &&
+          (requestedAccessLevel !== "manage" ||
+            connection.access_level === "manage"),
+      );
+    const settleSuccess = () => {
+      if (!current || authority.current.generation !== active.generation)
+        return;
+      if (terminalOutcomeRecorded.current) return;
+      terminalOutcomeRecorded.current = true;
+      if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+      trackEvent("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "success",
+      });
+      if (attempt && !isSameWindowCalendar) {
+        settleGoogleOAuthPopup(attempt, "succeeded");
+      } else {
+        router.replace(
+          active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
+        );
+      }
+    };
     void active.result
       .then((completed) => {
         if (!current || authority.current.generation !== active.generation)
           return;
-        if (
-          completed.service !== "calendar" ||
-          (attempt && completed.service !== attempt.service) ||
-          !completed.connected ||
-          completed.status !== "connected"
-        ) {
+        if (!isVerifiedCalendarConnection(completed)) {
           fail(
             "Google connection could not be verified. Please check connections before trying again.",
           );
           return;
         }
-        if (attempt) {
-          settleGoogleOAuthPopup(attempt, "succeeded");
-        } else {
-          // Same-window OAuth (for example, a blocked popup on mobile web)
-          // has no Calendar page settlement listener. Count it here only
-          // after the owner-bound completion confirms the connection.
-          trackEvent("one_calendar_action", {
-            route_id: "one_calendar",
-            action: "connected",
-            result: "success",
-          });
-          router.replace(
-            active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
-          );
-        }
+        settleSuccess();
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        if (error instanceof CompletionUnknownError) {
+          const remainsCurrent = () =>
+            current &&
+            authority.current.mounted &&
+            authority.current.generation === active.generation &&
+            authority.current.ownerId === active.ownerId;
+          if (!remainsCurrent()) return;
+          const status = await user
+            .getIdToken()
+            .then((idToken) => {
+              if (!remainsCurrent()) return null;
+              return GoogleCalendarService.status(idToken, active.ownerId);
+            })
+            .catch(() => null);
+          if (!remainsCurrent()) return;
+          if (
+            isVerifiedCalendarConnection({
+              service: "calendar",
+              ...status,
+            })
+          ) {
+            settleSuccess();
+            return;
+          }
+        }
         fail(
           error instanceof CompletionUnknownError
             ? "Google may still be saving this connection. Check connections before starting again."

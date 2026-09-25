@@ -113,6 +113,7 @@ async function installAnalyticsCapture(page) {
         ...(window.__HUSHH_NATIVE_TEST__ || {}),
         enabled: true,
         autoReviewerLogin: true,
+        allowUatAnalyticsSmokeTelemetry: true,
         expectedUserId,
         vaultPassphrase,
       };
