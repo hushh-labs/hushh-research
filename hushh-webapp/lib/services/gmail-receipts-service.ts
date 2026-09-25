@@ -410,6 +410,17 @@ export class GmailReceiptsService {
     }
   }
 
+  static recordNativeConsentFailure(error: unknown): void {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code || "").trim().toUpperCase()
+        : "";
+    trackEvent("gmail_connect_result", {
+      action: "complete",
+      result: code === "USER_CANCELLED" ? "expected_error" : "error",
+    });
+  }
+
   static async completeConnect(params: {
     idToken: string;
     userId: string;

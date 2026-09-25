@@ -886,14 +886,22 @@ export default function GmailReceiptsPage({
             );
           }
 
-          const { serverAuthCode } = await HushhAuth.connectGmail({
-            serverClientId: nativeStart.server_client_id,
-            purpose: nativeStart.purpose,
-          });
+          let serverAuthCode: string;
+          try {
+            ({ serverAuthCode } = await HushhAuth.connectGmail({
+              serverClientId: nativeStart.server_client_id,
+              purpose: nativeStart.purpose,
+            }));
+          } catch (error) {
+            GmailReceiptsService.recordNativeConsentFailure(error);
+            throw error;
+          }
           if (!serverAuthCode?.trim()) {
-            throw new Error(
+            const error = new Error(
               "Google did not return a Mail authorization code.",
             );
+            GmailReceiptsService.recordNativeConsentFailure(error);
+            throw error;
           }
 
           await GmailReceiptsService.completeNativeConnect({

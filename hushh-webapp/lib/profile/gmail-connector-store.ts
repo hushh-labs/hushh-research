@@ -800,22 +800,9 @@ async function pollSyncRun(params: {
         attempt > RUN_POLL_MAX_ATTEMPTS ||
         elapsedMs >= RUN_POLL_MAX_ELAPSED_MS
       ) {
-        // The provider run may still be active, but this client can no longer
-        // observe a terminal result within the bounded polling window. Record
-        // the polling failure once; never mislabel the underlying sync itself.
-        trackEvent("gmail_sync_result", {
-          action: "poll",
-          result: "error",
-        });
-        updateEntry(normalizedUserId, {
-          activeRunId: null,
-          activeTaskId: null,
-          activeTaskKind: null,
-          suppressedRunId: normalizedRunId,
-          isPolling: false,
-        });
+        let refreshed: GmailConnectionStatus | null = null;
         try {
-          await fetchStatusFromNetwork({
+          refreshed = await fetchStatusFromNetwork({
             userId: normalizedUserId,
             idToken: await params.idTokenProvider(),
             force: true,
@@ -828,6 +815,39 @@ async function pollSyncRun(params: {
             "[gmail-connector-store] Failed to refresh Gmail status after poll timeout:",
             refreshError,
           );
+        }
+        const finalRun = refreshed?.latest_run;
+        if (
+          refreshed &&
+          finalRun?.run_id === normalizedRunId &&
+          isTerminalRunStatus(finalRun.status)
+        ) {
+          trackEvent("gmail_sync_result", {
+            action: "complete",
+            result:
+              finalRun.status === "completed"
+                ? "success"
+                : finalRun.status === "canceled"
+                  ? "expected_error"
+                  : "error",
+          });
+          params.onComplete?.(refreshed);
+          updateEntry(normalizedUserId, { isPolling: false });
+        } else {
+          // The provider run may still be active, but this client can no longer
+          // observe a terminal result within the bounded polling window. Record
+          // the polling failure once; never mislabel the underlying sync itself.
+          trackEvent("gmail_sync_result", {
+            action: "poll",
+            result: "error",
+          });
+          updateEntry(normalizedUserId, {
+            activeRunId: null,
+            activeTaskId: null,
+            activeTaskKind: null,
+            suppressedRunId: normalizedRunId,
+            isPolling: false,
+          });
         }
         shouldStopPolling = true;
         continue;

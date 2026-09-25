@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
       startConnect: vi.fn(),
       startNativeConnect: vi.fn(),
       completeNativeConnect: vi.fn(),
+      recordNativeConsentFailure: vi.fn(),
       syncNow: vi.fn(),
     },
     hushhAuth: {
@@ -1323,6 +1324,45 @@ describe("ProfileReceiptsPage", () => {
     expect(
       mocks.preVaultUserStateService.syncOnboardingJourney,
     ).not.toHaveBeenCalled();
+  });
+
+  it("records a dismissed native Gmail consent sheet as a terminal outcome", async () => {
+    mocks.capacitor.isNativePlatform.mockReturnValue(true);
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        status: {
+          configured: true,
+          connected: false,
+          status: "disconnected",
+          scope_csv: null,
+          last_sync_status: null,
+          auto_sync_enabled: false,
+          revoked: false,
+          latest_run: null,
+          google_email: null,
+        },
+        presentation: {
+          state: "disconnected",
+          badgeLabel: "Not connected",
+          description: "Gmail not connected.",
+          latestSyncText: "Connect once to sync receipts.",
+          latestSyncBadge: null,
+          isConnected: false,
+        },
+      }),
+    );
+    const cancellation = { code: "USER_CANCELLED" };
+    mocks.hushhAuth.connectGmail.mockRejectedValueOnce(cancellation);
+
+    render(<ProfileReceiptsPage journeyVariant="onboarding" />);
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+
+    await waitFor(() => {
+      expect(
+        GmailReceiptsService.recordNativeConsentFailure,
+      ).toHaveBeenCalledWith(cancellation);
+    });
+    expect(GmailReceiptsService.completeNativeConnect).not.toHaveBeenCalled();
   });
 
   it("continues onboarding Gmail OAuth when iOS blocks popup session storage", async () => {

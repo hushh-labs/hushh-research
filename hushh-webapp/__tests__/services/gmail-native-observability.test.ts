@@ -77,6 +77,17 @@ describe("native Gmail observability", () => {
   });
 
   it.each([
+    [{ code: "USER_CANCELLED" }, "expected_error"],
+    [new Error("native SDK failed"), "error"],
+  ] as const)("records native consent failures as a terminal outcome", (error, result) => {
+    GmailReceiptsService.recordNativeConsentFailure(error);
+
+    expect(mocks.trackEvent.mock.calls).toEqual([
+      ["gmail_connect_result", { action: "complete", result }],
+    ]);
+  });
+
+  it.each([
     ["start", () => GmailReceiptsService.startNativeConnect({ idToken: "token", purpose: "read" })],
     ["complete", () => GmailReceiptsService.completeNativeConnect({
       idToken: "token",

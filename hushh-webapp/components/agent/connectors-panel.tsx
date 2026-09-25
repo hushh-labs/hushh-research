@@ -989,11 +989,29 @@ function OwnerConnectorsPanel({
             purpose: "read",
           });
           if (signal.aborted || !start.configured) return;
-          const result = await HushhAuth.connectGmail({
-            serverClientId: start.server_client_id,
-            purpose: start.purpose,
-          });
-          if (signal.aborted) return;
+          let result: Awaited<ReturnType<typeof HushhAuth.connectGmail>>;
+          try {
+            result = await HushhAuth.connectGmail({
+              serverClientId: start.server_client_id,
+              purpose: start.purpose,
+            });
+          } catch (error) {
+            GmailReceiptsService.recordNativeConsentFailure(error);
+            throw error;
+          }
+          if (signal.aborted) {
+            GmailReceiptsService.recordNativeConsentFailure({
+              code: "USER_CANCELLED",
+            });
+            return;
+          }
+          if (!result.serverAuthCode?.trim()) {
+            const error = new Error(
+              "Google did not return a Mail authorization code.",
+            );
+            GmailReceiptsService.recordNativeConsentFailure(error);
+            throw error;
+          }
           await GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
