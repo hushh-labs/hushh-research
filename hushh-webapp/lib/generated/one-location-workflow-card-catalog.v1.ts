@@ -8,6 +8,7 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
     "1016f2f0efc0cbd7",
     "114ef930def0cdbb",
     "12f82fc1dec40c31",
+    "1bef198a1317b1f5",
     "22b91ec0916f167f",
     "37cb394043f0f125",
     "4d1bf6b5a6a45c65",
@@ -42,6 +43,7 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
     "f159d8b097f5456c",
     "f37e6638e90db246",
     "f91ecbcca5e10b42",
+    "fb7a6340d119acec",
     "fbac9497545a7c39"
   ],
   "workflowId": "workflow.setup.location",
