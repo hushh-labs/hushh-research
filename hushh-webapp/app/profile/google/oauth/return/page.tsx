@@ -93,6 +93,12 @@ function GoogleOAuthReturnContent() {
     const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
       if (!current || authority.current.generation !== effectGeneration) return;
       setMessage(text);
+      if (
+        flow.current &&
+        flow.current.ownerId !== authority.current.ownerId
+      ) {
+        return;
+      }
       if (terminalOutcomeRecorded.current) return;
       terminalOutcomeRecorded.current = true;
       if (isSameWindowCalendar) clearGoogleOAuthAttempt();
@@ -218,7 +224,16 @@ function GoogleOAuthReturnContent() {
             })
             .catch(() => null);
           if (!remainsCurrent()) return;
-          if (status?.connected && status.status === "connected") {
+          const requestedAccessLevel =
+            attempt?.service === "calendar"
+              ? attempt.accessLevel ?? "read"
+              : "read";
+          if (
+            status?.connected &&
+            status.status === "connected" &&
+            (requestedAccessLevel !== "manage" ||
+              status.access_level === "manage")
+          ) {
             settleSuccess();
             return;
           }

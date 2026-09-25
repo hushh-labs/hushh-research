@@ -966,7 +966,7 @@ function OwnerConnectorsPanel({
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
-    const attempt = createGmailOAuthPopupAttempt();
+    const attempt = createGmailOAuthPopupAttempt("read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
       setMailMessage(

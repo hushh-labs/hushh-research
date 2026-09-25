@@ -13,6 +13,7 @@ export type GoogleOAuthPopupAttempt = {
   service: GoogleOAuthPopupService;
   startedAt: number;
   returnMode?: "popup" | "same_window";
+  accessLevel?: "read" | "manage";
 };
 export type GoogleOAuthPopupSettlement = {
   schemaVersion: 1;
@@ -58,12 +59,14 @@ function storage(target: Window | null | undefined): Storage | null {
 
 export function createGoogleOAuthPopupAttempt(
   service: GoogleOAuthPopupService,
+  options: { accessLevel?: "read" | "manage" } = {},
 ): GoogleOAuthPopupAttempt {
   return {
     version: 1,
     attemptId: crypto.randomUUID(),
     service,
     startedAt: Date.now(),
+    ...(options.accessLevel ? { accessLevel: options.accessLevel } : {}),
   };
 }
 
@@ -117,6 +120,9 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
       (parsed.returnMode === undefined ||
         parsed.returnMode === "popup" ||
         parsed.returnMode === "same_window") &&
+      (parsed.accessLevel === undefined ||
+        parsed.accessLevel === "read" ||
+        parsed.accessLevel === "manage") &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )

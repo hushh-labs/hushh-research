@@ -1,4 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const trackEventMock = vi.hoisted(() => vi.fn());
@@ -50,6 +52,15 @@ describe("gmail-connector-store", () => {
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
     }
+  });
+
+  it("gates every background sync outcome against the active connector owner", () => {
+    const source = readFileSync(
+      join(process.cwd(), "lib/profile/gmail-connector-store.ts"),
+      "utf8",
+    );
+    expect(source).toContain("activeConnectorOwnerId !== userId");
+    expect(source.match(/trackEvent\("gmail_sync_result"/g)).toHaveLength(1);
   });
 
   it("returns a stable snapshot object until the entry actually changes", () => {

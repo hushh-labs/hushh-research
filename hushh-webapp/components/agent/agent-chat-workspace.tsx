@@ -6927,8 +6927,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               userId: user.uid,
                               accessLevel,
                             });
-                          const attempt =
-                            createGoogleOAuthPopupAttempt("calendar");
+                          const attempt = createGoogleOAuthPopupAttempt(
+                            "calendar",
+                            { accessLevel },
+                          );
                           if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
                             throw new Error(
                               "Calendar sign-in could not be started safely. Please try again.",

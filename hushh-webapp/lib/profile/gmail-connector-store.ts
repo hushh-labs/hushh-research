@@ -117,6 +117,15 @@ const inflightStatusRequests = new Map<
   Promise<GmailConnectionStatus | null>
 >();
 const inflightRunPollers = new Map<string, AbortController>();
+let activeConnectorOwnerId: string | null = null;
+
+function trackGmailSyncOutcomeForOwner(
+  userId: string,
+  fields: { action: "complete" | "poll"; result: "success" | "expected_error" | "error" },
+): void {
+  if (activeConnectorOwnerId && activeConnectorOwnerId !== userId) return;
+  trackEvent("gmail_sync_result", fields);
+}
 const inflightBootstrapStatusPollers = new Map<string, AbortController>();
 
 const EMPTY_CONNECTOR_VIEW: GmailConnectorView = {
@@ -842,7 +851,7 @@ async function pollSyncRun(params: {
           finalRun?.run_id === normalizedRunId &&
           isTerminalRunStatus(finalRun.status)
         ) {
-          trackEvent("gmail_sync_result", {
+          trackGmailSyncOutcomeForOwner(normalizedUserId, {
             action: "complete",
             result:
               finalRun.status === "completed"
@@ -857,7 +866,7 @@ async function pollSyncRun(params: {
           // The provider run may still be active, but this client can no longer
           // observe a terminal result within the bounded polling window. Record
           // the polling failure once; never mislabel the underlying sync itself.
-          trackEvent("gmail_sync_result", {
+          trackGmailSyncOutcomeForOwner(normalizedUserId, {
             action: "poll",
             result: "error",
           });
@@ -906,7 +915,7 @@ async function pollSyncRun(params: {
       });
 
       if (isTerminalRunStatus(run.status)) {
-        trackEvent("gmail_sync_result", {
+        trackGmailSyncOutcomeForOwner(normalizedUserId, {
           action: "complete",
           result:
             run.status === "completed"
@@ -959,7 +968,7 @@ async function pollSyncRun(params: {
     }
   } catch (error) {
     if (controller.signal.aborted) return;
-    trackEvent("gmail_sync_result", {
+    trackGmailSyncOutcomeForOwner(normalizedUserId, {
       action: "poll",
       result: "error",
     });
@@ -1238,6 +1247,14 @@ export function useGmailConnectorStatus(
   options: UseGmailConnectorStatusOptions,
 ): UseGmailConnectorStatusResult {
   const normalizedUserId = String(options.userId || "").trim() || null;
+  useEffect(() => {
+    activeConnectorOwnerId = normalizedUserId;
+    return () => {
+      if (activeConnectorOwnerId === normalizedUserId) {
+        activeConnectorOwnerId = null;
+      }
+    };
+  }, [normalizedUserId]);
   const snapshot = useSyncExternalStore(
     subscribe,
     () => getConnectorView(normalizedUserId),

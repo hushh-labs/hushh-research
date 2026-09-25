@@ -246,6 +246,108 @@ describe("ProfileGmailOAuthReturnPage", () => {
     }
   });
 
+  it("does not accept a read-only status as a completed send-permission upgrade", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(window, "close").mockImplementation(() => undefined);
+      window.sessionStorage.setItem(
+        "one_gmail_oauth_popup_attempt_v1",
+        JSON.stringify({
+          version: 1,
+          attemptId: "gmail-send-upgrade",
+          startedAt: Date.now(),
+          purpose: "send",
+        }),
+      );
+      mocks.searchParamsGet.mockImplementation((key: string) => {
+        if (key === "code") return "slow-send-code";
+        if (key === "state") return "slow-send-state";
+        return null;
+      });
+      mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      );
+      mocks.gmailReceiptsService.getStatus.mockResolvedValue({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        send_permission_granted: false,
+        auto_sync_enabled: true,
+        revoked: false,
+      });
+
+      const view = render(<ProfileGmailOAuthReturnPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledExactlyOnceWith("error");
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).not.toHaveBeenCalledWith("success");
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("suppresses a late callback outcome after the authenticated owner changes", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      scope_csv: string;
+      auto_sync_enabled: boolean;
+      revoked: boolean;
+    }) => void;
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "owner-a-code";
+      if (key === "state") return "owner-a-state";
+      return null;
+    });
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveCompletion = resolve;
+      }),
+    );
+    const view = render(<ProfileGmailOAuthReturnPage />);
+    await waitFor(() =>
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalled(),
+    );
+
+    mocks.useAuth.mockReturnValue({
+      user: {
+        uid: "user-456",
+        getIdToken: vi.fn().mockResolvedValue("token-def"),
+      },
+      loading: false,
+    });
+    view.rerender(<ProfileGmailOAuthReturnPage />);
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+      });
+    });
+
+    expect(
+      mocks.gmailReceiptsService.recordConnectCompletion,
+    ).not.toHaveBeenCalled();
+  });
+
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
     const opener = {
       closed: false,

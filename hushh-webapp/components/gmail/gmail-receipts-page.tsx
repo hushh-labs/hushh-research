@@ -958,7 +958,7 @@ export default function GmailReceiptsPage({
       })();
     }
 
-    const attempt = createGmailOAuthPopupAttempt();
+    const attempt = createGmailOAuthPopupAttempt(purpose);
     const popup = openGmailOAuthPopup(attempt);
     if (popup) {
       gmailPopupRef.current = popup;

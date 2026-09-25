@@ -216,6 +216,29 @@ describe("GoogleOAuthReturnPage", () => {
       { route_id: "one_calendar", action: "connected", result: "success" },
     );
   });
+  it("does not treat a pre-existing read connection as a completed manage upgrade", async () => {
+    vi.useFakeTimers();
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      accessLevel: "manage",
+    });
+    mocks.status.mockResolvedValue({
+      ...connected(),
+      access_level: "read",
+    });
+    mocks.completeConnect.mockReturnValue(new Promise(() => {}));
+    render(<GoogleOAuthReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_001);
+      await Promise.resolve();
+    });
+
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "error" },
+    );
+  });
   it("does not exchange the code after account change while awaiting identity", async () => {
     const token = pending<string>();
     mocks.getIdToken.mockReturnValue(token.promise);

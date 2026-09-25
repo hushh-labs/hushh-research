@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
@@ -204,6 +206,15 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       ],
     });
     addToPKM.mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["financial"], results: [] });
+  });
+
+  it("routes every Memory outcome through the initiating-owner guard", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/profile/pkm-natural-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("memoryOwnerIdRef.current !== ownerId");
+    expect(source.match(/trackEvent\("one_memory_action"/g)).toHaveLength(1);
   });
 
   // Home shows one "Recently learned" row into /one/pkm/recent; the memory

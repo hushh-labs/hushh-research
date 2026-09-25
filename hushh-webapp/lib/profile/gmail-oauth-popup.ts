@@ -18,6 +18,7 @@ export type GmailOAuthPopupAttempt = {
   version: 1;
   attemptId: string;
   startedAt: number;
+  purpose?: "read" | "send";
 };
 
 export type GmailOAuthPopupSettlement = {
@@ -59,7 +60,9 @@ function isAttemptId(value: unknown): value is string {
   );
 }
 
-export function createGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt {
+export function createGmailOAuthPopupAttempt(
+  purpose: "read" | "send" = "read",
+): GmailOAuthPopupAttempt {
   const attemptId =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -68,6 +71,7 @@ export function createGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt {
     version: 1,
     attemptId,
     startedAt: Date.now(),
+    purpose,
   };
 }
 
@@ -108,6 +112,9 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
       isAttemptId(parsed.attemptId) &&
       typeof parsed.startedAt === "number" &&
       Number.isFinite(parsed.startedAt) &&
+      (parsed.purpose === undefined ||
+        parsed.purpose === "read" ||
+        parsed.purpose === "send") &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_ATTEMPT_AGE_MS
     ) {
