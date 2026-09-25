@@ -519,6 +519,48 @@ async def test_owner_selected_files_bind_metadata_only_and_queue_viewer_grants(l
     assert [str(item["document_id"]) for item in grants] == [document_id]
 
 
+async def test_a_failed_owner_selection_does_not_alert_the_owner(live_journey):
+    """A's own share that cannot bind is answered on A's card, never by a push
+    telling A that files are ready to review."""
+    store, _, service_factory, _ = live_journey
+    created = await store.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Chris onboarding recordings"),
+    )
+
+    def reader_factory(*, user_id, require_access):
+        async def bind_matches(**kwargs):
+            await require_access()
+            raise DriveReadError("source_changed")
+
+        return SimpleNamespace(
+            bind_matches=bind_matches,
+            find=AsyncMock(side_effect=AssertionError("searched")),
+            read_matches=AsyncMock(side_effect=AssertionError("content read")),
+            require_current=require_access,
+            _rows=[],
+        )
+
+    service = service_factory(AsyncMock())
+    service.reader_factory = reader_factory
+    service.search_planner = AsyncMock(side_effect=AssertionError("planner"))
+    service.interpreter = AsyncMock(side_effect=AssertionError("interpreter"))
+    chosen = [{"file_id": "chosen-file-1", "name": "Recording.mp4", "mime_type": "video/mp4"}]
+    assert (
+        await service.run_one(
+            user_id="owner", request_id=created["requestId"], owner_selected=chosen
+        )
+        == "unavailable"
+    )
+    assert "document_share_review_ready" not in {
+        item["event_type"] for item in rows(store, "drive_share_events")
+    }
+
+
 async def test_owner_selection_is_refused_without_owner_authority(live_journey):
     store, _, service_factory, _ = live_journey
     service = service_factory(None)
