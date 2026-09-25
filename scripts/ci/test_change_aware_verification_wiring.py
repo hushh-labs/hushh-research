@@ -78,6 +78,11 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
     assert '--set-tags="analytics-candidate=' not in content
     assert "id: promote-paired-backend" not in content
+    assert (
+        'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n'
+        '            && [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ]; then'
+        not in content
+    )
     require(
         ".github/workflows/deploy-uat.yml",
         'release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"',

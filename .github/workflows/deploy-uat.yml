@@ -1058,8 +1058,7 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
-            && [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ]; then
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
