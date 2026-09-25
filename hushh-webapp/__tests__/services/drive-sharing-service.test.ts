@@ -599,6 +599,39 @@ describe("drive question transport", () => {
     ).rejects.toThrow(DriveSharingError);
   });
 
+  it("searches for the Trusted circle and parses who can and cannot receive", async () => {
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        status: "ready",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }],
+        recipients: [{ requestId, name: "Bo", status: "ready", shareRequestId: null }],
+        excluded: [{ name: "Cy", reason: "contacts" }, { name: null, reason: "not_connected" }],
+        message: null,
+      }),
+    );
+    const view = await DriveSharingService.prepareTrustedShare(
+      "vault",
+      { clientRequestId, query: "Chris recordings" },
+      guard,
+    );
+    expect(view.recipients).toEqual([
+      { requestId, name: "Bo", status: "ready", shareRequestId: null },
+    ]);
+    expect(view.excluded.map((item) => item.reason)).toEqual(["contacts", "not_connected"]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      audience: "trusted_circle",
+      clientRequestId,
+      query: "Chris recordings",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ status: "ready", files: [], recipients: [], excluded: [{ name: "x", reason: "because" }] }),
+    );
+    await expect(
+      DriveSharingService.prepareTrustedShare("vault", { clientRequestId, query: "x" }, guard),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
   it("never grants decisions or owner errors to the person who asked", async () => {
     fetcher.mockResolvedValueOnce(
       reply(rawView({ canDecide: true, lastError: "reconnect_required" })),

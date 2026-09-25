@@ -163,11 +163,19 @@ class QueryAllowRequest(DecisionRequest):
 
 
 class OwnerShareCreateRequest(StrictRequest):
-    recipientPersonRef: UUID
+    # Exactly one audience: one connected person, or the owner's Trusted circle.
+    recipientPersonRef: UUID | None = None
+    audience: Literal["person", "trusted_circle"] = "person"
     clientRequestId: UUID
     query: str = Field(min_length=1, max_length=2000)
     # The owner's IANA zone, so "yesterday" means the owner's day.
     timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+    @model_validator(mode="after")
+    def one_audience(self):
+        if (self.audience == "person") != (self.recipientPersonRef is not None):
+            raise ValueError("Choose one person or the Trusted circle.")
+        return self
 
 
 class QueryShareRequest(StrictRequest):
@@ -545,7 +553,17 @@ async def share_query_files(
 @router.post("/owner-shares")
 async def prepare_owner_share(body: OwnerShareCreateRequest, owner: Owner = Depends(_owner)):
     """A searches A's own Drive to share with a connection. Nothing is shared yet."""
-    recipient_user_id = await _person_target(owner, body.recipientPersonRef)
+    if body.audience == "trusted_circle":
+        return await _call(
+            "prepare_trusted_share",
+            owner=owner,
+            factory=_query_service,
+            client_request_id=str(body.clientRequestId),
+            query=body.query,
+            consent_token=owner.token,
+            timezone=body.timeZone or "UTC",
+        )
+    recipient_user_id = await _person_target(owner, cast(UUID, body.recipientPersonRef))
     return await _call(
         "prepare_owner_share",
         owner=owner,

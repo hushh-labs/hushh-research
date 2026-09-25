@@ -57,6 +57,7 @@ describe("AG-UI structured experience registry", () => {
     };
     const expected = {
       type: "one.drive_share_review.v1",
+      audience: "person",
       personRef: proposal.person.personRef,
       personName: "Rahul Sharma",
       clientRequestId: proposal.clientRequestId,
@@ -77,6 +78,22 @@ describe("AG-UI structured experience registry", () => {
     expect(
       parseAgentToolResultExperience("propose_drive_share", { ...proposal, filesRequest: "  " }),
     ).toBeNull();
+  });
+  it("stages a Trusted circle share card with no person", () => {
+    const proposal = {
+      status: "proposal_ready",
+      audience: "trusted_circle",
+      filesRequest: "the Chris onboarding recordings",
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+    };
+    expect(parseAgentToolResultExperience("propose_drive_share", proposal)).toEqual({
+      type: "one.drive_share_review.v1",
+      audience: "trusted_circle",
+      personRef: null,
+      personName: null,
+      clientRequestId: proposal.clientRequestId,
+      filesRequest: "the Chris onboarding recordings",
+    });
   });
   it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
     const result = parseAgentToolResultExperience("discover_person_information", {
