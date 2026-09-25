@@ -89,7 +89,10 @@ function classifySmokeFailure(message) {
 
 function validateRequiredParams(eventName, payload) {
   const required = ["platform", "event_category", "app_version"];
-  if (eventName === "growth_funnel_step_completed") {
+  if (
+    eventName === "growth_funnel_step_completed" ||
+    eventName === "investor_activation_completed"
+  ) {
     required.push("journey", "entry_surface");
   }
   if (eventName === "growth_funnel_step_completed") {
@@ -357,6 +360,7 @@ function parseAnalyticsCollectRequests(request) {
       journey: params.get("ep.journey") || "",
       step: params.get("ep.step") || "",
       result: params.get("ep.result") || "",
+      entry_surface: params.get("ep.entry_surface") || "",
     });
     const queryEventName = parsed.searchParams.get("en");
     if (!measurementId) return [];
@@ -528,14 +532,18 @@ try {
     const activationEvent = await waitForAnalyticsEvent(
       page,
       "investor_activation_completed",
-      (payload) => payload.journey === "investor",
+      (payload) =>
+        payload.journey === "investor" && Boolean(payload.entry_surface),
       defaultTimeoutMs,
     );
     requiredCollectEvents.push(
       { eventName: "recommendation_viewed", params: { result: "success" } },
       {
         eventName: "investor_activation_completed",
-        params: { journey: "investor" },
+        params: {
+          journey: "investor",
+          entry_surface: activationEvent.payload.entry_surface,
+        },
       },
     );
     outputEvents.recommendation_viewed = recommendationEvent.payload;

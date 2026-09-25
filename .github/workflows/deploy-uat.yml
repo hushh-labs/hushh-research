@@ -1452,7 +1452,7 @@ jobs:
               not passkey_associations_required
               or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
           )
-          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true" and browser_authority_ready
+          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"
           analytics_smoke_success = (
               not analytics_smoke_required
               or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"

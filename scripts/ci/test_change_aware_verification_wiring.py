@@ -71,6 +71,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
         'append_unique(blocking, ["analytics_transport_failed"])',
         'if os.environ.get("DEPLOY_BACKEND") == "true":',
+        'analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"',
         '"analytics_smoke": {',
     )
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
@@ -95,6 +96,7 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'process.argv.includes("--full")',
         'params: { journey: "investor", step: "entered" }',
         'params: { route_id: "kai_dashboard" }',
+        'entry_surface: activationEvent.payload.entry_surface',
     )
     package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")
     assert "npm run smoke:analytics:uat -- --full" in package_json
