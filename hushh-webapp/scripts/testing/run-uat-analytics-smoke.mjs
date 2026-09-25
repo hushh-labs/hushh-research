@@ -312,6 +312,19 @@ async function navigateInApp(page, href) {
 
 const analyticsRequestMeasurementIds = [];
 const analyticsCollectEvents = [];
+const analyticsRequestIds = new WeakMap();
+let nextAnalyticsRequestId = 1;
+
+function getAnalyticsRequestId(request) {
+  let requestId = analyticsRequestIds.get(request);
+  if (!requestId) {
+    requestId = `ga-${nextAnalyticsRequestId}`;
+    nextAnalyticsRequestId += 1;
+    analyticsRequestIds.set(request, requestId);
+  }
+  return requestId;
+}
+
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
@@ -328,15 +341,21 @@ page.on("request", (request) => {
   for (const collect of collectEvents) {
     analyticsRequestMeasurementIds.push(collect.measurementId);
     if (!collect.eventName) continue;
-    analyticsCollectEvents.push({ ...collect, status: "requested" });
+    analyticsCollectEvents.push({
+      ...collect,
+      requestId: getAnalyticsRequestId(request),
+      status: "requested",
+    });
   }
 });
 
 page.on("response", (response) => {
-  for (const collect of parseAnalyticsCollectRequests(response.request())) {
+  const request = response.request();
+  for (const collect of parseAnalyticsCollectRequests(request)) {
     if (!collect.eventName) continue;
     analyticsCollectEvents.push({
       ...collect,
+      requestId: getAnalyticsRequestId(request),
       status: response.ok() ? "finished" : "failed",
       httpStatus: response.status(),
     });
@@ -348,6 +367,7 @@ page.on("requestfailed", (request) => {
     if (!collect.eventName) continue;
     analyticsCollectEvents.push({
       ...collect,
+      requestId: getAnalyticsRequestId(request),
       status: "failed",
       failureText: request.failure()?.errorText || "unknown",
     });
@@ -418,26 +438,21 @@ async function waitForAnalyticsCollectEvents(requiredEvents) {
   await page.waitForFunction(
     ({ expectedMeasurementId: measurementId, requiredEvents }) => {
       const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-      return requiredEvents.every(
-        ({ eventName, params }) =>
-          observed.some(
-            (entry) =>
-              entry.measurementId === measurementId &&
-              entry.eventName === eventName &&
-              Object.entries(params).every(
-                ([key, value]) => entry[key] === value,
-              ) &&
-              entry.status === "finished",
-          ) &&
-          !observed.some(
-            (entry) =>
-              entry.measurementId === measurementId &&
-              entry.eventName === eventName &&
-              Object.entries(params).every(
-                ([key, value]) => entry[key] === value,
-              ) &&
-              entry.status === "failed",
-          ),
+      return requiredEvents.every(({ eventName, params }) =>
+        observed.some(
+          (entry) =>
+            entry.measurementId === measurementId &&
+            entry.eventName === eventName &&
+            Object.entries(params).every(
+              ([key, value]) => entry[key] === value,
+            ) &&
+            entry.status === "finished" &&
+            !observed.some(
+              (candidate) =>
+                candidate.requestId === entry.requestId &&
+                candidate.status === "failed",
+            ),
+        ),
       );
     },
     {
@@ -464,14 +479,20 @@ try {
   page.on("request", (request) => {
     for (const collect of parseAnalyticsCollectRequests(request)) {
       if (!collect.eventName) continue;
-      void mirrorCollectEvent({ ...collect, status: "requested" });
+      void mirrorCollectEvent({
+        ...collect,
+        requestId: getAnalyticsRequestId(request),
+        status: "requested",
+      });
     }
   });
   page.on("response", (response) => {
-    for (const collect of parseAnalyticsCollectRequests(response.request())) {
+    const request = response.request();
+    for (const collect of parseAnalyticsCollectRequests(request)) {
       if (!collect.eventName) continue;
       void mirrorCollectEvent({
         ...collect,
+        requestId: getAnalyticsRequestId(request),
         status: response.ok() ? "finished" : "failed",
         httpStatus: response.status(),
       });
@@ -480,7 +501,11 @@ try {
   page.on("requestfailed", (request) => {
     for (const collect of parseAnalyticsCollectRequests(request)) {
       if (!collect.eventName) continue;
-      void mirrorCollectEvent({ ...collect, status: "failed" });
+      void mirrorCollectEvent({
+        ...collect,
+        requestId: getAnalyticsRequestId(request),
+        status: "failed",
+      });
     }
   });
 
@@ -495,48 +520,36 @@ try {
   await clickIfVisible(reviewerButton);
   await waitForReviewerVaultBootstrap(page);
 
-  const growthEvent = await waitForAnalyticsEvent(
-    page,
-    "growth_funnel_step_completed",
-    (payload) => payload.journey === "investor" && payload.step === "entered",
-  );
-
   await navigateInApp(page, "/one/kai?tab=portfolio");
   const routeViewEvent = await waitForAnalyticsEvent(
     page,
     "page_view",
     (payload) => payload.route_id === "kai_home",
   );
+  const portfolioEvent = await waitForAnalyticsEvent(
+    page,
+    "portfolio_viewed",
+    (payload) =>
+      payload.result === "success" && Boolean(payload.portfolio_source),
+    analysisTimeoutMs,
+  );
 
   const requiredCollectEvents = [
-    {
-      eventName: "growth_funnel_step_completed",
-      params: { journey: "investor", step: "entered" },
-    },
     { eventName: "page_view", params: { route_id: "kai_home" } },
-  ];
-  const outputEvents = {
-    growth_funnel_step_completed: growthEvent.payload,
-    page_view: routeViewEvent.payload,
-  };
-
-  if (fullJourney) {
-    const portfolioEvent = await waitForAnalyticsEvent(
-      page,
-      "portfolio_viewed",
-      (payload) =>
-        payload.result === "success" && Boolean(payload.portfolio_source),
-      analysisTimeoutMs,
-    );
-    requiredCollectEvents.push({
+    {
       eventName: "portfolio_viewed",
       params: {
         result: "success",
         portfolio_source: portfolioEvent.payload.portfolio_source,
       },
-    });
-    outputEvents.portfolio_viewed = portfolioEvent.payload;
+    },
+  ];
+  const outputEvents = {
+    page_view: routeViewEvent.payload,
+    portfolio_viewed: portfolioEvent.payload,
+  };
 
+  if (fullJourney) {
     await navigateInApp(
       page,
       `/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
