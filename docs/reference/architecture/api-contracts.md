@@ -1165,6 +1165,18 @@ decompression, keeping the bound meaningful. Redirects and environment proxies
 remain disabled. Ordinary MCP clients retain their existing stream behavior;
 this additional bound is specific to OAuth setup. Synthetic transport tests cover
 exact-limit bodies, overflow, compression refusal and stream closure.
+
+`one_adk/mcp_oauth_connection.py` composes the real SDK Streamable HTTP transport,
+`ClientSession.initialize`, callback handoff and single-use result delivery into
+one live attempt. It binds owner, connector and configuration revision, bounds the
+attempt to five minutes, and closes temporary resources on completion/cancellation.
+No product tool runs during connection. Tests use synthetic OAuth/MCP HTTP responses
+with the real SDK; they do not prove public login, browser/native return or a real
+Workspace server. The future HTTP owner must validate registered return URIs and
+verified identity, bound the number of live attempts, and fail closed if a callback
+reaches another worker or a restarted process. The handshake closes local streams
+without an OAuth-retried server-session DELETE; remote session expiry remains the
+server's responsibility and needs provider acceptance.
 The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
 initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
