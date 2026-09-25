@@ -7876,7 +7876,14 @@ describe("OneLocationAgentPage", () => {
     const results = await screen.findByRole("dialog", { name: "Contact sync results" });
     expect(within(results).getByText("Asha Rao")).toBeTruthy();
     expect(within(results).getByText("Connected now")).toBeTruthy();
-    expect(within(results).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    expect(
+      within(results).getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      within(results).queryByRole("button", {
+        name: "Choose Google account",
+      }),
+    ).toBeNull();
     expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(1);
     fireEvent.click(within(results).getByRole("button", { name: "Close" }));
     if (entry === "onboarding") {
@@ -8698,7 +8705,7 @@ describe("OneLocationAgentPage", () => {
           finishRetry = resolve;
         }),
     );
-    const retry = within(sheet).getByRole("button", { name: "Choose Google account" });
+    const retry = within(sheet).getByRole("button", { name: "Sync again" });
     await act(async () => {
       fireEvent.click(retry);
       fireEvent.click(retry);
@@ -8707,7 +8714,14 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByRole("dialog", { name: "Checking your Google contacts" })).toBeTruthy();
     await act(async () => finishRetry(contactSyncOutcomeFixture({ sourcePlatform: "google" })));
     const updatedSheet = await screen.findByRole("dialog", { name: "Contact sync results" });
-    expect(within(updatedSheet).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    expect(
+      within(updatedSheet).getByRole("link", {
+        name: "Proceed to connections",
+      }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      within(updatedSheet).queryByRole("button", { name: "Sync again" }),
+    ).toBeNull();
     expect(
       within(updatedSheet).queryByText("Only part of your contact list was checked."),
     ).toBeNull();
