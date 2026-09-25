@@ -967,6 +967,13 @@ export function LocationImmersiveMap({
   useLayoutEffect(() => {
     const wasRendererReady = previousRendererReadyRef.current;
     previousRendererReadyRef.current = rendererReady;
+    if (!wasRendererReady && rendererReady) {
+      // The consent screen's neutral world zoom is not authority for sizing a
+      // private owner circle. Wait for a consented camera target/report before
+      // the fallback becomes eligible to draw.
+      setSettledCameraZoom(null);
+      return;
+    }
     if (!wasRendererReady || rendererReady) return;
 
     // Consent revocation is fail-closed for the whole third-party renderer,
@@ -3649,6 +3656,19 @@ export function LocationImmersiveMap({
           fittingBox,
         );
       } catch {
+        const pendingInitialFrame = initialFrameCommandRef.current;
+        if (
+          pendingInitialFrame &&
+          !framedInitialMarkersRef.current &&
+          mapRef.current === map &&
+          rendererReadyRef.current &&
+          cameraCommandGenerationRef.current === cameraCommandGeneration
+        ) {
+          // A rejected fit never took ownership of the viewport. Preserve the
+          // first-load frame exactly as rejected setCamera commands do.
+          pendingInitialFrame.generation = cameraCommandGeneration;
+          pendingInitialFrame.cameraRevision = settledCameraRevisionRef.current;
+        }
         toast.error("Map could not frame everyone.");
       }
       return;

@@ -697,7 +697,7 @@ describe("LocationImmersiveMap demo experience", () => {
     ).toBeInTheDocument();
   });
 
-  it("never sends a cached private coordinate to the renderer before consent", async () => {
+  it("never carries a cached private coordinate or neutral zoom across consent", async () => {
     experienceHarness.demoMode = false;
     writeLocationWorkspaceMemory("test-user", {
       myLocationPoint: {
@@ -726,6 +726,39 @@ describe("LocationImmersiveMap demo experience", () => {
         coordinate: { lat: 25.46, lng: 81.85 },
       }),
     );
+
+    await waitFor(() =>
+      expect(mapHarness.map.setOnCameraIdleListener).toHaveBeenCalled(),
+    );
+    await act(async () => {
+      mapHarness.listeners.cameraIdle?.({
+        bounds: {
+          northeast: { lat: 85, lng: 180 },
+          southwest: { lat: -85, lng: -180 },
+          center: { lat: 0, lng: 0 },
+        },
+        latitude: 0,
+        longitude: 0,
+        zoom: 2,
+        bearing: 0,
+        tilt: 0,
+      });
+      await Promise.resolve();
+    });
+    mapHarness.map.setCamera.mockImplementationOnce(async () => {
+      await new Promise<void>(() => undefined);
+    });
+    mapHarness.map.addCircles.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.46, lng: 81.85 },
+        }),
+      );
+    });
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -3664,6 +3697,14 @@ describe("LocationImmersiveMap reported map defects", () => {
     const locate = screen.getByTestId("one-location-map-locate");
     fireEvent.click(locate);
     await waitFor(() => expect(locate).toHaveAttribute("aria-busy", "false"));
+
+    mapHarness.map.fitBounds.mockRejectedValueOnce(
+      new Error("native fit transaction rejected"),
+    );
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Map could not frame everyone."),
+    );
 
     // Map creation may report its neutral camera while clustering is pending.
     // That non-gesture report must renew, not permanently stale, the shared
