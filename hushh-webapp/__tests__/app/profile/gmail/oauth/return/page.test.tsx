@@ -256,6 +256,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
           version: 1,
           attemptId: "gmail-send-upgrade",
           startedAt: Date.now(),
+          ownerId: "user-123",
           purpose: "send",
         }),
       );
@@ -406,6 +407,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         version: 1,
         attemptId: "gmail-popup-test",
         startedAt: Date.now(),
+        ownerId: "user-123",
       }),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {

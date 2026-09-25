@@ -414,7 +414,7 @@ function connectedSystemsUserMessage(error: unknown): string {
   return message;
 }
 
-function mutationResultError(value: unknown): string | null {
+export function mutationResultError(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const status =
@@ -423,11 +423,18 @@ function mutationResultError(value: unknown): string | null {
     typeof record.resultClass === "string"
       ? record.resultClass.toLowerCase()
       : "";
-  if (status !== "failed" && resultClass !== "failed") return null;
+  const terminalFailure = ["failed", "partial"];
+  if (
+    !terminalFailure.includes(status) &&
+    !terminalFailure.includes(resultClass)
+  )
+    return null;
   return (
     cleanFieldValue(record.errorMessage) ||
     cleanFieldValue(record.errorCode) ||
-    "CRM request failed."
+    (status === "partial" || resultClass === "partial"
+      ? "CRM request could not be fully verified."
+      : "CRM request failed.")
   );
 }
 

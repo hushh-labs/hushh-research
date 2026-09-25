@@ -6944,7 +6944,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           const attempt = createGoogleOAuthPopupAttempt(
                             "calendar",
-                            { accessLevel },
+                            { ownerId: operationOwnerId, accessLevel },
                           );
                           if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
                             throw new Error(

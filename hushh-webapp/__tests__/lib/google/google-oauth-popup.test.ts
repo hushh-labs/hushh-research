@@ -17,6 +17,7 @@ describe("openGoogleOAuthPopup", () => {
       attemptId: "synthetic-calendar-attempt",
       service: "calendar",
       startedAt: Date.now(),
+      ownerId: "synthetic-owner",
     };
     window.sessionStorage.setItem(
       "one_google_oauth_popup_attempt_v1",
@@ -30,6 +31,7 @@ describe("openGoogleOAuthPopup", () => {
     const attempt = {
       version: 1 as const, attemptId: "synthetic-same-window-attempt",
       service: "calendar" as const, startedAt: Date.now(),
+      ownerId: "synthetic-owner",
     };
     expect(persistGoogleOAuthSameWindowAttempt(attempt)).toBe(true);
     expect(readGoogleOAuthPopupAttempt()).toEqual({ ...attempt, returnMode: "same_window" });

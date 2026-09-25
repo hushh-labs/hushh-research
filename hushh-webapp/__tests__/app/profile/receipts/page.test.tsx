@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         version: 1 as const,
         attemptId: "gmail-popup-test",
         startedAt: 1,
+        ownerId: "user-123",
       },
       popup: {
         closed: false,
@@ -1173,6 +1174,57 @@ describe("ProfileReceiptsPage", () => {
         ).toHaveBeenCalledWith({ code: "USER_CANCELLED" }, "user-123");
       },
       { timeout: 1_500 },
+    );
+  });
+
+  it("honors a failed popup settlement even when an older Mail connection remains", async () => {
+    const disconnectedView = makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    disconnectedView.refreshStatus.mockResolvedValue({
+      ...disconnectedView.status,
+      connected: true,
+      status: "connected",
+    });
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedView);
+    mocks.gmailOAuthPopup.consumeStoredSettlement.mockReturnValue({
+      schemaVersion: 1,
+      type: "gmail_oauth_settlement",
+      attemptId: "gmail-popup-test",
+      outcome: "failed",
+      message: "Mail permission was not granted.",
+    });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalled());
+    mocks.gmailOAuthPopup.popup.closed = true;
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "Mail permission was not granted.",
+      ),
+    );
+    expect(mocks.toast.success).not.toHaveBeenCalledWith(
+      "Mail connected. You can finish setup when ready.",
     );
   });
 

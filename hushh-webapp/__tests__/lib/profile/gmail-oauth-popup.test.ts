@@ -37,6 +37,7 @@ function makeAttempt(): GmailOAuthPopupAttempt {
     version: 1,
     attemptId: "gmail-ios-test",
     startedAt: Date.now(),
+    ownerId: "user-123",
   };
 }
 

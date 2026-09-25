@@ -12,6 +12,7 @@ export type GoogleOAuthPopupAttempt = {
   attemptId: string;
   service: GoogleOAuthPopupService;
   startedAt: number;
+  ownerId: string;
   returnMode?: "popup" | "same_window";
   accessLevel?: "read" | "manage";
 };
@@ -59,13 +60,14 @@ function storage(target: Window | null | undefined): Storage | null {
 
 export function createGoogleOAuthPopupAttempt(
   service: GoogleOAuthPopupService,
-  options: { accessLevel?: "read" | "manage" } = {},
+  options: { ownerId: string; accessLevel?: "read" | "manage" },
 ): GoogleOAuthPopupAttempt {
   return {
     version: 1,
     attemptId: crypto.randomUUID(),
     service,
     startedAt: Date.now(),
+    ownerId: options.ownerId,
     ...(options.accessLevel ? { accessLevel: options.accessLevel } : {}),
   };
 }
@@ -116,6 +118,9 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
       (parsed.service === "gmail_send" ||
         parsed.service === "calendar") &&
       validId(parsed.attemptId) &&
+      typeof parsed.ownerId === "string" &&
+      parsed.ownerId.length > 0 &&
+      parsed.ownerId.length <= 256 &&
       typeof parsed.startedAt === "number" &&
       (parsed.returnMode === undefined ||
         parsed.returnMode === "popup" ||

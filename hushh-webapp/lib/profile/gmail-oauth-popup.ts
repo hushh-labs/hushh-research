@@ -18,6 +18,7 @@ export type GmailOAuthPopupAttempt = {
   version: 1;
   attemptId: string;
   startedAt: number;
+  ownerId: string;
   purpose?: "read" | "send";
 };
 
@@ -61,6 +62,7 @@ function isAttemptId(value: unknown): value is string {
 }
 
 export function createGmailOAuthPopupAttempt(
+  ownerId: string,
   purpose: "read" | "send" = "read",
 ): GmailOAuthPopupAttempt {
   const attemptId =
@@ -71,6 +73,7 @@ export function createGmailOAuthPopupAttempt(
     version: 1,
     attemptId,
     startedAt: Date.now(),
+    ownerId,
     purpose,
   };
 }
@@ -110,6 +113,9 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
     if (
       parsed.version === 1 &&
       isAttemptId(parsed.attemptId) &&
+      typeof parsed.ownerId === "string" &&
+      parsed.ownerId.length > 0 &&
+      parsed.ownerId.length <= 256 &&
       typeof parsed.startedAt === "number" &&
       Number.isFinite(parsed.startedAt) &&
       (parsed.purpose === undefined ||

@@ -58,6 +58,7 @@ const attempt = (service = "calendar") => ({
   attemptId: "synthetic-attempt",
   version: 1,
   startedAt: Date.now(),
+  ownerId: "synthetic-owner",
 });
 const sameWindowAttempt = () => ({ ...attempt(), returnMode: "same_window" as const });
 function pending<T>() {
@@ -181,8 +182,22 @@ describe("GoogleOAuthReturnPage", () => {
     ));
     expect(mocks.trackEvent).toHaveBeenCalledTimes(1);
     expect(mocks.settle).not.toHaveBeenCalled();
-    expect(mocks.clearAttempt).toHaveBeenCalledOnce();
+    expect(mocks.clearAttempt).toHaveBeenCalled();
     expect(mocks.completeConnect).not.toHaveBeenCalled();
+  });
+  it("does not attribute an earlier owner's provider failure to the active owner", async () => {
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      ownerId: "previous-owner",
+    });
+    mocks.searchGet.mockImplementation((key: string) =>
+      key === "error" ? "access_denied" : null,
+    );
+    render(<GoogleOAuthReturnPage />);
+    expect(await screen.findByText(/same account/)).toBeTruthy();
+    expect(mocks.trackEvent).not.toHaveBeenCalled();
+    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.clearAttempt).toHaveBeenCalled();
   });
   it("consumes once and still settles under Strict Mode", async () => {
     render(

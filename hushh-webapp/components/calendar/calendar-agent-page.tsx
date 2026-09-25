@@ -317,7 +317,10 @@ export function CalendarAgentPage({
       // Create the blank window while this click still has browser gesture
       // authority. If storage or the popup is unavailable, continue with the
       // existing same-window callback contract instead of stranding the user.
-      const attempt = createGoogleOAuthPopupAttempt("calendar", { accessLevel });
+      const attempt = createGoogleOAuthPopupAttempt("calendar", {
+        ownerId: operationOwnerId,
+        accessLevel,
+      });
       const popup = openGoogleOAuthPopup(attempt);
       const start = await GoogleCalendarService.startConnect({
         idToken,

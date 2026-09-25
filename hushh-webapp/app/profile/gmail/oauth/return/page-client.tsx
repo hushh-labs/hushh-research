@@ -323,6 +323,11 @@ export default function ProfileGmailOAuthReturnPageClient({
     }
 
     const popupAttempt = readGmailOAuthPopupAttempt();
+    if (popupAttempt && popupAttempt.ownerId !== user.uid) {
+      clearGmailOAuthPopupAttempt();
+      window.setTimeout(() => window.close(), 0);
+      return;
+    }
     const requestedPurpose = popupAttempt?.purpose ?? "read";
     const statusSatisfiesPurpose = (
       status: Awaited<ReturnType<typeof GmailReceiptsService.getStatus>> | null,

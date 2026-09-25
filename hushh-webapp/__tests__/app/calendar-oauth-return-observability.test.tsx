@@ -63,7 +63,11 @@ describe("Calendar same-window OAuth observability", () => {
   });
 
   it("owns popup completion telemetry before notifying the workspace", async () => {
-    mocks.readAttempt.mockReturnValue({ service: "calendar", attemptId: "attempt-1" });
+    mocks.readAttempt.mockReturnValue({
+      service: "calendar",
+      attemptId: "attempt-1",
+      ownerId: "owner",
+    });
     render(<GoogleOAuthReturnPage />);
     await waitFor(() => expect(mocks.settle).toHaveBeenCalled());
     expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(

@@ -92,6 +92,11 @@ function GoogleOAuthReturnContent() {
       attempt?.service === "calendar" && attempt.returnMode === "same_window";
     const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
       if (!current || authority.current.generation !== effectGeneration) return;
+      if (attempt && attempt.ownerId !== authority.current.ownerId) {
+        if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+        setMessage("Please return to connections and start again with the same account.");
+        return;
+      }
       setMessage(text);
       if (
         flow.current &&
@@ -102,7 +107,7 @@ function GoogleOAuthReturnContent() {
       if (terminalOutcomeRecorded.current) return;
       terminalOutcomeRecorded.current = true;
       if (isSameWindowCalendar) clearGoogleOAuthAttempt();
-      if (!attempt || attempt.service === "calendar") {
+      if (attempt?.service === "calendar") {
         trackEvent("one_calendar_action", {
           route_id: "one_calendar",
           action: "connected",
