@@ -2233,11 +2233,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
-    expect(remove.className).toContain("h-9");
-    expect(remove.className).toContain("min-h-9");
+    expect(remove.className).toContain("h-11");
+    expect(remove.className).toContain("min-h-11");
     expect(remove.className).toContain("rounded-xl");
     expect(remove.className).toContain("text-destructive");
-    expect(remove.className).not.toContain("h-11");
+    expect(remove.className).not.toContain("h-9");
     expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
@@ -2261,8 +2261,8 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(new Set(confirm.className.split(/\s+/)).has("bg-destructive")).toBe(
       false,
     );
-    expect(confirm.className).toContain("h-9");
-    expect(cancel.className).toContain("h-9");
+    expect(confirm.className).toContain("h-11");
+    expect(cancel.className).toContain("h-11");
     expect(confirm.parentElement).toBe(cancel.parentElement);
   });
 
@@ -2347,8 +2347,8 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Cancel your request to Smirthika Dharmalingam",
     });
     expect(cancel.textContent).toBe("Cancel");
-    expect(cancel.className).toContain("h-9");
-    expect(cancel.className).toContain("min-h-9");
+    expect(cancel.className).toContain("h-11");
+    expect(cancel.className).toContain("min-h-11");
     expect(cancel.className).toContain("rounded-xl");
     expect(screen.queryByText("Cancel request")).toBeNull();
 

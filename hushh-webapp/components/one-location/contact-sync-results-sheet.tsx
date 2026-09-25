@@ -21,7 +21,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { OneLocationContactSignalResult } from "@/lib/one-location/contact-signals";
+import {
+  describeContactSyncOutcome,
+  type OneLocationContactSignalResult,
+} from "@/lib/one-location/contact-signals";
 import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
 import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
@@ -168,6 +171,23 @@ export function ContactSyncResultsSheet({
     result.sourcePlatform === "google" &&
     !result.partial &&
     result.totalContacts === 0;
+  const syncOutcome = describeContactSyncOutcome(result);
+  const recoveryLabel = (() => {
+    if (
+      result.sourcePlatform === "google" &&
+      (emptyGoogleBook || result.truncated)
+    ) {
+      return "Choose Google account";
+    }
+    if (syncOutcome.remedy === "pick_more") return "Check more";
+    if (
+      syncOutcome.remedy === "sync_again" ||
+      syncOutcome.remedy === "open_settings"
+    ) {
+      return "Sync again";
+    }
+    return null;
+  })();
 
   const connectedCount =
     result.autoConnectedCount + result.alreadyConnectedCount;
@@ -405,12 +425,25 @@ export function ContactSyncResultsSheet({
         <div
           className={cn(
             "mt-4 grid grid-cols-1 gap-2",
-            !emptyGoogleBook && "sm:grid-cols-2",
+            (recoveryLabel || !emptyGoogleBook) && "sm:grid-cols-2",
           )}
         >
+          {recoveryLabel ? (
+            <Button
+              type="button"
+              disabled={syncing}
+              onClick={() => void onSyncAgain()}
+              className="h-11 rounded-full"
+            >
+              {syncing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {recoveryLabel}
+            </Button>
+          ) : null}
           <Button
             asChild
-            variant={emptyGoogleBook ? "default" : "outline"}
+            variant={recoveryLabel || !emptyGoogleBook ? "outline" : "default"}
             className="h-11 rounded-full"
           >
             <Link

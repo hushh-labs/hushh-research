@@ -148,7 +148,7 @@ describe("FeedActionableRow", () => {
     }
   });
 
-  it("uses short mobile decision labels without losing the full accessible action", () => {
+  it("keeps the requested duration visible in compact mobile decision labels", () => {
     render(
       <FeedActionableRow
         item={actionable({
@@ -177,11 +177,44 @@ describe("FeedActionableRow", () => {
     const deny = screen.getByRole("button", {
       name: "Deny (tap again to confirm)",
     });
-    expect(approve.querySelector(".sm\\:hidden")).toHaveTextContent("Accept");
+    expect(approve.querySelector(".sm\\:hidden")).toHaveTextContent(
+      "Accept · 4h",
+    );
     expect(approve.querySelector(".hidden.sm\\:inline")).toHaveTextContent(
       "Approve 4 hours more",
     );
     expect(deny.querySelector(".sm\\:hidden")).toHaveTextContent("Decline");
+  });
+
+  it("keeps an until-stopped approval explicit on mobile", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "approve",
+              label: "Approve until you stop",
+              tone: "primary",
+              run: vi.fn(),
+            },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    const approve = screen.getByRole("button", {
+      name: "Approve until you stop",
+    });
+    expect(approve.querySelector(".sm\\:hidden")).toHaveTextContent(
+      "Accept · Until off",
+    );
   });
 
   it("keeps the destructive action in the accessible confirmation name", () => {

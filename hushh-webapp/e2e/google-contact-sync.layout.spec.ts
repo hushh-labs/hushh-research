@@ -23,7 +23,10 @@ test.beforeAll(async () => {
           if (id === "\0fixture-capacitor")
             return "export const HushhContacts = {};";
           if (id === "\0fixture-signals")
-            return `export async function syncOneLocationContactSignals(options) {
+            return `export function describeContactSyncOutcome() {
+            return {title: "No eligible contacts matched", remedy: null};
+          }
+          export async function syncOneLocationContactSignals(options) {
             globalThis.contactFixture.syncCalls++;
             const read = await options.source({limit: 500});
             return {matches: [], matchedUserIds: [], totalContacts: read.contacts.length,
@@ -206,6 +209,9 @@ for (const width of [393, 1440]) {
     ).toHaveAttribute("href", "/one/connect?tab=all");
     await expect(
       results.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveClass(/bg-\[[^\]]*var\(--app-neutral-fill\)/);
+    await expect(
+      results.getByRole("button", { name: "Choose Google account" }),
     ).toHaveClass(/bg-\[[^\]]*var\(--app-accent\)/);
     await expect(
       results.getByRole("button", { name: "Invite contacts" }),

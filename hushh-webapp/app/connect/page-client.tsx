@@ -300,9 +300,9 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "ui-text-compact-button-label h-9 min-h-9 rounded-xl px-2.5 text-[13px] leading-4";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
-  "ui-text-compact-button-label h-9 min-h-9 rounded-xl px-2.5 text-[13px] leading-4";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_REMOVE_BUTTON_CLASSNAME =
   "text-destructive hover:bg-destructive/10 hover:text-destructive";
 const CONNECT_REMOVE_CONFIRM_BUTTON_CLASSNAME =

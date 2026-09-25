@@ -117,6 +117,21 @@ function mobileDecisionLabel(action: FeedActionButton): string | undefined {
     action.tone === "primary" &&
     /\b(accept|approve|confirm)\b/.test(label)
   ) {
+    if (/\buntil you stop\b/.test(label)) {
+      return "Accept · Until off";
+    }
+    const duration = label.match(
+      /\b(\d+)\s*(minute|minutes|min|hour|hours|hr|hrs|day|days)\b/,
+    );
+    if (duration) {
+      const unit =
+        duration[2]!.startsWith("hour") || duration[2]!.startsWith("hr")
+          ? "h"
+          : duration[2]!.startsWith("day")
+            ? "d"
+            : "m";
+      return `Accept · ${duration[1]}${unit}`;
+    }
     return "Accept";
   }
   return undefined;

@@ -251,18 +251,35 @@ describe("ContactSyncResultsSheet", () => {
   });
 
   it.each([
-    { limited: true, sourcePlatform: "ios" as const },
-    { limited: true, sourcePlatform: "web" as const },
-    { truncated: true, sourcePlatform: "google" as const },
+    {
+      limited: true,
+      sourcePlatform: "ios" as const,
+      recoveryLabel: "Sync again",
+    },
+    {
+      limited: true,
+      sourcePlatform: "web" as const,
+      recoveryLabel: "Check more",
+    },
+    {
+      truncated: true,
+      sourcePlatform: "google" as const,
+      recoveryLabel: "Choose Google account",
+    },
   ])(
-    "explains a partial $sourcePlatform read and lets the user continue to connections",
+    "explains a partial $sourcePlatform read with recovery and a way to continue",
     (partial) => {
       const onSyncAgain = vi.fn();
       const onOpenChange = vi.fn();
       const props = {
         open: true,
         onOpenChange,
-        result: result({ ...partial, partial: true }),
+        result: result({
+          limited: partial.limited ?? false,
+          truncated: partial.truncated ?? false,
+          sourcePlatform: partial.sourcePlatform,
+          partial: true,
+        }),
         syncing: false,
         onSyncAgain,
         onInvite: vi.fn(),
@@ -273,6 +290,11 @@ describe("ContactSyncResultsSheet", () => {
       expect(
         screen.getByText("Only part of your contact list was checked."),
       ).toBeInTheDocument();
+      const recovery = screen.getByRole("button", {
+        name: partial.recoveryLabel,
+      });
+      fireEvent.click(recovery);
+      expect(onSyncAgain).toHaveBeenCalledTimes(1);
       const proceed = screen.getByRole("link", {
         name: "Proceed to connections",
       });
@@ -282,11 +304,13 @@ describe("ContactSyncResultsSheet", () => {
       });
       fireEvent.click(proceed);
       expect(onOpenChange).toHaveBeenCalledWith(false);
-      expect(onSyncAgain).not.toHaveBeenCalled();
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
       expect(
         screen.getByRole("link", { name: "Proceed to connections" }),
       ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: partial.recoveryLabel }),
+      ).toBeDisabled();
     },
   );
 
@@ -390,6 +414,9 @@ describe("ContactSyncResultsSheet", () => {
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
     ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
 
     view.rerender(
       <ContactSyncResultsSheet
@@ -410,7 +437,9 @@ describe("ContactSyncResultsSheet", () => {
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
     ).toHaveAttribute("href", "/one/connect?tab=all");
-    expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
   });
 
   it("shows connected provenance and no request action for auto-connected rows", () => {
