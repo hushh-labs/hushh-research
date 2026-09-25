@@ -154,7 +154,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
           disabled={entry.action.disabled}
           onClick={entry.action.onClick}
         >
-          {entry.action.label.startsWith("Reconnect ") ? "Reconnect" : entry.action.label.startsWith("Connect ") ? "Connect" : "Manage"}
+          {entry.action.label.startsWith("Reconnect ") ? "Reconnect" : entry.action.label.startsWith("Connect ") ? "Connect" : entry.action.label.startsWith("Retry ") ? "Retry" : "Manage"}
         </button>
       ) : entry.trailingText ? (
         <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
@@ -1288,15 +1288,22 @@ function OwnerConnectorsPanel({
           : calendar.status?.status === "needs_reauth"
             ? "Reconnect needed"
             : undefined,
-      action: {
-        label: calendar.loaded && !calendar.error && !calendar.connected
-          ? calendar.status?.status === "needs_reauth" ? "Reconnect Calendar" : "Connect Calendar"
-          : "Manage Calendar",
+      action: !calendar.loaded ? undefined : {
+        label: calendar.error
+          ? "Retry Calendar"
+          : !calendar.connected
+            ? calendar.status?.status === "needs_reauth" ? "Reconnect Calendar" : "Connect Calendar"
+            : "Manage Calendar",
         onClick: () => {
+          if (calendar.error) {
+            calendar.refresh();
+            return;
+          }
           onBack();
           router.push(ROUTES.CALENDAR);
         },
       },
+      trailingText: !calendar.loaded ? "Checking…" : undefined,
     },
     {
       id: "plaid",
