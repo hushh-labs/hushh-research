@@ -104,7 +104,7 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'status: response.ok() ? "finished" : "failed"',
         'page.on("requestfailed", (request) => {',
         'entry.status === "finished"',
-        'entry.status === "failed"',
+        'candidate.status === "failed"',
     )
     content = (ROOT / path).read_text(encoding="utf-8")
     require(
@@ -114,13 +114,15 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         '`/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`',
         'payload.route_id === "kai_home"',
         'process.argv.includes("--full")',
-        'params: { journey: "investor", step: "entered" }',
         'params: { route_id: "kai_home" }',
         '"portfolio_viewed"',
         'payload.result === "success" && Boolean(payload.portfolio_source)',
         'portfolio_source: portfolioEvent.payload.portfolio_source',
+        'requestId: getAnalyticsRequestId(request)',
+        'candidate.requestId === entry.requestId',
         'entry_surface: activationEvent.payload.entry_surface',
     )
+    assert 'payload.journey === "investor" && payload.step === "entered"' not in content
     package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")
     assert "npm run smoke:analytics:uat -- --full" in package_json
 
