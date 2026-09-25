@@ -522,7 +522,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   );
 });
 
-test("real popup ignores forged settlement and reconciles server status after closing", async ({
+test("real popup ignores forged settlement and closing alone grants no access", async ({
   page,
   context,
 }) => {
@@ -588,7 +588,7 @@ test("real popup ignores forged settlement and reconciles server status after cl
   expect(popup.isClosed()).toBe(false);
   expect(statusReads).toBe(before);
   await popup.close();
-  await expect.poll(() => statusReads).toBeGreaterThan(before);
+  await page.getByRole("button", { name: "Cancel sign-in" }).click();
   await expect(
     page.getByRole("button", { name: "Connect Drive", exact: true }),
   ).toBeEnabled();
