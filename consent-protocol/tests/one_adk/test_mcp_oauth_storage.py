@@ -19,7 +19,15 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "token_failure",
-    [False, True, "callback_timeout", "issuer_mismatch", "private_token_endpoint", "missing_pkce"],
+    [
+        False,
+        True,
+        "callback_timeout",
+        "issuer_mismatch",
+        "private_token_endpoint",
+        "missing_pkce",
+        "invalid_metadata",
+    ],
 )
 async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
     caplog, token_failure
@@ -69,6 +77,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                     else "https://auth.example/token",
                     "registration_endpoint": "https://auth.example/register",
                     "response_types_supported": ["code"],
+                    "scopes_supported": 7 if token_failure == "invalid_metadata" else ["read"],
                     "code_challenge_methods_supported": []
                     if token_failure == "missing_pkce"
                     else ["S256"],
@@ -129,7 +138,12 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                 if token_failure is True:
                     assert "MCP OAuth protocol event" in caplog.text
                     assert "/token" in visited
-                if token_failure in {"issuer_mismatch", "private_token_endpoint", "missing_pkce"}:
+                if token_failure in {
+                    "issuer_mismatch",
+                    "private_token_endpoint",
+                    "missing_pkce",
+                    "invalid_metadata",
+                }:
                     assert any("/.well-known/" in path for path in visited)
                     assert "/register" not in visited
                     assert "/token" not in visited
@@ -148,7 +162,12 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                 )
             ).status_code == 200
         token_ref, client_ref = storage._tokens, storage._client
-        result = await storage.take_result()
+        assert provider.context.current_tokens is not None
+        assert provider.context.client_info is not None
+        result = await provider.take_result()
+        assert provider.context.current_tokens is None
+        assert provider.context.client_info is None
+        assert provider.context.oauth_metadata is None
         assert result.tokens.access_token == "synthetic-access"
         assert result.tokens.refresh_token == "synthetic-refresh"
         assert result.client_info.client_id == "synthetic-client"
@@ -159,7 +178,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
         with pytest.raises(ValueError, match="expired or changed"):
             await storage.take_result()
     finally:
-        storage.close()
+        provider.close()
 
 
 @pytest.mark.asyncio

@@ -1142,6 +1142,12 @@ to the exact advertised issuer before SDK URL normalization, requires S256 and
 validates public HTTPS endpoint syntax before registration or authorization.
 Metadata changes clear previously admitted endpoints; metadata GETs cannot carry
 Authorization/Cookie headers, and credential POSTs use admitted endpoints only.
+Admission validates the complete SDK `OAuthMetadata` model, then requires the
+SDK's accepted metadata to equal that admitted model before registration or
+authorization. This prevents malformed optional fields from causing a silent
+SDK fallback beneath a raw-JSON endpoint whitelist. Successful delivery uses
+the provider's `take_result()`, not the storage method directly: its terminal
+cleanup clears both expiring storage references and SDK token/client copies.
 Failure, cancellation and generator abandonment
 clear the temporary storage. The synthetic tests exercise these boundaries, not
 a public callback API. Before activation, bind callback owner/attempt/issuer,

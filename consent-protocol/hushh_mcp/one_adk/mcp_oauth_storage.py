@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from mcp.client.auth.oauth2 import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
@@ -141,6 +141,32 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
         """Caller closes the client; no environment proxies or automatic redirects."""
         return create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
 
+    def close(self) -> None:
+        if isinstance(self.context.storage, EphemeralMcpOAuthStorage):
+            self.context.storage.close()
+        self.context.clear_tokens()
+        self.context.client_info = None
+        self.context.oauth_metadata = None
+        self.context.protected_resource_metadata = None
+        self.context.auth_server_url = None
+        self._admitted_metadata = None
+        self._admitted_endpoints = {}
+        self._advertised_issuer = None
+
+    async def take_result(self) -> OAuthVaultResult:
+        """Deliver once, clearing SDK copies as well as the handoff storage."""
+        try:
+            if not isinstance(self.context.storage, EphemeralMcpOAuthStorage):
+                raise McpOAuthConnectError()
+            return await self.context.storage.take_result()
+        finally:
+            self.close()
+
+    def _check_sdk_metadata(self) -> None:
+        admitted = getattr(self, "_admitted_metadata", None)
+        if admitted is None or self.context.oauth_metadata != admitted:
+            raise McpOAuthConnectError()
+
     def _admit_metadata_response(self, outgoing: httpx.Request, response: httpx.Response) -> None:
         if (
             outgoing.method != "GET"
@@ -159,12 +185,17 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
             # Preserve the exact advertised issuer, before SDK URL normalization.
             self._advertised_issuer = servers[0]
             self._admitted_endpoints = {}
+            self._admitted_metadata = None
         elif "issuer" in payload:
             issuer = getattr(self, "_advertised_issuer", None)
             if issuer is None or payload["issuer"] != issuer:
                 raise McpOAuthConnectError()
             if "S256" not in (payload.get("code_challenge_methods_supported") or []):
                 raise McpOAuthConnectError()
+            # Validate the complete SDK contract before admitting any endpoint.
+            # Otherwise a malformed optional field can make the SDK fall back
+            # while our raw JSON whitelist still appears to authorize it.
+            metadata = OAuthMetadata.model_validate(payload)
             endpoints = {}
             for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
                 value = payload.get(key)
@@ -175,8 +206,10 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                 validate_mcp_endpoint(value)
                 endpoints[key] = value
             self._admitted_endpoints = endpoints
+            self._admitted_metadata = metadata
 
     async def _perform_authorization_code_grant(self):
+        self._check_sdk_metadata()
         if not getattr(self, "_admitted_endpoints", None):
             raise McpOAuthConnectError()
         return await super()._perform_authorization_code_grant()
@@ -215,6 +248,7 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                     validate_mcp_endpoint(str(outgoing.url))
                     if outgoing is not request:
                         if outgoing.method == "POST":
+                            self._check_sdk_metadata()
                             endpoints = getattr(self, "_admitted_endpoints", {})
                             if str(outgoing.url) not in {
                                 endpoints.get("token_endpoint"),
@@ -235,14 +269,10 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                     except StopAsyncIteration:
                         return
         except (asyncio.CancelledError, GeneratorExit):
-            storage.close()
-            self.context.clear_tokens()
-            self.context.client_info = None
+            self.close()
             raise
         except Exception:
-            storage.close()
-            self.context.clear_tokens()
-            self.context.client_info = None
+            self.close()
             raise McpOAuthConnectError() from None
         finally:
             if flow is not None:
