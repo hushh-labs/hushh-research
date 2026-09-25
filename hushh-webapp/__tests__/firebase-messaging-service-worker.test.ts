@@ -249,9 +249,9 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
 
     expect(harness.shown).toHaveLength(1);
     expect(harness.shown[0]).toEqual({
-      title: "Document request",
+      title: "Files ready to review",
       options: expect.objectContaining({
-        body: "Open One to review.",
+        body: "Open One to choose what to share.",
         requireInteraction: false,
         renotify: false,
         silent: false,
@@ -505,6 +505,25 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     expect(harness.openedUrls).toEqual([
       "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
     ]);
+  });
+
+  it.each([
+    ["document_share_question", "Drive question"],
+    ["document_share_answered", "Drive question answered"],
+    ["document_share_declined", "Drive question declined"],
+  ])("shows %s with its own words and opens the question card", async (type, title) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push(type, {
+      type,
+      request_id: "22222222-2222-4222-8222-222222222222",
+      question: "private question text",
+    });
+    expect(harness.shown[0]?.title).toBe(title);
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.url).toBe(
+      "/one/consent?tab=pending&requestId=drive_query_request%3A22222222-2222-4222-8222-222222222222",
+    );
+    expect(data.question).toBeUndefined();
   });
 
   it("fails closed to Feed for a malformed document-share tap", async () => {

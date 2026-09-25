@@ -436,3 +436,14 @@ async def test_empty_suggestions_are_reviewable_but_not_approval_authority(shari
     assert rows(sharing, "one_action_directive_ledger") == []
     with pytest.raises(DriveSharingError, match="review_changed"):
         await approve(sharing, prepared, [])
+
+
+async def test_a_prepared_review_still_tells_the_owner(sharing):
+    """The owner-selected share skips this alert; B's ordinary request must not."""
+    prepared, _ = await review(sharing)
+    events = [
+        (item["user_id"], item["event_type"])
+        for item in rows(sharing, "drive_share_events")
+        if str(item["request_id"]) == prepared["requestId"]
+    ]
+    assert ("owner", "document_share_review_ready") in events
