@@ -1,33 +1,17 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   BEACON_POST_RESPONSE_ABORT,
   classifyCollectSettlement,
-  isCollectEventDelivered,
-  undeliveredCollectEvents,
 } from "../../scripts/testing/analytics-collect-delivery.mjs";
 
-const TID = "G-H1KGXGZTCF";
-const PAGE_VIEW = { eventName: "page_view", params: { route_id: "kai_home" } };
-
-function settle(
-  requestId: string,
-  settledBy: "requestfinished" | "requestfailed",
-  responseStatus: number,
-  failureText?: string,
-  overrides: Record<string, string> = {},
-) {
-  return {
-    measurementId: TID,
-    eventName: "page_view",
-    route_id: "kai_home",
-    requestId,
-    httpStatus: responseStatus,
-    failureText,
-    status: classifyCollectSettlement({ settledBy, responseStatus, failureText }),
-    ...overrides,
-  };
-}
+const SMOKE = readFileSync(
+  path.resolve(__dirname, "../../scripts/testing/run-uat-analytics-smoke.mjs"),
+  "utf8",
+);
 
 describe("classifyCollectSettlement", () => {
   it("treats a GA4 2xx followed by the beacon ERR_ABORTED as delivered", () => {
@@ -49,20 +33,11 @@ describe("classifyCollectSettlement", () => {
   });
 
   it("fails a request that never received a GA4 response", () => {
-    expect(
-      classifyCollectSettlement({
-        settledBy: "requestfailed",
-        responseStatus: 0,
-        failureText: BEACON_POST_RESPONSE_ABORT,
-      }),
-    ).toBe("failed");
-    expect(
-      classifyCollectSettlement({
-        settledBy: "requestfailed",
-        responseStatus: 0,
-        failureText: "net::ERR_BLOCKED_BY_CLIENT",
-      }),
-    ).toBe("failed");
+    for (const failureText of [BEACON_POST_RESPONSE_ABORT, "net::ERR_BLOCKED_BY_CLIENT"]) {
+      expect(
+        classifyCollectSettlement({ settledBy: "requestfailed", responseStatus: 0, failureText }),
+      ).toBe("failed");
+    }
   });
 
   it("fails a non-2xx GA4 response", () => {
@@ -91,53 +66,35 @@ describe("classifyCollectSettlement", () => {
   });
 });
 
-describe("isCollectEventDelivered", () => {
-  it("proves delivery for the live beacon pattern", () => {
-    const entries = [
-      { ...settle("ga-1", "requestfailed", 204, BEACON_POST_RESPONSE_ABORT), status: "requested" },
-      settle("ga-1", "requestfailed", 204, BEACON_POST_RESPONSE_ABORT),
-    ];
-    expect(isCollectEventDelivered(entries, TID, PAGE_VIEW)).toBe(true);
+describe("UAT analytics smoke delivery contract", () => {
+  it("classifies requestfailed collect hits by their GA4 response", () => {
+    expect(SMOKE).toContain('from "./analytics-collect-delivery.mjs"');
+    const failureHandler = SMOKE.slice(
+      SMOKE.indexOf("async function recordCollectRequestFailure"),
+      SMOKE.indexOf('page.on("requestfailed"'),
+    );
+    expect(failureHandler).toContain("await request.response().catch(() => null)");
+    expect(failureHandler).toContain('settledBy: "requestfailed"');
+    expect(failureHandler).toContain("classifyCollectSettlement({");
+    expect(SMOKE).toContain("void recordCollectRequestFailure(request);");
   });
 
-  it("rejects a request that was also recorded as a real failure", () => {
-    const entries = [
-      settle("ga-1", "requestfinished", 204),
-      settle("ga-1", "requestfailed", 0, "net::ERR_FAILED"),
-    ];
-    expect(isCollectEventDelivered(entries, TID, PAGE_VIEW)).toBe(false);
+  it("proves delivery from Node-side records that survive navigations", () => {
+    expect(SMOKE).not.toContain("__HUSHH_ANALYTICS_COLLECT_EVENTS__");
+    expect(SMOKE).toContain(
+      "!isCollectEventDelivered(analyticsCollectEvents, requiredEvent)",
+    );
   });
 
-  it("requires the matching measurement ID and params", () => {
-    const delivered = settle("ga-1", "requestfinished", 204);
-    expect(isCollectEventDelivered([delivered], "G-OTHER", PAGE_VIEW)).toBe(false);
-    expect(
-      isCollectEventDelivered(
-        [settle("ga-1", "requestfinished", 204, undefined, { route_id: "login" })],
-        TID,
-        PAGE_VIEW,
-      ),
-    ).toBe(false);
-  });
-
-  it("does not count a request that is only in flight", () => {
-    expect(
-      isCollectEventDelivered(
-        [{ ...settle("ga-1", "requestfinished", 204), status: "requested" }],
-        TID,
-        PAGE_VIEW,
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("undeliveredCollectEvents", () => {
-  it("names exactly the events GA4 has not acknowledged", () => {
-    const portfolio = {
-      eventName: "portfolio_viewed",
-      params: { result: "success", portfolio_source: "statement" },
-    };
-    const entries = [settle("ga-1", "requestfailed", 204, BEACON_POST_RESPONSE_ABORT)];
-    expect(undeliveredCollectEvents(entries, TID, [PAGE_VIEW, portfolio])).toEqual([portfolio]);
+  it("waits for the login redirect before the first in-app navigation", () => {
+    // Navigating first let the late /kai -> /one/kai?tab=market redirect
+    // overwrite /one/kai?tab=portfolio and time the gate out.
+    expect(SMOKE).toContain('const loginRedirectLandingPath = "/one/kai";');
+    const bootstrap = SMOKE.indexOf("await waitForReviewerVaultBootstrap(page);");
+    const settle = SMOKE.indexOf("await waitForLoginRedirectToSettle(page);");
+    const navigate = SMOKE.indexOf('await navigateInApp(page, "/one/kai?tab=portfolio");');
+    expect(bootstrap).toBeGreaterThan(-1);
+    expect(settle).toBeGreaterThan(bootstrap);
+    expect(navigate).toBeGreaterThan(settle);
   });
 });

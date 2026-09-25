@@ -5,10 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
-import {
-  classifyCollectSettlement,
-  undeliveredCollectEvents,
-} from "./analytics-collect-delivery.mjs";
+import { classifyCollectSettlement } from "./analytics-collect-delivery.mjs";
 import {
   defaultReviewerIdentityEnvFiles,
   resolveReviewerTestIdentity,
@@ -366,19 +363,31 @@ page.on("request", (request) => {
   }
 });
 
-async function recordCollectSettlement(request, settledBy) {
+page.on("requestfinished", async (request) => {
+  const response = await request.response().catch(() => null);
+  for (const collect of parseAnalyticsCollectRequests(request)) {
+    if (!collect.eventName) continue;
+    analyticsCollectEvents.push({
+      ...collect,
+      requestId: getAnalyticsRequestId(request),
+      status: response?.ok() ? "finished" : "failed",
+      httpStatus: response?.status() ?? 0,
+    });
+  }
+});
+
+// GA4 beacons never emit requestfinished: they end here with ERR_ABORTED
+// after GA4's 204. The response, not the event name, decides delivery.
+async function recordCollectRequestFailure(request) {
   const collectEvents = parseAnalyticsCollectRequests(request).filter(
     (collect) => collect.eventName,
   );
   if (collectEvents.length === 0) return;
   const response = await request.response().catch(() => null);
   const httpStatus = response?.status() ?? 0;
-  const failureText =
-    settledBy === "requestfailed"
-      ? request.failure()?.errorText || "unknown"
-      : undefined;
+  const failureText = request.failure()?.errorText || "unknown";
   const status = classifyCollectSettlement({
-    settledBy,
+    settledBy: "requestfailed",
     responseStatus: httpStatus,
     failureText,
   });
@@ -388,17 +397,14 @@ async function recordCollectSettlement(request, settledBy) {
       requestId: getAnalyticsRequestId(request),
       status,
       httpStatus,
-      ...(failureText ? { failureText } : {}),
+      failureText,
     });
   }
 }
 
-page.on("requestfinished", (request) =>
-  recordCollectSettlement(request, "requestfinished"),
-);
-page.on("requestfailed", (request) =>
-  recordCollectSettlement(request, "requestfailed"),
-);
+page.on("requestfailed", (request) => {
+  void recordCollectRequestFailure(request);
+});
 
 function parseAnalyticsCollectRequests(request) {
   const url = request.url();
@@ -460,14 +466,28 @@ function isAnalyticsCollectUrl(rawUrl) {
   }
 }
 
+function isCollectEventDelivered(observed, { eventName, params }) {
+  return observed.some(
+    (entry) =>
+      entry.measurementId === expectedMeasurementId &&
+      entry.eventName === eventName &&
+      Object.entries(params).every(([key, value]) => entry[key] === value) &&
+      entry.status === "finished" &&
+      !observed.some(
+        (candidate) =>
+          candidate.requestId === entry.requestId &&
+          candidate.status === "failed",
+      ),
+  );
+}
+
 async function waitForAnalyticsCollectEvents(requiredEvents) {
   const deadline = Date.now() + defaultTimeoutMs;
   let missing = requiredEvents;
   while (Date.now() < deadline) {
-    missing = undeliveredCollectEvents(
-      analyticsCollectEvents,
-      expectedMeasurementId,
-      requiredEvents,
+    missing = requiredEvents.filter(
+      (requiredEvent) =>
+        !isCollectEventDelivered(analyticsCollectEvents, requiredEvent),
     );
     if (missing.length === 0) return;
     await page.waitForTimeout(500);

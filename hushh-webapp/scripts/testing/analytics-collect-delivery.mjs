@@ -1,4 +1,5 @@
-// Delivery rules for GA4 collect hits observed by the UAT analytics smoke.
+// Delivery classification for GA4 collect hits observed by the UAT analytics
+// smoke.
 //
 // gtag sends hits as beacons (sendBeacon / keepalive fetch). Chromium reports
 // such a request as `requestfailed` with net::ERR_ABORTED once the page stops
@@ -18,29 +19,4 @@ export function classifyCollectSettlement({ settledBy, responseStatus, failureTe
     return "finished";
   }
   return "failed";
-}
-
-function matches(entry, measurementId, { eventName, params }) {
-  return (
-    entry.measurementId === measurementId &&
-    entry.eventName === eventName &&
-    Object.entries(params).every(([key, value]) => entry[key] === value)
-  );
-}
-
-export function isCollectEventDelivered(entries, measurementId, requiredEvent) {
-  return entries.some(
-    (entry) =>
-      matches(entry, measurementId, requiredEvent) &&
-      entry.status === "finished" &&
-      !entries.some(
-        (candidate) => candidate.requestId === entry.requestId && candidate.status === "failed",
-      ),
-  );
-}
-
-export function undeliveredCollectEvents(entries, measurementId, requiredEvents) {
-  return requiredEvents.filter(
-    (requiredEvent) => !isCollectEventDelivered(entries, measurementId, requiredEvent),
-  );
 }
