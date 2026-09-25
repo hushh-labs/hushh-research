@@ -977,10 +977,9 @@ textarea {
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
-  /* The modal scrim. Desktop keeps the frosted blur; touch screens get a plain
-   * dim instead (see the pointer: coarse block below), because a full-screen
-   * backdrop blur fading in re-blurs the whole page on every frame, and on a
-   * phone that frame cost is what starved the sheet's slide. */
+  /* The modal scrim. Desktop keeps the full frosted blur; touch screens use a
+   * lighter blur (see the pointer: coarse block below) so the page still
+   * recedes without paying the full desktop filter cost during motion. */
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 
@@ -1337,7 +1336,10 @@ textarea {
 [data-profile-stack-screen="account"],
 [data-profile-stack-screen="panel:account"] {
   color-scheme: light dark;
-  background: var(--ios-account-screen-background);
+  /* The stack is a navigation mechanism, not a second page canvas. Painting
+   * this screen created a grey rectangle inside the shared white Profile page
+   * at every viewport width. Let the canonical shell canvas show through. */
+  background: transparent;
   color: var(--ios-account-label);
   font-optical-sizing: auto;
 }
@@ -2005,23 +2007,45 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: 17px !important;
 }
 
-.profile-home-content [data-icon-tone="blue"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="blue"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-accent) !important;
 }
 
-.profile-home-content [data-icon-tone="green"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="green"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-success) !important;
 }
 
-.profile-home-content [data-icon-tone="orange"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="orange"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-warning) !important;
 }
 
-.profile-home-content [data-icon-tone="purple"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="indigo"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
+  background: var(--app-indigo) !important;
+}
+
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="purple"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-purple) !important;
 }
 
-.profile-home-content [data-icon-tone="red"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="red"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-destructive) !important;
 }
 
@@ -2033,9 +2057,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: #ffffff !important;
 }
 
-/* Profile's root settings use authored Phosphor duotone capability icons.
- * Keep their native colour and fill hierarchy instead of repainting them as
- * the older white-on-tile utility icons above. */
+/* Preserve a clean, unboxed treatment for any genuinely branded capability
+ * icon added to Profile later. The primary Profile menu intentionally uses
+ * semantic coloured tiles, matching its Account and Vault detail screens. */
 .profile-home-content [data-icon-tone="capability"],
 .profile-home-content [data-icon-tone="transparent"] {
   background: transparent !important;
@@ -2055,8 +2079,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-body);
   font-size: var(--ios-account-row-title-size) !important;
-  font-weight: 400 !important;
-  letter-spacing: 0 !important;
+  font-weight: var(--ios-account-regular-weight) !important;
+  letter-spacing: var(--ios-account-row-title-tracking) !important;
   line-height: var(--ios-account-row-title-line) !important;
 }
 
@@ -6272,23 +6296,30 @@ html[data-accent="gold"].dark {
 @media (pointer: coarse) {
   :root {
     --app-scrim-color: rgb(0 0 0 / 0.4);
-    --app-scrim-filter: none;
+    --app-scrim-filter: blur(4px);
   }
 }
 
-/* Android draws the WebView through its own Vulkan pass, and every backdrop
- * blur on screen is recomputed on every frame of any motion. Measured on the
- * Galaxy S24 Ultra (2026-09-22, DevTools trace of one sheet open): with the
- * six always-on chrome blurs the draw pass averaged 14.9 ms (worst 98 ms) and
- * the slide painted 7 frames with a 100 ms freeze; with them off, 5.3 ms
- * (worst 33 ms) and 23 evenly spaced frames at 120 Hz. So on Android nothing
- * blurs, and the glass fills turn nearly opaque to keep text legible. iOS
- * keeps the material (measured at no cost there). */
+/* Android draws the WebView through its own Vulkan pass, where persistent
+ * backdrop filters are recomputed during every frame of page motion. Keep the
+ * always-on chrome blur disabled and its glass fill nearly opaque. Modal
+ * overlays opt back into only the lightweight 4px touch scrim below: unlike
+ * chrome, they are short-lived and the requested focus separation is their
+ * entire job. */
 html.native-android *,
 html.native-android *::before,
 html.native-android *::after {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
+}
+
+html.native-android [data-slot="dialog-overlay"],
+html.native-android [data-slot="sheet-overlay"],
+html.native-android [data-slot="drawer-overlay"],
+html.native-android [data-slot="alert-dialog-overlay"],
+html.native-android [data-slot="popover-scrim"] {
+  -webkit-backdrop-filter: var(--app-scrim-filter) !important;
+  backdrop-filter: var(--app-scrim-filter) !important;
 }
 
 html.native-android {

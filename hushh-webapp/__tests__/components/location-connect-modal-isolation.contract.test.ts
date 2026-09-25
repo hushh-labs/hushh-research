@@ -83,8 +83,8 @@ describe("Location and Connect blocking surfaces", () => {
   });
 
   it("uses the shared scrim for every blocking primitive", () => {
-    // One scrim, defined once in globals.css (blur on desktop, a plain dim on
-    // touch screens); no primitive restates the values.
+    // One scrim, defined once in globals.css (full blur on desktop, a lighter
+    // blur on touch screens); no primitive restates the values.
     for (const primitive of [
       "components/ui/dialog.tsx",
       "components/ui/sheet.tsx",
@@ -96,6 +96,23 @@ describe("Location and Connect blocking surfaces", () => {
       expect(source).toContain("bg-[color:var(--app-scrim-color)]");
       expect(source).toContain("[backdrop-filter:var(--app-scrim-filter)]");
       expect(source).not.toMatch(/backdrop-blur-\[\d+px\]/);
+    }
+  });
+
+  it("keeps modal backgrounds blurred on touch screens and native Android", () => {
+    const css = sourceOf("app/globals.css");
+
+    expect(css).toMatch(
+      /@media \(pointer: coarse\) \{[\s\S]*?--app-scrim-filter: blur\(4px\);[\s\S]*?\}/,
+    );
+    for (const slot of [
+      "dialog-overlay",
+      "sheet-overlay",
+      "drawer-overlay",
+      "alert-dialog-overlay",
+      "popover-scrim",
+    ]) {
+      expect(css).toContain(`html.native-android [data-slot="${slot}"]`);
     }
   });
 });
