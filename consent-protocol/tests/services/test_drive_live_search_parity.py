@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pydantic import ValidationError
 
-from hushh_mcp.services import drive_chat_service
+from hushh_mcp.services import drive_chat_service, drive_live_reader
 from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
@@ -110,6 +110,71 @@ async def test_owner_title_only_search_excludes_full_text_from_both_query_passes
     assert [item["name"] for item in found["matches"]] == ["Standup sync notes"]
     assert [call[1] for call in calls] == [both, either]
     assert all("fullText" not in call[1] for call in calls)
+
+
+async def test_transient_metadata_failure_retries_once_inside_owner_read(monkeypatch):
+    query = "title contains 'Explain For Product'"
+    reader, calls = reader_with({("search_files", query): [file("f1", "Explain For Product")]})
+    original = reader.mcp.read_tool.side_effect
+    attempts = 0
+
+    async def flaky(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise DriveReadError("provider_unavailable", retryable=True)
+        return await original(**kwargs)
+
+    reader.mcp.read_tool.side_effect = flaky
+    sleep = AsyncMock()
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", sleep)
+
+    found = await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert [item["name"] for item in found["matches"]] == ["Explain For Product"]
+    assert [call[1] for call in calls] == [query]
+    assert attempts == 2
+    assert reader.require_access.await_count == 3
+    sleep.assert_awaited_once_with(0.5)
+
+
+async def test_persistent_metadata_failure_stops_after_one_retry(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 2
+
+
+async def test_metadata_retry_rechecks_owner_authority(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    reader.require_access.side_effect = [None, None, PermissionError("owner authority ended")]
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(PermissionError, match="owner authority ended"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 1
+
+
+async def test_metadata_retry_refuses_a_reconnected_drive_grant(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    first, credential = reader.oauth.current_credential.return_value
+    reader.oauth.current_credential.side_effect = [
+        (first, credential),
+        ({**first, "connection_generation": first["connection_generation"] + 1}, credential),
+    ]
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 1
 
 
 @pytest.mark.parametrize("value", [None, 0, 1, "true", []])
