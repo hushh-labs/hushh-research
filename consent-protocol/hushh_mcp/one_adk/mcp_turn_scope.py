@@ -1,38 +1,200 @@
 """Task-local MCP resources on the existing shared Chat runner.
 
-The scope carries no authentication authority. Each acquisition resolves the
-current owner's registered connection; tool calls independently revalidate it.
+The scope carries request-only configuration, not permission to execute tools.
+Each acquisition resolves the current owner's connection; tool calls independently
+revalidate owner authority and pass through application review. Vault projections
+replace private DB definitions when supplied. The HTTP/review callers must admit
+them outside persisted ADK state and discard their original request references.
 No authenticated toolset is retained on the process-wide root agent.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import re
+import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from functools import partial
 from typing import Any
 
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.governed_mcp_toolset import (
     AuthorizeCall,
     GovernedMcpToolset,
     McpConnectionBinding,
+    ResolvedMcpConnection,
     resolve_registered_connection,
 )
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
+from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 logger = logging.getLogger(__name__)
 _CURRENT: ContextVar[McpTurnResources | None] = ContextVar("one_mcp_turn_resources", default=None)
 
 
+def _private_configurations(value: Any) -> dict[str, dict[str, Any]]:
+    """Validate a transient browser projection, never a stored authority record.
+
+    Refresh tokens are deliberately not admitted. Endpoint DNS/rebinding checks
+    remain in the governed HTTP transport; this performs syntax admission only.
+    No validation diagnostic may include credentials or endpoint information.
+    """
+    try:
+        if not isinstance(value, list) or len(value) > 32:
+            raise ValueError
+        if len(json.dumps(value, allow_nan=False).encode()) > 320_000:
+            raise ValueError
+        records = {}
+        for raw in value:
+            if not isinstance(raw, dict) or set(raw) != {
+                "version",
+                "connectorId",
+                "revision",
+                "displayName",
+                "endpoint",
+                "enabled",
+                "authentication",
+            }:
+                raise ValueError
+            if (
+                type(raw["version"]) is not int
+                or raw["version"] != 1
+                or type(raw["enabled"]) is not bool
+            ):
+                raise ValueError
+            identifier = raw["connectorId"]
+            if not isinstance(identifier, str) or not re.fullmatch(
+                r"custom_[a-f0-9]{32}", identifier
+            ):
+                raise ValueError
+            if identifier in records:
+                raise ValueError
+            revision = raw["revision"]
+            if not isinstance(revision, str) or not re.fullmatch(
+                r"[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", revision
+            ):
+                raise ValueError
+            name = raw["displayName"]
+            if (
+                not isinstance(name, str)
+                or not 1 <= len(name.strip()) <= 100
+                or any(ord(c) < 32 or ord(c) == 127 for c in name)
+            ):
+                raise ValueError
+            endpoint = raw["endpoint"]
+            if not isinstance(endpoint, str) or len(endpoint) > 2048:
+                raise ValueError
+            validate_mcp_endpoint(endpoint)
+            auth = raw["authentication"]
+            if not isinstance(auth, dict):
+                raise ValueError
+            kind = auth.get("kind")
+            if kind == "none" and set(auth) == {"kind"}:
+                secret = None
+            elif kind == "api_key" and set(auth) == {"kind", "header", "value"}:
+                if auth["header"] not in {"Authorization", "X-API-Key", "Api-Key"}:
+                    raise ValueError
+                secret = auth["value"]
+            elif kind == "oauth" and set(auth) == {"kind", "accessToken", "expiresAt"}:
+                if type(auth["expiresAt"]) is not int or auth["expiresAt"] <= 0:
+                    raise ValueError
+                secret = auth["accessToken"]
+            else:
+                raise ValueError
+            if kind != "none" and (
+                not isinstance(secret, str)
+                or not secret.strip()
+                or len(secret) > 8192
+                or any(ord(c) < 32 or ord(c) == 127 for c in secret)
+            ):
+                raise ValueError
+            records[identifier] = deepcopy(raw)
+        return records
+    except Exception:
+        raise ExternalMcpError(
+            "Connector configuration unavailable.", code="MCP_CONFIGURATION_INVALID"
+        ) from None
+
+
 class McpTurnResources:
-    def __init__(self, conversation_id: str):
+    def __init__(
+        self, conversation_id: str, *, owner_id: str | None = None, configurations: Any = None
+    ):
         self.conversation_id = conversation_id
-        self._owner: str | None = None
+        self._owner = owner_id
+        self.has_vault_configurations = configurations is not None
+        if configurations is not None and not owner_id:
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        self._configurations = (
+            _private_configurations(configurations) if configurations is not None else {}
+        )
         self._closed = False
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}
         self._catalog_views: list[Any] = []
+
+    def vault_catalog(self, owner_id: str) -> list[tuple[str, str]]:
+        if self._closed or owner_id != self._owner:
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        return [
+            (key, record["displayName"])
+            for key, record in self._configurations.items()
+            if record["enabled"]
+        ]
+
+    async def resolve_connection(self, context: Any, connector_id: str) -> ResolvedMcpConnection:
+        if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
+            raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
+        if self._owner is not None and context.user_id != self._owner:
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        record = self._configurations.get(connector_id)
+        if record is None:
+            if self.has_vault_configurations:
+                # An omitted/removed custom connector cannot be resurrected from
+                # the superseded readable database registry during this turn.
+                if connector_id.startswith("custom_"):
+                    raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+                return await resolve_registered_connection(context, connector_id, curated_only=True)
+            return await resolve_registered_connection(context, connector_id)
+        if (
+            context.user_id != context.state.get("hussh:user_id")
+            or context.state.get("temp:one_execution_surface") != "typed_chat"
+            or not await validate_first_party_owner_token(
+                context.user_id, resolve_request_secret(context.state.get("hussh:consent_token"))
+            )
+        ):
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        if not record["enabled"]:
+            raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+        auth = record["authentication"]
+        headers = {}
+        if auth["kind"] == "oauth":
+            if auth["expiresAt"] <= time.time():
+                raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED")
+            headers["Authorization"] = f"Bearer {auth['accessToken']}"
+        elif auth["kind"] == "api_key":
+            headers[auth["header"]] = auth["value"]
+        # Full-record binding prevents reused client revisions from preserving an
+        # old approval after an endpoint, credential, or configuration change.
+        digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return ResolvedMcpConnection(
+            McpConnectionBinding(
+                self._owner,
+                connector_id,
+                1,
+                1,
+                record["endpoint"],
+                ("vault", record["revision"], digest),
+            ),
+            headers,
+        )
 
     def track_catalog_view(self, view: Any) -> None:
         if self._closed:
@@ -45,7 +207,7 @@ class McpTurnResources:
     ) -> GovernedMcpToolset:
         if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
-        resolved = await resolve_registered_connection(context, connector_id)
+        resolved = await self.resolve_connection(context, connector_id)
         if self._closed or (self._owner is not None and self._owner != resolved.binding.owner_id):
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         self._owner = resolved.binding.owner_id
@@ -59,7 +221,7 @@ class McpTurnResources:
             raise ExternalMcpError("Connector turn limit reached.", code="MCP_TURN_LIMIT")
         toolset = GovernedMcpToolset(
             binding=resolved.binding,
-            resolve_connection=partial(resolve_registered_connection, connector_id=connector_id),
+            resolve_connection=partial(self.resolve_connection, connector_id=connector_id),
             authorize_call=authorize_call,
             catalog_policy=resolved.catalog_policy,
             result_policy=resolved.result_policy,
@@ -69,6 +231,7 @@ class McpTurnResources:
 
     async def close(self) -> None:
         self._closed = True
+        self._configurations.clear()
         views, self._catalog_views = self._catalog_views, []
         for view in views:
             view.clear_invocation_catalog()
@@ -94,8 +257,10 @@ def current_mcp_turn() -> McpTurnResources:
 
 
 @asynccontextmanager
-async def mcp_turn_scope(conversation_id: str):
-    scope = McpTurnResources(conversation_id)
+async def mcp_turn_scope(
+    conversation_id: str, *, owner_id: str | None = None, configurations: Any = None
+):
+    scope = McpTurnResources(conversation_id, owner_id=owner_id, configurations=configurations)
     token = _CURRENT.set(scope)
     try:
         yield scope

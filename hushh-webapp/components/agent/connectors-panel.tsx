@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Capacitor } from "@capacitor/core";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon,
@@ -994,7 +995,10 @@ function OwnerConnectorsPanel({
         session.accessToken = "";
         return;
       }
-      onExternalModalChange?.(true);
+      // Release the app's focus trap before Google's in-page picker focuses
+      // its own dialog. WebKit can otherwise redirect that first focus back
+      // into the app before React commits the asynchronous state update.
+      flushSync(() => onExternalModalChange?.(true));
       try {
         const files = await GoogleDrivePickerService.choose(session, signal);
         if (!signal.aborted && files.length)
@@ -1282,7 +1286,7 @@ function OwnerConnectorsPanel({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col bg-background text-foreground ${surface === "drawer" ? "border-l border-border" : ""}`}
+      className="flex h-full min-h-0 flex-col bg-background text-foreground"
       data-connections-panel
       data-surface={surface}
     >

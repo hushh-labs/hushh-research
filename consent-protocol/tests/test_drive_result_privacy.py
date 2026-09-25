@@ -575,7 +575,7 @@ def test_dynamic_mcp_snapshot_before_call_and_storage_are_private():
     assert private not in redact_drive_session_json(json.dumps(document))
 
 
-def test_owner_encrypted_history_keeps_reviewed_success_not_approval_authority():
+def test_owner_encrypted_history_keeps_outcomes_not_connector_payloads():
     name = "mcp_" + "a" * 40
     document = {
         "events": [
@@ -622,9 +622,14 @@ def test_owner_encrypted_history_keeps_reviewed_success_not_approval_authority()
         ]
     }
     retained = redact_drive_session_json(json.dumps(document))
-    assert "OWNER_CONNECTOR_INFORMATION" in retained
+    assert "OWNER_CONNECTOR_INFORMATION" not in retained
     assert "PRIVATE_ARGUMENT" not in retained
     assert "DO_NOT_RETAIN" not in retained
+    response = json.loads(retained)["events"][0]["content"]["parts"][1]["functionResponse"]
+    assert response["response"]["status"] == "ok"
+    assert response["response"]["private_result"] == "not_retained"
+    # Projection must not remove information needed by the authorized live turn.
+    assert "OWNER_CONNECTOR_INFORMATION" in json.dumps(document)
 
 
 def test_dynamic_mcp_start_metadata_and_argument_chunks_are_private():

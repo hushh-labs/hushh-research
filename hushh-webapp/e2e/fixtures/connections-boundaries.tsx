@@ -11,6 +11,15 @@ export function useAuth() {
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
+export function useCalendarConnectionStatus() {
+  return { connected: false, loaded: true, error: null };
+}
+export function usePkmDomainResource() {
+  return { data: null, loading: false, error: null };
+}
+export function vaultConnections() {
+  return {};
+}
 export function useRouter() {
   return {
     push: (href: string) => window.history.pushState({}, "", href),

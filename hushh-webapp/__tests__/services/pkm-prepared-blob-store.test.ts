@@ -687,6 +687,38 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
 });
 
 describe("PersonalKnowledgeModelService runtime secrets", () => {
+  it.each([
+    {}, { encrypted_blob: null },
+    { encrypted_blob: {}, content_revision: "7" },
+    { encrypted_blob: {}, content_revision: -1 },
+  ])("rejects malformed successful snapshots instead of creating replacement settings: %j", async payload => {
+    transport.native = false;
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    await expect(PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.custom_id", secret: "synthetic",
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    })).rejects.toThrow("Coherent PKM domain snapshot");
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  function mockRuntimeRead() {
+    const read = vi.fn<() => Promise<Record<string, unknown> | null>>();
+    let revision = 7;
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainSnapshot").mockImplementation(async () => {
+      const data = await read();
+      return { data, snapshot: data === null ? null : {
+        schemaVersion: "pkm_domain_snapshot.v1",
+        userId: "user-1", domain: "runtime_secrets",
+        encryptedBlob: { ciphertext: "synthetic", iv: "synthetic", tag: "synthetic", algorithm: "aes-256-gcm" },
+        contentRevision: revision++, manifestRevision: 0, manifest: null,
+        paths: [], scopes: [], updatedAt: null, etag: "synthetic-7", segmentIds: [],
+      } };
+    });
+    return read;
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks();
     encryptDataMock.mockResolvedValue({
@@ -696,12 +728,149 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
     });
   });
 
+  it("rechecks connector capacity after a concurrent vault update", async () => {
+    mockRuntimeRead()
+      .mockResolvedValueOnce({ connectors: {} })
+      .mockResolvedValueOnce({ connectors: Object.fromEntries(
+        Array.from({ length: 32 }, (_, i) => [`existing_${i}`, "synthetic-record"]),
+      ) });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: false, conflict: true });
+    await expect(PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.new_connector", secret: "synthetic-record",
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    })).rejects.toThrow("Remove a connector before adding another.");
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds each write to the decrypted snapshot revision and rebases unrelated edits", async () => {
+    mockRuntimeRead()
+      .mockResolvedValueOnce({ connectors: { custom_id: "old" }, llm: { sibling: "before" } })
+      .mockResolvedValueOnce({ connectors: { custom_id: "old" }, llm: { sibling: "after" } });
+    const manifest = vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest");
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockImplementationOnce(async payload => {
+        // A competing writer advanced the domain after the snapshot was decrypted.
+        // The backend must receive the old revision, not infer today's revision.
+        expect(payload.expectedDataVersion).toBe(7);
+        expect(payload.mutationPlan?.source_revision).toBe(7);
+        return { success: false, conflict: true };
+      }).mockResolvedValueOnce({ success: true });
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.custom_id", secret: "replacement", expectedValue: "old",
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    });
+    expect(store).toHaveBeenCalledTimes(2);
+    expect(store.mock.calls[1]![0]).toMatchObject({
+      expectedDataVersion: 8, mutationPlan: { source_revision: 8 },
+      domainData: { connectors: { custom_id: "replacement" }, llm: { sibling: "after" } },
+    });
+    expect(manifest).not.toHaveBeenCalled();
+  });
+
+  it.each(["save", "remove"] as const)("rejects a stale connector %s after conflict recovery", async operation => {
+    mockRuntimeRead()
+      .mockResolvedValueOnce({ connectors: { custom_id: "old-record" } })
+      .mockResolvedValueOnce({ connectors: { custom_id: "newer-record" } });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: false, conflict: true });
+    const params = {
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.custom_id", secret: "replacement",
+      expectedValue: "old-record",
+      confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "connector_settings_test" },
+    };
+    await expect(operation === "save" ? PersonalKnowledgeModelService.storeRuntimeSecret(params)
+      : PersonalKnowledgeModelService.removeRuntimeSecret(params)).rejects.toThrow("These settings changed.");
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a connector record only in ciphertext with fixed internal metadata", async () => {
+    const record = JSON.stringify({
+      version: 1, name: "Synthetic private connector",
+      endpoint: "https://synthetic-private.example/mcp", credential: "synthetic-credential",
+    });
+    const sibling = "synthetic-other-connector";
+    mockRuntimeRead().mockResolvedValue({
+      llm: { gemini_api_key: "synthetic-model-key" },
+      connectors: { existing: sibling },
+    });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.connectors.synthetic_id", secret: record,
+      confirmation: { confirmedByUser: true, surface: "web", source: "connector_settings_test" },
+    });
+    const payload = store.mock.calls[0]![0];
+    expect(payload.domainData).toEqual({
+      llm: { gemini_api_key: "synthetic-model-key" },
+      connectors: { existing: sibling, synthetic_id: record },
+    });
+    const metadata = JSON.stringify([payload.manifest, payload.summary, payload.structureDecision]);
+    for (const privateValue of ["synthetic_id", sibling, "Synthetic private connector", "synthetic-private.example", "synthetic-credential"]) {
+      expect(metadata).not.toContain(privateValue);
+    }
+    expect(payload.manifest?.externalizable_paths).toEqual([]);
+    expect(payload.manifest?.scope_registry).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        segment_ids: ["connectors"], scope_kind: "internal_secret",
+        exposure_enabled: false, visibility_posture: "private",
+      }),
+    ]));
+    expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({
+      plaintext: JSON.stringify(payload.domainData),
+    }));
+  });
+
+  it.each(["store", "remove"] as const)("does not %s settings after a failed snapshot read", async operation => {
+    const failure = new Error("Synthetic snapshot unavailable");
+    mockRuntimeRead().mockRejectedValue(failure);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    const params = {
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key", secret: "synthetic-new-value",
+      confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "runtime_secret_test" },
+    };
+    await expect(operation === "store"
+      ? PersonalKnowledgeModelService.storeRuntimeSecret(params)
+      : PersonalKnowledgeModelService.removeRuntimeSecret(params)).rejects.toBe(failure);
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  it("stops conflict recovery when the snapshot read fails without a replacement write", async () => {
+    const failure = new TypeError("Failed to fetch");
+    mockRuntimeRead().mockResolvedValueOnce({ llm: { sibling: "synthetic" } }).mockRejectedValueOnce(failure);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValueOnce({ success: false, conflict: true }).mockResolvedValue({ success: true });
+    await expect(PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key", secret: "synthetic-value",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
+    })).rejects.toBe(failure);
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a first settings write after authoritative absence", async () => {
+    mockRuntimeRead().mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key", secret: "synthetic-value",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
+    });
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(store.mock.calls[0]![0].expectedDataVersion).toBe(0);
+  });
+
   it("stores a Gemini runtime key in the encrypted runtime_secrets domain without metadata leakage", async () => {
     const rawKey = "gemini-user-key-123";
-    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+    mockRuntimeRead().mockResolvedValue({
       llm: { other_provider_key: "keep-me", credential_mode: "hushh_managed_vertex" },
     });
-    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
     const storeSpy = vi
       .spyOn(PersonalKnowledgeModelService, "storeDomainData")
       .mockResolvedValue({ success: true });
@@ -769,13 +938,12 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
   });
 
   it("removes the Gemini runtime key while preserving sibling runtime secrets", async () => {
-    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+    mockRuntimeRead().mockResolvedValue({
       llm: {
         gemini_api_key: "remove-me",
         other_provider_key: "keep-me",
       },
     });
-    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
     const storeSpy = vi
       .spyOn(PersonalKnowledgeModelService, "storeDomainData")
       .mockResolvedValue({ success: true });
@@ -853,10 +1021,9 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
 
   it("stores non-Gemini runtime keys without exposing raw key material in metadata", async () => {
     const rawKey = "openai-user-key-123";
-    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+    mockRuntimeRead().mockResolvedValue({
       llm: { gemini_api_key: "keep-gemini" },
     });
-    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
     const storeSpy = vi
       .spyOn(PersonalKnowledgeModelService, "storeDomainData")
       .mockResolvedValue({ success: true });

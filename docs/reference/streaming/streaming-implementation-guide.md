@@ -43,11 +43,12 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 The existing `one_adk/drive_result_privacy.py` projection also covers governed
 dynamic MCP names (`mcp_` followed by a 40-character lowercase hexadecimal digest).
 Strip their argument chunks and raw protocol metadata from browser diagnostics
-and session copies. Successful normalized native MCP content is owner information:
-retain it in the existing owner-bound encrypted ADK session for conversational
-recall. This store is server-encrypted at rest, not the browser-only PKM vault.
+and session copies. Successful native MCP content is processed in the live turn,
+not retained as durable tool payloads. Persist only safe outcome metadata.
+Server encryption at rest does not authorize retention of connector content.
 Approval receipts, credential material and error bodies are not history content.
-Legacy provider-specific retention contracts remain separate during migration.
+This projection alone does not certify assistant-text or other persistence paths;
+those require separate custody verification. Explicit PKM capture remains separate.
 The current browser tool-status projection stays metadata-only; richer connector
 presentation must use an owner content surface, not diagnostic event payloads.
 For resumed snapshots, collect private call identities before projecting messages;
@@ -86,8 +87,8 @@ call, non-MCP confirmation contracts remain unchanged within those bounds. After
 one, unexpected confirmation arguments are withheld; only the validated native
 MCP review reference survives. Subsequent tool arguments/results are private even
 when the model invents a blocked first-party call. Blocking execution alone is
-not sufficient diagnostic isolation. Durable projection preserves successful
-native connector results, earlier unrelated calls
+not sufficient diagnostic isolation. Durable projection preserves safe outcomes,
+not native connector result bodies, while retaining earlier unrelated calls
 and fresh invocations; snapshot projection restarts that boundary at a new user
 message. Live model objects remain unchanged.
 
@@ -113,7 +114,7 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 
 - Native MCP results never enter the generic debug-result payload or app-action
   parser. A connector's returned JSON cannot become an executable Hussh directive.
-  Owner-visible content and encrypted retention do not grant action authority.
+  Owner-visible content does not grant action authority or persistence permission.
 
 - Native MCP confirmation references use the ephemeral `onMcpReview` Chat
   callback only after the matching AG-UI interrupt is available. They are not

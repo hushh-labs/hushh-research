@@ -1336,7 +1336,7 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
     /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
-    scopeHandles: Record<"llm" | "agent_memory", string>;
+    scopeHandles: Record<"llm" | "agent_memory" | "connectors", string>;
   }): {
     summary: Record<string, unknown>;
     structureDecision: StructureDecision;
@@ -1446,6 +1446,19 @@ export class PersonalKnowledgeModelService {
         scope_handle: "runtime_secrets.agent_memory",
         source_agent: "runtime_secret_settings",
       },
+      {
+        // Only the fixed branch is metadata. Never enumerate connector IDs,
+        // endpoints, names or credentials into the manifest.
+        json_path: "connectors",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Private connector settings",
+        sensitivity_label: "restricted",
+        segment_id: "connectors",
+        scope_handle: "runtime_secrets.connectors",
+        source_agent: "runtime_secret_settings",
+      },
     ];
     const summary = {
       domain_intent: params.domain,
@@ -1471,7 +1484,7 @@ export class PersonalKnowledgeModelService {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
       json_paths: paths.map((path) => path.json_path),
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
       summary_projection: summary,
       sensitivity_labels: {
@@ -1482,6 +1495,7 @@ export class PersonalKnowledgeModelService {
         "llm.credential_mode": "restricted",
         agent_memory: "restricted",
         "agent_memory.auto_save_policy": "restricted",
+        connectors: "restricted",
       },
       confidence: 1,
       source_agent: "runtime_secret_settings",
@@ -1497,15 +1511,33 @@ export class PersonalKnowledgeModelService {
       upgraded_at: nowIso,
       structure_decision: structureDecision,
       summary_projection: summary,
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
-      segment_ids: ["llm", "agent_memory"],
+      segment_ids: ["llm", "agent_memory", "connectors"],
       path_count: paths.length,
       externalizable_path_count: 0,
       last_structured_at: nowIso,
       last_content_at: nowIso,
       paths,
       scope_registry: [
+        {
+          scope_handle: reusableHandle("connectors") || params.scopeHandles.connectors,
+          scope_label: "Private connector settings",
+          segment_ids: ["connectors"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "connectors",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "Private connector settings are not shareable information.",
+            storage_mode: "encrypted_domain",
+          },
+        },
         {
           // The plan builder copies this into target_scope_handle; the server
           // only accepts opaque handles, so a dotted label 422s the first write.
@@ -3887,6 +3919,7 @@ export class PersonalKnowledgeModelService {
     credentialRef: string;
     secret: string;
     confirmation: PkmUserConfirmation;
+    expectedValue?: string | null;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -3898,17 +3931,26 @@ export class PersonalKnowledgeModelService {
     }
 
     const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      if (params.expectedValue !== undefined &&
+          (this.getValueAtPath(base, parsed.keys.join(".")) ?? null) !== params.expectedValue) {
+        throw new Error("These settings changed. Reload before saving again.");
+      }
       const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
       this.setValueAtNestedPath(next, parsed.keys, secret);
+      if (parsed.domain === "runtime_secrets" && parsed.keys[0] === "connectors" &&
+          this.isPlainObject(next.connectors) && Object.keys(next.connectors).length > 32) {
+        throw new Error("Remove a connector before adding another.");
+      }
       return next;
     };
 
-    const existingData = await this.loadDomainData({
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3917,7 +3959,8 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
-      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
+      initialSnapshot: existing.snapshot,
       applyMutation,
     });
   }
@@ -3928,6 +3971,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken: string;
     credentialRef: string;
     confirmation: PkmUserConfirmation;
+    expectedValue?: string | null;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     if (!parsed) {
@@ -3935,17 +3979,22 @@ export class PersonalKnowledgeModelService {
     }
 
     const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      if (params.expectedValue !== undefined &&
+          (this.getValueAtPath(base, parsed.keys.join(".")) ?? null) !== params.expectedValue) {
+        throw new Error("These settings changed. Reload before saving again.");
+      }
       const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
       this.deleteValueAtNestedPath(next, parsed.keys);
       return next;
     };
 
-    const existingData = await this.loadDomainData({
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3954,14 +4003,21 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
-      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
+      initialSnapshot: existing.snapshot,
       applyMutation,
     });
   }
 
+  private static runtimeSettingsBase(value: Record<string, unknown> | null): Record<string, unknown> {
+    if (value === null) return {};
+    if (!this.isPlainObject(value)) throw new Error("Saved settings could not be read. Try again.");
+    return value;
+  }
+
   /**
    * Build the exact `storeDomainData` payload for a runtime-secret commit:
-   * read the manifest (force a fresh read after a conflict), encrypt the domain,
+   * use the manifest and content revision from the decrypted snapshot, encrypt the domain,
    * derive the summary/structure/manifest artifacts, and mint the mutation plan.
    *
    * Because the mutation plan id is random per build, each call yields a fresh
@@ -3977,14 +4033,10 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     scopePath: string;
     confirmation: PkmUserConfirmation;
-    forceManifestReload?: boolean;
+    snapshot: DomainSnapshotV1 | null;
   }): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> {
-    const previousManifest = await this.getDomainManifest(
-      params.userId,
-      params.domain,
-      params.vaultOwnerToken,
-      params.forceManifestReload === true
-    ).catch(() => null);
+    const previousManifest = params.snapshot?.manifest ?? null;
+    const sourceRevision = params.snapshot?.contentRevision ?? 0;
     const encryptedBlob = await this.encryptDomainForStorage({
       vaultKey: params.vaultKey,
       domainData: params.domainData,
@@ -3996,6 +4048,7 @@ export class PersonalKnowledgeModelService {
       scopeHandles: {
         llm: `s_${(await sha256Hex(`${params.userId}:${params.domain}:llm`)).slice(0, 12)}`,
         agent_memory: `s_${(await sha256Hex(`${params.userId}:${params.domain}:agent_memory`)).slice(0, 12)}`,
+        connectors: `s_${(await sha256Hex(`${params.userId}:${params.domain}:connectors`)).slice(0, 12)}`,
       },
     });
     const mutationPlan = await buildConfirmedPkmMutationPlanV2({
@@ -4007,6 +4060,7 @@ export class PersonalKnowledgeModelService {
       operation: previousManifest ? "update" : "create",
       explanation: "The owner confirmed this encrypted runtime credential change.",
       confirmation: params.confirmation,
+      sourceRevision,
     });
 
     return {
@@ -4019,6 +4073,7 @@ export class PersonalKnowledgeModelService {
       mutationPlan,
       domainData: params.domainData,
       vaultOwnerToken: params.vaultOwnerToken,
+      expectedDataVersion: sourceRevision,
     };
   }
 
@@ -4039,6 +4094,7 @@ export class PersonalKnowledgeModelService {
     scopePath: string;
     confirmation: PkmUserConfirmation;
     initialDomainData: Record<string, unknown>;
+    initialSnapshot: DomainSnapshotV1 | null;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
   }): Promise<StoreDomainDataResult> {
     let built = await this.buildRuntimeSecretsCommit({
@@ -4049,6 +4105,7 @@ export class PersonalKnowledgeModelService {
       domainData: params.initialDomainData,
       scopePath: params.scopePath,
       confirmation: params.confirmation,
+      snapshot: params.initialSnapshot,
     });
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
@@ -4060,14 +4117,15 @@ export class PersonalKnowledgeModelService {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, params.domain));
         cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, params.domain));
-        const freshData = await this.loadDomainData({
+        const fresh = await this.loadDomainSnapshot({
           userId: params.userId,
           domain: params.domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null);
+          force: true,
+        });
         const domainData = params.applyMutation(
-          this.isPlainObject(freshData) ? freshData : {}
+          this.runtimeSettingsBase(fresh.data)
         );
         built = await this.buildRuntimeSecretsCommit({
           userId: params.userId,
@@ -4077,7 +4135,7 @@ export class PersonalKnowledgeModelService {
           domainData,
           scopePath: params.scopePath,
           confirmation: params.confirmation,
-          forceManifestReload: true,
+          snapshot: fresh.snapshot,
         });
       },
       pause: (ms) => this.pause(ms),
@@ -4397,7 +4455,12 @@ export class PersonalKnowledgeModelService {
         payload = (await response.json()) as Record<string, unknown>;
       }
       const encryptedPayload = payload.encrypted_blob as Record<string, unknown> | undefined;
-      if (!encryptedPayload) return null;
+      if (!encryptedPayload || typeof encryptedPayload !== "object" || Array.isArray(encryptedPayload)) {
+        throw new Error("Coherent PKM domain snapshot is missing its encrypted information.");
+      }
+      if (!Number.isSafeInteger(payload.content_revision) || Number(payload.content_revision) < 0) {
+        throw new Error("Coherent PKM domain snapshot is missing its content revision.");
+      }
       const rawSegments =
         encryptedPayload.segments && typeof encryptedPayload.segments === "object"
           ? (encryptedPayload.segments as Record<string, Record<string, unknown>>)
