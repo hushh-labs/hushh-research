@@ -53,6 +53,7 @@ test.beforeAll(async () => {
           "@/lib/services/api-service",
           "@/lib/services/auth-service",
           "@/lib/cache/cache-sync-service",
+          "@/lib/connections/custom-connector-configuration",
           "next/link",
         ].map((find) => ({
           find,
@@ -145,6 +146,7 @@ for (const width of [320, 390, 768, 1440])
     );
     await page.goto("http://localhost/document-request-fixture");
     await page.addScriptTag({ content: script });
+    expect(errors).toEqual([]);
     await awaitProductFont(page);
     const draft = page.getByRole("textbox", { name: "Chat draft" });
     await draft.fill("Keep this chat draft");

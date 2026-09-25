@@ -54,6 +54,9 @@ export const AuthService = {
   },
 };
 export const CacheSyncService = { onConsentMutated: (_userId: string) => {} };
+// This fixture exercises document sharing, not vault-backed custom MCP setup.
+// Keep the connector service's unused configuration branch import-safe here.
+export const projectCustomConnectorTurnConfigurations = () => [];
 export default function FixtureLink(
   props: AnchorHTMLAttributes<HTMLAnchorElement>,
 ) {
