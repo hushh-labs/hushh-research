@@ -544,14 +544,17 @@ def test_production_health_gates_only_probe_after_successful_promotion() -> None
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
-    for path, expected_created_revision_lookups in (
-        (".github/workflows/deploy-uat.yml", 2),
+    for path, expected_unguarded_candidate_lookups in (
+        # UAT resolves governed candidates from exact deployment labels. Dev
+        # still uses latestCreatedRevisionName for its non-release candidates.
+        (".github/workflows/deploy-uat.yml", 0),
         (".github/workflows/deploy-dev.yml", 2),
     ):
         workflow = _read(path)
         assert workflow.count("status.latestReadyRevisionName") == 0
         assert (
-            workflow.count("status.latestCreatedRevisionName") == expected_created_revision_lookups
+            workflow.count("status.latestCreatedRevisionName")
+            == expected_unguarded_candidate_lookups
         )
         assert "--format='value(status.traffic[0].revisionName)'" not in workflow
         assert "resolve-cloud-run-serving-state.py" in workflow
