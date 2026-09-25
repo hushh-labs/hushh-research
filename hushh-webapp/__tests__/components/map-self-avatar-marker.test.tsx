@@ -9,8 +9,8 @@
  * renderer harness lives.
  *
  * JSDOM performs no layout, so nothing here proves a pixel. What it proves is
- * the projection decision: WHERE the marker is told to sit, and when it refuses
- * to draw at all.
+ * the projection decision: WHERE the avatar is told to sit, and when its one
+ * persistent semantic control yields visual ownership to the map renderer.
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -130,22 +130,47 @@ describe("MapSelfAvatarMarker", () => {
     expect(SELF_AVATAR_MARKER_SIZE_PX).toBeGreaterThanOrEqual(44);
   });
 
-  it("draws nothing before the renderer has reported a camera", () => {
+  it("keeps its semantic control but no visual avatar before a camera report", () => {
     renderMarker({ camera: null });
 
+    const marker = screen.getByTestId("one-location-map-self-avatar");
+    expect(marker).toHaveAccessibleName("Your location");
+    expect(marker).toHaveClass("sr-only");
     expect(
-      screen.queryByTestId("one-location-map-self-avatar"),
+      screen.queryByTestId("one-location-map-self-avatar-fallback"),
     ).not.toBeInTheDocument();
   });
 
-  it("draws nothing rather than clipping at the edge of the map box", () => {
+  it("hides the visual avatar rather than clipping at the map-box edge", () => {
     // Panned away. Clamping the marker to the edge would be worse than hiding
     // it: it would claim the owner is somewhere they are not.
     renderMarker({ point: { latitude: 45, longitude: 9 } });
 
-    expect(
-      screen.queryByTestId("one-location-map-self-avatar"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+  });
+
+  it("hides the visual avatar when rotation or tilt makes projection unsafe", () => {
+    const { rerender } = renderMarker({
+      camera: { ...CAMERA, bearing: 42 },
+    });
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+
+    rerender(
+      <MapSelfAvatarMarker
+        point={CENTRE_POINT}
+        camera={{ ...CAMERA, bearing: 0, tilt: 30 }}
+        viewport={VIEWPORT}
+        avatarUrl={null}
+        displayName="Ankit Kumar Singh"
+      />,
+    );
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
   });
 
   it("shows the photo when there is one", async () => {
@@ -208,15 +233,18 @@ describe("MapSelfAvatarMarker", () => {
     );
   });
 
-  it("fades out and stops taking taps while a native camera is mid-gesture", () => {
-    // Same rule the name pills follow: iOS and Android report the camera only
-    // once it settles, so holding the old position through a drag would walk
-    // the marker away from where the person is.
-    renderMarker({ stalePositions: true });
+  it("keeps one focusable control while its visual avatar yields to the renderer", () => {
+    // Same rule the name pills follow: the renderer owns the in-flight camera,
+    // so holding an HTML position through a drag could walk the marker away
+    // from where the person is.
+    renderMarker({ showAvatar: false });
 
     const marker = screen.getByTestId("one-location-map-self-avatar");
-    expect(marker).toHaveClass("opacity-0");
-    expect(marker).toHaveClass("pointer-events-none");
+    marker.focus();
+    expect(marker).toHaveClass("sr-only");
+    expect(marker).toHaveClass("focus-visible:not-sr-only");
+    expect(marker).not.toHaveClass("focus:not-sr-only");
+    expect(document.activeElement).toBe(marker);
   });
 
   it("says only that this is you", () => {
