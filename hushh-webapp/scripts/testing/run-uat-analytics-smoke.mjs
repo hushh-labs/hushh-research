@@ -349,15 +349,15 @@ page.on("request", (request) => {
   }
 });
 
-page.on("response", (response) => {
-  const request = response.request();
+page.on("requestfinished", async (request) => {
+  const response = await request.response().catch(() => null);
   for (const collect of parseAnalyticsCollectRequests(request)) {
     if (!collect.eventName) continue;
     analyticsCollectEvents.push({
       ...collect,
       requestId: getAnalyticsRequestId(request),
-      status: response.ok() ? "finished" : "failed",
-      httpStatus: response.status(),
+      status: response?.ok() ? "finished" : "failed",
+      httpStatus: response?.status() ?? 0,
     });
   }
 });
@@ -486,15 +486,15 @@ try {
       });
     }
   });
-  page.on("response", (response) => {
-    const request = response.request();
+  page.on("requestfinished", async (request) => {
+    const response = await request.response().catch(() => null);
     for (const collect of parseAnalyticsCollectRequests(request)) {
       if (!collect.eventName) continue;
       void mirrorCollectEvent({
         ...collect,
         requestId: getAnalyticsRequestId(request),
-        status: response.ok() ? "finished" : "failed",
-        httpStatus: response.status(),
+        status: response?.ok() ? "finished" : "failed",
+        httpStatus: response?.status() ?? 0,
       });
     }
   });

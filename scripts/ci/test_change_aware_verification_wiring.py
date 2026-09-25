@@ -100,13 +100,14 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
     path = "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs"
     require(
         path,
-        'page.on("response", (response) => {',
-        'status: response.ok() ? "finished" : "failed"',
+        'page.on("requestfinished", async (request) => {',
+        'status: response?.ok() ? "finished" : "failed"',
         'page.on("requestfailed", (request) => {',
         'entry.status === "finished"',
         'candidate.status === "failed"',
     )
     content = (ROOT / path).read_text(encoding="utf-8")
+    assert 'page.on("response",' not in content
     require(
         path,
         '"page_view"',

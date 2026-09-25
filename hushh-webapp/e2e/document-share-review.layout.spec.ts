@@ -758,4 +758,3 @@ for (const colorScheme of ["light", "dark"] as const)
     });
     expect(errors).toEqual([]);
   });
-
