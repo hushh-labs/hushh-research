@@ -1,6 +1,6 @@
 {
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
-  "source_base": "a2f75ffb2a2e9645ff274f4feb1a3a8ec607242f + staged compatibility extractions",
+  "source_base": "db88f8bd2554512e581eca3b875bb26ba4f393bc + regenerated capability projections",
   "finding_count": 1863,
   "findings": [
     {"key":"class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget","value":10037},
@@ -1307,7 +1307,7 @@
     {"key":"module_size|hushh-webapp/components/auth/phone-verification-flow.tsx||module exceeds the advisory operon budget","value":1393},
     {"key":"module_size|hushh-webapp/lib/services/pkm-upgrade-orchestrator.ts||module exceeds the advisory operon budget","value":1385},
     {"key":"module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget","value":1382},
-    {"key":"module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget","value":1378},
+    {"key":"module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget","value":1381},
     {"key":"module_size|hushh-webapp/lib/voice/kai-action-gateway.ts||module exceeds the advisory operon budget","value":1371},
     {"key":"module_size|consent-protocol/tests/services/test_location_command_postgres.py||module exceeds the advisory operon budget","value":1368},
     {"key":"module_size|hushh-webapp/lib/services/one-location-pre-vault-draft-service.ts||module exceeds the advisory operon budget","value":1361},
