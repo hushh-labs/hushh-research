@@ -44,6 +44,8 @@ const WALLET_PAGE_SIZE = 10;
 
 export function WalletWorkspace() {
   const { user, loading: authLoading } = useAuth();
+  const activeOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  activeOwnerIdRef.current = user?.uid ?? null;
   const { vaultKey, getVaultOwnerToken } = useVault();
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
@@ -150,9 +152,13 @@ export function WalletWorkspace() {
           surface: "web",
           source: "one_wallet_remove",
         });
-        trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
+        if (activeOwnerIdRef.current === context.userId) {
+          trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
+        }
       } catch (error) {
-        trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "error" });
+        if (activeOwnerIdRef.current === context.userId) {
+          trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "error" });
+        }
         throw error;
       }
       await refresh();
@@ -314,9 +320,13 @@ export function WalletWorkspace() {
                 surface: "web",
                 source: "one_wallet_add",
               });
-              trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+              if (activeOwnerIdRef.current === context.userId) {
+                trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+              }
             } catch (error) {
-              trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+              if (activeOwnerIdRef.current === context.userId) {
+                trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+              }
               throw error;
             }
             await refresh();

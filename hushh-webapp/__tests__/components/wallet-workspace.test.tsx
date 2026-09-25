@@ -8,6 +8,10 @@ const navigationMock = vi.hoisted(() => ({
   search: "",
   replace: vi.fn(),
 }));
+const authMock = vi.hoisted(() => ({
+  user: { uid: "user_1" } as { uid: string } | null,
+}));
+const trackEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -16,7 +20,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "user_1" }, loading: false }),
+  useAuth: () => ({ user: authMock.user, loading: false }),
+}));
+
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: trackEventMock,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -33,6 +41,7 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
 
 const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
+  deleteCard: vi.fn(),
 }));
 
 vi.mock("@/lib/services/wallet-service", async () => {
@@ -45,6 +54,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       ...actual.WalletService,
       isEnabled: () => true,
       listCardSummaries: serviceMock.listCardSummaries,
+      deleteCard: serviceMock.deleteCard,
       matchesQuery: actual.WalletService.matchesQuery,
     },
   };
@@ -71,18 +81,31 @@ describe("WalletWorkspace at scale", () => {
       join(process.cwd(), "components/wallet/wallet-workspace.tsx"),
       "utf8",
     );
-    expect(source).toMatch(
-      /card_deleted", result: "success" \}\);\s*\} catch[\s\S]*card_deleted", result: "error"[\s\S]*\}\s*await refresh\(\);/,
-    );
-    expect(source).toMatch(
-      /card_added", result: "success" \}\);\s*\} catch[\s\S]*card_added", result: "error"[\s\S]*\}\s*await refresh\(\);/,
-    );
+    const deleteSuccess = source.indexOf('action: "card_deleted", result: "success"');
+    const deleteCatch = source.indexOf("} catch (error) {", deleteSuccess);
+    const deleteError = source.indexOf('action: "card_deleted", result: "error"', deleteCatch);
+    const deleteRefresh = source.indexOf("await refresh();", deleteError);
+    expect(deleteSuccess).toBeGreaterThan(-1);
+    expect(deleteCatch).toBeGreaterThan(deleteSuccess);
+    expect(deleteError).toBeGreaterThan(deleteCatch);
+    expect(deleteRefresh).toBeGreaterThan(deleteError);
+
+    const addSuccess = source.indexOf('action: "card_added", result: "success"');
+    const addCatch = source.indexOf("} catch (error) {", addSuccess);
+    const addError = source.indexOf('action: "card_added", result: "error"', addCatch);
+    const addRefresh = source.indexOf("await refresh();", addError);
+    expect(addSuccess).toBeGreaterThan(-1);
+    expect(addCatch).toBeGreaterThan(addSuccess);
+    expect(addError).toBeGreaterThan(addCatch);
+    expect(addRefresh).toBeGreaterThan(addError);
   });
 
   beforeEach(() => {
+    authMock.user = { uid: "user_1" };
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(25));
+    serviceMock.deleteCard.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -119,5 +142,27 @@ describe("WalletWorkspace at scale", () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "nothing-here" } });
     });
     await waitFor(() => expect(screen.getByTestId("one-wallet-no-match")).toBeTruthy());
+  });
+
+  it("does not attribute a late card deletion to a replacement owner", async () => {
+    let finishDelete!: () => void;
+    serviceMock.deleteCard.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        finishDelete = resolve;
+      }),
+    );
+    const view = render(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    await waitFor(() => expect(finishDelete).toBeTypeOf("function"));
+    authMock.user = { uid: "user_2" };
+    view.rerender(<WalletWorkspace />);
+    await act(async () => finishDelete());
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      "one_wallet_action",
+      expect.objectContaining({ action: "card_deleted" }),
+    );
   });
 });

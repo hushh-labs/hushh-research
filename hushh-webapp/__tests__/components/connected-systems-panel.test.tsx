@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  approveConnectedSystemIntent,
   ConnectedSystemLogo,
   ConnectedSystemsPanel,
 } from "@/components/profile/connected-systems-panel";
@@ -75,6 +76,7 @@ vi.mock("@/lib/services/connected-systems-service", () => ({
     createRecordIntent: vi.fn(),
     updateRecordIntent: vi.fn(),
     approveIntent: vi.fn(),
+    approveCrmEncryptedFieldsIntent: vi.fn(),
     rejectIntent: vi.fn(),
     createDeleteIntent: vi.fn(),
   },
@@ -205,6 +207,40 @@ const readySchema = {
 };
 
 describe("ConnectedSystemsPanel", () => {
+  it("retries encrypted pending intents through the encrypted approval endpoint", async () => {
+    vi.mocked(
+      ConnectedSystemsService.approveCrmEncryptedFieldsIntent,
+    ).mockResolvedValueOnce({
+      intentId: "encrypted-intent-1",
+      systemId: system.systemId,
+      action: "update",
+      status: "succeeded",
+      fieldNames: ["PreferredLanguage"],
+      deliveryMode: "crm-encrypted-fields.v1",
+    });
+
+    await approveConnectedSystemIntent({
+      vaultOwnerToken: "HCT:test",
+      intent: {
+        intentId: "encrypted-intent-1",
+        systemId: system.systemId,
+        action: "update",
+        status: "pending",
+        fieldNames: ["PreferredLanguage"],
+        deliveryMode: "crm-encrypted-fields.v1",
+      },
+    });
+
+    expect(
+      ConnectedSystemsService.approveCrmEncryptedFieldsIntent,
+    ).toHaveBeenCalledWith({
+      vaultOwnerToken: "HCT:test",
+      systemId: system.systemId,
+      intentId: "encrypted-intent-1",
+    });
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     CacheService.getInstance().clear();

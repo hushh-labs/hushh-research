@@ -103,6 +103,20 @@ export type ConnectedSystemAgentInstruction = {
 type CrmProfileFieldKey = string;
 type CrmFieldValues = Record<string, string>;
 
+export function approveConnectedSystemIntent(params: {
+  vaultOwnerToken: string;
+  intent: ConnectedSystemIntent;
+}) {
+  const input = {
+    vaultOwnerToken: params.vaultOwnerToken,
+    systemId: params.intent.systemId,
+    intentId: params.intent.intentId,
+  };
+  return params.intent.deliveryMode === "crm-encrypted-fields.v1"
+    ? ConnectedSystemsService.approveCrmEncryptedFieldsIntent(input)
+    : ConnectedSystemsService.approveIntent(input);
+}
+
 type CrmProfileField = {
   key: CrmProfileFieldKey;
   label: string;
@@ -1784,12 +1798,10 @@ export function ConnectedSystemsPanel({
         success: `${customerName} record ${intent.action} completed.`,
         error: `${customerName} record ${intent.action} failed.`,
       },
-      () =>
-        ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: intent.systemId,
-          intentId: intent.intentId,
-        }),
+      () => approveConnectedSystemIntent({
+        vaultOwnerToken: vaultOwnerToken || "",
+        intent,
+      }),
     );
     if (!result || !isCurrentPanelRequest(requestContext)) return;
     setPendingIntent(null);
