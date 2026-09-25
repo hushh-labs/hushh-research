@@ -514,6 +514,52 @@ async def test_duplicate_exact_title_read_cannot_become_requester_share(monkeypa
     source.read_matches.assert_not_awaited()
 
 
+@pytest.mark.parametrize("mode,status", [("find", "ok"), ("read", "input_required")])
+async def test_truncated_exact_title_cannot_prove_unique_file(monkeypatch, mode, status):
+    from hushh_mcp.services.drive_live_query_service import requester_answer
+
+    source = reader()
+    source.find.return_value = {
+        "matches": source.find.return_value["matches"],
+        "truncated": True,
+    }
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["March statement"], "mode": mode, "exact_title": "March statement.pdf"},
+        candidate_selector=AsyncMock(side_effect=AssertionError("selector reached")),
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    outcome = await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query=f"{mode} March statement.pdf",
+        require_access=AsyncMock(),
+    )
+
+    assert outcome["status"] == status
+    assert outcome["metadata_only"] is True
+    assert outcome["files"] == source.find.return_value["matches"]
+    assert outcome["truncated"] is True
+    assert outcome["selection"]["stage"] == "incomplete_exact_title"
+    if mode == "read":
+        assert outcome["share_files"] == []
+        assert requester_answer(outcome)["titles"] == []
+    else:
+        assert len(outcome["share_files"]) == 1
+    owner = await service.handle_delegated_turn(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        conversation_id="conversation",
+        message=f"{mode} March statement.pdf",
+        require_access=AsyncMock(),
+    )
+    assert "March statement" in owner["response"]
+    assert "More matches may exist" in owner["response"]
+    assert "This search may include more files with that title" in owner["response"]
+    source.read_matches.assert_not_awaited()
+
+
 async def test_unresolved_followup_never_reads_broad_search_hits(monkeypatch):
     source = reader()
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)

@@ -358,6 +358,11 @@ class DriveChatService:
                 text += (
                     "\n\nMore than one file has that title. Choose one before I read its contents."
                 )
+            elif (outcome.get("selection") or {}).get("stage") == "incomplete_exact_title":
+                text += (
+                    "\n\nThis search may include more files with that title. "
+                    "Choose one before I read its contents."
+                )
         return result(
             conversation_id,
             text,
@@ -564,6 +569,25 @@ class DriveChatService:
                             return _outcome(
                                 "input_required",
                                 "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
+                            )
+                        if found["truncated"]:
+                            # The bounded search may have omitted another file
+                            # with this exact name. Show found metadata, but
+                            # never choose one for a content read.
+                            await reader.require_current()
+                            return _files_outcome(
+                                matches,
+                                found,
+                                status="ok" if plan.mode == "find" else "input_required",
+                                unreadable=False,
+                                time_window=time_window,
+                                date_field=date_field,
+                                timezone=owner_timezone,
+                                selection={
+                                    "stage": "incomplete_exact_title",
+                                    "candidates": len(matches),
+                                    "selected": len(matches),
+                                },
                             )
                         if len(matches) > 1:
                             # An exact name is not a unique file identity. Show
