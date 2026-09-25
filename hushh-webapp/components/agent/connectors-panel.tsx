@@ -138,7 +138,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
             <span className="block truncate text-sm font-medium">{entry.name}</span>
             {entry.detail ? <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.detail}</span> : null}
           </span>
-          {entry.connected && !entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+          {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
         </button>
       ) : (
         <span className="min-w-0 flex-1">
@@ -1201,10 +1201,7 @@ function OwnerConnectorsPanel({
       action: hasDriveGrant
         ? undefined
         : !canConnectDrive
-          ? {
-              label: "Manage Google Drive",
-              onClick: () => showConnector("google_drive"),
-            }
+          ? undefined
         : {
             label: "Connect Google Drive",
             onClick: () => {
@@ -1213,6 +1210,9 @@ function OwnerConnectorsPanel({
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
+      trailingText: !hasDriveGrant && !canConnectDrive
+        ? loading ? "Checking…" : statusChecked ? "Unavailable" : "Check connection"
+        : undefined,
     },
     {
       id: "calendar",

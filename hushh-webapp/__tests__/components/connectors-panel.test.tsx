@@ -97,6 +97,17 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
+  it("does not offer a dead Drive connection action when backend admission is off", async () => {
+    state.overview.mockResolvedValue(overview());
+    render(panel());
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Google Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Google Drive" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    expect(screen.getByText("Drive sign-in is not enabled for this account in this environment.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
+  });
+
   it("omits unsupported catalog placeholders even when the registry returns them", async () => {
     state.overview.mockResolvedValue(overview([
       { ...catalogItem, connectorId: "notion", displayName: "Notion" },
