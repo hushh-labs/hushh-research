@@ -112,6 +112,17 @@ A consent-review grant does not authorize connection mutations. These branch
 changes are not deployment acceptance; live performance failures remain in
 [the migration baseline](./agent-chat-migration-baseline.md).
 
+Authenticated Chat's registry-backed ADK MCP toolset now has read-only
+credential adapters for curated Drive, Gmail, and Calendar registrations.
+Gmail's admitted schema and result are metadata-only; Calendar uses its
+existing owner-specific read grant. Each native call rechecks the current
+owner and grant, and application review remains separate from discovery.
+The older `discover_workspace_tools` / `read_workspace_tool` entrypoints remain
+model-facing compatibility paths until live provider parity is verified; they
+are not a second credential authority. Source admission does not establish an
+active curated registry row, Google Developer Preview access, or a successful
+provider call. Do not report these reads as live solely from this wiring.
+
 Nav's public handle runs a fresh, bounded ADK session per turn. Nav and its
 Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner rejects
 `single_turn` roots; this does not introduce shared owner history. One's intro

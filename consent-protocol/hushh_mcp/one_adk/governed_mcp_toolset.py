@@ -77,10 +77,15 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
         return False
     if connector.owner_user_id == owner:
         return connector.transport_kind == "mcp"
-    return (
-        connector.owner_user_id is None
-        and connector.connector_id == "google_drive"
-        and connector.transport_kind in {"mcp", "google_drive_rest"}
+    return connector.owner_user_id is None and (
+        (
+            connector.connector_id == "google_drive"
+            and connector.transport_kind in {"mcp", "google_drive_rest"}
+        )
+        or (
+            connector.connector_id in {"google_gmail", "google_calendar"}
+            and connector.transport_kind == "mcp"
+        )
     )
 
 
@@ -116,9 +121,22 @@ async def resolve_registered_connection(
     if connector.owner_user_id is None:
         # Narrow provider authentication/policy adapter, never another tool
         # dispatcher. All discovery, review and invocation remain native ADK.
-        from hushh_mcp.one_adk.workspace_mcp_tools import resolve_native_drive_connection
+        from hushh_mcp.one_adk.workspace_mcp_tools import (
+            resolve_native_drive_connection,
+            resolve_native_workspace_connection,
+        )
 
-        return await resolve_native_drive_connection(context)
+        if connector_id == "google_drive":
+            return await resolve_native_drive_connection(context)
+        if connector_id == "google_gmail":
+            resolved = await resolve_native_workspace_connection(context, "gmail")
+        elif connector_id == "google_calendar":
+            resolved = await resolve_native_workspace_connection(context, "calendar")
+        else:
+            raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+        if connector.auth_style != "oauth" or connector.mcp_endpoint != resolved.binding.endpoint:
+            raise ExternalMcpError("Connector policy changed.", code="MCP_CONNECTION_CHANGED")
+        return resolved
     row = await ExternalConnectorLifecycleStore().read(user_id=owner, connector_id=connector_id)
     if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
         raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")

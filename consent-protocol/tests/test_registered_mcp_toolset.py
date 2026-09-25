@@ -128,6 +128,21 @@ async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
         assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
 
 
+@pytest.mark.parametrize("connector_id", ["google_gmail", "google_calendar"])
+async def test_curated_workspace_uses_same_native_discovery_and_approval(registry, connector_id):
+    registration = definition(connector_id, owner=None)
+    registry.list_active_connectors.return_value = [registration]
+    async with mcp_turn_scope("thread") as scope:
+        tool = SimpleNamespace(name=f"mcp_{connector_id}", description="Read")
+        scope.acquire = AsyncMock(
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == [tool.name]
+        assert scope.acquire.await_args.args[1] == connector_id
+        assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
+
+
 async def test_vault_catalog_replaces_private_db_definitions(registry):
     registry.list_active_connectors.return_value = [definition("legacy_private")]
     record = {
