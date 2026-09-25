@@ -219,6 +219,39 @@ describe("SettingsRow", () => {
     ).toBe("red");
   });
 
+  it("makes glyphs inherit the contrasting foreground of coloured icon tiles", () => {
+    function AuthoredColourIcon({
+      color = "#2563eb",
+      ...props
+    }: React.SVGProps<SVGSVGElement>) {
+      return (
+        <svg data-testid="authored-colour-icon" color={color} {...props} />
+      );
+    }
+
+    const { rerender } = render(
+      <SettingsRow icon={AuthoredColourIcon} iconTone="blue" title="Account" />,
+    );
+
+    expect(screen.getByTestId("authored-colour-icon")).toHaveAttribute(
+      "color",
+      "currentColor",
+    );
+
+    rerender(
+      <SettingsRow
+        icon={AuthoredColourIcon}
+        iconTone="capability"
+        title="Account"
+      />,
+    );
+
+    expect(screen.getByTestId("authored-colour-icon")).toHaveAttribute(
+      "color",
+      "#2563eb",
+    );
+  });
+
   it("uses square iOS-style icon wells, shared inset-group radius, and standard card depth", () => {
     const { container } = render(
       <SettingsGroup>
