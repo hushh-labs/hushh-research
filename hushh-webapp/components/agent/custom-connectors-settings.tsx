@@ -39,6 +39,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogTool[]>>({});
   const [authRequired, setAuthRequired] = useState<Record<string, boolean>>({});
+  const [checkFailed, setCheckFailed] = useState<Record<string, boolean>>({});
   const refreshAbort = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [editing, setEditing] = useState(false);
@@ -62,7 +63,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
     lifetime.current = current;
     inFlight.current = false;
-    setBusy(false); setCatalogs({}); setAuthRequired({}); setRemoving(null);
+    setBusy(false); setCatalogs({}); setAuthRequired({}); setCheckFailed({}); setRemoving(null);
     setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(accessForLoad, true).then(records => {
       if (!current()) return;
@@ -89,15 +90,36 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         } } : {}),
         authentication: credential ? { kind: "api_key", header: "Authorization", value: credential } : { kind: "none" },
       };
+      // A saved definition is not a connection. Verify non-OAuth servers before
+      // writing anything to the vault; OAuth registrations remain sign-in pending.
+      let discovered: CatalogTool[] | null = null;
+      let signInNeeded = Boolean(configuration.oauthRegistration);
+      if (!configuration.oauthRegistration) {
+        try {
+          discovered = await ExternalConnectorService.refreshMcpCatalog({
+            vaultOwnerToken: access.vaultOwnerToken, configuration,
+            signal: refreshAbort.current?.signal ?? new AbortController().signal,
+            isEffectCurrent: current,
+          });
+          if (!discovered.length) throw new Error("No callable tools found.");
+        } catch (error) {
+          // A verified 401 is a pending OAuth setup, never a connected state.
+          // A rejected supplied credential or any other failure is not saved.
+          if (!(error instanceof McpCatalogAuthenticationError) || credential) throw error;
+          signInNeeded = true;
+        }
+      }
       const saved = await saveCustomConnectorConfiguration(access, configuration,
         { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, null, current);
       if (!current()) return;
       setItems(previous => [...previous, savedConnector(saved)]);
+      if (discovered) setCatalogs(previous => ({ ...previous, [saved.connectorId]: discovered }));
+      if (signInNeeded) setAuthRequired(previous => ({ ...previous, [saved.connectorId]: true }));
       setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false);
     })();
     morphyToast.promise(operation, {
-      loading: "Saving connector…", success: "Connector settings saved.",
-      error: "Could not save. Check the address and keep your vault unlocked.",
+      loading: "Checking connector…", success: "Connector settings saved.",
+      error: "Could not add connector. Check its MCP address and server-specific credential.",
     });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
@@ -118,12 +140,14 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       if (current()) {
         setCatalogs(previous => ({ ...previous, [item.connectorId]: tools }));
         setAuthRequired(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
+        setCheckFailed(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
       }
     })();
     morphyToast.promise(operation, { loading: "Refreshing tools…", success: "Tools refreshed.", error: "Could not refresh. Check the connection and try again." });
     try { await operation; } catch (error) {
       if (current() && error instanceof McpCatalogAuthenticationError)
         setAuthRequired(previous => ({ ...previous, [item.connectorId]: true }));
+      else if (current()) setCheckFailed(previous => ({ ...previous, [item.connectorId]: true }));
       /* Shared toast owns the failure. */
     }
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
@@ -170,27 +194,6 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         payload: { revision: item.revision, attemptId }, signal: controller.signal, isEffectCurrent: current,
       }).catch(() => undefined);
     } finally { if (current()) { inFlight.current = false; setBusy(false); } }
-  };
-
-  const setEnabled = async (item: SavedConnector) => {
-    if (inFlight.current || !lifetime.current()) return;
-    inFlight.current = true; setBusy(true);
-    const current = lifetime.current;
-    const operation = (async () => {
-      const records = await loadCustomConnectorConfigurations(access, true);
-      if (!current()) throw new Error("Session changed.");
-      const configuration = records.find(record => record.connectorId === item.connectorId);
-      if (!configuration || configuration.revision !== item.revision) throw new Error("Connector changed.");
-      const saved = await saveCustomConnectorConfiguration(access, { ...configuration, enabled: !item.enabled },
-        { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, item.revision, current);
-      if (!current()) return;
-      setItems(previous => previous.map(record => record.connectorId === item.connectorId ? savedConnector(saved) : record));
-      setCatalogs(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
-      setAuthRequired(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
-    })();
-    morphyToast.promise(operation, { loading: "Updating connector…", success: item.enabled ? "Connector blocked for new turns." : "Connector enabled. Calls still require review.", error: "Could not update. Reopen connectors and try again." });
-    try { await operation; } catch { /* Shared toast owns the failure. */ }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const setToolBlocked = async (item: SavedConnector, tool: CatalogTool) => {
@@ -247,19 +250,19 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
           ? "Saved credential rejected · remove and add again"
           : "Sign in needed"
+        : checkFailed[item.connectorId] ? "Connection check failed · verify server address and credential"
         : catalogs[item.connectorId] ? `${catalogs[item.connectorId]?.length ?? 0} tools discovered`
-        : "Saved · tools not checked"}</p>
+        : item.authenticationKind === "none" ? "Sign in or refresh tools to verify" : "Tools not checked"}</p>
       <div className="flex flex-wrap gap-2">
         {onPrepareRecovery && item.authenticationKind !== "api_key" && (item.hasOAuthRegistration || item.authenticationKind === "oauth" || authRequired[item.connectorId])
-          ? <Button size="standard" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
-        <Button size="standard" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
-        <Button size="standard" variant="none" effect="fade" aria-label={`${item.enabled ? "Block" : "Enable"} ${item.displayName}`} disabled={busy} onClick={() => void setEnabled(item)}>{item.enabled ? "Block" : "Enable"}</Button>
-        <Button size="standard" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>
+          ? <Button size="compact" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
+        <Button size="compact" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
+        <Button size="compact" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>
       </div>
       {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools</summary>
         <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1">
           <span className="min-w-0 break-words">{tool.name}</span>
-          <Button size="standard" variant="none" effect="fade" disabled={busy || !item.enabled}
+          <Button size="compact" variant="none" effect="fade" disabled={busy || !item.enabled}
             aria-label={`${tool.permission === "blocked" ? "Allow reviewed calls to" : "Block"} ${tool.name} in ${item.displayName}`}
             onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow" : "Ask first · Block"}</Button>
         </li>)}</ul>
@@ -269,6 +272,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Server address<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Authorization header (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} onChange={event => setCredential(event.target.value)} /></label>
+      <p className="text-xs text-muted-foreground">Use this server's credential, never your Hushh vault token. Enter its MCP endpoint, not its sign-in page.</p>
       <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">OAuth client settings (if provided by your server)</summary>
         <div className="space-y-3 pb-3">
           <label className="block space-y-1">Authorization server issuer<Input type="url" placeholder="https://accounts.example.com" maxLength={2048} value={oauthIssuer} onChange={event => setOauthIssuer(event.target.value)} /></label>

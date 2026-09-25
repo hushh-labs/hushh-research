@@ -128,6 +128,7 @@ export function waitForOAuthPopup(input: {
   popup: Window;
   expiresAt: number;
   signal: AbortSignal;
+  cancelSignal?: AbortSignal;
   matches: (value: unknown) => boolean;
   storageValue: (event: StorageEvent) => unknown;
   onFinish?: (reason: "settled" | "closed" | "expired" | "aborted") => void;
@@ -148,10 +149,11 @@ export function waitForOAuthPopup(input: {
     ) => {
       if (settled) return;
       settled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       window.removeEventListener("message", message);
       window.removeEventListener("storage", storage);
       input.signal.removeEventListener("abort", abort);
+      input.cancelSignal?.removeEventListener("abort", abort);
       try {
         input.popup.close();
       } catch {
@@ -180,14 +182,16 @@ export function waitForOAuthPopup(input: {
       )
         finish("settled");
     };
-    const timer = window.setInterval(() => {
-      if (input.popup.closed) finish("closed");
-      else if (Date.now() >= input.expiresAt) finish("expired");
-    }, 500);
+    // Google's COOP can sever the popup's WindowProxy while authorization is
+    // open: reading `popup.closed` can warn or appear true for a live popup.
+    // The callback's redacted message/storage event, explicit cancellation,
+    // owner-session abort, or bounded expiry are the only completion signals.
+    const timer = window.setTimeout(() => finish("expired"), Math.max(0, input.expiresAt - Date.now()));
     window.addEventListener("message", message);
     window.addEventListener("storage", storage);
     input.signal.addEventListener("abort", abort, { once: true });
-    if (input.signal.aborted) abort();
+    input.cancelSignal?.addEventListener("abort", abort, { once: true });
+    if (input.signal.aborted || input.cancelSignal?.aborted) abort();
   });
 }
 
@@ -195,10 +199,12 @@ export function waitForDrivePopup(
   popup: Window,
   attempt: DrivePopupAttempt,
   signal: AbortSignal,
+  cancelSignal?: AbortSignal,
 ): Promise<void> {
   return waitForOAuthPopup({
     popup,
     signal,
+    cancelSignal,
     expiresAt: attempt.expiresAt,
     matches: (value) =>
       isDrivePopupSettlement(value) &&

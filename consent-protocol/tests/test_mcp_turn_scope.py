@@ -358,6 +358,15 @@ async def test_founder_wiki_uses_generic_vault_mcp_path(runtime, monkeypatch):
         assert "synthetic" not in repr(resolved)
 
 
+@pytest.mark.parametrize("value", ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"])
+def test_vault_owner_token_cannot_be_forwarded_as_custom_api_key(value):
+    record = configuration()
+    record["authentication"]["value"] = value
+    with pytest.raises(ExternalMcpError) as caught:
+        module.validate_mcp_turn_configurations([record])
+    assert caught.value.code == "MCP_CONFIGURATION_INVALID"
+
+
 async def test_changed_configuration_cannot_reuse_binding_with_same_revision(runtime, monkeypatch):
     monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
     bindings = []

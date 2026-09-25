@@ -1990,6 +1990,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const transcriptProgrammaticTargetRef = useRef<number | null>(null);
   const transcriptProgrammaticScrollTimeoutRef = useRef<number | null>(null);
   const transcriptUserScrollRef = useRef(false);
+  const scrollToSubmittedTurnRef = useRef(false);
 
   const clearTranscriptProgrammaticScroll = useCallback(() => {
     transcriptProgrammaticScrollRef.current = false;
@@ -2699,14 +2700,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // add a render to the scroll path.
     const shouldFollowTranscript =
       !transcriptUserScrollRef.current &&
-      (oneScrollTopRef.current <= 2 || distanceFromBottom <= 48);
+      (scrollToSubmittedTurnRef.current || transcriptProgrammaticScrollRef.current ||
+        oneScrollTopRef.current <= 2 || distanceFromBottom <= 48);
     if (!shouldFollowTranscript) return;
 
+    const submittedTurn = scrollToSubmittedTurnRef.current;
+    scrollToSubmittedTurnRef.current = false;
     beginTranscriptProgrammaticScroll(
       Math.max(0, transcript.scrollHeight - transcript.clientHeight),
     );
     messagesEnd.scrollIntoView({
-      behavior: "auto",
+      behavior: submittedTurn && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "smooth" : "auto",
       block: "end",
     });
   }, [
@@ -5781,6 +5786,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (input.trim() || longPromptAttachment?.text.trim()) {
+      transcriptUserScrollRef.current = false;
+      scrollToSubmittedTurnRef.current = true;
+    }
     await submitComposerText();
   };
 
@@ -6466,6 +6475,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   );
                   const distanceFromBottom = maxScrollTop - scrollTop;
 
+                  // A smooth jump after Send emits intermediate scroll events
+                  // far from the bottom. They are not reader gestures.
+                  if (transcriptProgrammaticScrollRef.current && scrollTop >= previousScrollTop - 2) {
+                    const target = transcriptProgrammaticTargetRef.current;
+                    if (target === null || Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3)
+                      clearTranscriptProgrammaticScroll();
+                    return;
+                  }
+
                   // When the reader scrolls up or moves noticeably away from the bottom,
                   // immediately clear any programmatic lock and mark active reader control.
                   if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
@@ -6476,16 +6494,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     transcriptUserScrollRef.current = false;
                   }
 
-                  if (transcriptProgrammaticScrollRef.current) {
-                    const target = transcriptProgrammaticTargetRef.current;
-                    if (
-                      target === null ||
-                      Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
-                    ) {
-                      clearTranscriptProgrammaticScroll();
-                    }
-                    return;
-                  }
                   // Any unclassified scroll event after the programmatic guard
                   // is a real reader movement (wheel, keyboard, or touch). Once
                   // that happens, message updates must respect the reader's
