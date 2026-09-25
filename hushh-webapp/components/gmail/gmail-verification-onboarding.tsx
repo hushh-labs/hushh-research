@@ -177,16 +177,16 @@ export function GmailVerificationOnboarding({
 
   if (!vaultKey || !vaultOwnerToken) {
     return (
-      <SurfaceInset className="space-y-3 px-4 py-5 sm:px-5">
+      <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-primary/10 p-2 text-primary">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-base font-semibold text-foreground">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
               Set up KYC
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               Open your private vault before importing details for future KYC
               replies.
             </p>
@@ -200,12 +200,12 @@ export function GmailVerificationOnboarding({
   }
 
   return (
-    <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">
+    <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="space-y-1">
-        <h2 className="text-base font-semibold text-foreground">
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">
           Build your KYC profile
         </h2>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           Paste your profile details to automate future KYC responses.
         </p>
       </div>
