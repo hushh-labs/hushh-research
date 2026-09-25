@@ -217,31 +217,58 @@ export function GmailVerificationOnboarding({
         aria-label="KYC details"
         disabled={saving}
       />
-      <div className="rounded-xl border border-border/60 bg-background/60 p-3.5 space-y-2">
+      <div className="rounded-xl border border-border/60 bg-background/60 p-3.5 space-y-3">
         <p className="text-xs font-semibold text-foreground">
           Import from another AI
         </p>
         <p className="text-xs text-muted-foreground">
           Copy this prompt into ChatGPT or Claude, then paste the output above.
         </p>
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => void copyPrompt()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              void copyPrompt();
+            }
+          }}
+          aria-label="Copy prompt to clipboard"
+          className="group relative flex cursor-pointer flex-col gap-2.5 rounded-xl border border-dashed border-border/80 bg-background p-4 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center rounded-md bg-indigo-500/10 px-2 py-0.5 text-[11px] font-bold tracking-wider text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400">
+              PROMPT
+            </span>
+            <div className="flex items-center gap-2">
+              {copied ? (
+                <span
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-in fade-in duration-200"
+                >
+                  ✓ Copied!
+                </span>
+              ) : null}
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="h-8 w-8 shrink-0 text-muted-foreground group-hover:text-foreground"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+          <p className="font-mono text-xs leading-relaxed text-foreground/90 select-all">
             {EXTERNAL_AGENT_PROMPT}
           </p>
-          <Button
-            type="button"
-            size="icon"
-            variant="muted"
-            onClick={() => void copyPrompt()}
-            aria-label="Copy KYC export prompt"
-            className="shrink-0"
-          >
-            {copied ? (
-              <Check className="h-4 w-4 text-emerald-600" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </Button>
         </div>
       </div>
       <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
