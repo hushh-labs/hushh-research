@@ -11,12 +11,14 @@ from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
+    STATE_EXTERNAL_READ_CONTINUATION,
 )
 
 _EPHEMERAL = frozenset(
     {
         STATE_EXECUTION_SURFACE,
         STATE_EXTERNAL_READ,
+        STATE_EXTERNAL_READ_CONTINUATION,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:mcp_approval",
         # Agent Chat stores source text behind an in-process request secret.
@@ -86,8 +88,8 @@ def durable_external_read_projection(session: Session) -> Session:
             # signatures. Only tool arguments/results are redacted. Ordinary
             # user requests and the encrypted assistant answer are preserved.
             # Unrelated tools may have completed before Mail was selected;
-            # retain their governed history cards. After Mail, the invocation
-            # barrier prevents other tools from receiving external content.
+            # retain their governed history cards. After Mail, only governed
+            # reviewed MCP calls or the redacted client-only draft may follow.
             if part.function_call and part.function_call.name in READ_TOOLS:
                 part.function_call.args = {}
             if part.thought and part.text:

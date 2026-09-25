@@ -14,6 +14,7 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
 STATE_EXTERNAL_READ = "temp:one_external_read_invocation"
+STATE_EXTERNAL_READ_CONTINUATION = "temp:one_external_read_model_continuation"
 MAIL_TOOL = "ask_email_agent"
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
@@ -40,6 +41,18 @@ def _reviewed_mcp_tool(tool: Any) -> bool:
     return type(tool) is _GovernedMcpTool and tool.toolset.authorize_call is review_or_resume_call
 
 
+def _reviewable_draft_tool(tool: Any) -> bool:
+    # This is a client-only draft, not a provider send. Admit the exact local
+    # function, never a provider tool or another callable with the same name.
+    if getattr(tool, "name", None) != "open_gmail_email_draft":
+        return False
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.one_adk.agent_tree import open_gmail_email_draft
+
+    return type(tool) is FunctionTool and tool.func is open_gmail_email_draft
+
+
 def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     if _reviewed_mcp_tool(tool):
         invocation = getattr(tool_context, "invocation_id", None)
@@ -52,6 +65,13 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         tool_context.state[STATE_EXTERNAL_READ] = invocation
         return None
     if external_read_active(tool_context):
+        if (
+            _reviewable_draft_tool(tool)
+            and tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
+            == tool_context.invocation_id
+        ):
+            return None
         return {"status": "blocked", "reason": "external_content_answer_only"}
     if (
         getattr(tool, "name", "") in READ_TOOLS
@@ -72,8 +92,13 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
 
 def before_external_read_model(callback_context: Any, llm_request: Any) -> None:
     if external_read_active(callback_context):
+        # This callback runs only after the read's tool result has returned to
+        # the model. A parallel draft call in the original batch stays blocked.
+        callback_context.state[STATE_EXTERNAL_READ_CONTINUATION] = callback_context.invocation_id
         admitted = {
-            name: tool for name, tool in llm_request.tools_dict.items() if _reviewed_mcp_tool(tool)
+            name: tool
+            for name, tool in llm_request.tools_dict.items()
+            if _reviewed_mcp_tool(tool) or _reviewable_draft_tool(tool)
         }
         declarations = [tool._get_declaration() for tool in admitted.values()]
         llm_request.tools_dict.clear()
