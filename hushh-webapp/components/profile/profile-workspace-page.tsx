@@ -4599,20 +4599,18 @@ function ProfilePageContent({
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={ConnectedSystemsAgentIcon}
-                iconTone="capability"
+                iconTone="orange"
                 title="Hosting"
                 chevron
-                density="compact"
                 onClick={() =>
                   updateProfileView({ panel: "hosting", detail: null }, "push")
                 }
               />
               <SettingsRow
                 icon={DevicesProfileIcon}
-                iconTone="capability"
+                iconTone="indigo"
                 title="Software updates"
                 chevron
-                density="compact"
                 onClick={() =>
                   updateProfileView(
                     { panel: "software-updates", detail: null },
@@ -4656,11 +4654,10 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={ConnectedSystemsAgentIcon}
-                iconTone="capability"
+                iconTone="green"
                 title="Connectors"
                 description="Google Workspace and finance connections"
                 chevron
-                density="compact"
                 onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
