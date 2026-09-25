@@ -212,6 +212,9 @@ follow_imports = "skip"
 [[tool.mypy.overrides]]
 module = [
     "hushh_mcp.services.one_location_agent_service",
+    # The extracted pure seams retain typed return contracts at the facade.
+    "hushh_mcp.services.one_location_recommendation_signals",
+    "hushh_mcp.services.one_location_share_lifecycle",
     # Preserve the public URL helper's return types at the service boundary.
     "hushh_mcp.services.one_location_public_invite_url",
     # Keep the shared manual/command public-link writer's return contract typed.
