@@ -1155,9 +1155,8 @@ advertised issuer to the workflow's verified owner and current-session guard.
 It rejects replay and checks the guard again before delivering the code. The
 `iss` callback parameter is required when metadata advertises support; whenever
 present it must match exactly. `use_callback` installs this handoff before the SDK
-starts and cannot be rebound during the flow. This is an in-memory SDK integration,
-not an authenticated HTTP route: routes must still establish owner/attempt authority,
-validate registered return URIs and fail closed on lost worker continuity.
+starts and cannot be rebound during the flow. The authenticated routes below
+establish owner/attempt authority and fail closed on lost worker continuity.
 The adapter's `create_http_client`
 uses the existing public-network transport with a 65,536-byte streamed response
 limit. It requests identity encoding and rejects compressed responses before
@@ -1172,11 +1171,25 @@ one live attempt. It binds owner, connector and configuration revision, bounds t
 attempt to five minutes, and closes temporary resources on completion/cancellation.
 No product tool runs during connection. Tests use synthetic OAuth/MCP HTTP responses
 with the real SDK; they do not prove public login, browser/native return or a real
-Workspace server. The future HTTP owner must validate registered return URIs and
-verified identity, bound the number of live attempts, and fail closed if a callback
-reaches another worker or a restarted process. The handshake closes local streams
+Workspace server. The handshake closes local streams
 without an OAuth-retried server-session DELETE; remote session expiry remains the
 server's responsibility and needs provider acceptance.
+
+The private `/api/connectors/{connector_id}/mcp/oauth/{begin,complete,cancel}`
+POST routes require Vault Owner authority and accept only custom connector IDs.
+`begin` receives endpoint and configuration revision; the server fixes the return
+path to `/one/profile/connectors/oauth/return` on `APP_FRONTEND_ORIGIN`, never an
+arbitrary client-supplied redirect. HTTPS is required except localhost in
+development/test. The provider must admit that exact return URI too.
+Attempts are process-local, expire after five minutes, and are bounded to two per
+owner and 128 per worker. Completion claims an attempt once and binds owner,
+connector, revision, SDK state and issuer. Its no-store result contains tokens and
+client registration for **browser-encrypted vault delivery only**. Both proxy and
+backend bound request bodies to 64KB. Restart or another worker fails closed;
+multiworker affinity and aggregate admission remain deployment prerequisites.
+The existing return page is still the legacy flow: these routes are not yet a
+usable web/native connection entry point, and refresh is not implemented here.
+
 The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
 initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.

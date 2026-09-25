@@ -11,7 +11,19 @@ import { proxyExternalConnectorRequest } from "@/app/api/connectors/_proxy";
 afterEach(() => vi.restoreAllMocks());
 
 describe("connector proxy privacy", () => {
-  it.each(["review", "confirm", "catalog"])("rejects oversized MCP %s before forwarding it", async operation => {
+  it("preserves bodyless OAuth cancellation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    const response = await proxyExternalConnectorRequest(
+      new NextRequest("https://app.test/api/connectors/custom_synthetic/mcp/oauth/cancel", {
+        method: "POST", body: JSON.stringify({ attemptId: "synthetic" }),
+      }),
+      ["custom_synthetic", "mcp", "oauth", "cancel"],
+    );
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+  it.each(["review", "confirm", "catalog", "oauth/begin", "oauth/complete", "oauth/cancel"])("rejects oversized MCP %s before forwarding it", async operation => {
     const upstream = vi.fn();
     vi.stubGlobal("fetch", upstream);
     const response = await proxyExternalConnectorRequest(
@@ -19,21 +31,21 @@ describe("connector proxy privacy", () => {
         `https://app.test/api/connectors/custom_synthetic/mcp/${operation}`,
         { method: "POST", body: "x".repeat(64_001) },
       ),
-      ["custom_synthetic", "mcp", operation],
+      ["custom_synthetic", "mcp", ...operation.split("/")],
     );
     expect(response.status).toBe(413);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it.each(["review", "confirm", "catalog"])(
+  it.each(["review", "confirm", "catalog", "oauth/begin", "oauth/complete", "oauth/cancel"])(
     "forwards MCP %s only through the owner-authenticated no-store path",
     async (operation) => {
       const fetchMock = vi
         .fn()
         .mockResolvedValue(Response.json({ receipt: "synthetic-receipt" }));
       vi.stubGlobal("fetch", fetchMock);
-      const path = ["custom_synthetic", "mcp", operation];
+      const path = ["custom_synthetic", "mcp", ...operation.split("/")];
       const body = JSON.stringify({
         conversationId: "synthetic-thread",
         arguments: { q: "private-fixture" },

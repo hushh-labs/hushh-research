@@ -12,6 +12,56 @@ from hushh_mcp.one_adk.mcp_oauth_storage import McpOAuthConnectError
 
 
 @pytest.mark.asyncio
+async def test_attempt_registry_bounds_claim_and_owner_isolation(monkeypatch):
+    from hushh_mcp.one_adk import mcp_oauth_connection as module
+
+    class FakeConnection:
+        def __init__(self, **kwargs):
+            self.closed = False
+
+        async def start(self):
+            return "https://auth.example/start"
+
+        async def complete(self, **kwargs):
+            await asyncio.sleep(0)
+            return "synthetic-result"
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(module, "McpOAuthConnection", FakeConnection)
+    registry = module.McpOAuthAttempts()
+    args = dict(
+        owner_id="owner",
+        connector_id="custom_fixture",
+        revision="revision",
+        endpoint="https://mcp.example/mcp",
+        redirect_uri="https://app.example/return",
+    )
+    first = await registry.begin(**args)
+    second = await registry.begin(**args)
+    with pytest.raises(McpOAuthConnectError):
+        await registry.begin(**args)
+    binding = dict(
+        handle=first["attemptId"],
+        owner_id="owner",
+        connector_id="custom_fixture",
+        revision="revision",
+    )
+    with pytest.raises(McpOAuthConnectError):
+        registry.cancel(**{**binding, "owner_id": "other"})
+    assert len(registry._entries) == 2
+    completion = dict(**binding, code="code", state="state", issuer=None)
+    outcomes = await asyncio.gather(
+        registry.complete(**completion), registry.complete(**completion), return_exceptions=True
+    )
+    assert outcomes.count("synthetic-result") == 1
+    assert sum(isinstance(value, McpOAuthConnectError) for value in outcomes) == 1
+    registry.cancel(**{**binding, "handle": second["attemptId"]})
+    assert not registry._entries
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_connection_handshake_and_owner_bound_single_delivery(monkeypatch, cancel):
     methods = []

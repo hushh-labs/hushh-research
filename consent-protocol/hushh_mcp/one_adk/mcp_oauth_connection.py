@@ -8,6 +8,7 @@ credentials from a hosted store. No product tool is invoked while connecting.
 from __future__ import annotations
 
 import asyncio
+import secrets
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -146,3 +147,60 @@ class McpOAuthConnection:
         replacement = asyncio.get_running_loop().create_future()
         replacement.cancel()
         self._redirect = replacement
+
+
+class McpOAuthAttempts:
+    """Bounded process-local continuations, never durable credentials.
+
+    A request routed to a different worker fails closed and must reconnect.
+    Deployment must provide affinity before this can support multiple workers.
+    """
+
+    def __init__(self):
+        self._entries: dict[str, tuple[str, str, str, McpOAuthConnection, asyncio.TimerHandle]] = {}
+
+    async def begin(self, **kwargs) -> dict[str, str]:
+        owner = kwargs["owner_id"]
+        if not owner or len(self._entries) >= 128:
+            raise McpOAuthConnectError()
+        if sum(entry[0] == owner for entry in self._entries.values()) >= 2:
+            raise McpOAuthConnectError()
+        attempt = McpOAuthConnection(**kwargs)
+        handle = secrets.token_urlsafe(32)
+        timer = asyncio.get_running_loop().call_later(300, self._discard, handle)
+        self._entries[handle] = (owner, kwargs["connector_id"], kwargs["revision"], attempt, timer)
+        try:
+            url = await attempt.start()
+            return {"attemptId": handle, "authorizeUrl": url}
+        except BaseException:
+            self._discard(handle)
+            raise
+
+    def _get(self, handle: str, owner_id: str, connector_id: str, revision: str):
+        entry = self._entries.get(handle)
+        if entry is None or entry[:3] != (owner_id, connector_id, revision):
+            raise McpOAuthConnectError()
+        return entry[3]
+
+    def _discard(self, handle: str) -> None:
+        entry = self._entries.pop(handle, None)
+        if entry is not None:
+            entry[4].cancel()
+            entry[3].close()
+
+    async def complete(self, *, handle: str, **kwargs) -> OAuthVaultResult:
+        attempt = self._get(handle, kwargs["owner_id"], kwargs["connector_id"], kwargs["revision"])
+        # Claim before await: concurrent completion cannot exchange twice.
+        entry = self._entries.pop(handle)
+        try:
+            return await attempt.complete(**kwargs)
+        finally:
+            entry[4].cancel()
+            attempt.close()
+
+    def cancel(self, *, handle: str, owner_id: str, connector_id: str, revision: str) -> None:
+        self._get(handle, owner_id, connector_id, revision)
+        self._discard(handle)
+
+
+mcp_oauth_attempts = McpOAuthAttempts()
