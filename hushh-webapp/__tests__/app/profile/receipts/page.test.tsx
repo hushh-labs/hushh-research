@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
       startConnect: vi.fn(),
       startNativeConnect: vi.fn(),
       completeNativeConnect: vi.fn(),
+      recordConsentFailure: vi.fn(),
       syncNow: vi.fn(),
     },
     hushhAuth: {
@@ -39,6 +40,7 @@ const mocks = vi.hoisted(() => {
         version: 1 as const,
         attemptId: "gmail-popup-test",
         startedAt: 1,
+        ownerId: "user-123",
       },
       popup: {
         closed: false,
@@ -51,7 +53,9 @@ const mocks = vi.hoisted(() => {
       create: vi.fn(),
       open: vi.fn(),
       navigate: vi.fn(),
+      persist: vi.fn(() => true),
       clear: vi.fn(),
+      consumeStoredSettlement: vi.fn(() => null),
     },
     assignWindowLocation: vi.fn(),
     capacitor: {
@@ -287,6 +291,8 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
   },
   navigateGmailOAuthPopup: (...args: unknown[]) =>
     mocks.gmailOAuthPopup.navigate(...args),
+  persistGmailOAuthPopupAttempt: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.persist(...args),
   getGmailOAuthPopupSessionStorage: (target?: Window | null) => {
     try {
       return target?.sessionStorage ?? null;
@@ -296,6 +302,8 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
   },
   clearGmailOAuthPopupAttempt: (...args: unknown[]) =>
     mocks.gmailOAuthPopup.clear(...args),
+  consumeStoredGmailOAuthPopupSettlement: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.consumeStoredSettlement(...args),
   isGmailOAuthPopupSettlement: () => false,
   readGmailOAuthPopupSettlementFallback: () => null,
 }));
@@ -530,6 +538,7 @@ describe("ProfileReceiptsPage", () => {
     mocks.gmailOAuthPopup.popup.close.mockReset();
     mocks.gmailOAuthPopup.popup.sessionStorage.setItem.mockReset();
     mocks.gmailOAuthPopup.popup.sessionStorage.removeItem.mockReset();
+    mocks.gmailOAuthPopup.consumeStoredSettlement.mockReturnValue(null);
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
       window.localStorage.clear();
@@ -1124,6 +1133,145 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
+  it("records a terminal outcome when the web OAuth popup is dismissed", async () => {
+    const disconnectedView = makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    disconnectedView.refreshStatus.mockResolvedValue(disconnectedView.status);
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedView);
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => {
+      expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalled();
+    });
+
+    mocks.gmailOAuthPopup.popup.closed = true;
+
+    await waitFor(
+      () => {
+        expect(
+          GmailReceiptsService.recordConsentFailure,
+        ).toHaveBeenCalledWith({ code: "USER_CANCELLED" }, "user-123");
+      },
+      { timeout: 1_500 },
+    );
+  });
+
+  it("honors a failed popup settlement even when an older Mail connection remains", async () => {
+    const disconnectedView = makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    disconnectedView.refreshStatus.mockResolvedValue({
+      ...disconnectedView.status,
+      connected: true,
+      status: "connected",
+    });
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedView);
+    mocks.gmailOAuthPopup.consumeStoredSettlement.mockReturnValue({
+      schemaVersion: 1,
+      type: "gmail_oauth_settlement",
+      attemptId: "gmail-popup-test",
+      outcome: "failed",
+      message: "Mail permission was not granted.",
+    });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalled());
+    mocks.gmailOAuthPopup.popup.closed = true;
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "Mail permission was not granted.",
+      ),
+    );
+    expect(mocks.toast.success).not.toHaveBeenCalledWith(
+      "Mail connected. You can finish setup when ready.",
+    );
+  });
+
+  it("records a web OAuth popup timeout as a terminal failure", async () => {
+    const disconnectedView = makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    disconnectedView.refreshStatus.mockResolvedValue(disconnectedView.status);
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedView);
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => {
+      expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalled();
+    });
+
+    await waitFor(
+      () => {
+        expect(GmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+          { code: "POPUP_TIMEOUT" },
+          "user-123",
+        );
+      },
+      { timeout: 1_500 },
+    );
+    expect(mocks.gmailOAuthPopup.popup.close).toHaveBeenCalled();
+  });
+
   it("retries a transient Gmail status failure without starting OAuth", async () => {
     const gmailViewWithStatusError = makeGmailView({
       status: null,
@@ -1260,6 +1408,10 @@ describe("ProfileReceiptsPage", () => {
         );
       });
       expect(mocks.gmailOAuthPopup.navigate).not.toHaveBeenCalled();
+      expect(mocks.gmailOAuthPopup.persist).toHaveBeenCalledWith(
+        window,
+        mocks.gmailOAuthPopup.attempt,
+      );
       expect(mocks.toast.error).not.toHaveBeenCalled();
     } finally {
       (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
@@ -1300,6 +1452,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
+        userId: "user-123",
         purpose: "read",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
@@ -1310,6 +1463,7 @@ describe("ProfileReceiptsPage", () => {
         idToken: "token-abc",
         userId: "user-123",
         serverAuthCode: "native-auth-code",
+        purpose: "read",
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
@@ -1323,6 +1477,45 @@ describe("ProfileReceiptsPage", () => {
     expect(
       mocks.preVaultUserStateService.syncOnboardingJourney,
     ).not.toHaveBeenCalled();
+  });
+
+  it("records a dismissed native Gmail consent sheet as a terminal outcome", async () => {
+    mocks.capacitor.isNativePlatform.mockReturnValue(true);
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        status: {
+          configured: true,
+          connected: false,
+          status: "disconnected",
+          scope_csv: null,
+          last_sync_status: null,
+          auto_sync_enabled: false,
+          revoked: false,
+          latest_run: null,
+          google_email: null,
+        },
+        presentation: {
+          state: "disconnected",
+          badgeLabel: "Not connected",
+          description: "Gmail not connected.",
+          latestSyncText: "Connect once to sync receipts.",
+          latestSyncBadge: null,
+          isConnected: false,
+        },
+      }),
+    );
+    const cancellation = { code: "USER_CANCELLED" };
+    mocks.hushhAuth.connectGmail.mockRejectedValueOnce(cancellation);
+
+    render(<ProfileReceiptsPage journeyVariant="onboarding" />);
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+
+    await waitFor(() => {
+      expect(
+        GmailReceiptsService.recordConsentFailure,
+      ).toHaveBeenCalledWith(cancellation, "user-123");
+    });
+    expect(GmailReceiptsService.completeNativeConnect).not.toHaveBeenCalled();
   });
 
   it("continues onboarding Gmail OAuth when iOS blocks popup session storage", async () => {

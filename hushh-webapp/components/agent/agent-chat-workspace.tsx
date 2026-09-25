@@ -206,6 +206,10 @@ import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-avai
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
+  createGoogleOAuthPopupAttempt,
+  persistGoogleOAuthSameWindowAttempt,
+} from "@/lib/google/google-oauth-popup";
+import {
   runLocationDirective,
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
@@ -1921,6 +1925,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
+  const renderedWorkspaceOwnerId = user?.uid ?? null;
+  const workspaceOwnerIdRef = useRef<string | null>(renderedWorkspaceOwnerId);
+  workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
+  useEffect(() => {
+    workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
+    return () => {
+      if (workspaceOwnerIdRef.current === renderedWorkspaceOwnerId) {
+        workspaceOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedWorkspaceOwnerId]);
   const {
     isVaultUnlocked,
     vaultKey,
@@ -7149,6 +7164,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           );
                           return;
                         }
+                        const operationOwnerId = user.uid;
                         setSpecialistBusy(true);
                         try {
                           const accessLevel =
@@ -7159,19 +7175,41 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           const start =
                             await GoogleCalendarService.startConnect({
                               idToken: await user.getIdToken(),
-                              userId: user.uid,
+                              userId: operationOwnerId,
                               accessLevel,
                             });
+                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
+                            return;
+                          }
+                          const attempt = createGoogleOAuthPopupAttempt(
+                            "calendar",
+                            { ownerId: operationOwnerId, accessLevel },
+                          );
+                          if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
+                            throw new Error(
+                              "Calendar sign-in could not be started safely. Please try again.",
+                            );
+                          }
                           setPendingSpecialistDirective(null);
                           window.location.assign(start.authorize_url);
                         } catch (error) {
+                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
+                            return;
+                          }
+                          trackEvent("one_calendar_action", {
+                            route_id: "one_calendar",
+                            action: "connected",
+                            result: "error",
+                          });
                           addErrorMessage(
                             error instanceof Error
                               ? error.message
                               : "Unable to request Google Calendar permission.",
                           );
                         } finally {
-                          setSpecialistBusy(false);
+                          if (workspaceOwnerIdRef.current === operationOwnerId) {
+                            setSpecialistBusy(false);
+                          }
                         }
                         return;
                       }

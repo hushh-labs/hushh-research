@@ -7744,7 +7744,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps all Location hub outcomes named and retryable after a partial scan", async () => {
+  it("keeps all Location hub outcomes named and proceeds to connections after a partial scan", async () => {
     let finishScan!: (result: OneLocationContactSignalResult) => void;
     mockSyncOneLocationContactSignals.mockImplementationOnce(
       () =>
@@ -7785,24 +7785,16 @@ describe("OneLocationAgentPage", () => {
     ).toBeInTheDocument();
     expect(mockSendConnectionRequest).not.toHaveBeenCalled();
 
-    mockSyncOneLocationContactSignals.mockResolvedValueOnce(
-      contactSyncOutcomeFixture(),
-    );
-    const retry = within(sheet).getByRole("button", { name: "Sync again" });
-    await waitFor(() => expect(retry).toBeEnabled());
-    expect(sheet).toBeInTheDocument();
-    fireEvent.click(retry);
-    await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2),
-    );
-    await waitFor(() =>
-      expect(
-        within(sheet).queryByText(
-          "Only part of your contact list was checked.",
-        ),
-      ).toBeNull(),
-    );
-    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
+    const proceed = within(sheet).getByRole("link", {
+      name: "Proceed to connections",
+    });
+    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+    proceed.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(proceed);
+    await waitFor(() => expect(sheet).not.toBeInTheDocument());
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1);
   });
 
   it("reconciles the connection graph when a contact-sync mutation outcome is unknown", async () => {
@@ -7884,7 +7876,14 @@ describe("OneLocationAgentPage", () => {
     const results = await screen.findByRole("dialog", { name: "Contact sync results" });
     expect(within(results).getByText("Asha Rao")).toBeTruthy();
     expect(within(results).getByText("Connected now")).toBeTruthy();
-    expect(within(results).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    expect(
+      within(results).getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      within(results).queryByRole("button", {
+        name: "Choose Google account",
+      }),
+    ).toBeNull();
     expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(1);
     fireEvent.click(within(results).getByRole("button", { name: "Close" }));
     if (entry === "onboarding") {
@@ -8706,7 +8705,7 @@ describe("OneLocationAgentPage", () => {
           finishRetry = resolve;
         }),
     );
-    const retry = within(sheet).getByRole("button", { name: "Choose Google account" });
+    const retry = within(sheet).getByRole("button", { name: "Sync again" });
     await act(async () => {
       fireEvent.click(retry);
       fireEvent.click(retry);
@@ -8715,7 +8714,14 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByRole("dialog", { name: "Checking your Google contacts" })).toBeTruthy();
     await act(async () => finishRetry(contactSyncOutcomeFixture({ sourcePlatform: "google" })));
     const updatedSheet = await screen.findByRole("dialog", { name: "Contact sync results" });
-    expect(within(updatedSheet).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    expect(
+      within(updatedSheet).getByRole("link", {
+        name: "Proceed to connections",
+      }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      within(updatedSheet).queryByRole("button", { name: "Sync again" }),
+    ).toBeNull();
     expect(
       within(updatedSheet).queryByText("Only part of your contact list was checked."),
     ).toBeNull();

@@ -7,6 +7,12 @@ declare global {
     __HUSHH_NATIVE_TEST__?: {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
+      /**
+       * Narrow exception for the governed UAT analytics smoke. It allows the
+       * real app event path to reach UAT GA4 only on uat.one.hushh.ai; all
+       * normal reviewer automation and every production host stay blocked.
+       */
+      allowUatAnalyticsSmokeTelemetry?: boolean;
       reviewerAuthMode?: "local_credentials" | "custom_token";
       reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
       pkmProofEnabled?: boolean;
@@ -190,8 +196,14 @@ export function shouldSkipReviewerBackgroundWritesForAutomation(): boolean {
 /** External telemetry must not leave an explicit shared reviewer session. */
 export function shouldDisableExternalTelemetryForAutomation(
   config: NativeTestConfig = getNativeTestConfig(),
+  hostname: string = typeof window !== "undefined" ? window.location.hostname : "",
 ): boolean {
-  return isAutomatedReviewerSession(config);
+  if (!isAutomatedReviewerSession(config)) return false;
+  const allowGovernedUatSmoke =
+    typeof window !== "undefined" &&
+    hostname === "uat.one.hushh.ai" &&
+    window.__HUSHH_NATIVE_TEST__?.allowUatAnalyticsSmokeTelemetry === true;
+  return !allowGovernedUatSmoke;
 }
 
 /** Reviewer rehearsals must not send lifecycle mail from shared fixtures. */

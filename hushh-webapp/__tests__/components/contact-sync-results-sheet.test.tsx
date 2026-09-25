@@ -69,6 +69,11 @@ describe("ContactSyncResultsSheet", () => {
       </>,
     );
     const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+    const header = sheet.querySelector('[data-slot="sheet-header"]');
+    expect(header).toHaveClass("pr-14");
+    expect(screen.getByText("Only eligible Hushh accounts are shown.")).toHaveClass(
+      "line-clamp-1",
+    );
     expect(
       screen.queryByRole("button", { name: "Launch contacts" }),
     ).toBeNull();
@@ -174,8 +179,9 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText("Asha Rao")).toBeInTheDocument();
     expect(screen.getByText("1199")).toBeInTheDocument();
     expect(
-      screen.getByText(/raw phone numbers are never sent to Hushh/i),
+      screen.getByText("Only eligible Hushh accounts are shown."),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/raw phone numbers/i)).toBeNull();
     expect(screen.getByText("No match")).toBeInTheDocument();
     expect(screen.queryByText("Not on Hushh")).toBeNull();
     expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
@@ -245,17 +251,35 @@ describe("ContactSyncResultsSheet", () => {
   });
 
   it.each([
-    { limited: true, sourcePlatform: "ios" as const },
-    { limited: true, sourcePlatform: "web" as const },
-    { truncated: true, sourcePlatform: "google" as const },
+    {
+      limited: true,
+      sourcePlatform: "ios" as const,
+      recoveryLabel: "Sync again",
+    },
+    {
+      limited: true,
+      sourcePlatform: "web" as const,
+      recoveryLabel: "Check more",
+    },
+    {
+      truncated: true,
+      sourcePlatform: "google" as const,
+      recoveryLabel: "Choose Google account",
+    },
   ])(
-    "explains a partial $sourcePlatform read and retries from the named sheet",
+    "explains a partial $sourcePlatform read with recovery and a way to continue",
     (partial) => {
       const onSyncAgain = vi.fn();
+      const onOpenChange = vi.fn();
       const props = {
         open: true,
-        onOpenChange: vi.fn(),
-        result: result({ ...partial, partial: true }),
+        onOpenChange,
+        result: result({
+          limited: partial.limited ?? false,
+          truncated: partial.truncated ?? false,
+          sourcePlatform: partial.sourcePlatform,
+          partial: true,
+        }),
         syncing: false,
         onSyncAgain,
         onInvite: vi.fn(),
@@ -266,11 +290,27 @@ describe("ContactSyncResultsSheet", () => {
       expect(
         screen.getByText("Only part of your contact list was checked."),
       ).toBeInTheDocument();
-      const retryLabel = partial.sourcePlatform === "google" ? "Choose Google account" : "Sync again";
-      fireEvent.click(screen.getByRole("button", { name: retryLabel }));
+      const recovery = screen.getByRole("button", {
+        name: partial.recoveryLabel,
+      });
+      fireEvent.click(recovery);
       expect(onSyncAgain).toHaveBeenCalledTimes(1);
+      const proceed = screen.getByRole("link", {
+        name: "Proceed to connections",
+      });
+      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+      proceed.addEventListener("click", (event) => event.preventDefault(), {
+        once: true,
+      });
+      fireEvent.click(proceed);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
-      expect(screen.getByRole("button", { name: retryLabel })).toBeDisabled();
+      expect(
+        screen.getByRole("link", { name: "Proceed to connections" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: partial.recoveryLabel }),
+      ).toBeDisabled();
     },
   );
 
@@ -331,7 +371,7 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText(/not counted as unmatched or inviteable/i)).toBeInTheDocument();
   });
 
-  it("offers Done only for cap-only partials and keeps retry for ambiguous mutation", () => {
+  it("uses the same connections destination for bounded and ambiguous results", () => {
     const view = render(
       <ContactSyncResultsSheet
         open
@@ -348,7 +388,9 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
     expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
 
     view.rerender(
@@ -369,7 +411,12 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Sync again" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
 
     view.rerender(
       <ContactSyncResultsSheet
@@ -387,8 +434,12 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Sync again" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
   });
 
   it("shows connected provenance and no request action for auto-connected rows", () => {

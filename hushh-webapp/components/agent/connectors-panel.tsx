@@ -1015,7 +1015,7 @@ function OwnerConnectorsPanel({
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
-    const attempt = createGmailOAuthPopupAttempt();
+    const attempt = createGmailOAuthPopupAttempt(user.uid, "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
       setMailMessage(
@@ -1029,25 +1029,42 @@ function OwnerConnectorsPanel({
     const close = () => popup?.close();
     signal.addEventListener("abort", close, { once: true });
     void (async () => {
+      let webPopupFailureCode: "USER_CANCELLED" | "POPUP_TIMEOUT" | null = null;
       try {
         const idToken = await user.getIdToken();
         if (signal.aborted) return;
         if (native) {
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
+            userId: user.uid,
             purpose,
           });
           if (signal.aborted || !start.configured) return;
-          const result = await HushhAuth.connectGmail({
-            serverClientId: start.server_client_id,
-            purpose: start.purpose,
-            preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
-          });
-          if (signal.aborted) return;
+          let result: Awaited<ReturnType<typeof HushhAuth.connectGmail>>;
+          try {
+            result = await HushhAuth.connectGmail({
+              serverClientId: start.server_client_id,
+              purpose: start.purpose,
+              preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
+            });
+          } catch (error) {
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
+          }
+          if (signal.aborted) {
+            GmailReceiptsService.recordConsentFailure({ code: "USER_CANCELLED" }, user.uid);
+            return;
+          }
+          if (!result.serverAuthCode?.trim()) {
+            const error = new Error("Google did not return a Mail authorization code.");
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
+          }
           await GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
             serverAuthCode: result.serverAuthCode,
+            purpose: "read",
           });
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
@@ -1076,6 +1093,10 @@ function OwnerConnectorsPanel({
               isGmailOAuthPopupSettlement(value) &&
               value.attemptId === attempt.attemptId,
             storageValue: readGmailOAuthPopupSettlementFallback,
+            onFinish: (reason) => {
+              if (reason === "closed") webPopupFailureCode = "USER_CANCELLED";
+              else if (reason === "expired") webPopupFailureCode = "POPUP_TIMEOUT";
+            },
           });
         }
         if (!signal.aborted) {
@@ -1083,6 +1104,12 @@ function OwnerConnectorsPanel({
             force: true,
             reconcile: false,
           });
+          if (!status?.connected && webPopupFailureCode) {
+            GmailReceiptsService.recordConsentFailure({
+              code: webPopupFailureCode,
+            }, user.uid);
+            webPopupFailureCode = null;
+          }
           if (!signal.aborted)
             setMailMessage(
               status?.connected
@@ -1095,6 +1122,12 @@ function OwnerConnectorsPanel({
             );
         }
       } catch {
+        if (!signal.aborted && webPopupFailureCode) {
+          GmailReceiptsService.recordConsentFailure({
+            code: webPopupFailureCode,
+          }, user.uid);
+          webPopupFailureCode = null;
+        }
         if (!signal.aborted)
           setMailMessage("Could not finish Mail connection. Try again.");
       } finally {

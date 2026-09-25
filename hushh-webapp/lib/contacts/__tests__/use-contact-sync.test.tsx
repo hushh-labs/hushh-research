@@ -525,6 +525,32 @@ describe("useContactSync — what it says when a read fails", () => {
 });
 
 describe("useContactSync — what it tells the surface", () => {
+  it("keeps the result toast to two clamped, concise lines", async () => {
+    mocks.syncSignals.mockResolvedValue({
+      ...EMPTY_RESULT,
+      totalContacts: 36,
+      matchedUserIds: ["a", "b", "c"],
+      autoConnectedCount: 3,
+      inviteCandidateCount: 33,
+    });
+    const { result } = setup();
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "3 contacts connected",
+      expect.objectContaining({
+        description: "33 contacts can be invited.",
+        classNames: {
+          title: "line-clamp-1",
+          description: "line-clamp-1",
+        },
+      }),
+    );
+  });
+
   it("refreshes on every completed resync, including all-already-connected results", async () => {
     mocks.syncSignals.mockResolvedValue({ ...EMPTY_RESULT, alreadyConnectedCount: 3, matchedUserIds: ["a", "b", "c"] });
     const { result } = setup();

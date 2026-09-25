@@ -21,6 +21,116 @@ describe("observability schema", () => {
     expect(result.droppedKeys).toEqual(expect.arrayContaining(["email", "wallet_token", "workflow_id"]));
     expect(JSON.stringify(result.sanitized)).not.toContain("example.test");
   });
+
+  it.each([
+    "one_memory_action",
+    "one_wallet_action",
+    "one_calendar_action",
+    "one_kyc_action",
+    "one_crm_action",
+  ] as const)("rejects undeclared %s action and result values at runtime", (eventName) => {
+    const result = validateAndSanitizeEvent(eventName, {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "1.1.0",
+      route_id: "one_home",
+      action: "invented_action",
+      result: "invented_result",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.fatal).toBe(true);
+    expect(result.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+    expect(result.sanitized).not.toHaveProperty("action");
+    expect(result.sanitized).not.toHaveProperty("result");
+  });
+
+  it.each([undefined, "omitted"])(
+    "fatally rejects governed events whose required enums are %s",
+    (variant) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "feature",
+        app_version: "1.1.0",
+        route_id: "pkm",
+        action: "detail_edited",
+        result: "success",
+      };
+      if (variant === "omitted") delete payload.action;
+      else payload.action = undefined;
+
+      const result = validateAndSanitizeEvent("one_memory_action", payload as never);
+
+      expect(result.fatal).toBe(true);
+      expect(result.droppedKeys).toContain("action");
+    },
+  );
+
+  it("accepts bounded Gmail terminal-sync outcomes and rejects arbitrary stages", () => {
+    const valid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "complete",
+      result: "success",
+    });
+    const invalid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_job_123",
+      result: "success",
+    } as any);
+
+    expect(valid.ok).toBe(true);
+    expect(valid.fatal).toBe(false);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.fatal).toBe(true);
+    expect(invalid.sanitized).not.toHaveProperty("action");
+  });
+
+  it("keeps Gmail connection stage and result enums bounded at runtime", () => {
+    const invalid = validateAndSanitizeEvent("gmail_connect_started", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_specific_stage",
+      result: "error",
+    } as any);
+
+    expect(invalid.ok).toBe(false);
+    expect(invalid.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+  });
+
+  it.each([
+    ["gmail_disconnect_result", undefined, "invented_result"],
+    ["gmail_sync_requested", "auto", "ok"],
+    ["gmail_receipts_loaded", undefined, "invented_result"],
+  ] as const)(
+    "fatally rejects undeclared %s outcome values",
+    (eventName, action, resultValue) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "system",
+        app_version: "1.1.0",
+        result: resultValue,
+      };
+      if (action) payload.action = action;
+
+      const result = validateAndSanitizeEvent(eventName, payload as never);
+
+      expect(result.ok).toBe(false);
+      expect(result.fatal).toBe(true);
+      expect(result.sanitized).not.toHaveProperty("result");
+      if (action) expect(result.sanitized).not.toHaveProperty("action");
+    },
+  );
   it("accepts metadata-only api payloads", () => {
     const result = validateAndSanitizeEvent("api_request_completed", {
       env: "uat",

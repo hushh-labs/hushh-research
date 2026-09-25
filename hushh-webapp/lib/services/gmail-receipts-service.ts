@@ -1,5 +1,6 @@
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import {
   buildGmailNudgesPath,
@@ -16,6 +17,15 @@ import {
 // seconds don't each trigger their own network round trip.
 const gmailStatusCacheKey = (userId: string) =>
   `gmail_connection_status_${userId}`;
+
+function trackGmailEventForOwner(
+  userId: string,
+  eventName: Parameters<typeof trackEvent>[0],
+  payload: Parameters<typeof trackEvent>[1],
+): void {
+  if (AuthService.getCurrentUser()?.uid !== userId) return;
+  trackEvent(eventName, payload as never);
+}
 
 export type GmailConnectionState =
   | "disconnected"
@@ -182,6 +192,61 @@ interface ErrorEnvelope {
   error?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function parseNativeConnectStartResponse(
+  response: Response,
+): Promise<GmailNativeConnectStartResponse> {
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    typeof payload.configured !== "boolean" ||
+    typeof payload.server_client_id !== "string" ||
+    payload.server_client_id.trim().length === 0 ||
+    (payload.purpose !== "read" && payload.purpose !== "send")
+  ) {
+    throw new Error("Mail OAuth start returned an invalid response.");
+  }
+  return payload as unknown as GmailNativeConnectStartResponse;
+}
+
+async function parseConnectStartResponse(
+  response: Response,
+): Promise<GmailConnectStartResponse> {
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    typeof payload.configured !== "boolean" ||
+    typeof payload.authorize_url !== "string" ||
+    payload.authorize_url.trim().length === 0 ||
+    typeof payload.state !== "string" ||
+    payload.state.trim().length === 0 ||
+    typeof payload.redirect_uri !== "string" ||
+    typeof payload.expires_at !== "string" ||
+    payload.expires_at.trim().length === 0
+  ) {
+    throw new Error("Mail OAuth start returned an invalid response.");
+  }
+  return payload as unknown as GmailConnectStartResponse;
+}
+
+async function parseConnectionStatus(
+  response: Response,
+): Promise<GmailConnectionStatus> {
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    typeof payload.configured !== "boolean" ||
+    payload.connected !== true ||
+    payload.status !== "connected"
+  ) {
+    throw new Error("Mail OAuth completion returned an invalid response.");
+  }
+  return payload as unknown as GmailConnectionStatus;
+}
+
 async function extractError(
   response: Response,
   fallback: string,
@@ -258,93 +323,154 @@ export class GmailReceiptsService {
     includeGrantedScopes: boolean;
     purpose?: "read" | "send" | "compose";
   }): Promise<GmailConnectStartResponse> {
-    trackEvent("gmail_connect_started", {
+    trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
     });
 
-    const response = await ApiService.apiFetch(
-      GMAIL_RECEIPTS_API_TEMPLATES.connectStart,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${params.idToken}`,
+    try {
+      const response = await ApiService.apiFetch(
+        GMAIL_RECEIPTS_API_TEMPLATES.connectStart,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.idToken}`,
+          },
+          body: JSON.stringify({
+            user_id: params.userId,
+            login_hint: params.loginHint || null,
+            include_granted_scopes: params.includeGrantedScopes,
+            purpose: params.purpose || "read",
+          }),
         },
-        body: JSON.stringify({
-          user_id: params.userId,
-          login_hint: params.loginHint || null,
-          include_granted_scopes: params.includeGrantedScopes,
-          purpose: params.purpose || "read",
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      trackEvent("gmail_connect_result", {
+      );
+      if (!response.ok) {
+        throw new Error(
+          await extractError(response, "Failed to start Mail OAuth."),
+        );
+      }
+      const payload = await parseConnectStartResponse(response);
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+        action: "start",
+        result: "success",
+      });
+      return payload;
+    } catch (error) {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "start",
         result: "error",
       });
-      throw new Error(
-        await extractError(response, "Failed to start Mail OAuth."),
-      );
+      throw error;
     }
-
-    trackEvent("gmail_connect_result", {
-      action: "start",
-      result: "success",
-    });
-    return (await response.json()) as GmailConnectStartResponse;
   }
 
   static async startNativeConnect(params: {
     idToken: string;
+    userId: string;
     purpose?: "read" | "send" | "compose";
   }): Promise<GmailNativeConnectStartResponse> {
-    const response = await ApiService.apiFetch(
-      GMAIL_RECEIPTS_API_TEMPLATES.connectNativeStart,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${params.idToken}`,
+    trackGmailEventForOwner(params.userId, "gmail_connect_started", {
+      action: params.purpose === "send" ? "incremental" : "full",
+      result: "success",
+    });
+    try {
+      const response = await ApiService.apiFetch(
+        GMAIL_RECEIPTS_API_TEMPLATES.connectNativeStart,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.idToken}`,
+          },
+          body: JSON.stringify({ purpose: params.purpose || "read" }),
         },
-        body: JSON.stringify({ purpose: params.purpose || "read" }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        await extractError(response, "Failed to start native Mail OAuth."),
       );
+      if (!response.ok) {
+        throw new Error(
+          await extractError(response, "Failed to start native Mail OAuth."),
+        );
+      }
+      const payload = await parseNativeConnectStartResponse(response);
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+        action: "start",
+        result: "success",
+      });
+      return payload;
+    } catch (error) {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+        action: "start",
+        result: "error",
+      });
+      throw error;
     }
-    return (await response.json()) as GmailNativeConnectStartResponse;
   }
 
   static async completeNativeConnect(params: {
     idToken: string;
     userId: string;
     serverAuthCode: string;
+    purpose?: "read" | "send";
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch(
-      GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${params.idToken}`,
+    try {
+      const response = await ApiService.apiFetch(
+        GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.idToken}`,
+          },
+          body: JSON.stringify({
+            user_id: params.userId,
+            server_auth_code: params.serverAuthCode,
+          }),
         },
-        body: JSON.stringify({
-          user_id: params.userId,
-          server_auth_code: params.serverAuthCode,
-        }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        await extractError(response, "Failed to complete native Mail OAuth."),
       );
+      if (!response.ok) {
+        throw new Error(
+          await extractError(response, "Failed to complete native Mail OAuth."),
+        );
+      }
+      const status = await parseConnectionStatus(response);
+      if (params.purpose === "send" && status.send_permission_granted !== true) {
+        throw new Error("Mail authorization did not grant sending permission.");
+      }
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+        action: "complete",
+        result: "success",
+      });
+      return status;
+    } catch (error) {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+        action: "complete",
+        result: "error",
+      });
+      throw error;
     }
-    return (await response.json()) as GmailConnectionStatus;
+  }
+
+  static recordConsentFailure(error: unknown, userId?: string): void {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code || "").trim().toUpperCase()
+        : "";
+    const payload = {
+      action: "complete",
+      result: code === "USER_CANCELLED" ? "expected_error" : "error",
+    } as const;
+    if (userId) {
+      trackGmailEventForOwner(userId, "gmail_connect_result", payload);
+    } else {
+      trackEvent("gmail_connect_result", payload);
+    }
+  }
+
+  static recordConnectCompletion(result: "success" | "error"): void {
+    trackEvent("gmail_connect_result", {
+      action: "complete",
+      result,
+    });
   }
 
   static async completeConnect(params: {
@@ -352,38 +478,46 @@ export class GmailReceiptsService {
     userId: string;
     code: string;
     state: string;
-  }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch(
-      GMAIL_RECEIPTS_API_TEMPLATES.connectComplete,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${params.idToken}`,
+  }, options: { recordTelemetry?: boolean } = {}): Promise<GmailConnectionStatus> {
+    const recordTelemetry = options.recordTelemetry !== false;
+    try {
+      const response = await ApiService.apiFetch(
+        GMAIL_RECEIPTS_API_TEMPLATES.connectComplete,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.idToken}`,
+          },
+          body: JSON.stringify({
+            user_id: params.userId,
+            code: params.code,
+            state: params.state,
+          }),
         },
-        body: JSON.stringify({
-          user_id: params.userId,
-          code: params.code,
-          state: params.state,
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      trackEvent("gmail_connect_result", {
-        action: "complete",
-        result: "error",
-      });
-      throw new Error(
-        await extractError(response, "Failed to complete Mail OAuth."),
       );
+      if (!response.ok) {
+        throw new Error(
+          await extractError(response, "Failed to complete Mail OAuth."),
+        );
+      }
+      const status = await parseConnectionStatus(response);
+      if (recordTelemetry) {
+        trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+          action: "complete",
+          result: "success",
+        });
+      }
+      return status;
+    } catch (error) {
+      if (recordTelemetry) {
+        trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+          action: "complete",
+          result: "error",
+        });
+      }
+      throw error;
     }
-
-    trackEvent("gmail_connect_result", {
-      action: "complete",
-      result: "success",
-    });
-    return (await response.json()) as GmailConnectionStatus;
   }
 
   static async disconnect(params: {
@@ -403,13 +537,13 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_disconnect_result", { result: "error" });
+      trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "error" });
       throw new Error(
         await extractError(response, "Failed to disconnect Mail."),
       );
     }
 
-    trackEvent("gmail_disconnect_result", { result: "success" });
+    trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "success" });
     return (await response.json()) as GmailConnectionStatus;
   }
 
@@ -469,7 +603,7 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_sync_result", {
+      trackGmailEventForOwner(params.userId, "gmail_sync_result", {
         action: "queue",
         result: "error",
       });
@@ -479,7 +613,7 @@ export class GmailReceiptsService {
     }
 
     const payload = (await response.json()) as GmailSyncQueueResponse;
-    trackEvent("gmail_sync_result", {
+    trackGmailEventForOwner(params.userId, "gmail_sync_result", {
       action: payload.accepted ? "queue" : "already_running",
       result: payload.accepted ? "success" : "expected_error",
     });
@@ -531,7 +665,7 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_receipts_loaded", {
+      trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
         result: "error",
       });
       throw new Error(
@@ -539,7 +673,7 @@ export class GmailReceiptsService {
       );
     }
 
-    trackEvent("gmail_receipts_loaded", {
+    trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
       result: "success",
     });
     return (await response.json()) as ReceiptListResponse;

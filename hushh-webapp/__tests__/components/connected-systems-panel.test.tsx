@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  approveConnectedSystemIntent,
   ConnectedSystemLogo,
   ConnectedSystemsPanel,
 } from "@/components/profile/connected-systems-panel";
@@ -22,6 +23,12 @@ import {
   CacheService,
 } from "@/lib/services/cache-service";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
+
+const trackEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: trackEventMock,
+}));
 
 const routerPushMock = vi.fn();
 const routerMock = {
@@ -69,6 +76,7 @@ vi.mock("@/lib/services/connected-systems-service", () => ({
     createRecordIntent: vi.fn(),
     updateRecordIntent: vi.fn(),
     approveIntent: vi.fn(),
+    approveCrmEncryptedFieldsIntent: vi.fn(),
     rejectIntent: vi.fn(),
     createDeleteIntent: vi.fn(),
   },
@@ -199,6 +207,40 @@ const readySchema = {
 };
 
 describe("ConnectedSystemsPanel", () => {
+  it("retries encrypted pending intents through the encrypted approval endpoint", async () => {
+    vi.mocked(
+      ConnectedSystemsService.approveCrmEncryptedFieldsIntent,
+    ).mockResolvedValueOnce({
+      intentId: "encrypted-intent-1",
+      systemId: system.systemId,
+      action: "update",
+      status: "succeeded",
+      fieldNames: ["PreferredLanguage"],
+      deliveryMode: "crm-encrypted-fields.v1",
+    });
+
+    await approveConnectedSystemIntent({
+      vaultOwnerToken: "HCT:test",
+      intent: {
+        intentId: "encrypted-intent-1",
+        systemId: system.systemId,
+        action: "update",
+        status: "pending",
+        fieldNames: ["PreferredLanguage"],
+        deliveryMode: "crm-encrypted-fields.v1",
+      },
+    });
+
+    expect(
+      ConnectedSystemsService.approveCrmEncryptedFieldsIntent,
+    ).toHaveBeenCalledWith({
+      vaultOwnerToken: "HCT:test",
+      systemId: system.systemId,
+      intentId: "encrypted-intent-1",
+    });
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     CacheService.getInstance().clear();
@@ -580,6 +622,31 @@ describe("ConnectedSystemsPanel", () => {
       ),
     );
     expect(await screen.findByText("Review create request")).toBeTruthy();
+  });
+
+  it("does not report a CRM create mutation when intent preparation fails", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockRejectedValueOnce(
+      new Error("intent preparation unavailable"),
+    );
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find my record" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create profile" }));
+    await waitFor(() =>
+      expect(ConnectedSystemsService.createRecordIntent).toHaveBeenCalledTimes(1),
+    );
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      "one_crm_action",
+      expect.objectContaining({ action: "record_created" }),
+    );
   });
 
   it("waits for a separately verified Contact binding after Person Account creation", async () => {
@@ -1322,6 +1389,40 @@ describe("ConnectedSystemsPanel", () => {
       vaultOwnerToken: "HCT:test",
       systemId: system.systemId,
       intentId: "intent-42",
+    });
+  });
+
+  it("does not count update preparation failures as failed CRM mutations", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
+      systemId: system.systemId, target: system.target,
+      objectType: system.objectTypeDefault, status: "active",
+      binding: { systemId: system.systemId, objectType: system.objectTypeDefault,
+        recordId: "person-42", status: "active" },
+    });
+    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValueOnce({
+      systemId: system.systemId, target: system.target,
+      objectType: system.objectTypeDefault, resultClass: "succeeded",
+      recordId: "person-42", records: [{ recordId: "person-42", fields: {
+        Email: "person@example.test", PreferredLanguage: "English",
+      } }],
+    });
+    vi.mocked(ConnectedSystemsService.updateRecordIntent).mockRejectedValueOnce(
+      new Error("preparation unavailable"),
+    );
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test"
+      systemId={system.systemId} profile={{ email: "person@example.test" }} />);
+    await screen.findByRole("region", { name: "CRM record fields" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Preferred language" }));
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "French" } });
+    fireEvent.click(screen.getByRole("button", { name: "Stage change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update record" }));
+    const reviewDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(reviewDialog).getByRole("button", { name: "Confirm update" }));
+    await waitFor(() => expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledOnce());
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+    expect(trackEventMock).not.toHaveBeenCalledWith("one_crm_action", {
+      route_id: "connected_systems", action: "record_updated", result: "error",
     });
   });
 

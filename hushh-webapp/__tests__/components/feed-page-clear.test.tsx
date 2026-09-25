@@ -389,6 +389,16 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
   });
 
+  it("keeps the clear action compact on phone and desktop layouts", async () => {
+    await renderAfterAutomaticRead();
+
+    const clearButton = screen.getByRole("button", {
+      name: "Clear feed notifications on this device",
+    });
+    expect(clearButton).toHaveClass("w-auto", "max-w-full", "px-4");
+    expect(clearButton).not.toHaveClass("w-full");
+  });
+
   it("does not dismiss revoked SOS cards or persist a watermark when mark-read fails", async () => {
     await renderAfterAutomaticRead();
     mocks.markRead.mockRejectedValueOnce(new Error("backend unavailable"));

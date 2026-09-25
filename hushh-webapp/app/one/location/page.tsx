@@ -244,6 +244,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { useSettingsReturn } from "@/lib/permissions/use-settings-return";
 import {
   describeContactSyncOutcome,
+  describeContactSyncToast,
   openContactPermissionSettings,
   syncOneLocationContactSignals,
   OneLocationContactSyncError,
@@ -8028,8 +8029,13 @@ export function OneLocationAgentPageContent({
       // Picker and iOS limited access both return only a hand-picked subset,
       // so "3 people added" would claim the whole address book was searched.
       const outcome = describeContactSyncOutcome(result);
+      const toastOutcome = describeContactSyncToast(result);
       const outcomeOptions = {
-        description: outcome.description,
+        description: toastOutcome.description,
+        classNames: {
+          title: "line-clamp-1",
+          description: "line-clamp-1",
+        },
         ...(outcome.remedy === "pick_more"
           ? {
               action: {
@@ -8074,9 +8080,9 @@ export function OneLocationAgentPageContent({
                 : {}),
       };
       if (result.matchedUserIds.length > 0) {
-        toast.success(outcome.title, outcomeOptions);
+        toast.success(toastOutcome.title, outcomeOptions);
       } else {
-        toast.info(outcome.title, outcomeOptions);
+        toast.info(toastOutcome.title, outcomeOptions);
       }
     } catch (error) {
       const failure =

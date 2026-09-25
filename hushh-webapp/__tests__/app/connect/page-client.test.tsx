@@ -1149,6 +1149,10 @@ describe("Connect — People", () => {
       name: "Current directory: People",
     });
     const field = screen.getByLabelText("Search people");
+    const searchRow = field.closest('[data-testid="connect-search-row"]');
+
+    expect(searchRow).toHaveClass("pt-0.5", "pb-2");
+    expect(searchRow).not.toHaveClass("py-2");
 
     // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
     expect(
@@ -2233,6 +2237,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     });
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
+    expect(remove.className).toContain("rounded-xl");
+    expect(remove.className).toContain("text-destructive");
+    expect(remove.className).not.toContain("h-9");
     expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
@@ -2248,6 +2255,17 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("w-full")).toBe(false);
     // And the one it keeps when it is not.
     expect(classes.has("justify-end")).toBe(true);
+
+    fireEvent.click(remove);
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(confirm.className).toContain("bg-destructive/10");
+    expect(new Set(confirm.className.split(/\s+/)).has("bg-destructive")).toBe(
+      false,
+    );
+    expect(confirm.className).toContain("h-11");
+    expect(cancel.className).toContain("h-11");
+    expect(confirm.parentElement).toBe(cancel.parentElement);
   });
 
   it("caps My connections on every viewport, phones included", async () => {
@@ -2333,6 +2351,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(cancel.textContent).toBe("Cancel");
     expect(cancel.className).toContain("h-11");
     expect(cancel.className).toContain("min-h-11");
+    expect(cancel.className).toContain("rounded-xl");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or
@@ -2780,7 +2799,7 @@ describe("Connect — contact sync", () => {
     ).toBeTruthy();
   });
 
-  it("preserves connection outcomes and partial warnings through the shared results retry", async () => {
+  it("preserves connection outcomes and lets the user proceed to the connections list", async () => {
     const matches = [
       {
         lookupId: "new",
@@ -2840,11 +2859,16 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    mocks.syncContactSignals.mockResolvedValueOnce(emptyContactSyncResult());
-    fireEvent.click(within(sheet).getByRole("button", { name: "Sync again" }));
-    await within(sheet).findByText(/No eligible contacts matched/);
-    expect(within(sheet).queryByText("Asha Rao")).toBeNull();
-    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(2);
+    const proceed = within(sheet).getByRole("link", {
+      name: "Proceed to connections",
+    });
+    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+    proceed.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(proceed);
+    await waitFor(() => expect(sheet).not.toBeInTheDocument());
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });
 
   it("uses the verified auth-context phone when Firebase has no phone", async () => {
@@ -2981,9 +3005,7 @@ describe("Connect — contact sync", () => {
     // deleting its mount breaks no test in this file.
     expect(await screen.findByText("Contact sync results")).toBeTruthy();
     expect(screen.getByText(/No eligible contacts matched/)).toBeTruthy();
-    expect(mocks.toastInfo.mock.calls[0][0]).toBe(
-      "No eligible contacts matched",
-    );
+    expect(mocks.toastInfo.mock.calls[0][0]).toBe("No contacts matched");
   });
 });
 

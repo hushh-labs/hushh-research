@@ -133,6 +133,25 @@ export function PkmNaturalPanel({
     isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt });
   const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
   captureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
+  const renderedMemoryOwnerId = user?.uid ?? null;
+  const memoryOwnerIdRef = useRef<string | null>(renderedMemoryOwnerId);
+  memoryOwnerIdRef.current = renderedMemoryOwnerId;
+  useEffect(() => {
+    memoryOwnerIdRef.current = renderedMemoryOwnerId;
+    return () => {
+      if (memoryOwnerIdRef.current === renderedMemoryOwnerId) {
+        memoryOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedMemoryOwnerId]);
+  const trackMemoryOutcome = useCallback((
+    ownerId: string,
+    action: "export_saved" | "detail_edited" | "detail_deleted" | "auto_save_changed" | "capture_prepared" | "capture_saved",
+    result: "success" | "expected_error" | "error",
+  ) => {
+    if (memoryOwnerIdRef.current !== ownerId) return;
+    trackEvent("one_memory_action", { route_id: "pkm", action, result });
+  }, []);
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -169,6 +188,7 @@ export function PkmNaturalPanel({
    */
   const handleExportMemory = useCallback(async () => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+    const operationOwnerId = user.uid;
     setExportBusy(true);
     setExportError(null);
     setExportStatus(null);
@@ -178,7 +198,11 @@ export function PkmNaturalPanel({
         vaultKey,
         vaultOwnerToken,
       });
-      if (result.saved) trackEvent("one_memory_action", { route_id: "pkm", action: "export_saved", result: "success" });
+      trackMemoryOutcome(
+        operationOwnerId,
+        "export_saved",
+        result.saved ? "success" : "expected_error",
+      );
       // On a phone the file only exists once the share sheet accepts it, so the
       // two outcomes are reported differently rather than both as success.
       setExportStatus(
@@ -189,13 +213,14 @@ export function PkmNaturalPanel({
           : "Nothing was saved. You can try again whenever you like.",
       );
     } catch (error) {
+      trackMemoryOutcome(operationOwnerId, "export_saved", "error");
       setExportError(
         error instanceof Error ? error.message : "The file could not be prepared.",
       );
     } finally {
       setExportBusy(false);
     }
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [trackMemoryOutcome, user?.uid, vaultKey, vaultOwnerToken]);
   const [autoSavePolicyRetryValue, setAutoSavePolicyRetryValue] = useState<
     boolean | null
   >(null);
@@ -209,8 +234,6 @@ export function PkmNaturalPanel({
     useState(false);
   const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
   const captureRevision = useRef(0);
-  const captureOwnerIdRef = useRef<string | null>(user?.uid ?? null);
-  captureOwnerIdRef.current = user?.uid ?? null;
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
     if (captureAuthReady) return;
@@ -221,7 +244,7 @@ export function PkmNaturalPanel({
     // operation lock until settlement so recovery cannot submit it twice.
     // Read the owner through the ref kept current above: this effect runs on
     // auth readiness only, never on an owner change, by design.
-    const ownerId = captureOwnerIdRef.current;
+    const ownerId = memoryOwnerIdRef.current;
     if (ownerId && pkmCaptureSaveInFlight.has(ownerId)) setCaptureCards([]);
   }, [captureAuthReady]);
   const [captureLoading, setCaptureLoading] = useState(false);
@@ -727,6 +750,7 @@ export function PkmNaturalPanel({
     nextValue?: string;
   }) {
     if (!user || !vaultKey || !vaultOwnerToken) return;
+    const operationOwnerId = user.uid;
     const sharingImpact = sharingImpacts[cardImpactKey(params.card)];
     if (!sharingImpact) {
       setMemoryActionError("Current sharing couldn’t be verified. Refresh and try again.");
@@ -784,16 +808,28 @@ export function PkmNaturalPanel({
       if (!result.success || !persistedDomainData) {
         throw new Error(result.message || "This saved detail couldn’t be updated.");
       }
+      // The encrypted write is the mutation boundary. Record it before the
+      // best-effort metadata refresh so a transient read failure cannot turn
+      // one confirmed write into contradictory success + error outcomes.
+      trackMemoryOutcome(operationOwnerId, params.action === "edited" ? "detail_edited" : "detail_deleted", "success");
       clearAgentPkmContext(user.uid);
-      setMetadata(
-        await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
-      );
-      trackEvent("one_memory_action", { route_id: "pkm", action: params.action === "edited" ? "detail_edited" : "detail_deleted", result: "success" });
+      let metadataRefreshFailed = false;
+      try {
+        setMetadata(
+          await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
+        );
+      } catch {
+        metadataRefreshFailed = true;
+        setMemoryActionError(
+          "Memory was updated, but the latest summary could not refresh. Refresh the page to see it."
+        );
+      }
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
-      setSelectedCard(null);
+      if (!metadataRefreshFailed) setSelectedCard(null);
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
+      trackMemoryOutcome(operationOwnerId, params.action === "edited" ? "detail_edited" : "detail_deleted", "error");
       setMemoryActionError(
         error instanceof Error ? error.message : "This saved detail couldn’t be updated."
       );
@@ -804,6 +840,7 @@ export function PkmNaturalPanel({
 
   async function updateAutoSavePolicy(enabled: boolean) {
     if (!user || !vaultKey || !vaultOwnerToken) return;
+    const operationOwnerId = user.uid;
     setAutoSavePolicySaving(true);
     setAutoSavePolicyError(null);
     setAutoSavePolicyRetryValue(enabled);
@@ -825,11 +862,12 @@ export function PkmNaturalPanel({
         error: "Automatic memory saving couldn’t be updated. Try again.",
       });
       const nextPolicy = await operation;
-      trackEvent("one_memory_action", { route_id: "pkm", action: "auto_save_changed", result: "success" });
+      trackMemoryOutcome(operationOwnerId, "auto_save_changed", "success");
       setAutoSavePolicy(nextPolicy);
       setAutoSavePolicyError(null);
       setAutoSavePolicyRetryValue(null);
     } catch {
+      trackMemoryOutcome(operationOwnerId, "auto_save_changed", "error");
       // ApiService asks VaultLockGuard to re-open the existing vault unlock
       // dialog when a VAULT_OWNER token is rejected. Other failures are not
       // evidence that the vault is locked, so keep the recovery local and
@@ -846,6 +884,7 @@ export function PkmNaturalPanel({
 
   async function previewMemoryCapture() {
     if (!user || !isVaultUnlocked || !vaultOwnerToken || !captureText.trim() || captureSaving) return;
+    const operationOwnerId = user.uid;
     const revision = ++captureRevision.current;
     const guard = createAgentPkmCaptureGuard({
       userId: user.uid, signal: new AbortController().signal,
@@ -863,6 +902,7 @@ export function PkmNaturalPanel({
         candidate: captureText.trim(),
       });
       if (localDuplicate?.kind === "exact") {
+        trackMemoryOutcome(operationOwnerId, "capture_prepared", "expected_error");
         setCaptureCards([]);
         setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
         return;
@@ -885,12 +925,21 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
-      if (prepared.cards.length > 0) trackEvent("one_memory_action", { route_id: "pkm", action: "capture_prepared", result: "success" });
       setCaptureSharingImpactAcknowledged(false);
-      const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
-        Boolean(block.preparationIssue) || block.disposition === "failed" ||
+      const hasFailedSource = prepared.sourceCoverage.some((block) =>
+        Boolean(block.preparationIssue) || block.disposition === "failed");
+      const hasUnresolvedSource = hasFailedSource || prepared.sourceCoverage.some((block) =>
         block.detectedFactCount !== block.accountedFactCount) ||
         prepared.cards.some((card) => card.preparation_requires_review === true);
+      trackMemoryOutcome(
+        operationOwnerId,
+        "capture_prepared",
+        hasFailedSource
+          ? "error"
+          : prepared.cards.length > 0 && !hasUnresolvedSource
+            ? "success"
+            : "expected_error",
+      );
       setCaptureHasUnresolvedSource(hasUnresolvedSource);
       setCaptureMessage(
         hasUnresolvedSource
@@ -903,6 +952,7 @@ export function PkmNaturalPanel({
       );
     } catch {
       if (!guard.isCurrent()) return;
+      trackMemoryOutcome(operationOwnerId, "capture_prepared", "error");
       setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
       if (revision === captureRevision.current) setCaptureLoading(false);
@@ -962,8 +1012,19 @@ export function PkmNaturalPanel({
         error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
+      if (receiptGuard.isCurrent() && memoryOwnerIdRef.current === operationOwnerId) {
+        trackMemoryOutcome(
+          operationOwnerId,
+          "capture_saved",
+          result.saved > 0
+            ? "success"
+            : result.failed > 0
+              ? "error"
+              : "expected_error",
+        );
+      }
       if (!guard.isCurrent()) {
-        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+        if (receiptGuard.isCurrent() && memoryOwnerIdRef.current === operationOwnerId) {
           if (result.saved > 0) pkmCaptureReconciliationNeeded.add(operationOwnerId);
           // Counts only; do not republish cards or refresh private information
           // while verification is unavailable. The draft stays for review.
@@ -981,7 +1042,6 @@ export function PkmNaturalPanel({
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
-        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "success" });
         if (result.failed > 0 || captureHasUnresolvedSource) {
           const savedIds = new Set(result.results.filter((item) => item.success).map((item) => item.cardId));
           setCaptureCards((current) => current.filter((card) => !savedIds.has(card.card_id)));
@@ -994,17 +1054,18 @@ export function PkmNaturalPanel({
       }
     } catch {
       if (!guard.isCurrent()) {
-        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+        if (receiptGuard.isCurrent() && memoryOwnerIdRef.current === operationOwnerId) {
           setCaptureCards([]);
           setCaptureMessage("Saving was interrupted. Check Memory before preparing this note again.");
         }
         return;
       }
+      trackMemoryOutcome(operationOwnerId, "capture_saved", "error");
       setCaptureMessage("Memory couldn’t be saved. Your note is still here; please try again.");
     } finally {
       if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {
         pkmCaptureSaveInFlight.delete(operationOwnerId);
-        if (captureOwnerIdRef.current === operationOwnerId) setCaptureSaving(false);
+        if (memoryOwnerIdRef.current === operationOwnerId) setCaptureSaving(false);
       }
     }
   }

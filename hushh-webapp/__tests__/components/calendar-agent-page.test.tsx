@@ -1,13 +1,29 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
   startConnect: vi.fn(),
+  startNativeConnect: vi.fn(),
+  completeNativeConnect: vi.fn(),
   disconnect: vi.fn(),
   getIdToken: vi.fn(),
   navigateToAgentChat: vi.fn(),
+  trackEvent: vi.fn(),
+  connectCalendar: vi.fn(),
+  ownerId: "calendar-user" as string | null,
+  native: false,
+  popup: null as Window | null,
+  popupAttempt: "",
 }));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => mocks.native },
+}));
+vi.mock("@/lib/capacitor", () => ({
+  HushhAuth: { connectCalendar: mocks.connectCalendar },
+}));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: mocks.trackEvent }));
 
 vi.mock("@/lib/navigation/agent-navigation", () => ({
   navigateToAgentChat: mocks.navigateToAgentChat,
@@ -15,7 +31,9 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { uid: "calendar-user", getIdToken: mocks.getIdToken },
+    user: mocks.ownerId
+      ? { uid: mocks.ownerId, getIdToken: mocks.getIdToken }
+      : null,
     loading: false,
   }),
 }));
@@ -24,6 +42,8 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: {
     status: mocks.status,
     startConnect: mocks.startConnect,
+    startNativeConnect: mocks.startNativeConnect,
+    completeNativeConnect: mocks.completeNativeConnect,
     disconnect: mocks.disconnect,
   },
 }));
@@ -36,16 +56,24 @@ describe("CalendarAgentPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    mocks.native = false;
+    mocks.ownerId = "calendar-user";
+    mocks.popupAttempt = "";
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(
       () =>
-        ({
+        (mocks.popup = ({
           close: vi.fn(),
           document: { title: "" },
           focus: vi.fn(),
           location: { replace: vi.fn() },
-          sessionStorage: { setItem: vi.fn() },
-        }) as unknown as Window,
+          sessionStorage: {
+            setItem: vi.fn((_key: string, value: string) => {
+              mocks.popupAttempt = value;
+            }),
+            getItem: vi.fn(() => mocks.popupAttempt || null),
+          },
+        }) as unknown as Window),
     );
   });
 
@@ -144,5 +172,323 @@ describe("CalendarAgentPage", () => {
     expect(await screen.findByText("Connect Google Calendar")).toBeTruthy();
     expect(screen.queryByText("Try asking One")).toBeNull();
     expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
+  });
+
+  it("keeps a verified popup success authoritative without a second status read", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        source: mocks.popup,
+        data: {
+          schemaVersion: 1, type: "google_oauth_settlement",
+          attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded",
+        },
+      }));
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Connect Calendar" }),
+      ).toBeNull(),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
+  });
+
+  it("does not treat an abandoned scheduling upgrade as connected", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "owner@example.com",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    await waitFor(() => expect(popupWatcher).not.toBeNull());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    Object.assign(mocks.popup as object, { closed: true });
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "expected_error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "success" }),
+    );
+  });
+
+  it("suppresses abandoned popup recovery after the owner changes", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") {
+        popupWatcher = handler;
+      }
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    const view = render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    mocks.ownerId = "other-owner";
+    view.rerender(<CalendarAgentPage />);
+    Object.assign(mocks.popup as object, { closed: true });
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
+  });
+
+  it("records a Calendar popup timeout as a connection failure", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    await waitFor(() => expect(popupWatcher).not.toBeNull());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    now.mockReturnValue(121_001);
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "expected_error" }),
+    );
+  });
+
+  it("keeps a verified scheduling upgrade at manage access", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "owner@example.com",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: mocks.popup,
+          data: {
+            schemaVersion: 1,
+            type: "google_oauth_settlement",
+            attemptId: attempt.attemptId,
+            service: "calendar",
+            outcome: "succeeded",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Enable scheduling" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("counts a native Calendar consent dismissal as expected", async () => {
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client", access_level: "read", state: "state",
+    });
+    mocks.connectCalendar.mockRejectedValue(
+      Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }),
+    );
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "expected_error" },
+    ));
+    expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
+  });
+
+  it("rejects a native read-only result for a manage upgrade", async () => {
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client",
+      access_level: "manage",
+      state: "state",
+    });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "auth-code" });
+    mocks.completeNativeConnect.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+
+    render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "success" }),
+    );
+  });
+
+  it("suppresses a late native outcome after the owner changes", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      access_level: string;
+      scope_csv: string;
+    }) => void;
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client",
+      access_level: "read",
+      state: "state",
+    });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "auth-code" });
+    mocks.completeNativeConnect.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCompletion = resolve;
+      }),
+    );
+
+    const view = render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.completeNativeConnect).toHaveBeenCalled());
+    mocks.ownerId = "other-owner";
+    view.rerender(<CalendarAgentPage />);
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        access_level: "read",
+        scope_csv: "calendar.freebusy",
+      });
+    });
+
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
   });
 });

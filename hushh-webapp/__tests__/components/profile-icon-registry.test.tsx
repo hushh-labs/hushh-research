@@ -3,6 +3,15 @@ import { afterEach, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { XIcon, PlusIcon, ShieldIcon, WalletIcon } from "@/components/icons";
+import {
+  AccountProfileIcon,
+  DevicesProfileIcon,
+  InviteFriendsProfileIcon,
+  PreferencesProfileIcon,
+  SecurityProfileIcon,
+  SignOutProfileIcon,
+  SupportProfileIcon,
+} from "@/components/icons/agents";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 
 afterEach(cleanup);
@@ -29,6 +38,34 @@ it("keeps Profile's authored icons behind the canonical registry", () => {
   for (const file of readdirSync(directory).filter((name) => name.endsWith(".tsx"))) {
     const source = readFileSync(resolve(directory, file), "utf8");
     expect(source, file).not.toMatch(/from ["'](?:lucide-react|@phosphor-icons\/react)["']/);
+  }
+});
+
+it("keeps Profile settings on their semantic duotone icon set", () => {
+  const { container } = render(
+    <>
+      <AccountProfileIcon />
+      <PreferencesProfileIcon />
+      <SecurityProfileIcon />
+      <DevicesProfileIcon />
+      <InviteFriendsProfileIcon />
+      <SupportProfileIcon />
+      <SignOutProfileIcon />
+    </>,
+  );
+  const icons = [...container.querySelectorAll("svg")];
+  expect(icons).toHaveLength(7);
+  expect(icons.map((icon) => icon.getAttribute("fill"))).toEqual([
+    "#2563EB",
+    "#8B5CF6",
+    "#10B981",
+    "#6366F1",
+    "#8B5CF6",
+    "#0284C7",
+    "#EF4444",
+  ]);
+  for (const icon of icons) {
+    expect(icon.querySelector('[opacity="0.2"]')).not.toBeNull();
   }
 });
 

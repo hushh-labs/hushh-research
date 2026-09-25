@@ -166,9 +166,11 @@ describe("LiveShareStatusCard", () => {
     expect(identities.querySelectorAll("[data-live-share-avatar]")).toHaveLength(
       2,
     );
-    expect(screen.getByTestId("one-location-live-share-remaining")).toHaveTextContent(
-      "+3",
-    );
+    const remaining = screen.getByTestId("one-location-live-share-remaining");
+    expect(remaining).toHaveTextContent("+3");
+    // Only people are shown as overlapping avatar tiles. The overflow count is
+    // deliberately plain text, so it does not look like a third person.
+    expect(remaining.className).not.toMatch(/(?:rounded|bg-|ring-)/u);
   });
 
   it("still reports the share on a cold start, before any name is known", () => {

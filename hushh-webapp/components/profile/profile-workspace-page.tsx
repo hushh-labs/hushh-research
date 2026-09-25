@@ -39,7 +39,7 @@ import {
   LocationAgentIcon,
   MemoryAgentIcon,
   PreferencesProfileIcon,
-  RiaAgentIcon,
+  InviteFriendsProfileIcon,
   SecurityProfileIcon,
   SignOutProfileIcon,
   SupportProfileIcon,
@@ -4665,7 +4665,7 @@ function ProfilePageContent({
                 onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
-                icon={RiaAgentIcon}
+                icon={InviteFriendsProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron

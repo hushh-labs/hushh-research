@@ -118,6 +118,15 @@ export function RiaAgentIcon({
 }
 
 /**
+ * Profile navigation icon for referrals and invitations.
+ * Kept separate from RIA semantics so a future agent-icon redesign cannot
+ * silently change the meaning of the "Invite friends" settings row.
+ */
+export function InviteFriendsProfileIcon(props: AgentIconProps) {
+  return <RiaAgentIcon {...props} />;
+}
+
+/**
  * 5. Email (Gmail) Agent Icon
  * Base: Phosphor EnvelopeSimple
  */
