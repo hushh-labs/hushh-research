@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
+from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -185,10 +186,19 @@ class McpConfirmRequest(McpReviewRequest):
     confirmed: StrictBool
 
 
+class McpRegisteredClient(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issuer: str = Field(min_length=1, max_length=2048, repr=False)
+    clientId: str = Field(min_length=1, max_length=8192, repr=False)
+    clientSecret: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+    tokenEndpointAuthMethod: Literal["none", "client_secret_basic", "client_secret_post"]
+
+
 class McpOAuthBeginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: UUID
     endpoint: str = Field(min_length=1, max_length=4096, repr=False)
+    registeredClient: McpRegisteredClient | None = Field(default=None, repr=False)
 
 
 class McpOAuthAttemptRequest(BaseModel):
@@ -240,13 +250,27 @@ async def begin_private_mcp_oauth(
     owner = _mcp_oauth_binding(connector_id, token)
     redirect_uri = _mcp_oauth_return_uri()
     try:
-        return await mcp_oauth_attempts.begin(
+        result = await mcp_oauth_attempts.begin(
             owner_id=owner,
             connector_id=connector_id,
             revision=str(body.revision),
             endpoint=body.endpoint,
             redirect_uri=redirect_uri,
+            registered_client=(
+                OAuthClientInformationFull(
+                    client_id=body.registeredClient.clientId,
+                    client_secret=body.registeredClient.clientSecret,
+                    token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
+                    redirect_uris=[redirect_uri],
+                )
+                if body.registeredClient
+                else None
+            ),
+            registered_issuer=body.registeredClient.issuer if body.registeredClient else None,
         )
+        # The native shell may leave for a system browser only when the actual
+        # server-bound return is one of its claimed HTTPS app-link routes.
+        return {**result, "redirectUri": redirect_uri}
     except Exception:
         raise HTTPException(
             status_code=503, detail="Could not start connector login. Retry connecting."
@@ -744,7 +768,11 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
     credentials = get_external_connector_credentials_service()
-    connectors = await registry.list_active_connectors(user_id=user_id)
+    # This response is the operator-curated catalog plus owner connection
+    # status. Custom definitions are browser-decrypted vault records, not the
+    # retired private-registration table projection. Do not require migration
+    # 243 or resurrect server-readable custom configuration to render Settings.
+    connectors = await registry.list_active_connectors()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
     result = ConnectorsResponse(
         features=connector_features(user_id),

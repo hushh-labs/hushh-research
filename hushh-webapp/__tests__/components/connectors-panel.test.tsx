@@ -97,15 +97,40 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
+  it("does not offer a dead Drive connection action when backend admission is off", async () => {
+    state.overview.mockResolvedValue(overview());
+    render(panel());
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Google Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Google Drive" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    expect(screen.getByText("Drive sign-in is not enabled for this account in this environment.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
+  });
+
+  it("omits unsupported catalog placeholders even when the registry returns them", async () => {
+    state.overview.mockResolvedValue(overview([
+      { ...catalogItem, connectorId: "notion", displayName: "Notion" },
+      { ...catalogItem, connectorId: "hubspot", displayName: "HubSpot" },
+      catalogItem,
+    ]));
+    const { container } = render(panel());
+    expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    expect(screen.queryByText("Notion")).not.toBeInTheDocument();
+    expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
+    for (const provider of ["gmail", "drive", "calendar", "plaid"]) {
+      expect(container.querySelector(`img[src="/icons/connectors/${provider}.svg"]`)).not.toBeNull();
+    }
+  });
+
   it("does not describe a failed Drive status check as disconnected", async () => {
     state.overview.mockRejectedValue(new Error("synthetic unavailable"));
     render(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
     expect(await screen.findByText("Connection status unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
     expect(screen.queryByText("Drive connection is unavailable in this session. Try again later.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Connect Drive" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Connect Drive" })).not.toHaveClass("min-h-[50px]");
   });
 
   it("opens the requested provider directly from the Settings catalog", async () => {

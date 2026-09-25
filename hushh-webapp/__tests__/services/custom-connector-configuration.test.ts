@@ -64,11 +64,16 @@ describe("vault-backed custom connector configuration", () => {
     expect(storage.loadDomainData).not.toHaveBeenCalled();
   });
   it("projects only transient access credentials without mutating vault configuration", () => {
-    const oauth = { ...record, enabled: true, authentication: { kind: "oauth" as const,
+    const oauth = { ...record, enabled: true, oauthRegistration: {
+      issuer: "https://auth.example", clientId: "synthetic-client",
+      clientSecret: "synthetic-registration-secret", tokenEndpointAuthMethod: "client_secret_post" as const,
+    }, authentication: { kind: "oauth" as const,
       accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };
     const projected = projectCustomConnectorTurnConfigurations([oauth]);
     expect(projected[0]?.authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 2000000000 });
     expect(JSON.stringify(projected)).not.toContain("synthetic-refresh");
+    expect(JSON.stringify(projected)).not.toContain("synthetic-registration-secret");
+    expect(JSON.stringify(projected)).not.toContain("synthetic-client");
     expect(oauth.authentication.refreshToken).toBe("synthetic-refresh");
     expect(projectCustomConnectorTurnConfigurations([{ ...oauth, enabled: false }])).toEqual([]);
   });

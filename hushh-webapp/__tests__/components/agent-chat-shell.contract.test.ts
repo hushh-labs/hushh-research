@@ -17,6 +17,17 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("<ConnectorsPanel");
     expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
   });
+  it("keeps the connector manager bounded, scrollable, and on the shared modal scrim", () => {
+    const drawer = read("components/agent/agent-connections-drawer.tsx");
+    const panel = read("components/agent/connectors-panel.tsx");
+    const dialog = read("components/ui/dialog.tsx");
+
+    expect(drawer).toContain('contentDragDismiss={false}');
+    expect(drawer).toContain('className="h-[min(34rem,85dvh)] gap-0 overflow-hidden p-0 sm:max-w-md"');
+    expect(panel).toContain("min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain");
+    expect(dialog).toContain("[backdrop-filter:var(--app-scrim-filter)]");
+    expect(dialog).toContain("[-webkit-backdrop-filter:var(--app-scrim-filter)]");
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");

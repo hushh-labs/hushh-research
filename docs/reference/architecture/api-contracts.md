@@ -1111,12 +1111,19 @@ Registration neither authenticates a provider nor grants tool execution permissi
 The response is a safe connector summary with `registrationKind=private` and
 `status=not_connected`, never endpoint or credential configuration.
 
-Listing and API-key connection lookup are owner-scoped. Legacy ownerless registry
-reads remain curated-only. Repeating an unchanged registration UUID is idempotent;
+`GET /api/connectors` lists the operator-curated registry and the authenticated
+owner's connection statuses; custom definitions are loaded separately from the
+browser-encrypted vault. This overview does not require migration 243's private
+registration columns. Legacy API-key connection lookup remains owner-scoped.
+Repeating an unchanged registration UUID is idempotent;
 changing its definition returns 409, as does exceeding 32 active private registrations.
 Owner-scoped reads require migration 243; unavailable registry storage returns 503,
 not a misleading empty catalog. Validation responses omit submitted input and use
 `Cache-Control: no-store`.
+
+Release caveat: environments already carrying legacy private registrations need
+an explicit recovery/migration check before removing their old Settings entry
+points. The curated overview is not proof that those records were migrated.
 
 This is a backend registration boundary, not certification of custom OAuth,
 Settings controls, ADK invocation, or native acceptance. Those remain separate gates.

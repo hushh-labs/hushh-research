@@ -45,6 +45,7 @@ test.beforeAll(async () => {
           "@/lib/calendar/use-calendar-connection-status",
           "@/lib/pkm/pkm-domain-resource",
           "@/lib/kai/plaid-vault/vault-sync",
+          "@/lib/connections/custom-connector-configuration",
           "next/navigation",
         ].map((find) => ({
           find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
@@ -103,7 +104,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
-  await page.route(/\/icons\/agents\/(?:gmail|calendar)\.svg$/, (route) =>
+  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
@@ -243,6 +244,7 @@ for (const width of [320, 390, 768, 1440])
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
     await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
     if (width >= 768) {
+      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
       await expect.poll(async () => {
         const box = (await drawer.boundingBox())!;
         return Math.abs(box.x + box.width / 2 - width / 2);
@@ -254,6 +256,9 @@ for (const width of [320, 390, 768, 1440])
       }).toBeLessThan(2);
     }
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
+    const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
+    await expect(overlay).toBeVisible();
+    expect(await overlay.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(");
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
     await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
     await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toBeVisible();
@@ -319,6 +324,30 @@ for (const width of [320, 390, 768, 1440])
       .getByRole("button", { name: "Advance synthetic stream" })
       .click();
     await expect(page.getByTestId("stream")).toHaveText("Streaming turn 2");
+  });
+
+for (const width of [320, 390, 1440])
+  test(`connectors remain scrollable with a short ${width}px viewport`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 440 });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const scrollRegion = dialog.locator('[data-connections-panel] > div').last();
+    await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
+    expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+    const plaid = dialog.getByRole("button", { name: "Manage Plaid" });
+    await plaid.scrollIntoViewIfNeeded();
+    await expect(plaid).toBeVisible();
+    const action = await plaid.boundingBox();
+    const bounds = await dialog.boundingBox();
+    expect(action).not.toBeNull();
+    expect(bounds).not.toBeNull();
+    expect(action!.y).toBeGreaterThanOrEqual(bounds!.y);
+    expect(action!.y + action!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 1);
+    expect(action!.x).toBeGreaterThanOrEqual(0);
+    expect(action!.x + action!.width).toBeLessThanOrEqual(width + 1);
   });
 
 test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {

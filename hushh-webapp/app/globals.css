@@ -31,6 +31,15 @@
  */
 @source "../lib/morphy-ux/tokens/semantic-roles.ts";
 
+/* Portaled connector and shared overlay classes must be present in the first
+ * stylesheet, including in ignored development worktrees where automatic
+ * source detection may not see these files. */
+@source "../components/agent/agent-connections-drawer.tsx";
+@source "../components/ui/dialog.tsx";
+@source "../components/ui/sheet.tsx";
+@source "../components/ui/popover.tsx";
+@source inline("sm:max-w-[28rem] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]");
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
@@ -977,10 +986,8 @@ textarea {
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
-  /* The modal scrim. Desktop keeps the frosted blur; touch screens get a plain
-   * dim instead (see the pointer: coarse block below), because a full-screen
-   * backdrop blur fading in re-blurs the whole page on every frame, and on a
-   * phone that frame cost is what starved the sheet's slide. */
+  /* Shared modal scrim. Native Android disables backdrop filtering globally
+   * below after the measured sheet-motion cost; other surfaces keep the blur. */
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 
@@ -2269,11 +2276,6 @@ body:has(.profile-account-content)
     transform: none;
     transition: none;
   }
-}
-
-/* When the chat history drawer is open, elevate the chat workspace above the bottom navigation bar */
-body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
-  z-index: 550 !important;
 }
 
 html.kb-open .agent-chat-workspace,
@@ -6230,13 +6232,6 @@ html[data-accent="gold"].dark {
 [data-slot="sheet-overlay"][data-state="closed"] {
   animation-duration: var(--motion-sheet-exit-duration);
   animation-timing-function: var(--motion-sheet-exit-ease);
-}
-
-@media (pointer: coarse) {
-  :root {
-    --app-scrim-color: rgb(0 0 0 / 0.4);
-    --app-scrim-filter: none;
-  }
 }
 
 /* Android draws the WebView through its own Vulkan pass, and every backdrop

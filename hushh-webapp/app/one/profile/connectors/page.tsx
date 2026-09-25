@@ -10,13 +10,38 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useAuth } from "@/hooks/use-auth";
+import { saveCustomConnectorSettingsHandoff } from "@/lib/agent/drive-oauth-chat-recovery";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
 export default function ExternalConnectorsPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [dataState, setDataState] = useState<"loading" | "loaded" | "unavailable-valid">("loading");
   const reportCatalogState = useCallback((state: "loading" | "loaded" | "unavailable-valid") => {
     setDataState(state);
   }, []);
+  const prepareCustomConnectorReturn = useCallback(async (input: {
+    attemptId: string;
+    reason: "web_full_page" | "native_oauth" | "native_picker";
+    customConnector?: { connectorId: string; revision: string };
+  }) => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (input.reason !== "web_full_page" || !input.customConnector ||
+        !user || owner?.userId !== user.uid || !isValidatedAuthSessionOwnerCurrent(owner)) {
+      return "unavailable" as const;
+    }
+    try {
+      saveCustomConnectorSettingsHandoff({
+        ownerUserId: user.uid,
+        attemptId: input.attemptId,
+        customConnector: input.customConnector,
+      });
+      return "ready" as const;
+    } catch {
+      return "unavailable" as const;
+    }
+  }, [user]);
 
   return (
     <AppPageShell
@@ -39,6 +64,7 @@ export default function ExternalConnectorsPage() {
           surface="settings"
           onBack={() => router.push(ROUTES.PROFILE)}
           onCatalogStateChange={reportCatalogState}
+          onPrepareRecovery={prepareCustomConnectorReturn}
         />
       </AppPageContentRegion>
     </AppPageShell>

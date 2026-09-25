@@ -108,23 +108,14 @@ type ConnectorListEntry = {
 };
 
 function ConnectorGlyph({ id }: { id: string }) {
+  const logo = ({ gmail: "gmail", google_drive: "drive", calendar: "calendar", plaid: "plaid" } as Record<string, string>)[id];
   return (
     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
-      {id === "gmail" ? (
-        // The existing product asset keeps Gmail recognizable at list scale.
+      {logo ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src="/icons/agents/gmail.svg" alt="" className="size-6" />
-      ) : id === "google_drive" ? (
-        <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
-          <path fill="#00875A" d="M8.1 2h5.2l-7 12.1H1.1z" />
-          <path fill="#0066DA" d="M6.3 14.1h14.1l-2.6 4.5H3.7z" />
-          <path fill="#FFBA00" d="M13.3 2 22 16.3l-2.6 4.5L8.1 2z" />
-        </svg>
-      ) : id === "calendar" ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src="/icons/agents/calendar.svg" alt="" className="size-6" />
+        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-6 object-contain${id === "plaid" ? " dark:invert" : ""}`} />
       ) : (
-        <span className="text-sm font-semibold">{id === "plaid" ? "P" : "•"}</span>
+        <span className="text-sm font-semibold">•</span>
       )}
     </span>
   );
@@ -147,7 +138,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
             <span className="block truncate text-sm font-medium">{entry.name}</span>
             {entry.detail ? <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.detail}</span> : null}
           </span>
-          {entry.connected && !entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+          {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
         </button>
       ) : (
         <span className="min-w-0 flex-1">
@@ -1209,6 +1200,8 @@ function OwnerConnectorsPanel({
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
         ? undefined
+        : !canConnectDrive
+          ? undefined
         : {
             label: "Connect Google Drive",
             onClick: () => {
@@ -1217,6 +1210,9 @@ function OwnerConnectorsPanel({
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
+      trailingText: !hasDriveGrant && !canConnectDrive
+        ? loading ? "Checking…" : statusChecked ? "Unavailable" : "Check connection"
+        : undefined,
     },
     {
       id: "calendar",
@@ -1258,6 +1254,7 @@ function OwnerConnectorsPanel({
     },
     ...(overview?.connectors ?? [])
       .filter((item, index, items) =>
+        !["hubspot", "notion"].includes(item.connectorId) &&
         !["google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId) &&
         items.findIndex((candidate) => candidate.connectorId === item.connectorId) === index,
       )
@@ -1325,7 +1322,7 @@ function OwnerConnectorsPanel({
           </ShellActionSurface>
         ) : null}
       </header>
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
+      <div className="min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {!vaultOwnerToken ? (
           <p role="status" className="text-sm text-muted-foreground">
             Unlock your vault to manage connectors.
@@ -1472,23 +1469,23 @@ function OwnerConnectorsPanel({
                     : "Not connected"}
               </p>
               <div className="flex flex-wrap gap-2">
-                {(!hasDriveGrant ||
+                {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
                   drive?.status === "error") && (
                   <Button
                     size="compact"
                     className={touch}
-                    disabled={driveBusy || loading || !canConnectDrive}
+                    disabled={driveBusy || loading}
                     onClick={() => startDrive("live")}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
                 )}
-                {overview?.features.google_drive_live === true &&
+                {canConnectDrive &&
                   drive?.status === "connected" && drive?.profile !== "live" && (
                     <Button
                       className={touch}
-                      disabled={driveBusy || loading || !canConnectDrive}
+                      disabled={driveBusy || loading}
                       onClick={() => startDrive("live")}
                     >
                       Reconnect Drive
@@ -1543,7 +1540,9 @@ function OwnerConnectorsPanel({
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
               {statusChecked && !canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
-                  Drive connection is unavailable in this session. Try again later.
+                  {drive?.available === false
+                    ? "Drive sign-in is temporarily unavailable."
+                    : "Drive sign-in is not enabled for this account in this environment."}
                 </p>
               )}
               <p

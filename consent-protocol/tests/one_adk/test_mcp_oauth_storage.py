@@ -17,6 +17,7 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("registered", [False, True])
 @pytest.mark.parametrize(
     "token_failure",
     [
@@ -30,7 +31,7 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
     ],
 )
 async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
-    caplog, token_failure
+    caplog, token_failure, registered
 ):
     storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
     handoff = McpOAuthCallback(owner_id="synthetic-owner", is_current=lambda: True)
@@ -78,7 +79,11 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                     "token_endpoint": "https://127.0.0.1/token"
                     if token_failure == "private_token_endpoint"
                     else "https://auth.example/token",
-                    "registration_endpoint": "https://auth.example/register",
+                    **(
+                        {}
+                        if registered
+                        else {"registration_endpoint": "https://auth.example/register"}
+                    ),
                     "response_types_supported": ["code"],
                     "authorization_response_iss_parameter_supported": True,
                     "scopes_supported": 7 if token_failure == "invalid_metadata" else ["read"],
@@ -88,6 +93,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                 },
             )
         if request.url.path == "/register":
+            assert not registered
             assert token_failure not in {
                 "issuer_mismatch",
                 "private_token_endpoint",
@@ -105,6 +111,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
             body = parse_qs(request.content.decode())
             assert body["code"] == ["synthetic-code"]
             assert body["code_verifier"]
+            if registered:
+                assert body["client_secret"] == ["synthetic-client-secret"]
             if token_failure:
                 return httpx.Response(400, text="synthetic-private-token-body")
             return httpx.Response(
@@ -127,6 +135,16 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
         ),
         storage,
     )
+    if registered:
+        await provider.use_registered_client(
+            OAuthClientInformationFull(
+                client_id="synthetic-client",
+                client_secret="synthetic-client-secret",  # noqa: S106 - synthetic fixture
+                redirect_uris=["https://app.example/return"],
+                token_endpoint_auth_method="client_secret_post",  # noqa: S106 - method
+            ),
+            issuer="https://auth.example",
+        )
     provider.use_callback(handoff, navigate)
     if token_failure == "callback_timeout":
         storage._deadline = time.monotonic() + 0.02
@@ -174,6 +192,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
         assert result.tokens.access_token == "synthetic-access"
         assert result.tokens.refresh_token == "synthetic-refresh"
         assert result.client_info.client_id == "synthetic-client"
+        if registered:
+            assert "/register" not in visited
         assert result.expires_at is not None
         assert "synthetic" not in repr(result)
         assert request_secrets.resolve_request_secret(token_ref) == ""
@@ -194,6 +214,82 @@ async def test_owner_change_clears_credentials_and_rejects_delivery():
     with pytest.raises(ValueError, match="expired or changed"):
         await storage.get_tokens()
     assert request_secrets.resolve_request_secret(reference) == ""
+
+
+@pytest.mark.asyncio
+async def test_registered_client_rejects_issuer_substitution_before_exchange():
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    try:
+        await provider.use_registered_client(
+            OAuthClientInformationFull(
+                client_id="synthetic-client", redirect_uris=["https://app.example/return"]
+            ),
+            issuer="https://auth.example",
+        )
+        with pytest.raises(McpOAuthConnectError):
+            provider._admit_metadata_response(
+                httpx.Request("GET", "https://connector.example/resource"),
+                httpx.Response(200, json={"authorization_servers": ["https://other.example"]}),
+            )
+        provider._advertised_issuer = "https://auth.example"
+        with pytest.raises(McpOAuthConnectError):
+            provider._admit_metadata_response(
+                httpx.Request("GET", "https://connector.example/forged-metadata"),
+                httpx.Response(200, json={"issuer": "https://auth.example"}),
+            )
+    finally:
+        provider.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "secret"),
+    [("private_key_jwt", None), ("client_secret_post", None), ("none", "unexpected-secret")],
+)
+async def test_registered_client_rejects_unsupported_or_incomplete_auth(method, secret):
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    try:
+        info = OAuthClientInformationFull.model_validate(
+            {
+                "client_id": "synthetic-client",
+                "client_secret": secret,
+                "token_endpoint_auth_method": method,
+                "redirect_uris": ["https://app.example/return"],
+            }
+        )
+        with pytest.raises(McpOAuthConnectError):
+            await provider.use_registered_client(info, issuer="https://auth.example")
+        assert await storage.get_client_info() is None
+    finally:
+        provider.close()
+
+
+@pytest.mark.asyncio
+async def test_unbound_registration_never_enters_sdk_auth_flow():
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    await storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="synthetic-client", redirect_uris=["https://app.example/return"]
+        )
+    )
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    with pytest.raises(McpOAuthConnectError):
+        await anext(provider.async_auth_flow(httpx.Request("GET", "https://connector.example/mcp")))
+    assert storage._closed
 
 
 @pytest.mark.asyncio

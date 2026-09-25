@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRIVE_CHAT_RECOVERY_TTL_MS,
   markDriveChatRecoveryReturned,
+  readDriveChatRecoveryHandoff,
+  saveCustomConnectorSettingsHandoff,
   saveDriveChatRecovery,
   takeDriveChatRecovery,
   type DriveChatRecoveryState,
@@ -29,6 +31,14 @@ beforeEach(() => sessionStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe("Drive chat recovery capsule", () => {
+  it("keeps a Settings sign-in handoff owner-bound without inventing a Chat draft", async () => {
+    const ownerUserId = owner();
+    const customConnector = { connectorId: `custom_${"a".repeat(32)}`, revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" };
+    saveCustomConnectorSettingsHandoff({ ownerUserId, attemptId, customConnector });
+    expect(readDriveChatRecoveryHandoff()).toMatchObject({ ownerUserId, attemptId, customConnector, returnTo: "connector_settings" });
+    expect(await takeDriveChatRecovery({ ownerUserId, vaultKey })).toBeNull();
+    expect(() => saveCustomConnectorSettingsHandoff({ ownerUserId, attemptId: "invalid", customConnector })).toThrow();
+  });
   it("encrypts owner-bound chat state and atomically restores it only once", async () => {
     const ownerUserId = owner();
     await saveDriveChatRecovery({
