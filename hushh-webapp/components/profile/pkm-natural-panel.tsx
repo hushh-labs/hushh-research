@@ -883,6 +883,11 @@ export function PkmNaturalPanel({
         candidate: captureText.trim(),
       });
       if (localDuplicate?.kind === "exact") {
+        trackEvent("one_memory_action", {
+          route_id: "pkm",
+          action: "capture_prepared",
+          result: "expected_error",
+        });
         setCaptureCards([]);
         setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
         return;

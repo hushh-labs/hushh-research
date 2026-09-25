@@ -97,4 +97,19 @@ describe("native Gmail observability", () => {
       { action, result: "success" },
     ]);
   });
+
+  it("rejects a blank native client id before reporting start success", async () => {
+    mocks.apiFetch.mockResolvedValueOnce(
+      response({ configured: true, server_client_id: "   ", purpose: "read" }),
+    );
+    await expect(
+      GmailReceiptsService.startNativeConnect({ idToken: "token", purpose: "read" }),
+    ).rejects.toThrow("invalid response");
+    expect(mocks.trackEvent.mock.calls).toContainEqual([
+      "gmail_connect_result", { action: "start", result: "error" },
+    ]);
+    expect(mocks.trackEvent.mock.calls).not.toContainEqual([
+      "gmail_connect_result", { action: "start", result: "success" },
+    ]);
+  });
 });

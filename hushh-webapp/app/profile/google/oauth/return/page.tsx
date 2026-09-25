@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth/session-owner";
 import { consumeCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
+  clearGoogleOAuthAttempt,
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
   type GoogleOAuthPopupAttempt,
@@ -58,6 +59,7 @@ function GoogleOAuthReturnContent() {
   const router = useRouter();
   const search = useSearchParams();
   const flow = useRef<CompletionFlow | null>(null);
+  const terminalOutcomeRecorded = useRef(false);
   const authority = useRef({
     ownerId: loading ? null : user?.uid,
     generation: 0,
@@ -85,10 +87,23 @@ function GoogleOAuthReturnContent() {
       authority.current.mounted = false;
     };
     const attempt = flow.current?.attempt ?? readGoogleOAuthPopupAttempt();
+    const isSameWindowCalendar =
+      attempt?.service === "calendar" && attempt.returnMode === "same_window";
     const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
       if (!current || authority.current.generation !== effectGeneration) return;
       setMessage(text);
-      if (attempt) settleGoogleOAuthPopup(attempt, outcome, text);
+      if (terminalOutcomeRecorded.current) return;
+      terminalOutcomeRecorded.current = true;
+      if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+      if (isSameWindowCalendar) {
+        trackEvent("one_calendar_action", {
+          route_id: "one_calendar",
+          action: "connected",
+          result: outcome === "cancelled" ? "expected_error" : "error",
+        });
+      } else if (attempt) {
+        settleGoogleOAuthPopup(attempt, outcome, text);
+      }
     };
     const providerError = search.get("error");
     if (providerError) {
@@ -164,7 +179,10 @@ function GoogleOAuthReturnContent() {
           );
           return;
         }
-        if (attempt) {
+        if (terminalOutcomeRecorded.current) return;
+        terminalOutcomeRecorded.current = true;
+        if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+        if (attempt && !isSameWindowCalendar) {
           settleGoogleOAuthPopup(attempt, "succeeded");
         } else {
           // Same-window OAuth (for example, a blocked popup on mobile web)

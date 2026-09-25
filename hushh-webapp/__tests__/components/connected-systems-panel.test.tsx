@@ -1356,6 +1356,40 @@ describe("ConnectedSystemsPanel", () => {
     });
   });
 
+  it("does not count update preparation failures as failed CRM mutations", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
+      systemId: system.systemId, target: system.target,
+      objectType: system.objectTypeDefault, status: "active",
+      binding: { systemId: system.systemId, objectType: system.objectTypeDefault,
+        recordId: "person-42", status: "active" },
+    });
+    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValueOnce({
+      systemId: system.systemId, target: system.target,
+      objectType: system.objectTypeDefault, resultClass: "succeeded",
+      recordId: "person-42", records: [{ recordId: "person-42", fields: {
+        Email: "person@example.test", PreferredLanguage: "English",
+      } }],
+    });
+    vi.mocked(ConnectedSystemsService.updateRecordIntent).mockRejectedValueOnce(
+      new Error("preparation unavailable"),
+    );
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test"
+      systemId={system.systemId} profile={{ email: "person@example.test" }} />);
+    await screen.findByRole("region", { name: "CRM record fields" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Preferred language" }));
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "French" } });
+    fireEvent.click(screen.getByRole("button", { name: "Stage change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update record" }));
+    const reviewDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(reviewDialog).getByRole("button", { name: "Confirm update" }));
+    await waitFor(() => expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledOnce());
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+    expect(trackEventMock).not.toHaveBeenCalledWith("one_crm_action", {
+      route_id: "connected_systems", action: "record_updated", result: "error",
+    });
+  });
+
   it("keeps verified create and lookup fields locked even when the CRM omits identity metadata", async () => {
     vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce({
       ...readySchema,

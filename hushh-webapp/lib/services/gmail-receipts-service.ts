@@ -192,6 +192,7 @@ async function parseNativeConnectStartResponse(
     !isRecord(payload) ||
     typeof payload.configured !== "boolean" ||
     typeof payload.server_client_id !== "string" ||
+    payload.server_client_id.trim().length === 0 ||
     (payload.purpose !== "read" && payload.purpose !== "send")
   ) {
     throw new Error("Mail OAuth start returned an invalid response.");

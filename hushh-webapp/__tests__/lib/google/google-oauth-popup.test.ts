@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  clearGoogleOAuthAttempt,
   openGoogleOAuthPopup,
+  persistGoogleOAuthSameWindowAttempt,
   readGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
 } from "@/lib/google/google-oauth-popup";
@@ -20,6 +22,17 @@ describe("openGoogleOAuthPopup", () => {
     );
     expect(readGoogleOAuthPopupAttempt()).toEqual(attempt);
     window.sessionStorage.removeItem("one_google_oauth_popup_attempt_v1");
+  });
+
+  it("persists and identifies the same-window Calendar fallback", () => {
+    const attempt = {
+      version: 1 as const, attemptId: "synthetic-same-window-attempt",
+      service: "calendar" as const, startedAt: Date.now(),
+    };
+    expect(persistGoogleOAuthSameWindowAttempt(attempt)).toBe(true);
+    expect(readGoogleOAuthPopupAttempt()).toEqual({ ...attempt, returnMode: "same_window" });
+    clearGoogleOAuthAttempt();
+    expect(readGoogleOAuthPopupAttempt()).toBeNull();
   });
 
   it("accepts Calendar settlements and rejects retired Drive settlements", () => {

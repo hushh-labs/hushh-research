@@ -12,6 +12,7 @@ export type GoogleOAuthPopupAttempt = {
   attemptId: string;
   service: GoogleOAuthPopupService;
   startedAt: number;
+  returnMode?: "popup" | "same_window";
 };
 export type GoogleOAuthPopupSettlement = {
   schemaVersion: 1;
@@ -24,6 +25,28 @@ export type GoogleOAuthPopupSettlement = {
 
 function validId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{8,96}$/.test(value);
+}
+
+export function persistGoogleOAuthSameWindowAttempt(
+  attempt: GoogleOAuthPopupAttempt,
+): boolean {
+  try {
+    const currentStorage = storage(window);
+    if (!currentStorage) return false;
+    const value = JSON.stringify({ ...attempt, returnMode: "same_window" });
+    currentStorage.setItem(ATTEMPT_KEY, value);
+    return currentStorage.getItem(ATTEMPT_KEY) === value;
+  } catch {
+    return false;
+  }
+}
+
+export function clearGoogleOAuthAttempt(): void {
+  try {
+    storage(window)?.removeItem(ATTEMPT_KEY);
+  } catch {
+    /* stale browser state is best-effort cleanup */
+  }
 }
 function storage(target: Window | null | undefined): Storage | null {
   try {
@@ -91,6 +114,9 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
         parsed.service === "calendar") &&
       validId(parsed.attemptId) &&
       typeof parsed.startedAt === "number" &&
+      (parsed.returnMode === undefined ||
+        parsed.returnMode === "popup" ||
+        parsed.returnMode === "same_window") &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )

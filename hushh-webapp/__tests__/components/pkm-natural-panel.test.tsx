@@ -8,6 +8,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 
 const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory, trackEvent } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
@@ -546,6 +547,23 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         }),
       ),
     );
+  });
+
+  it("records an exact local duplicate as an expected preparation outcome", async () => {
+    vi.spyOn(AgentPkmContextStore, "findLocalDuplicate").mockReturnValueOnce({
+      kind: "exact", domain: "preferences", path: ["travel", "seat_choice"],
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "I prefer morning flights whenever possible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(await screen.findByText(/exact detail is already saved/i)).toBeTruthy();
+    expect(previewAgentPkmMemory).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm", action: "capture_prepared", result: "expected_error",
+    });
   });
 
   it("requires sharing-impact acknowledgment before saving a shared detail", async () => {

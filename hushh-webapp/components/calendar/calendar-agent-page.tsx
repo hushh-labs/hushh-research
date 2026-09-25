@@ -53,6 +53,7 @@ import {
   isGoogleOAuthPopupSettlement,
   navigateGoogleOAuthPopup,
   openGoogleOAuthPopup,
+  persistGoogleOAuthSameWindowAttempt,
   readGoogleOAuthPopupSettlement,
 } from "@/lib/google/google-oauth-popup";
 
@@ -267,6 +268,11 @@ export function CalendarAgentPage({
         accessLevel: accessLevel,
       });
       if (!popup) {
+        if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
+          throw new Error(
+            "Calendar sign-in could not be started safely. Please try again.",
+          );
+        }
         window.location.assign(start.authorize_url);
         return;
       }

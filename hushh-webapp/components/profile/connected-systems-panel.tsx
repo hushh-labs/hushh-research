@@ -1653,13 +1653,12 @@ export function ConnectedSystemsPanel({
     const requestContext = capturePanelRequestContext();
     const review = pendingUpdateReview;
     updateReviewSubmittingRef.current = true;
-    let preparedIntent: ConnectedSystemIntent | null = null;
-    const result = await runMutation(
+    const preparedIntent = await runMutation(
       "update",
       {
-        loading: "Updating CRM record…",
-        success: `${customerName} record updated.`,
-        error: `${customerName} record could not be updated.`,
+        loading: "Preparing CRM update…",
+        success: "CRM update is ready to apply.",
+        error: "CRM update could not be prepared.",
       },
       async () => {
         if (encryptedFieldsEnabled) {
@@ -1683,21 +1682,15 @@ export function ConnectedSystemsPanel({
             direction: "update_request",
             payload: { additionalFields: review.recordFields },
           });
-          preparedIntent =
-            await ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
+          return ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
               vaultOwnerToken,
               systemId: selectedSystem.systemId,
               objectType: updateObjectType,
               fieldNames: Object.keys(review.recordFields),
               encryptedFields: envelope,
             });
-          return ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
-            vaultOwnerToken,
-            systemId: selectedSystem.systemId,
-            intentId: preparedIntent.intentId,
-          });
         }
-        preparedIntent = await ConnectedSystemsService.updateRecordIntent(
+        return ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
           {
             systemId: selectedSystem?.systemId,
@@ -1706,22 +1699,39 @@ export function ConnectedSystemsPanel({
             recordFields: review.recordFields,
           },
         );
-        return ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: preparedIntent.systemId,
-          intentId: preparedIntent.intentId,
-        });
       },
+      { trackMutationOutcome: false },
+    );
+    if (!preparedIntent || !isCurrentPanelRequest(requestContext)) {
+      updateReviewSubmittingRef.current = false;
+      return;
+    }
+    const result = await runMutation(
+      "update",
+      {
+        loading: "Updating CRM record…",
+        success: `${customerName} record updated.`,
+        error: `${customerName} record could not be updated.`,
+      },
+      () => encryptedFieldsEnabled
+        ? ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
+            vaultOwnerToken: vaultOwnerToken || "",
+            systemId: preparedIntent.systemId,
+            intentId: preparedIntent.intentId,
+          })
+        : ConnectedSystemsService.approveIntent({
+            vaultOwnerToken: vaultOwnerToken || "",
+            systemId: preparedIntent.systemId,
+            intentId: preparedIntent.intentId,
+          }),
     );
     updateReviewSubmittingRef.current = false;
     if (!isCurrentPanelRequest(requestContext)) return;
     if (!result) {
       // A prepared intent remains safely pending server-side. Reuse it rather
       // than submitting a second update if approval has to be retried.
-      if (preparedIntent) {
-        setPendingUpdateReview(null);
-        setPendingIntent(preparedIntent);
-      }
+      setPendingUpdateReview(null);
+      setPendingIntent(preparedIntent);
       return;
     }
     setPendingUpdateReview(null);

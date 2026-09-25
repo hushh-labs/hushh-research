@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   consumeSetupReturn: vi.fn(),
   getIdToken: vi.fn(),
   readAttempt: vi.fn(),
+  clearAttempt: vi.fn(),
   settle: vi.fn(),
+  trackEvent: vi.fn(),
   ownerId: "synthetic-owner" as string | null,
 }));
 vi.mock("next/navigation", () => ({
@@ -35,9 +37,11 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: { status: mocks.status },
 }));
 vi.mock("@/lib/google/google-oauth-popup", () => ({
+  clearGoogleOAuthAttempt: mocks.clearAttempt,
   readGoogleOAuthPopupAttempt: mocks.readAttempt,
   settleGoogleOAuthPopup: mocks.settle,
 }));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: mocks.trackEvent }));
 vi.mock("@/components/app-ui/hushh-loader", () => ({
   HushhLoader: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -55,6 +59,7 @@ const attempt = (service = "calendar") => ({
   version: 1,
   startedAt: Date.now(),
 });
+const sameWindowAttempt = () => ({ ...attempt(), returnMode: "same_window" as const });
 function pending<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -157,6 +162,22 @@ describe("GoogleOAuthReturnPage", () => {
     expect(JSON.stringify(mocks.settle.mock.calls)).not.toContain(
       "synthetic-sensitive-provider-detail",
     );
+    expect(mocks.completeConnect).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["access_denied", "expected_error"],
+    ["provider_failure", "error"],
+  ])("records same-window provider outcome %s exactly once", async (providerError, result) => {
+    mocks.readAttempt.mockReturnValue(sameWindowAttempt());
+    mocks.searchGet.mockImplementation((key: string) => key === "error" ? providerError : null);
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result },
+    ));
+    expect(mocks.trackEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.clearAttempt).toHaveBeenCalledOnce();
     expect(mocks.completeConnect).not.toHaveBeenCalled();
   });
   it("consumes once and still settles under Strict Mode", async () => {
