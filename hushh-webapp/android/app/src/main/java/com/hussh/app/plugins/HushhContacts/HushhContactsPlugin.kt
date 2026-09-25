@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.telephony.TelephonyManager
+import androidx.appcompat.app.AlertDialog
+import com.hussh.app.R
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -79,7 +81,9 @@ class HushhContactsPlugin : Plugin() {
             call.resolve(permissionPayload())
             return
         }
-        requestPermissionForAlias("contacts", call, "contactsPermissionStateCallback")
+        requestContactsWithDisclosure(call, "contactsPermissionStateCallback") {
+            call.resolve(permissionPayload())
+        }
     }
 
     @PluginMethod
@@ -99,10 +103,48 @@ class HushhContactsPlugin : Plugin() {
     @PluginMethod
     fun readContacts(call: PluginCall) {
         if (getPermissionState("contacts") != PermissionState.GRANTED) {
-            requestPermissionForAlias("contacts", call, "contactsPermissionCallback")
+            requestContactsWithDisclosure(call, "contactsPermissionCallback") {
+                call.reject("Contacts permission was not granted.")
+            }
             return
         }
         resolveContacts(call)
+    }
+
+    /**
+     * Google Play prominent disclosure: every path that can raise the
+     * READ_CONTACTS prompt (onboarding, People, Connect, voice) funnels through
+     * here, so the explanation always precedes the OS dialog. It is shown even
+     * when Capacitor reports DENIED: that state is cached from the last request
+     * and goes stale if the person later grants and revokes in Settings, after
+     * which the OS prompts again.
+     */
+    private fun requestContactsWithDisclosure(
+        call: PluginCall,
+        callbackName: String,
+        onDeclined: () -> Unit,
+    ) {
+        val host = activity
+        if (host == null || host.isFinishing) {
+            onDeclined()
+            return
+        }
+        host.runOnUiThread {
+            var answered = false
+            AlertDialog.Builder(host)
+                .setTitle(R.string.contacts_disclosure_title)
+                .setMessage(R.string.contacts_disclosure_message)
+                .setPositiveButton(R.string.contacts_disclosure_continue) { _, _ ->
+                    answered = true
+                    requestPermissionForAlias("contacts", call, callbackName)
+                }
+                .setNegativeButton(R.string.contacts_disclosure_decline) { _, _ ->
+                    answered = true
+                    onDeclined()
+                }
+                .setOnDismissListener { if (!answered) onDeclined() }
+                .show()
+        }
     }
 
     @PermissionCallback

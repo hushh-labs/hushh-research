@@ -166,6 +166,7 @@ import {
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
+  SHARE_DURATION_UNTIL_STOP_VALUE,
 } from "./duration-presets";
 import { approveShorterDurationOptions } from "@/lib/one-location/approve-duration-options";
 import { AskForMoreTime, type RequestMoreTimeHours } from "./request-more-time";
@@ -602,7 +603,7 @@ export type LocationHubViewModel = {
   liveShareDurationEditing: boolean;
   /** Grant currently being edited in the owner's duration editor. */
   liveShareDurationGrantId: string | null;
-  /** Wheel value, in decimal hours, or "until_stopped". */
+  /** Selected duration, in decimal hours, or "until_stopped". */
   liveShareDurationHours: string;
   setLiveShareDurationHours: (v: string) => void;
   liveShareDurationSaving: boolean;
@@ -1831,7 +1832,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
-  return (
+  return renderLocationSurface(
     <div
       data-location-hub
       className="mx-auto w-full max-w-[820px] space-y-3.5 sm:space-y-3.5"
@@ -1926,7 +1927,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
         </SwipeViews>
       </div>
-    </div>
+    </div>,
   );
 }
 
@@ -2107,20 +2108,6 @@ function NowHub({
       voiceActionId: "location.open_settings",
     },
   ];
-  const liveShareDurationGrant = vm.liveShareDurationGrantId
-    ? vm.activeOwnerGrants.find(
-        (grant) => grant.id === vm.liveShareDurationGrantId,
-      )
-    : vm.liveShare?.stoppableGrantId
-      ? vm.activeOwnerGrants.find(
-          (grant) => grant.id === vm.liveShare?.stoppableGrantId,
-        )
-      : null;
-  const liveShareDurationTitle =
-    liveShareDurationGrant?.durationMode === "until_stopped"
-      ? "Set an end time"
-      : "Change end time";
-
   return (
     <div className="space-y-2.5" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
@@ -2152,35 +2139,6 @@ function NowHub({
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
-      <Dialog
-        modal
-        open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
-        onOpenChange={(open) => {
-          if (!open) vm.onEditLiveShareDurationCancel();
-        }}
-      >
-        <DialogContent
-          className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
-          showCloseButton={!vm.liveShareDurationSaving}
-        >
-          <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
-              {liveShareDurationTitle}
-            </DialogTitle>
-            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
-              Set a new end time for this share.
-            </DialogDescription>
-          </DialogHeader>
-          <LiveShareDurationEditor
-            value={vm.liveShareDurationHours}
-            onChange={vm.setLiveShareDurationHours}
-            onCancel={vm.onEditLiveShareDurationCancel}
-            onSave={vm.onSaveLiveShareDuration}
-            saving={vm.liveShareDurationSaving}
-            surface={false}
-          />
-        </DialogContent>
-      </Dialog>
       {/* Every row and cell below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -5767,11 +5725,10 @@ function ShareFlow({
 /**
  * The new-end-time editor opened from the live share card.
  *
- * A short preset ladder (15 min / 1 hour / 2 hours / 4 hours / Until I stop),
- * not the received-shares editor's select and not the scroll wheel this used
- * to open on. It still opens on what the share actually has left, so the
- * "Ends …" read-back stays honest even when that value matches no rung; the
- * person then picks the length they want in one tap.
+ * One compact dropdown replaces the five-button ladder so this modal remains
+ * calm on a phone. It still opens on what the share actually has left; when
+ * that value falls between the common presets, a temporary "Current" option
+ * preserves the untouched value instead of silently changing the share.
  */
 function LiveShareDurationEditor({
   value,
@@ -5796,6 +5753,31 @@ function LiveShareDurationEditor({
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const presetOptions = useMemo(
+    () => [
+      ...CHANGE_TIME_DURATION_LADDER,
+      {
+        value: SHARE_DURATION_UNTIL_STOP_VALUE,
+        label: "Until I stop",
+      },
+    ],
+    [],
+  );
+  const durationOptions = useMemo(() => {
+    if (presetOptions.some((option) => option.value === value)) {
+      return presetOptions;
+    }
+
+    const currentLabel = formatLocationDurationLabel(value);
+    return [
+      {
+        value,
+        label: currentLabel ? `Current · ${currentLabel}` : "Current time",
+      },
+      ...presetOptions,
+    ];
+  }, [presetOptions, value]);
+
   return (
     <div
       className={cn(
@@ -5807,35 +5789,17 @@ function LiveShareDurationEditor({
       data-ui-contract="control-group"
       data-ui-id="location-live-share-duration-editor"
     >
-      {/*
-        Four common lengths plus the open-ended row, one tap each — no `Custom`
-        wheel and no `8 hours` (issue #6228). Changing a share that is already
-        running is a quick decision, and the sixth near-identical choice plus a
-        two-drag scroll wheel made this panel read like a settings screen
-        stacked under the live clock. Anything in between is still reachable by
-        stopping the share and starting a new one.
-
-        `centered` + `maxWidthClassName={null}`: the rungs sit inside a card
-        far wider than they need. Freed of the 420px clamp they centre as one
-        row from `sm` up instead of wrapping and hugging the left edge; on the
-        phone grid the open-ended row spans both columns. The clamp existed to
-        stop a stretching grid printing 258px slabs — the ladder is a
-        wrapping row of content-width chips now, so there is nothing to stretch.
-
-        `until_stopped` stays available: this is a decision about your own
-        location, so open-ended is a real answer here (unlike the Request lane,
-        which turns the rung off).
-      */}
+      {/* The same five choices now live in one familiar control. The value and
+          save handler are unchanged, so this remains a presentation-only UX
+          refinement rather than a change to sharing consent or duration. */}
       <DurationSelector
         value={value}
         onChange={(next) => {
           if (!saving) onChange(next);
         }}
-        presentation="ladder"
-        rungs={CHANGE_TIME_DURATION_LADDER}
-        untilStopValue="until_stopped"
-        allowCustom={false}
-        centered
+        presentation="select"
+        options={durationOptions}
+        disabled={saving}
         maxWidthClassName={null}
         label="New time"
         // Beside the label rather than on its own line under the control --
@@ -5888,7 +5852,7 @@ function LiveShareDurationEditor({
  * renders — the branch was unreachable, and the token is gone from every list.
  */
 function shareEndsAtLabel(durationHours: string, nowMs: number): string {
-  if (durationHours === "until_stopped") {
+  if (durationHours === SHARE_DURATION_UNTIL_STOP_VALUE) {
     return "Until you stop";
   }
   const hours = Number(durationHours);

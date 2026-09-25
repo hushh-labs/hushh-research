@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".MainActivity">
+            <!-- Debug-only dev App Link claim; see the note in src/main. Paths
+                 must stay identical to the main autoVerify filter. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="dev.one.hushh.ai" />
+                <data android:pathPrefix="/one/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/one/profile/google/oauth/return" />
+                <data android:pathPrefix="/one/profile/gmail/oauth/return" />
+                <data android:pathPrefix="/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/profile/google/oauth/return" />
+                <data android:pathPrefix="/profile/gmail/oauth/return" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 120,
+  "total_routes": 121,
   "native_required_routes": 102,
-  "excluded_routes": 18,
+  "excluded_routes": 19,
   "routes": [
     {
       "route": "/",
@@ -63,6 +63,11 @@
         "loaded"
       ],
       "legacyAlias": true
+    },
+    {
+      "route": "/delete-account",
+      "classification": "excluded-web-only",
+      "reason": "Public account-deletion request page for people without the app (Google Play Delete account URL). In the native shell, deletion lives in Profile."
     },
     {
       "route": "/developers",
