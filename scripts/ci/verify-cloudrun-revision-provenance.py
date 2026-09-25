@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -74,7 +75,9 @@ def _service_traffic_revisions(service_payload: dict[str, Any]) -> list[dict[str
             }
         )
     if not revisions and latest_ready:
-        revisions.append({"revision": latest_ready, "percent": 100, "latestRevision": True})
+        revisions.append(
+            {"revision": latest_ready, "percent": 100, "latestRevision": True}
+        )
     return revisions
 
 
@@ -141,10 +144,16 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     )
     revision_fixtures = _load_revision_fixtures(args.revision_json)
     expected = _expected_pairs(args)
-    traffic_revisions = _service_traffic_revisions(service_payload)
+    candidate = str(getattr(args, "candidate_revision", "") or "").strip()
+    traffic_revisions = (
+        [{"revision": candidate, "percent": 0}]
+        if candidate
+        else _service_traffic_revisions(service_payload)
+    )
 
     failures: list[dict[str, Any]] = []
     checked: list[dict[str, Any]] = []
+    candidate_url = None
 
     if not traffic_revisions:
         failures.append({"reason": "no_live_traffic", "service": args.service})
@@ -173,6 +182,53 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
                         "actual": actual_value,
                     }
                 )
+        if candidate:
+            metadata = revision_payload.get("metadata") or {}
+            status = revision_payload.get("status") or {}
+            expected_image = str(getattr(args, "expected_image_reference", "") or "")
+            expected_digest = expected_image.rsplit("@", 1)[-1]
+            actual_digest = str(status.get("imageDigest") or "").rsplit("@", 1)[-1]
+            checks = {
+                "revision_name": metadata.get("name") == candidate,
+                "service_identity": labels.get("serving.knative.dev/service")
+                == args.service,
+                "ready": any(
+                    c.get("type") == "Ready" and str(c.get("status")).lower() == "true"
+                    for c in status.get("conditions", [])
+                    if isinstance(c, dict)
+                ),
+                "immutable_image": "@" in expected_image
+                and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest))
+                and actual_digest == expected_digest,
+            }
+            for label, value in {
+                "deploy-env": args.expected_env,
+                "deploy-source": args.expected_source,
+                "deploy-sha": args.expected_sha,
+                "github-run-id": args.expected_run_id,
+            }.items():
+                checks[label] = bool(value) and labels.get(label) == value
+            candidate_tag = str(getattr(args, "candidate_tag", "") or "")
+            if candidate_tag:
+                tagged = [
+                    entry
+                    for entry in (service_payload.get("status") or {}).get(
+                        "traffic", []
+                    )
+                    if isinstance(entry, dict) and entry.get("tag") == candidate_tag
+                ]
+                checks["candidate_tag"] = (
+                    len(tagged) == 1
+                    and tagged[0].get("revisionName") == candidate
+                    and str(tagged[0].get("url") or "").startswith("https://")
+                )
+                if checks["candidate_tag"]:
+                    candidate_url = tagged[0]["url"]
+            mismatches.extend(
+                {"key": key, "expected": True, "actual": False}
+                for key, passed in checks.items()
+                if not passed
+            )
         checked.append(
             {
                 "revision": revision_name,
@@ -203,6 +259,8 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "service": args.service,
+        "candidate_url": candidate_url,
+        "mode": "candidate" if candidate else "live_traffic",
         "project": args.project,
         "region": args.region,
         "status": "healthy" if not failures else "blocked",
@@ -223,15 +281,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-source", required=True)
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--expected-run-id", default="")
+    parser.add_argument("--candidate-revision", default="")
+    parser.add_argument("--expected-image-reference", default="")
+    parser.add_argument("--candidate-tag", default="")
     parser.add_argument("--report-path", required=True)
     parser.add_argument("--service-json", default="")
     parser.add_argument("--revision-json", action="append", default=[])
     args = parser.parse_args(argv)
+    if args.candidate_revision and not args.expected_image_reference:
+        parser.error("candidate verification requires --expected-image-reference")
+    if not args.candidate_revision and (
+        args.expected_image_reference or args.candidate_tag
+    ):
+        parser.error("candidate image/tag checks require --candidate-revision")
 
     report = verify(args)
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

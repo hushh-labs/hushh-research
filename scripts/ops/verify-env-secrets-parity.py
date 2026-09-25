@@ -66,6 +66,12 @@ BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
     "OMNIGATEWAY_CLIENT_SECRET",
 )
 
+BACKEND_VOICE_RUNTIME_REQUIRED = (
+    "ONE_VOICE_LIVE_ENABLED",
+    "VERTEX_LIVE_MODEL_ID",
+    "VERTEX_LIVE_LOCATION",
+)
+
 BACKEND_REVIEWER_SMOKE_REQUIRED = (
     "REVIEWER_UID",
     "REVIEWER_VAULT_PASSPHRASE",
@@ -778,6 +784,11 @@ def main() -> int:
         help="Also require backend Calendar OAuth secrets and callback parity.",
     )
     parser.add_argument(
+        "--require-voice",
+        action="store_true",
+        help="Also require Live voice runtime configuration; live acceptance is separate.",
+    )
+    parser.add_argument(
         "--require-one-email",
         action="store_true",
         help="Also require One mailbox/KYC runtime env and secrets.",
@@ -1073,6 +1084,12 @@ def main() -> int:
                 )
                 for key in BACKEND_CALENDAR_REQUIRED
             ]
+        backend_voice_entries = []
+        if checks_backend and args.require_voice:
+            backend_voice_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_VOICE_RUNTIME_REQUIRED
+            ]
         backend_one_email_entries = []
         if checks_backend and args.require_one_email:
             backend_one_email_entries = [
@@ -1095,6 +1112,7 @@ def main() -> int:
         report["runtime_contract"]["backend"] = backend_entries
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
         report["runtime_contract"]["backend_calendar"] = backend_calendar_entries
+        report["runtime_contract"]["backend_voice"] = backend_voice_entries
         report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
         report["runtime_contract"]["backend_connected_systems"] = backend_connected_systems_entries
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
@@ -1121,6 +1139,9 @@ def main() -> int:
         )
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
+        )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_voice_entries)
         )
         report["classifications"].extend(runtime_classifications)
 
@@ -1167,6 +1188,7 @@ def main() -> int:
                 + backend_entries
                 + backend_gmail_entries
                 + backend_calendar_entries
+                + backend_voice_entries
                 + backend_one_email_entries
                 + backend_connected_systems_entries
                 + backend_reviewer_smoke_entries
