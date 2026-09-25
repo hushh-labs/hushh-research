@@ -114,19 +114,16 @@ class HushhContactsPlugin : Plugin() {
     /**
      * Google Play prominent disclosure: every path that can raise the
      * READ_CONTACTS prompt (onboarding, People, Connect, voice) funnels through
-     * here, so the explanation always precedes the OS dialog. It is skipped
-     * when the OS will not prompt (permanently denied), since no dialog follows.
+     * here, so the explanation always precedes the OS dialog. It is shown even
+     * when Capacitor reports DENIED: that state is cached from the last request
+     * and goes stale if the person later grants and revokes in Settings, after
+     * which the OS prompts again.
      */
     private fun requestContactsWithDisclosure(
         call: PluginCall,
         callbackName: String,
         onDeclined: () -> Unit,
     ) {
-        val state = getPermissionState("contacts")
-        if (state != PermissionState.PROMPT && state != PermissionState.PROMPT_WITH_RATIONALE) {
-            requestPermissionForAlias("contacts", call, callbackName)
-            return
-        }
         val host = activity
         if (host == null || host.isFinishing) {
             onDeclined()

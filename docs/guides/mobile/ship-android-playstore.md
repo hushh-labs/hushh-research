@@ -159,7 +159,8 @@ satisfy it:
 2. On Android, `HushhContactsPlugin` shows the same statement in a dialog
    (`contacts_disclosure_message`) before every `READ_CONTACTS` request, so the
    People tab, Connect, and voice paths are covered too. It is skipped only when
-   the OS would not prompt (permission granted or permanently denied).
+   the permission is already granted (Capacitor's cached DENIED state can go
+   stale after a Settings revoke, so it is not trusted to mean "no prompt").
 
 > Phone numbers are standardized on your device and turned into one-way codes.
 > Only those codes and the last four digits are checked for matches. One never
