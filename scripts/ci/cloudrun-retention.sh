@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "--help" ]]; then
+  echo "Usage: cloudrun-retention.sh <service> [region] [keep_count] [protected_revision]"
+  exit 0
+fi
 
 SERVICE="${1:-}"
 REGION="${2:-us-central1}"
 KEEP_COUNT="${3:-10}"
 PROJECT="${GCP_PROJECT_ID:-}"
+PROTECTED_REVISION="${4:-}"
 
 if [[ -z "$SERVICE" ]]; then
-  echo "Usage: $0 <service> [region] [keep_count]"
+  echo "Usage: $0 <service> [region] [keep_count] [protected_revision]"
   exit 1
 fi
 
@@ -42,7 +47,7 @@ index=0
 while IFS= read -r rev; do
   [[ -z "$rev" ]] && continue
   index=$((index + 1))
-  if [[ "$index" -le "$KEEP_COUNT" ]]; then
+  if [[ "$index" -le "$KEEP_COUNT" || "$rev" == "$PROTECTED_REVISION" ]]; then
     continue
   fi
 

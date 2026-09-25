@@ -410,3 +410,7 @@ tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
 tests/test_plaid_server_custody_retire.py
+
+tests/test_dev_candidate_gate.py
+
+tests/test_cloudrun_revision_provenance.py

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts/ops/verify-env-secrets-parity.py"
@@ -136,3 +140,50 @@ def test_firebase_project_contract_rejects_matching_but_unexpected_project(monke
         "credentials": "valid",
         "expected": "mismatch",
     }
+
+
+@pytest.mark.parametrize("missing_voice_key", [None, "VERTEX_LIVE_MODEL_ID"])
+def test_voice_candidate_parity_blocks_missing_runtime_configuration(
+    monkeypatch, tmp_path, missing_voice_key
+) -> None:
+    env = [
+        {"name": key, "valueFrom": {"secretKeyRef": {"name": key, "key": "latest"}}}
+        for key in parity.BACKEND_RUNTIME_REQUIRED
+    ]
+    env.extend(
+        {"name": key, "value": value}
+        for key, value in {
+            "ONE_VOICE_LIVE_ENABLED": "true",
+            "VERTEX_LIVE_MODEL_ID": "supported-model",
+            "VERTEX_LIVE_LOCATION": "us-central1",
+        }.items()
+        if key != missing_voice_key
+    )
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {"containers": [{"env": env}]},
+    }
+    monkeypatch.setattr(parity, "_has_secret", lambda *_: True)
+    monkeypatch.setattr(parity, "_domain_runtime_contract", lambda *_: {"status": "valid"})
+    monkeypatch.setattr(parity, "_describe_run_service", lambda *_: {})
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    report_path = tmp_path / "parity.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify-env-secrets-parity.py",
+            "--project",
+            "test-project",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--require-voice",
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert parity.main() == (1 if missing_voice_key else 0)
+    report = json.loads(report_path.read_text())
+    assert report["status"] == ("blocked" if missing_voice_key else "healthy")
+    assert len(report["runtime_contract"]["backend_voice"]) == 3
