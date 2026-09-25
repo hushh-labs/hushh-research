@@ -27,6 +27,7 @@ from hushh_mcp.services.drive_long_range_listing import (
     parse_long_range_listing,
 )
 from hushh_mcp.services.drive_suggestion_service import (
+    LiveSearchPlan,
     interpret_live_search,
     plan_live_search,
     simple_file_activity_plan,
@@ -242,6 +243,7 @@ def _files_outcome(
     matches,
     found,
     *,
+    status="ok",
     unreadable,
     time_window,
     date_field="modified_time",
@@ -250,7 +252,7 @@ def _files_outcome(
     not_read=(),
 ):
     return _outcome(
-        "ok",
+        status,
         files=matches,
         unreadable=unreadable,
         found_truncated=found["truncated"],
@@ -265,7 +267,7 @@ def _files_outcome(
         not_read=not_read,
         # Only the first MAX_READS, the titles a connection is shown: A is
         # never offered a file the asker didn't see (folders drop later).
-        share_files=[_share_file(item) for item in matches[:MAX_READS]],
+        share_files=[_share_file(item) for item in matches[:MAX_READS]] if status == "ok" else [],
     )
 
 
@@ -276,6 +278,24 @@ _EXPLICIT_FILE_REFERENCE = re.compile(
     r"(?:\s+(?:one|file|document|pdf))?[.!?]?\s*$",
     re.IGNORECASE,
 )
+_EXACT_TITLE_PRESENCE = re.compile(
+    r"\s*[Dd]o\s+you\s+have\s+"
+    r"(?P<title>[A-Z][\w-]*(?:\s+[A-Z][\w-]*){1,6})\s+"
+    r"(?:document|file|doc)\s*[?.!]?\s*"
+)
+
+
+def simple_exact_title_presence_plan(message: str) -> LiveSearchPlan | None:
+    """Recognize a named-file existence question as a metadata-only search.
+
+    The narrow title-case form keeps broader or content questions with the
+    typed planner. The Drive result is still checked for an exact title.
+    """
+    match = _EXACT_TITLE_PRESENCE.fullmatch(message)
+    if match is None or len(match["title"]) > 50:
+        return None
+    title = match["title"]
+    return LiveSearchPlan.model_validate({"terms": [title], "mode": "find", "exact_title": title})
 
 
 class DriveChatService:
@@ -334,6 +354,15 @@ class DriveChatService:
                     if item.get("source_ref")
                 },
             )
+            if (outcome.get("selection") or {}).get("stage") == "ambiguous_exact_title":
+                text += (
+                    "\n\nMore than one file has that title. Choose one before I read its contents."
+                )
+            elif (outcome.get("selection") or {}).get("stage") == "incomplete_exact_title":
+                text += (
+                    "\n\nThis search may include more files with that title. "
+                    "Choose one before I read its contents."
+                )
         return result(
             conversation_id,
             text,
@@ -468,7 +497,8 @@ class DriveChatService:
                 if live:
                     stage = "search_plan"
                     await require_access()
-                    plan = simple_file_activity_plan(message)
+                    exact_presence = simple_exact_title_presence_plan(message)
+                    plan = exact_presence or simple_file_activity_plan(message)
                     if plan is None:
                         plan = await plan_live_search(
                             self.search_planner,
@@ -501,6 +531,8 @@ class DriveChatService:
                         "shared_with_me": plan.shared_with_me,
                         "recent": plan.sort == "recent",
                     }
+                    if exact_presence is not None:
+                        search_kwargs["title_only"] = True
                     date_field = (
                         "created_time" if plan.file_time_field == "createdTime" else "modified_time"
                     )
@@ -533,10 +565,48 @@ class DriveChatService:
                             for item in matches
                             if item["name"].casefold() == plan.exact_title.strip().casefold()
                         ]
-                        if len(matches) != 1:
+                        if not matches:
                             return _outcome(
                                 "input_required",
                                 "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
+                            )
+                        if found["truncated"]:
+                            # The bounded search may have omitted another file
+                            # with this exact name. Show found metadata, but
+                            # never choose one for a content read.
+                            await reader.require_current()
+                            return _files_outcome(
+                                matches,
+                                found,
+                                status="ok" if plan.mode == "find" else "input_required",
+                                unreadable=False,
+                                time_window=time_window,
+                                date_field=date_field,
+                                timezone=owner_timezone,
+                                selection={
+                                    "stage": "incomplete_exact_title",
+                                    "candidates": len(matches),
+                                    "selected": len(matches),
+                                },
+                            )
+                        if len(matches) > 1:
+                            # An exact name is not a unique file identity. Show
+                            # the owner safe metadata for each match; never read
+                            # several private files on an ambiguous read request.
+                            await reader.require_current()
+                            return _files_outcome(
+                                matches,
+                                found,
+                                status="ok" if plan.mode == "find" else "input_required",
+                                unreadable=False,
+                                time_window=time_window,
+                                date_field=date_field,
+                                timezone=owner_timezone,
+                                selection={
+                                    "stage": "ambiguous_exact_title",
+                                    "candidates": len(matches),
+                                    "selected": len(matches),
+                                },
                             )
                     if not matches:
                         return _outcome(

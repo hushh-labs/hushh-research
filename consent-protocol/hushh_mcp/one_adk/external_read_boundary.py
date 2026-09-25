@@ -72,7 +72,15 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
             == tool_context.invocation_id
         ):
             return None
-        return {"status": "blocked", "reason": "external_content_answer_only"}
+        return {
+            "status": "blocked",
+            "reason": "connector_read_complete",
+            "message": (
+                "A connector read already ran in this chat turn. Answer from that result, "
+                "or ask the owner for a new message if another read is needed. "
+                "This blocked call did not reach the provider."
+            ),
+        }
     if (
         getattr(tool, "name", "") in READ_TOOLS
         and tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"

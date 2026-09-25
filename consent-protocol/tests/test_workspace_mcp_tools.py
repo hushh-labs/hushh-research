@@ -666,7 +666,12 @@ def test_workspace_read_blocks_followup_mutation_and_redacts_stored_payload():
     )
     assert before_external_read_tool(SimpleNamespace(name="send_email"), {}, request) == {
         "status": "blocked",
-        "reason": "external_content_answer_only",
+        "reason": "connector_read_complete",
+        "message": (
+            "A connector read already ran in this chat turn. Answer from that result, "
+            "or ask the owner for a new message if another read is needed. "
+            "This blocked call did not reach the provider."
+        ),
     }
     serialized = json.dumps(
         {
