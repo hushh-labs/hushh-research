@@ -568,6 +568,36 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     });
   });
 
+  it("does not count a review-blocked Memory preparation as success", async () => {
+    previewAgentPkmMemory.mockResolvedValueOnce({
+      cards: [
+        {
+          card_id: "review-blocked-card",
+          write_mode: "confirm_first",
+          sharing_impact: { active_recipient_count: 0 },
+        },
+      ],
+      used_fallback: true,
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "I prefer morning flights whenever possible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+
+    expect(await screen.findByText(/sections need another review/i)).toBeTruthy();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm",
+      action: "capture_prepared",
+      result: "expected_error",
+    });
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "one_memory_action",
+      expect.objectContaining({ action: "capture_prepared", result: "success" }),
+    );
+  });
+
   it("requires sharing-impact acknowledgment before saving a shared detail", async () => {
     previewAgentPkmMemory.mockResolvedValueOnce({
       cards: [{
@@ -789,8 +819,54 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     await act(async () => finishA({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
     expect(noteB).toBeDisabled();
+    expect(
+      trackEvent.mock.calls.filter(
+        ([event, fields]) =>
+          event === "one_memory_action" &&
+          fields?.action === "capture_saved",
+      ),
+    ).toHaveLength(0);
     await act(async () => finishB({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
     expect(noteB).not.toBeDisabled();
+    expect(
+      trackEvent.mock.calls.filter(
+        ([event, fields]) =>
+          event === "one_memory_action" &&
+          fields?.action === "capture_saved" &&
+          fields?.result === "success",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("records a failed Memory write as an error", async () => {
+    addToPKM.mockResolvedValueOnce({
+      attempted: 1,
+      saved: 0,
+      failed: 1,
+      domains: [],
+      results: [
+        {
+          cardId: "memory-card-1",
+          success: false,
+          message: "Encrypted write failed.",
+        },
+      ],
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "Synthetic preference" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+        route_id: "pkm",
+        action: "capture_saved",
+        result: "error",
+      });
+    });
   });
 
   it("reconciles a save acknowledged during verification recovery with a fresh read", async () => {

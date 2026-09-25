@@ -444,12 +444,20 @@ export class GmailReceiptsService {
     });
   }
 
+  static recordConnectCompletion(result: "success" | "error"): void {
+    trackEvent("gmail_connect_result", {
+      action: "complete",
+      result,
+    });
+  }
+
   static async completeConnect(params: {
     idToken: string;
     userId: string;
     code: string;
     state: string;
-  }): Promise<GmailConnectionStatus> {
+  }, options: { recordTelemetry?: boolean } = {}): Promise<GmailConnectionStatus> {
+    const recordTelemetry = options.recordTelemetry !== false;
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.connectComplete,
@@ -472,16 +480,10 @@ export class GmailReceiptsService {
         );
       }
       const status = await parseConnectionStatus(response);
-      trackEvent("gmail_connect_result", {
-        action: "complete",
-        result: "success",
-      });
+      if (recordTelemetry) this.recordConnectCompletion("success");
       return status;
     } catch (error) {
-      trackEvent("gmail_connect_result", {
-        action: "complete",
-        result: "error",
-      });
+      if (recordTelemetry) this.recordConnectCompletion("error");
       throw error;
     }
   }

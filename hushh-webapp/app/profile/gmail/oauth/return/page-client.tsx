@@ -67,7 +67,7 @@ async function completeGmailOAuth(params: {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([
-      GmailReceiptsService.completeConnect(params),
+      GmailReceiptsService.completeConnect(params, { recordTelemetry: false }),
       new Promise<never>((_, reject) => {
         timeout = globalThis.setTimeout(() => {
           reject(new GmailOAuthCompletionPendingError());
@@ -360,6 +360,12 @@ export default function ProfileGmailOAuthReturnPageClient({
           clearOnboardingConnectorIntent();
         }
       };
+      let completionOutcomeRecorded = false;
+      const recordCompletionOutcome = (result: "success" | "error") => {
+        if (completionOutcomeRecorded) return;
+        completionOutcomeRecorded = true;
+        GmailReceiptsService.recordConnectCompletion(result);
+      };
       try {
         if (!completesInBackground) setStage("completing");
         const idToken = await user.getIdToken();
@@ -375,6 +381,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             "Mail authorization did not create an active connection.",
           );
         }
+        recordCompletionOutcome("success");
         primeConnectorStatus({
           userId: user.uid,
           status,
@@ -400,6 +407,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             user.uid,
           );
           if (status?.connected) {
+            recordCompletionOutcome("success");
             primeConnectorStatus({
               userId: user.uid,
               status,
@@ -425,6 +433,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               force: true,
             });
             if (status.connected) {
+              recordCompletionOutcome("success");
               primeConnectorStatus({
                 userId: user.uid,
                 status,
@@ -445,6 +454,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             // Fall through to the standard error path if status refresh fails.
           }
         }
+        recordCompletionOutcome("error");
         if (completesInBackground) {
           failGmailOAuthCompletion(
             user.uid,

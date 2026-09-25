@@ -912,16 +912,21 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
+      setCaptureSharingImpactAcknowledged(false);
+      const hasFailedSource = prepared.sourceCoverage.some((block) =>
+        Boolean(block.preparationIssue) || block.disposition === "failed");
+      const hasUnresolvedSource = hasFailedSource || prepared.sourceCoverage.some((block) =>
+        block.detectedFactCount !== block.accountedFactCount) ||
+        prepared.cards.some((card) => card.preparation_requires_review === true);
       trackEvent("one_memory_action", {
         route_id: "pkm",
         action: "capture_prepared",
-        result: prepared.cards.length > 0 ? "success" : "expected_error",
+        result: hasFailedSource
+          ? "error"
+          : prepared.cards.length > 0 && !hasUnresolvedSource
+            ? "success"
+            : "expected_error",
       });
-      setCaptureSharingImpactAcknowledged(false);
-      const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
-        Boolean(block.preparationIssue) || block.disposition === "failed" ||
-        block.detectedFactCount !== block.accountedFactCount) ||
-        prepared.cards.some((card) => card.preparation_requires_review === true);
       setCaptureHasUnresolvedSource(hasUnresolvedSource);
       setCaptureMessage(
         hasUnresolvedSource
@@ -994,8 +999,16 @@ export function PkmNaturalPanel({
         error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
-      if (result.saved > 0) {
-        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "success" });
+      if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+        trackEvent("one_memory_action", {
+          route_id: "pkm",
+          action: "capture_saved",
+          result: result.saved > 0
+            ? "success"
+            : result.failed > 0
+              ? "error"
+              : "expected_error",
+        });
       }
       if (!guard.isCurrent()) {
         if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
@@ -1025,8 +1038,6 @@ export function PkmNaturalPanel({
           setCaptureSharingImpactAcknowledged(false);
         }
         setRefreshNonce((value) => value + 1);
-      } else {
-        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "expected_error" });
       }
     } catch {
       if (!guard.isCurrent()) {

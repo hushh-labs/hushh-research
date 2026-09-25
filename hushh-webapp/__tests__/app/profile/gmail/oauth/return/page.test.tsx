@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
     recordConsentFailure: vi.fn(),
+    recordConnectCompletion: vi.fn(),
   },
   beginGmailOAuthCompletion: vi.fn(),
   failGmailOAuthCompletion: vi.fn(),
@@ -161,7 +162,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         userId: "user-123",
         code: "live-code-123",
         state: "live-state-123",
-      });
+      }, { recordTelemetry: false });
     });
   });
 
@@ -207,6 +208,42 @@ describe("ProfileGmailOAuthReturnPage", () => {
       revoked: false,
     });
     await waitFor(() => expect(mocks.primeConnectorStatus).toHaveBeenCalled());
+  });
+
+  it("records one success when a timed-out completion is confirmed by reconciliation", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.searchParamsGet.mockImplementation((key: string) => {
+        if (key === "code") return "slow-code";
+        if (key === "state") return "slow-state";
+        return null;
+      });
+      mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      );
+
+      render(<ProfileGmailOAuthReturnPage />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(35_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        force: true,
+      });
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledOnce();
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledWith("success");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
@@ -370,7 +407,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         userId: "user-123",
         code: "code-setup-ios",
         state: "state-setup-ios",
-      });
+      }, { recordTelemetry: false });
       expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
         userId: "user-123",
         phase: "capability_setup",
@@ -419,6 +456,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
             code: "code-setup-storage-blocked",
             state: "state-setup-storage-blocked",
           },
+          { recordTelemetry: false },
         );
         expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
           userId: "user-123",
