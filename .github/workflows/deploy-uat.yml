@@ -1050,14 +1050,38 @@ jobs:
           npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
 
       - name: Remove zero-traffic frontend analytics candidate tag
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.frontend-analytics-candidate.outcome == 'success'
+        if: always() && steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --remove-tags=analytics-candidate
+            --format=json > /tmp/uat-frontend-analytics-candidate-cleanup.json
+          if python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          service = json.loads(
+              Path("/tmp/uat-frontend-analytics-candidate-cleanup.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          traffic = (service.get("status") or {}).get("traffic") or []
+          raise SystemExit(
+              0
+              if any(entry.get("tag") == "analytics-candidate" for entry in traffic)
+              else 1
+          )
+          PY
+          then
+            gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --remove-tags=analytics-candidate
+          else
+            echo "Frontend analytics candidate tag is already absent."
+          fi
 
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
