@@ -45,6 +45,11 @@ const browser = await reviewer.chromium.launch({
 let session;
 let ownerToken = "";
 let baselineConversationIds = new Set();
+const startedAt = performance.now();
+let bootstrapAt = startedAt;
+let sentAt = startedAt;
+let settledAt = startedAt;
+let phase = "bootstrap";
 
 async function conversationIds(token) {
   const response = await fetch(
@@ -74,6 +79,8 @@ async function driveAdmission(token) {
 
 try {
   session = await reviewer.openSession(browser, "/");
+  bootstrapAt = performance.now();
+  phase = "conversation";
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
   if (scenario === "drive_connector_setup") {
@@ -100,6 +107,8 @@ try {
   const baselineAssistantTurns = await page.locator('[data-message-role="assistant"]').count();
   await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
   await page.getByRole("button", { name: "Send message" }).click();
+  sentAt = performance.now();
+  phase = "turn";
 
   await page.getByTestId("agent-chat-self-avatar").last().waitFor({ state: "visible" });
   await page.waitForFunction(
@@ -126,6 +135,8 @@ try {
     });
     throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"} error_class=${failure}`);
   }
+  settledAt = performance.now();
+  phase = "post_turn_ui";
 
   const result = await page.evaluate((forbidden) => {
     const body = document.body.innerText;
@@ -199,9 +210,15 @@ try {
     throw new Error("Agent Chat did not create exactly one fresh conversation.");
   }
   session.capture.assertNoCriticalApiFailures("agent chat prompt round-trip");
+  phase = "complete";
   process.stdout.write(
-    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1\n`,
+    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1 bootstrap_ms=${Math.round(bootstrapAt - startedAt)} turn_ms=${Math.round(settledAt - sentAt)} post_turn_ms=${Math.round(performance.now() - settledAt)} total_ms=${Math.round(performance.now() - startedAt)}\n`,
   );
+} catch (error) {
+  process.stderr.write(
+    `[reviewer-app-testing] FAIL phase=${phase} elapsed_ms=${Math.round(performance.now() - startedAt)}\n`,
+  );
+  throw error;
 } finally {
   await session?.context.close().catch(() => undefined);
   await browser.close().catch(() => undefined);
