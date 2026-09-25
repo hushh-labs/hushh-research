@@ -242,7 +242,8 @@ describe("MapSelfAvatarMarker", () => {
     const marker = screen.getByTestId("one-location-map-self-avatar");
     marker.focus();
     expect(marker).toHaveClass("sr-only");
-    expect(marker).toHaveClass("focus:not-sr-only");
+    expect(marker).toHaveClass("focus-visible:not-sr-only");
+    expect(marker).not.toHaveClass("focus:not-sr-only");
     expect(document.activeElement).toBe(marker);
   });
 

@@ -180,12 +180,13 @@ function MapSelfAvatarMarkerImpl({
       onClick={onSelect}
       // z-10 puts the visible avatar in the same band as the name pills and
       // under the people tray/top controls. During the renderer handoff this
-      // exact button becomes a focus-revealed chip, so focus is never discarded
-      // by unmounting and remounting two different controls.
+      // exact button becomes a keyboard-focus-revealed chip, so focus is never
+      // discarded by unmounting and remounting two different controls. Pointer
+      // focus stays visually hidden while the renderer owns camera motion.
       className={
         visibleAnchor
           ? "absolute left-0 top-0 z-10 flex touch-manipulation items-center justify-center rounded-full p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
-          : "sr-only focus:not-sr-only focus:pointer-events-auto focus:absolute focus:left-4 focus:top-24 focus:z-40 focus:rounded-full focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg"
+          : "sr-only focus-visible:not-sr-only focus-visible:pointer-events-auto focus-visible:absolute focus-visible:left-4 focus-visible:top-24 focus-visible:z-40 focus-visible:rounded-full focus-visible:bg-background focus-visible:px-3 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:shadow-lg"
       }
       style={
         visibleAnchor
