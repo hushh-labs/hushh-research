@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
 
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token" };
 const confirmation = { confirmedByUser: true as const, surface: "web" as const, source: "connector_test" };
@@ -88,6 +88,29 @@ describe("vault-backed custom connector configuration", () => {
       await expect(saveCustomConnectorConfiguration(access, legacy, confirmation, null)).rejects.toThrow();
     }
     expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("quarantines one unsafe sibling without hiding valid tools or exposing its contents", async () => {
+    const invalidId = `custom_${"b".repeat(32)}`;
+    const legacy = JSON.stringify({ ...record, connectorId: invalidId,
+      authentication: { kind: "api_key", header: "Authorization", value: "HCT:synthetic.signature" } });
+    storage.loadDomainSnapshot.mockResolvedValue({ data: { connectors: {
+      [record.connectorId]: JSON.stringify(record), [invalidId]: legacy,
+    } } });
+    const snapshot = await loadCustomConnectorSnapshot(access, true);
+    expect(snapshot.configurations).toEqual([record]);
+    expect(snapshot.invalid).toEqual([{ connectorId: invalidId, removable: true }]);
+    expect(JSON.stringify(snapshot)).not.toContain("synthetic.signature");
+    expect(projectCustomConnectorTurnConfigurations(snapshot.configurations)).toHaveLength(1);
+    await removeInvalidCustomConnectorConfiguration(access, invalidId, confirmation);
+    expect(storage.removeRuntimeSecret).toHaveBeenCalledWith({ ...access, confirmation,
+      credentialRef: `pkm:runtime_secrets.connectors.${invalidId}`, expectedValue: legacy });
+    await expect(removeInvalidCustomConnectorConfiguration(access, record.connectorId, confirmation)).rejects.toThrow();
+  });
+  it("fails closed on a malformed connector root or failed forced vault read", async () => {
+    storage.loadDomainSnapshot.mockResolvedValueOnce({ data: { connectors: [] } })
+      .mockRejectedValueOnce(new Error("vault-unavailable"));
+    await expect(loadCustomConnectorSnapshot(access, true)).rejects.toThrow("Connector settings could not be read.");
+    await expect(loadCustomConnectorSnapshot(access, true)).rejects.toThrow("vault-unavailable");
   });
   it("keeps exact blocked-tool fingerprints in the encrypted record and turn projection", () => {
     const blockedTool = { id: `mcp_${"b".repeat(40)}`, fingerprint: "c".repeat(64) };

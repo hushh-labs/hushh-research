@@ -306,6 +306,7 @@ export async function createReviewerSessionHarness({
         return {
           state: String(bridge?.bootstrapState || ""),
           errorClass: String(bridge?.bootstrapErrorClass || ""),
+          mismatchStage: String(bridge?.bootstrapDetail || "").split(":", 1)[0],
           path: window.location.pathname,
           userMatches: Boolean(bootstrapUserId && bootstrapUserId === expectedUserId),
         };
@@ -317,7 +318,7 @@ export async function createReviewerSessionHarness({
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       if (terminalFailures.has(bootstrap.state)) {
         const error = new Error(
-          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
+          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, stage=${["signin_result", "auth_context", "native_session", "vault_context"].includes(bootstrap.mismatchStage) ? bootstrap.mismatchStage : "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
         );
         error.code = "REVIEWER_TERMINAL_BOOTSTRAP";
         throw error;

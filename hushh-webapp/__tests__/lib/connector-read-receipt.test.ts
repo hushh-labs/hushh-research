@@ -83,6 +83,14 @@ describe("connector read receipts", () => {
       "discover_workspace_tools",
       { status: "ok", provider: "drive" },
       { provider: "drive" },
+    )).toMatchObject({ provider: "drive", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "api_available", provider: "gmail" },
+      { provider: "gmail" },
+    )).toMatchObject({ provider: "gmail", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool", { status: "ok", provider: "gmail" }, { provider: "gmail" },
     )).toBeNull();
     expect(parseAgentToolResultExperience(
       "untrusted_tool",
@@ -111,5 +119,14 @@ describe("connector read receipts", () => {
     expect(parseAgentToolResultExperience("other_tool", {
       status: "setup_available", provider: "custom",
     })).toBeNull();
+  });
+  it("shows only bounded, identified connector metadata in the Chat card", () => {
+    const id = `custom_${"a".repeat(32)}`;
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ id, name: "Synthetic app", status: "reconnect_needed", token: "synthetic-private-token" }],
+    });
+    expect(result).toMatchObject({ provider: "custom", saved: [{ id, name: "Synthetic app", status: "reconnect_needed" }] });
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-token");
   });
 });

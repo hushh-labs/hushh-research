@@ -215,7 +215,9 @@ async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_meta
         assert result == {
             "status": "setup_available",
             "provider": "custom",
-            "saved": [{"name": "Synthetic app", "status": "reconnect_needed"}],
+            "saved": [
+                {"id": record["connectorId"], "name": "Synthetic app", "status": "reconnect_needed"}
+            ],
         }
         assert "private.example" not in str(result)
         assert "synthetic-private-token" not in str(result)

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -36,6 +36,8 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
 }) {
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
+  const [invalid, setInvalid] = useState<InvalidCustomConnector[]>([]);
+  const [removingInvalid, setRemovingInvalid] = useState<InvalidCustomConnector | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogTool[]>>({});
   const [authRequired, setAuthRequired] = useState<Record<string, boolean>>({});
   const [checkFailed, setCheckFailed] = useState<Record<string, boolean>>({});
@@ -63,10 +65,11 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     lifetime.current = current;
     inFlight.current = false;
     setBusy(false); setCatalogs({}); setAuthRequired({}); setCheckFailed({}); setRemoving(null);
-    setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
-    void loadCustomConnectorConfigurations(accessForLoad, true).then(records => {
+    setItems([]); setInvalid([]); setRemovingInvalid(null); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
+    void loadCustomConnectorSnapshot(accessForLoad, true).then(({ configurations: records, invalid: invalidRecords }) => {
       if (!current()) return;
       setItems(records.map(savedConnector));
+      setInvalid(invalidRecords);
       const handoff = takeRefreshedMcpCatalog({ ownerUserId: accessForLoad.userId, vaultEpoch: epoch, configurations: records });
       if (handoff) setCatalogs({ [handoff.connectorId]: handoff.tools });
       setStatus("ready");
@@ -131,7 +134,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     const controller = new AbortController(); refreshAbort.current = controller;
     setCatalogs(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
     const operation = (async () => {
-      const records = await loadCustomConnectorConfigurations(access, true);
+      const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
       if (!current()) throw new Error("Session changed.");
       const configuration = records.find(record => record.connectorId === item.connectorId);
       if (!configuration || configuration.revision !== item.revision) throw new Error("Connector changed.");
@@ -159,7 +162,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     const controller = new AbortController(); refreshAbort.current = controller;
     let attemptId: string | undefined;
     const operation = (async () => {
-      const records = await loadCustomConnectorConfigurations(access, true);
+      const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
       if (!current()) throw new Error("Session changed.");
       const configuration = records.find(record => record.connectorId === item.connectorId);
       if (!configuration || !configuration.enabled || configuration.revision !== item.revision) throw new Error("Connector changed.");
@@ -200,7 +203,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const operation = (async () => {
-      const records = await loadCustomConnectorConfigurations(access, true);
+      const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
       if (!current()) throw new Error("Session changed.");
       const configuration = records.find(record => record.connectorId === item.connectorId);
       if (!configuration || !configuration.enabled || configuration.revision !== item.revision ||
@@ -239,10 +242,33 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
+  const removeInvalid = async () => {
+    if (!removingInvalid || inFlight.current || !lifetime.current()) return;
+    const selected = removingInvalid;
+    const current = lifetime.current;
+    inFlight.current = true; setBusy(true);
+    const operation = removeInvalidCustomConnectorConfiguration(access, selected.connectorId,
+      { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, current);
+    morphyToast.promise(operation, { loading: "Removing saved connector…", success: "Saved connector removed.", error: "Could not remove this connector. Reopen connectors and try again." });
+    try {
+      await operation;
+      if (current()) { setInvalid(previous => previous.filter(item => item.connectorId !== selected.connectorId)); setRemovingInvalid(null); }
+    } catch { /* Shared toast owns the failure. */ }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+  };
+
   return <section aria-label="Custom connectors" className="space-y-3">
     <h3 className="text-sm font-medium text-muted-foreground">Custom connectors</h3>
     {status === "loading" ? <p role="status" className="text-sm">Loading saved connectors…</p> : null}
     {status === "failed" ? <p role="status" className="text-sm">Could not load saved connectors. Close and reopen to retry.</p> : null}
+    {invalid.length > 0 ? <div role="status" className="rounded-xl bg-foreground/10 px-3 py-2 text-sm">
+      <p>{invalid.length} saved {invalid.length === 1 ? "connector needs" : "connectors need"} repair. Other connectors remain available.</p>
+      {invalid.map((item, index) => <div key={item.connectorId} className="flex min-h-11 items-center justify-between gap-3">
+        <span>Saved connector {index + 1}</span>
+        {item.removable ? <Button size="compact" variant="none" effect="fade" disabled={busy} onClick={() => setRemovingInvalid(item)}>Remove</Button>
+          : <span className="text-xs text-muted-foreground">Needs repair</span>}
+      </div>)}
+    </div> : null}
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
       <p className="text-sm font-medium">{item.displayName}</p>
       <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
@@ -295,6 +321,13 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
           <AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void remove(); }}>Remove connector</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog open={Boolean(removingInvalid)} onOpenChange={open => { if (!open && !busy) setRemovingInvalid(null); }}>
+      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove invalid connector?</AlertDialogTitle>
+        <AlertDialogDescription>Its saved settings cannot be used. This removes only that connector from your vault; it does not revoke access at the provider.</AlertDialogDescription>
+      </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+        <AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void removeInvalid(); }}>Remove connector</AlertDialogAction>
+      </AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
   </section>;
 }

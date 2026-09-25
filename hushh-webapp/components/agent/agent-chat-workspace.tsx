@@ -214,7 +214,7 @@ import {
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
-import { loadCustomConnectorConfigurations } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -4837,7 +4837,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken: token,
         loadConnectorConfigurations: async () => {
           if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return loadCustomConnectorConfigurations({ userId, vaultKey, vaultOwnerToken: token }, true);
+          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token }, true)).configurations;
         },
         pkmContext: agentPkmContext.text || undefined,
         personSelectionHandle: options.personSelectionHandle,
@@ -5163,7 +5163,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken: token,
         loadConnectorConfigurations: async () => {
           if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return loadCustomConnectorConfigurations({ userId, vaultKey, vaultOwnerToken: token }, true);
+          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token }, true)).configurations;
         },
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
