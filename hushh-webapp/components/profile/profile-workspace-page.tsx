@@ -4607,7 +4607,7 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={DevicesProfileIcon}
+                icon={RefreshCw}
                 iconTone="indigo"
                 title="Software updates"
                 chevron
