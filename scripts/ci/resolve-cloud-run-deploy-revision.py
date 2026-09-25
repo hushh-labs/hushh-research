@@ -15,6 +15,7 @@ def main() -> None:
     parser.add_argument("--deploy-source", required=True)
     parser.add_argument("--deploy-sha", required=True)
     parser.add_argument("--github-run-id", required=True)
+    parser.add_argument("--github-run-attempt", required=True)
     args = parser.parse_args()
 
     revisions = json.loads(Path(args.revisions_json).read_text(encoding="utf-8"))
@@ -23,6 +24,7 @@ def main() -> None:
         "deploy-source": args.deploy_source,
         "deploy-sha": args.deploy_sha,
         "github-run-id": args.github_run_id,
+        "github-run-attempt": args.github_run_attempt,
     }
     matches: list[dict] = []
     for revision in revisions:

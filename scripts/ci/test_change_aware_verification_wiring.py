@@ -104,6 +104,8 @@ def test_uat_and_production_resolve_frontend_candidate_by_exact_deploy_labels() 
         "--deploy-env uat",
         "--deploy-source deploy-uat",
         '--github-run-id "${{ github.run_id }}"',
+        '--github-run-attempt "${{ github.run_attempt }}"',
+        '${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py',
     )
     require(
         ".github/workflows/deploy-production.yml",
@@ -111,6 +113,9 @@ def test_uat_and_production_resolve_frontend_candidate_by_exact_deploy_labels() 
         "--deploy-env production",
         "--deploy-source deploy-production",
         '--github-run-id "${{ github.run_id }}"',
+        '--github-run-attempt "${{ github.run_attempt }}"',
+        '--deploy-sha "${{ github.event.inputs.sha }}"',
+        '${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py',
     )
 
 

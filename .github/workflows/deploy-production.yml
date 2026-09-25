@@ -110,6 +110,14 @@ jobs:
           REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
 
+      - name: Preserve current release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/resolve-cloud-run-deploy-revision.py \
+            "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+
       - name: Checkout deployment SHA
         shell: bash
         run: |
@@ -692,7 +700,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_LOCATION_MAP_DEMO=false,_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_LOCATION_MAP_DEMO=false,_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
 
       - name: Get frontend URL
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -732,12 +740,13 @@ jobs:
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
               --format=json > /tmp/prod-frontend-deploy-revisions.json
-            frontend_revision="$(python3 scripts/ci/resolve-cloud-run-deploy-revision.py \
+            frontend_revision="$(python3 "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py" \
               --revisions-json /tmp/prod-frontend-deploy-revisions.json \
               --deploy-env production \
               --deploy-source deploy-production \
-              --deploy-sha "${{ steps.resolve-sha.outputs.sha }}" \
-              --github-run-id "${{ github.run_id }}")"
+              --deploy-sha "${{ github.event.inputs.sha }}" \
+              --github-run-id "${{ github.run_id }}" \
+              --github-run-attempt "${{ github.run_attempt }}")"
           fi
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
