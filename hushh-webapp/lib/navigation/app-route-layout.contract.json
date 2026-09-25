@@ -51,7 +51,7 @@
       "playbookId": "route.one.home",
       "purpose": "Help the person understand and use the one screen through its generated controls.",
       "screen": "one_agents",
-      "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Agents\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
       "happyPathActionIds": [
@@ -115,7 +115,7 @@
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
       "screen": "one_setup_hub",
-      "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+      "entryCue": "Choose something to set up, or say \u2018finish setup\u2019 when you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
@@ -266,7 +266,7 @@
       "playbookId": "route.login",
       "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
       "screen": "login",
-      "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
+      "entryCue": "Say \u2018Continue with Google\u2019 or \u2018Continue with Apple\u2019.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
       "happyPathActionIds": [
@@ -357,7 +357,7 @@
       "playbookId": "route.one.kyc",
       "purpose": "Help the person understand and use the kyc screen through its generated controls.",
       "screen": "one_kyc",
-      "entryCue": "You can say “Open KYC” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen KYC\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_kyc",
       "happyPathActionIds": [
@@ -399,7 +399,7 @@
       "playbookId": "route.one.location",
       "purpose": "Help the person understand and use the location screen through its generated controls.",
       "screen": "one_location",
-      "entryCue": "You can say “Open Location” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Location\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
       "happyPathActionIds": [
@@ -797,7 +797,7 @@
       "playbookId": "route.one.pkm",
       "purpose": "Help the person understand and use the pkm screen through its generated controls.",
       "screen": "pkm",
-      "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -835,7 +835,7 @@
       "playbookId": "route.one.pkm.recent",
       "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
       "screen": "pkm_recent",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -1076,7 +1076,7 @@
       "playbookId": "route.one.connected.systems",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
       "screen": "connected_systems",
-      "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Connected Systems Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
       "happyPathActionIds": [
@@ -1208,7 +1208,7 @@
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.register.phone",
-      "purpose": "Verify the signed-in person’s phone before setup continues.",
+      "purpose": "Verify the signed-in person\u2019s phone before setup continues.",
       "screen": "register_phone",
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
@@ -1277,7 +1277,7 @@
       "playbookId": "route.consents",
       "purpose": "Help the person understand and use the consents screen through its generated controls.",
       "screen": "consents",
-      "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Requests\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
       "happyPathActionIds": [
@@ -1652,7 +1652,7 @@
       "playbookId": "route.one.kai.import",
       "purpose": "Help the person understand and use the import screen through its generated controls.",
       "screen": "import",
-      "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Portfolio Import\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
       "happyPathActionIds": [
@@ -2749,7 +2749,7 @@
       "playbookId": "route.profile",
       "purpose": "Help the person understand and use the profile screen through its generated controls.",
       "screen": "profile_account",
-      "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
       "happyPathActionIds": [
@@ -2768,6 +2768,41 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/discovery",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/discovery/page.tsx",
+      "includes": [
+        "CapabilityVaultPrerequisite",
+        "AppPageShell",
+        "AppPageContentRegion",
+        "PublicProfileReviewWorkspace"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.discovery",
+      "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+      "screen": "profile_discovery",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the person's review goal.",
+        "cancelled": "Respect the cancellation and leave findings unclaimed.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+        "callbackError": "Return to the protected review workspace without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
     }
   },
   {
@@ -3138,7 +3173,7 @@
       "playbookId": "route.profile.security",
       "purpose": "Help the person understand and use the security screen through its generated controls.",
       "screen": "profile_security_panel",
-      "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Vault Security Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
       "happyPathActionIds": [
@@ -3597,7 +3632,7 @@
       "playbookId": "route.profile.support",
       "purpose": "Help the person understand and use the support screen through its generated controls.",
       "screen": "profile_referrals_panel",
-      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_referrals_panel",
       "happyPathActionIds": [
@@ -3635,7 +3670,7 @@
       "playbookId": "route.profile.support",
       "purpose": "Help the person understand and use the support screen through its generated controls.",
       "screen": "profile_support_panel",
-      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
       "happyPathActionIds": [
@@ -3976,7 +4011,7 @@
       "playbookId": "route.ria.clients",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_clients",
-      "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Clients\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
       "happyPathActionIds": [
@@ -4013,7 +4048,7 @@
       "playbookId": "route.ria.clients.userid",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_client_workspace",
-      "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Client Workspace\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
       "happyPathActionIds": [
@@ -4050,7 +4085,7 @@
       "playbookId": "route.ria.clients.userid.accounts.accountid",
       "purpose": "Help the person understand and use the accounts screen through its generated controls.",
       "screen": "ria_client_account_detail",
-      "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Information Explorer\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
       "happyPathActionIds": [
@@ -4087,7 +4122,7 @@
       "playbookId": "route.ria.clients.userid.requests.requestid",
       "purpose": "Help the person understand and use the requests screen through its generated controls.",
       "screen": "ria_client_request_detail",
-      "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Access\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
       "happyPathActionIds": [
@@ -4122,7 +4157,7 @@
       "playbookId": "route.ria.claim",
       "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
       "screen": "ria_claim",
-      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cClaim RIA Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_claim",
       "happyPathActionIds": [
@@ -4158,7 +4193,7 @@
       "playbookId": "route.ria.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
       "screen": "ria_onboarding",
-      "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Onboarding\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
       "happyPathActionIds": [
@@ -4195,7 +4230,7 @@
       "playbookId": "route.ria.picks",
       "purpose": "Help the person understand and use the picks screen through its generated controls.",
       "screen": "ria_picks",
-      "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Picks\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
       "happyPathActionIds": [
@@ -4446,7 +4481,7 @@
       "playbookId": "route.ria.profile",
       "purpose": "Help the advisor view and manage their RIA profile.",
       "screen": "profile_regulatory",
-      "entryCue": "You can say “Open RIA Profile” to return here.",
+      "entryCue": "You can say \u201cOpen RIA Profile\u201d to return here.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
       "happyPathActionIds": [

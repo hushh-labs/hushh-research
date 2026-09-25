@@ -8,6 +8,7 @@ import {
   Sparkles,
   TrendingUp,
   UserRound,
+  ScanSearch,
   Users,
 } from "@/components/icons";
 
@@ -38,6 +39,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
   kyc: ShieldCheck,
   connected_systems: Database,
   connections: Users,
+  profile_discovery: ScanSearch,
 };
 
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
@@ -47,6 +49,7 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   kyc: "KYC",
   connected_systems: "Connected systems",
   connections: "Connections",
+  profile_discovery: "Profile discovery",
 };
 
 // Incoming history targets the received-share list without forcing a grant.
@@ -114,6 +117,7 @@ function metadataDurationLabel(
 function resolveCounterpartName(metadata: Record<string, unknown>): string {
   return (
     metadataString(metadata, "counterpart_label") ||
+    metadataString(metadata, "granter_name") ||
     metadataString(metadata, "display_name") ||
     metadataString(metadata, "first_name") ||
     "Someone"
@@ -176,6 +180,20 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     metadataString(item.metadata, "feed_audience") === "requester";
 
   switch (item.event_type) {
+    case "profile_discovery_queued":
+      return { icon, domainLabel: "Public profile", label: "Building your profile", description: "A one-time public information search has started in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_scanning":
+      return { icon, domainLabel: "Public profile", label: "Still building your profile", description: "Your public profile search is continuing in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_needs_details":
+      return { icon, domainLabel: "Public profile", label: "One detail can improve your profile match", description: "Add an optional public profile link or work detail to continue.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_ready":
+      return { icon, domainLabel: "Public profile", label: "Your profile is ready to review", description: "Review sources and choose what, if anything, belongs in your private knowledge model.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_failed":
+      return { icon, domainLabel: "Public profile", label: "Your profile search needs attention", description: "The one-time search could not finish. You can review the status and retry.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_claimed":
+      return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "The one-time profile handoff is finished.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_cancelled":
+      return { icon, domainLabel: "Public profile", label: "Your profile search was cancelled", description: "No further public profile discovery will run for this handoff.", href: null };
     case "consent_requested":
       return {
         icon,
@@ -186,7 +204,27 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : `${who} sent a consent request for your review.`,
         href: buildConsentCenterHref("pending"),
       };
-    case "consent_granted":
+    case "consent_granted": {
+      const personRef = metadataString(item.metadata, "person_ref");
+      const isRecipient =
+        iAskedForThis ||
+        metadataString(item.metadata, "feed_audience") === "requester" ||
+        Boolean(personRef);
+      if (isRecipient) {
+        const hasWho = who !== "Someone";
+        const scopeDesc =
+          metadataString(item.metadata, "scope_description") ||
+          metadataString(item.metadata, "scope") ||
+          "information";
+        return {
+          icon: ShieldCheck,
+          domainLabel: "Consent",
+          label: hasWho ? `${who} shared information with you` : "Information shared with you",
+          person: counterpartPerson(item.metadata, who),
+          description: `Granted access to ${scopeDesc}. Tap to view.`,
+          href: personRef ? `/people/${encodeURIComponent(personRef)}?section=shared` : buildConsentCenterHref("active"),
+        };
+      }
       return {
         icon,
         domainLabel,
@@ -196,6 +234,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : "You granted a consent request.",
         href: buildConsentCenterHref("active"),
       };
+    }
     case "consent_revoked":
       return {
         icon,

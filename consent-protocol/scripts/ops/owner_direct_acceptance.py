@@ -100,8 +100,15 @@ class _Registry:
     async def get(self, user_id: str):
         return self.row if self.row["user_id"] == user_id else None
 
-    async def record_binding(self, *, user_id, device_id, record):
+    async def record_binding(self, *, user_id, device_id, record, puppy_approval=None):
         self.row.setdefault("backend_metadata", {}).setdefault("bindings", {})[device_id] = record
+        return True
+
+    async def record_puppy_access(self, *, user_id, device_id, access):
+        self.row.setdefault("backend_metadata", {}).setdefault("puppyAccess", {})[device_id] = (
+            access
+        )
+        return 1
 
     async def record_endpoint(self, *, user_id, endpoint):
         self.row.setdefault("backend_metadata", {})["endpoint"] = endpoint
@@ -219,14 +226,26 @@ async def run_dry_run(tmp_root: Path) -> dict[str, Any]:
                 "user_id": USER,
                 "hushh_id": OWNER,
                 "status": "provisioned",
+                "deployment_target": "user_gcp",
                 "pod_key_id": pod_key_id,
                 "pod_pubkey": pod_public_key,
-                "backend_metadata": {"url": "https://one-pod-acceptance.a.run.app"},
+                "backend_metadata": {
+                    "url": "https://one-pod-acceptance.a.run.app",
+                    "ingress": "direct",
+                    "serviceUid": "acceptance-svc",
+                    "directReadiness": {
+                        "verified": True,
+                        "url": "https://one-pod-acceptance.a.run.app",
+                        "podKeyId": pod_key_id,
+                        "serviceUid": "acceptance-svc",
+                    },
+                },
             }
         )
         hub = PodBindingService(registry=registry, devices=devices, audit=_Audit())
         commands.append("hub.issue(app binding)")
         app_binding = await hub.issue(user_id=USER, device_id="tdv_app_acceptance")
+        await hub.set_puppy_access(user_id=USER, device_id="tdv_mac_acceptance", enabled=True)
         commands.append("hub.issue(device binding, puppy_inference=True)")
         device_binding = await hub.issue(
             user_id=USER, device_id="tdv_mac_acceptance", puppy_inference=True

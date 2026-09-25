@@ -77,6 +77,9 @@ that file for the full record; this table is the index.
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
 | `one_location_agent` | `workflow_state` | `iam-consent-governance` | 24 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
+| `one_profile_discovery_handoff` | `workflow_state` | `backend-runtime-governance` | 3 tables |
+| `public_profile_evidence_pool` | `reference` | `backend-runtime-governance` | 4 tables |
+| `profile_discovery_daily_usage` | `workflow_state` | `backend-runtime-governance` | 1 table |
 | `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
 | `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
 | `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |

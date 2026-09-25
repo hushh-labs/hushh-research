@@ -3712,6 +3712,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.discovery",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.discovery",
+        "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+        "screen": "profile_discovery",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the person's review goal.",
+          "cancelled": "Respect the cancellation and leave findings unclaimed.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+          "callback_error": "Return to the protected review workspace without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_discovery",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile-discovery"
+    },
+    {
       "route_pattern": "/one/profile/gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "route_mode": "redirect",

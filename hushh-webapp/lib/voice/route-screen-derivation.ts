@@ -345,6 +345,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE) {
     return { screen: "app", subview: "trusted-device-authorization" };
   }
+  if (normalizedPath === ROUTES.ONE_PROFILE_DISCOVERY) {
+    return { screen: "profile_discovery", subview: null };
+  }
   // Legacy direct links settle immediately on the canonical RIA profile.
   if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
     return { screen: "profile_regulatory", subview: null };

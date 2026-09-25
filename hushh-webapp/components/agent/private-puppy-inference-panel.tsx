@@ -9,7 +9,6 @@ import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { ApiService } from "@/lib/services/api-service";
 import { PodMemoryConsentRow } from "@/components/agent/pod-memory-consent-row";
 import {
-  loadPinnedEndpoint,
   pendingRevocations,
   type PendingRevocation,
 } from "@/lib/services/owner-pod-endpoint";
@@ -121,8 +120,6 @@ export function PrivatePuppyInferencePanel({
           relayStatus.state === "revoked" ? "PUPPY_REVOKED" : "PUPPY_OFFLINE",
         );
       }
-      const pinned = await loadPinnedEndpoint(user.uid).catch(() => null);
-      if (!pinned) throw new Error("PUPPY_REQUIRES_BYOC_POD");
       const response = await ApiService.runPodTurn({
         hushhId: status.hushhId,
         message,
@@ -137,7 +134,7 @@ export function PrivatePuppyInferencePanel({
         ? response.model
         : "model not reported";
       setTarget(
-        `${response.provider}:${modelLabel} · ${response.runtimeMode}${pinned ? " · direct" : ""}`,
+        `${response.provider}:${modelLabel} · ${response.runtimeMode} · direct`,
       );
       setTurns((prior) =>
         prior.map((turn) =>

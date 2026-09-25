@@ -1628,6 +1628,9 @@ class PersonalAgentProvisioningService:
             # falls through to the deployment default, which is what every pod gets
             # today.
             resource_tier=row.get("liveness_mode"),
+            # Direct ingress is an owner-pod property, not an image default. An
+            # approved software update must retain the existing ingress axis.
+            ingress="direct" if metadata.get("ingress") == "direct" else None,
         )
         backend = self._backend_for(spec)
         if held is not None:

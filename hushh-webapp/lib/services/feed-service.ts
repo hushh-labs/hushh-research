@@ -6,7 +6,7 @@ import {
 } from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections";
+  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections" | "profile_discovery";
 
 /**
  * The private-agent lifecycle vocabulary, emitted by
@@ -33,6 +33,7 @@ export type PersonalAgentEventType = (typeof PERSONAL_AGENT_EVENT_TYPES)[number]
 
 export type FeedEventType =
   | PersonalAgentEventType
+  | ProfileDiscoveryEventType
   | "consent_requested"
   | "consent_granted"
   | "consent_revoked"
@@ -65,6 +66,15 @@ export type FeedEventType =
   | "connection_accepted"
   | "connection_rejected"
   | "connection_revoked";
+
+export type ProfileDiscoveryEventType =
+  | "profile_discovery_queued"
+  | "profile_discovery_scanning"
+  | "profile_discovery_needs_details"
+  | "profile_discovery_ready"
+  | "profile_discovery_failed"
+  | "profile_discovery_claimed"
+  | "profile_discovery_cancelled";
 
 export type FeedItem = {
   id: string;

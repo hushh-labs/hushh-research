@@ -1624,3 +1624,21 @@ def test_account_erasure_plan_excludes_tables_dropped_by_migration_239():
     assert not any(prefix in full_delete for prefix in retired_prefixes)
     assert "pwm_documents" in full_delete
     assert "_delete_personal_agent_state" in full_delete
+
+
+def test_local_phone_fixture_requires_isolated_database(monkeypatch):
+    from api.routes import account
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("ONE_PUBLIC_PROFILE_FIXTURE_MODE", "true")
+    monkeypatch.setenv("DB_HOST", "127.0.0.1")
+    monkeypatch.setenv("DB_NAME", "hushh_profile_fixture_test")
+    monkeypatch.delenv("DB_UNIX_SOCKET", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+12025550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "123456")
+    assert account._phone_test_enabled()
+    monkeypatch.setenv("DB_NAME", "shared_database")
+    assert not account._phone_test_enabled()
+    monkeypatch.setenv("DB_NAME", "hushh_profile_fixture_test")
+    monkeypatch.setenv("DB_HOST", "remote.example.org")
+    assert not account._phone_test_enabled()

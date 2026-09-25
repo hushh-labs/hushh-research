@@ -250,7 +250,8 @@ export async function createReviewerSessionHarness({
       if (
         pathname.startsWith("/api/one/connections") ||
         pathname.startsWith("/api/one/people/") ||
-        pathname === "/api/one/models/preference"
+        pathname === "/api/one/models/preference" ||
+        pathname === "/api/one/profile-discovery"
       ) {
         identityToken = authorization.slice(7);
       }

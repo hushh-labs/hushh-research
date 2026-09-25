@@ -21,7 +21,10 @@
     "agent_chat_messages",
     "one_action_directive_ledger",
     "one_capability_runs",
-    "one_kyc_workflows"
+    "one_kyc_workflows",
+    "one_public_profile_entities",
+    "one_public_profile_findings",
+    "one_profile_discovery_feed_outbox"
   ],
   "retention_registry": [
     {
@@ -394,6 +397,56 @@
       "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
       "plaintext_posture": "reference_metadata",
       "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "public_profile_evidence_pool",
+      "owner": "backend-runtime-governance",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_public_profile_entities",
+        "one_public_profile_identity_anchors",
+        "one_public_profile_sources",
+        "one_public_profile_findings"
+      ],
+      "primary_access_path": "PublicProfileDiscoveryService exact canonical profile-URL reuse and the leased HusshOne acquisition worker; PostgreSQL GIN and semantic candidate retrieval are not connected to the current service.",
+      "retention_policy": "Consent-gated, source-linked public findings may be retained for future exact-profile reuse. This release has no scheduled pool refresh or removal, and no existing-record import is allowed until source provenance and reuse permission are inventoried. The 100,000-profile target is not a measured capacity claim.",
+      "deletion_behavior": "Shared pool rows do not cascade with a single owner's account or claim. No source-removal/suppression workflow is implemented in this release; broad reuse remains gated until pool correction and removal operations are defined and verified.",
+      "trust_boundary": "Service-only shared public evidence. The public display-name anchor, public URLs, and source-linked findings are pooled after the v2 disclosure; login email, verified phone, employer/city hints, private corrections, and claim decisions are not shared pool fields.",
+      "plaintext_posture": "public_source_text_and_profile_anchor",
+      "expected_row_growth": "target_100k_entities_not_benchmarked; up_to_80_findings_and_200_source_refs_per_acquisition"
+    },
+    {
+      "id": "one_profile_discovery_handoff",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_profile_discovery_jobs",
+        "one_profile_discovery_events",
+        "one_profile_discovery_feed_outbox"
+      ],
+      "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox.",
+      "retention_policy": "One job per owner remains after claim to enforce the terminal one-time handoff until account deletion. Search hints are cleared after a ready profile, cancellation, or an unreviewable result; encrypted private drafts remain ciphertext only while the owner job exists. Transition and outbox rows are bounded by meaningful lifecycle changes.",
+      "deletion_behavior": "AccountService hard-deletes the owner job, cascading its events and Feed outbox. The independent public evidence pool is retained and is not mutated by claim or account cleanup.",
+      "trust_boundary": "Owner-scoped job state; prepared public findings are a pinned snapshot. Corrections and selected-card state are client-encrypted with the owner's vault key. Feed events contain generic status only; direct pool access is service-only.",
+      "plaintext_posture": "public_profile_snapshot_with_ciphertext_private_draft",
+      "expected_row_growth": "one_job_per_opted_in_owner_plus_bounded_transition_rows"
+    },
+    {
+      "id": "profile_discovery_daily_usage",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_profile_discovery_daily_usage"
+      ],
+      "primary_access_path": "Atomic UTC-day acquisition and polling counters used by the background discovery worker's global budget guard.",
+      "retention_policy": "Aggregate one row per UTC day with no owner identifier or query content; retained as a compact operational usage ledger. No scheduled compaction is configured in this release.",
+      "deletion_behavior": "Not account-delete scoped; retain aggregate counts for capacity and cost review. An operator may remove old aggregate days under an approved retention policy.",
+      "trust_boundary": "Aggregate counts only; no person identifier, anchor, provider response, profile finding, or credential.",
+      "plaintext_posture": "aggregate_operational_counts",
+      "expected_row_growth": "one_small_row_per_day"
     },
     {
       "id": "kai_gmail_receipts_provider_cache",

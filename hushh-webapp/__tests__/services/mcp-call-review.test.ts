@@ -50,9 +50,9 @@ describe("ephemeral MCP review", () => {
 
   it("refreshes a revision-bound catalog without granting permission", async () => {
     respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
-      status: "available", tools: [{ id: reference.toolName, name: "search_files", revision: "rev1", permission: "ask_first", ignored: "private" }] });
+      status: "available", tools: [{ id: reference.toolName, name: "search_files", revision: "rev1", fingerprint: "f".repeat(64), permission: "ask_first", ignored: "private" }] });
     const tools = await ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration });
-    expect(tools).toEqual([{ id: reference.toolName, name: "search_files", revision: "rev1" }]);
+    expect(tools).toEqual([{ id: reference.toolName, name: "search_files", revision: "rev1", fingerprint: "f".repeat(64), permission: "ask_first" }]);
     expect(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body).not.toContain("synthetic-refresh");
   });
 

@@ -75,14 +75,27 @@ class _Registry:
     async def get(self, user_id: str):
         return self.row if self.row and self.row.get("user_id") == user_id else None
 
-    async def record_binding(self, *, user_id, device_id, record):
+    async def record_binding(self, *, user_id, device_id, record, puppy_approval=None):
         self.bindings.append((device_id, record))
         meta = self.row.setdefault("backend_metadata", {})
         meta.setdefault("bindings", {})[device_id] = record
+        return True
 
     async def record_endpoint(self, *, user_id, endpoint):
         self.endpoints.append(endpoint)
         self.row.setdefault("backend_metadata", {})["endpoint"] = endpoint
+
+    async def record_puppy_access(self, *, user_id, device_id, access):
+        self.row.setdefault("backend_metadata", {}).setdefault("puppyAccess", {})[device_id] = (
+            access
+        )
+        return int(
+            self.row.get("backend_metadata", {})
+            .get("bindings", {})
+            .get(device_id, {})
+            .get("version")
+            or 1
+        )
 
     async def append_pending_tombstone(self, *, user_id, entry):
         self.pending.append(entry)
@@ -124,7 +137,17 @@ def _row(**overrides) -> dict:
         "status": "provisioned",
         "pod_key_id": POD_KEY_ID,
         "pod_pubkey": POD_PUBLIC_KEY,
-        "backend_metadata": {"url": POD_URL},
+        "backend_metadata": {
+            "url": POD_URL,
+            "ingress": "direct",
+            "serviceUid": "svc-1",
+            "directReadiness": {
+                "verified": True,
+                "url": POD_URL,
+                "podKeyId": POD_KEY_ID,
+                "serviceUid": "svc-1",
+            },
+        },
     }
     row.update(overrides)
     return row
@@ -202,6 +225,7 @@ async def test_versions_only_move_forward_and_are_recorded(hub_key):
     service = pbs.PodBindingService(registry=registry, devices=devices, audit=_Audit())
 
     first = await service.issue(user_id=USER, device_id="tdv_mac_1")
+    await service.set_puppy_access(user_id=USER, device_id="tdv_mac_1", enabled=True)
     second = await service.issue(user_id=USER, device_id="tdv_mac_1", puppy_inference=True)
     third = await service.issue(user_id=USER, device_id="tdv_mac_1")
 
@@ -211,6 +235,27 @@ async def test_versions_only_move_forward_and_are_recorded(hub_key):
     assert [r["version"] for _, r in registry.bindings] == [1, 2, 3]
     assert (await service.latest(user_id=USER, device_id="tdv_mac_1"))["version"] == 3
     assert [a["event_type"] for a in devices.audited] == ["pod_binding_issued"] * 3
+
+
+async def test_puppy_requires_owner_choice_for_this_pod_and_withdrawal_hides_old_binding(hub_key):
+    _, public = _p256_public_b64()
+    registry = _Registry(_row())
+    service = pbs.PodBindingService(
+        registry=registry,
+        devices=_Devices({"tdv_mac_1": {"platform": "macos", "device_public_key": public}}),
+        audit=_Audit(),
+    )
+    with pytest.raises(pbs.PodBindingError) as refused:
+        await service.issue(user_id=USER, device_id="tdv_mac_1", puppy_inference=True)
+    assert refused.value.code == "PUPPY_OWNER_APPROVAL_REQUIRED"
+    await service.set_puppy_access(user_id=USER, device_id="tdv_mac_1", enabled=True)
+    issued = await service.issue(user_id=USER, device_id="tdv_mac_1", puppy_inference=True)
+    assert issued["scopes"] == ["puppy.inference"]
+    registry.row["pod_key_id"] = "replacement-key"
+    assert await service.latest(user_id=USER, device_id="tdv_mac_1") is None
+    registry.row["pod_key_id"] = POD_KEY_ID
+    await service.set_puppy_access(user_id=USER, device_id="tdv_mac_1", enabled=False)
+    assert await service.latest(user_id=USER, device_id="tdv_mac_1") is None
 
 
 async def test_role_follows_the_platform_and_puppy_is_a_device_scope(hub_key):
@@ -309,13 +354,31 @@ async def test_the_endpoint_version_bumps_only_when_the_address_or_key_changes(h
     )
 
     registry.row["backend_metadata"]["url"] = "https://one-pod-ha1-owner-xyz.a.run.app"
+    registry.row["backend_metadata"]["directReadiness"]["url"] = registry.row["backend_metadata"][
+        "url"
+    ]
     moved = await service.endpoint(user_id=USER)
     assert moved["endpointVersion"] == 2
 
     registry.row["pod_key_id"] = "podk_rotated"
+    registry.row["backend_metadata"]["directReadiness"]["podKeyId"] = "podk_rotated"
     rotated = await service.endpoint(user_id=USER)
     assert rotated["endpointVersion"] == 3 and rotated["podKeyId"] == "podk_rotated"
     assert [e["version"] for e in registry.endpoints] == [1, 2, 3]
+
+
+async def test_endpoint_refuses_private_or_stale_direct_readiness(hub_key):
+    registry = _Registry(_row())
+    service = pbs.PodBindingService(registry=registry, devices=_Devices({}), audit=_Audit())
+    registry.row["backend_metadata"]["ingress"] = "internal"
+    with pytest.raises(pbs.PodBindingError, match="Direct access") as refused:
+        await service.endpoint(user_id=USER)
+    assert refused.value.code == "POD_DIRECT_NOT_READY"
+    registry.row["backend_metadata"]["ingress"] = "direct"
+    registry.row["backend_metadata"]["serviceUid"] = "replacement"
+    with pytest.raises(pbs.PodBindingError, match="Direct access"):
+        await service.endpoint(user_id=USER)
+    assert registry.endpoints == []
 
 
 # -- the courier ----------------------------------------------------------------------
@@ -478,7 +541,13 @@ async def test_legacy_puppy_grant_refuses_non_byoc_placement(monkeypatch, deploy
             return {
                 "deployment_target": deployment_target,
                 "status": "provisioned",
-                "backend_metadata": {"url": POD_URL},
+                "backend_metadata": {
+                    "url": POD_URL,
+                    "serviceUid": "svc-1",
+                    "puppyAccess": {
+                        "device-1": {"enabled": True, "podKeyId": POD_KEY_ID, "serviceUid": "svc-1"}
+                    },
+                },
                 "pod_key_id": POD_KEY_ID,
             }
 
@@ -519,7 +588,20 @@ async def test_legacy_puppy_grant_is_owner_bound_and_only_issued_for_active_byoc
             return {
                 "deployment_target": "user_gcp",
                 "status": "provisioned",
-                "backend_metadata": {"url": POD_URL},
+                "backend_metadata": {
+                    "url": POD_URL,
+                    "ingress": "direct",
+                    "serviceUid": "svc-1",
+                    "directReadiness": {
+                        "verified": True,
+                        "url": POD_URL,
+                        "podKeyId": POD_KEY_ID,
+                        "serviceUid": "svc-1",
+                    },
+                    "puppyAccess": {
+                        "device-1": {"enabled": True, "podKeyId": POD_KEY_ID, "serviceUid": "svc-1"}
+                    },
+                },
                 "pod_key_id": POD_KEY_ID,
             }
 

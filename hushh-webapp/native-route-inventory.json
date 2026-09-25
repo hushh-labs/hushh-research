@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 123,
-  "native_required_routes": 105,
+  "total_routes": 124,
+  "native_required_routes": 106,
   "excluded_routes": 18,
   "routes": [
     {
@@ -809,6 +809,18 @@
       "route": "/one/profile/integrations",
       "classification": "excluded-web-only",
       "reason": "Redirect kept for existing bookmarks; it resolves to the Calendar agent, which carries the parity obligation."
+    },
+    {
+      "route": "/one/profile/discovery",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+      "expectedMarker": "native-route-profile-discovery",
+      "expectedRoute": "/one/profile/discovery",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/profile/my-data",

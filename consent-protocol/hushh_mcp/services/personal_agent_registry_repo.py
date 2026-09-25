@@ -972,9 +972,16 @@ class PersonalAgentRegistryRepo:
     # `record_image_upgrade` and the heartbeat's `observed` use: touch one key, keep
     # everything else, never rewrite the column wholesale.
 
-    async def record_binding(self, *, user_id: str, device_id: str, record: dict) -> None:
+    async def record_binding(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        record: dict,
+        puppy_approval: Optional[dict] = None,
+    ) -> bool:
         """`backend_metadata.bindings[device_id] = record` (merge; other subjects kept)."""
-        await asyncio.to_thread(
+        response = await asyncio.to_thread(
             self._db().execute_raw,
             """
             UPDATE personal_agent_registry
@@ -986,9 +993,27 @@ class PersonalAgentRegistryRepo:
                     true
                 )
             WHERE user_id = :user_id
+              AND (
+                    :requires_approval = false
+                    OR (
+                        deployment_target = 'user_gcp'
+                        AND backend_metadata->'puppyAccess'->:device_id->>'enabled' = 'true'
+                        AND backend_metadata->'puppyAccess'->:device_id->>'podKeyId' = :pod_key_id
+                        AND backend_metadata->'puppyAccess'->:device_id->>'serviceUid' = :service_uid
+                    )
+                  )
+            RETURNING user_id
             """,
-            {"user_id": user_id, "record": json.dumps({device_id: record})},
+            {
+                "user_id": user_id,
+                "device_id": device_id,
+                "record": json.dumps({device_id: record}),
+                "requires_approval": puppy_approval is not None,
+                "pod_key_id": (puppy_approval or {}).get("podKeyId", ""),
+                "service_uid": (puppy_approval or {}).get("serviceUid", ""),
+            },
         )
+        return bool(getattr(response, "data", None))
 
     async def record_endpoint(self, *, user_id: str, endpoint: dict) -> None:
         """`backend_metadata.endpoint = endpoint` (the discovery record, versioned)."""
@@ -1006,6 +1031,120 @@ class PersonalAgentRegistryRepo:
             """,
             {"user_id": user_id, "endpoint": json.dumps(endpoint)},
         )
+
+    async def record_puppy_access(self, *, user_id: str, device_id: str, access: dict) -> int:
+        """Persist one owner's Puppy choice without replacing other pod metadata."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{puppyAccess}',
+                    coalesce(backend_metadata->'puppyAccess', '{}'::jsonb)
+                        || CAST(:record AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            RETURNING coalesce((backend_metadata->'bindings'->:device_id->>'version')::int, 1)
+                AS binding_version
+            """,
+            {"user_id": user_id, "device_id": device_id, "record": json.dumps({device_id: access})},
+        )
+        rows = list(getattr(response, "data", None) or [])
+        if not rows:
+            raise RuntimeError("owner pod disappeared while Puppy access changed")
+        return int(rows[0]["binding_version"])
+
+    async def record_direct_readiness(
+        self,
+        *,
+        user_id: str,
+        hushh_id: str,
+        service_uid: str,
+        pod_key_id: str,
+        url: str,
+        verified_at: str,
+    ) -> bool:
+        """Publish operator-verified direct ingress only for the same live pod.
+
+        The caller must first verify live ingress, IAM, CORS, route wall and
+        admission. This compare-and-set prevents that receipt moving to a new
+        service incarnation, address, key, owner or deployment target.
+        """
+        readiness = {
+            "verified": True,
+            "serviceUid": service_uid,
+            "podKeyId": pod_key_id,
+            "url": url,
+            "verifiedAt": verified_at,
+        }
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                coalesce(backend_metadata, '{}'::jsonb),
+                '{directReadiness}', CAST(:readiness AS jsonb), true
+            )
+            WHERE user_id = :user_id AND hushh_id = :hushh_id
+              AND deployment_target = 'user_gcp' AND status = 'provisioned'
+              AND pod_key_id = :pod_key_id
+              AND backend_metadata->>'serviceUid' = :service_uid
+              AND backend_metadata->>'url' = :url
+              AND backend_metadata->>'ingress' = 'direct'
+            RETURNING user_id
+            """,
+            {
+                "user_id": user_id,
+                "hushh_id": hushh_id,
+                "service_uid": service_uid,
+                "pod_key_id": pod_key_id,
+                "url": url,
+                "readiness": json.dumps(readiness),
+            },
+        )
+        return bool(getattr(response, "data", None))
+
+    async def record_direct_ingress_observed(
+        self,
+        *,
+        user_id: str,
+        hushh_id: str,
+        service_uid: str,
+        pod_key_id: str,
+        url: str,
+    ) -> bool:
+        """Record an operator-observed ingress transition on one existing pod.
+
+        This does not publish its endpoint. `record_direct_readiness` remains a
+        separate step after live CORS, wall and admission checks.
+        """
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                coalesce(backend_metadata, '{}'::jsonb),
+                '{ingress}', '"direct"'::jsonb, true
+            )
+            WHERE user_id = :user_id AND hushh_id = :hushh_id
+              AND deployment_target = 'user_gcp' AND status = 'provisioned'
+              AND pod_key_id = :pod_key_id
+              AND backend_metadata->>'serviceUid' = :service_uid
+              AND backend_metadata->>'url' = :url
+              AND backend_metadata->>'ingress' = 'internal'
+            RETURNING user_id
+            """,
+            {
+                "user_id": user_id,
+                "hushh_id": hushh_id,
+                "service_uid": service_uid,
+                "pod_key_id": pod_key_id,
+                "url": url,
+            },
+        )
+        return bool(getattr(response, "data", None))
 
     async def record_upgrade_approval(self, *, user_id: str, approval: dict) -> Optional[dict]:
         """Atomically offer one exact release to the owner's current pod.

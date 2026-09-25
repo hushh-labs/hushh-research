@@ -58,6 +58,7 @@ import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-d
 import { isLocalFirstOnboardingEnabled } from "@/lib/onboarding/local-first-flags";
 import { migrateOnboardingBuffer } from "@/lib/services/onboarding-buffer-migration-service";
 import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
+import { PublicProfileDiscoveryCard } from "@/components/profile/public-profile-discovery-card";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
@@ -792,6 +793,7 @@ export function OneSetupHub() {
           <SetupHubLoadingState />
         ) : (
           <>
+            {phoneVerified ? <PublicProfileDiscoveryCard userId={user?.uid} onboarding /> : null}
             {total > 0 ? (
               <div
                 className={styles.setupProgress}

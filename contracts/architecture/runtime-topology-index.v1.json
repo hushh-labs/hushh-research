@@ -1256,6 +1256,18 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "one_profile_discovery_jobs",
+        "one_profile_discovery_events",
+        "one_profile_discovery_feed_outbox"
+      ],
+      "id": "one_profile_discovery_handoff",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_agent_engagement_sessions",
         "one_referral_attributions",
         "one_referral_codes",
@@ -1373,6 +1385,16 @@
       "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_profile_discovery_daily_usage"
+      ],
+      "id": "profile_discovery_daily_usage",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Atomic UTC-day acquisition and polling counters used by the background discovery worker's global budget guard."
+    },
+    {
       "data_class": "reference",
       "exact_tables": [
         "investor_profiles",
@@ -1382,6 +1404,19 @@
       "lifecycle_status": "current",
       "owner": "backend-api-contracts",
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "one_public_profile_entities",
+        "one_public_profile_identity_anchors",
+        "one_public_profile_sources",
+        "one_public_profile_findings"
+      ],
+      "id": "public_profile_evidence_pool",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "PublicProfileDiscoveryService exact canonical profile-URL reuse and the leased HusshOne acquisition worker; PostgreSQL GIN and semantic candidate retrieval are not connected to the current service."
     },
     {
       "data_class": "workflow_state",
@@ -3993,6 +4028,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "pathname": "/one/profile/discovery",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.discovery"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -5777,14 +5835,14 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
-    "agent_registry": "10972c626e43fa1022dc21170a1aeed38cb8ca475072ad05fad69d15fb57ea22",
-    "cache_manifest": "442b8ac5043903cfa5e6e1628a04674fbc4a57bac422e969fd1f0b3d23ee1a5e",
-    "data_plane": "6f547ed55ab0b236afa3aff2f75694deed972cada24efed35a76b1f16019c7d2",
+    "agent_registry": "ef277899815fe7dfac0a0cd82a050aae81b0f6983a5c84ab10ea38dacfd995a0",
+    "cache_manifest": "33090c165b979aa5155d2590b03e427541c59320fe06a2b3da3a400bbe8d2927",
+    "data_plane": "d341c927a79097ab9ad444f23a5dc05c88355460fe9a9358654d289c2d141e0f",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "b7336e488ac3f18b88155ede9785cb56d5ce6512f7a9df9b11d4f07bb99744a9",
-    "route_index": "18b10510489db173849ef3e44ec13ef06cbfcb7ca467b793eebc40841b372382",
-    "route_layout": "0ec0bd28315bf045b95d01dc4d98db7a5d52c29a865488c5e8d750a801d26045",
-    "surface_map": "6329c16c533b162878d53addd449271867e0f088b4c352a35dc8f247bb6bf794",
+    "route_index": "f8da0d11b784afe39c74a1154e37f9061b95779cc63fcdaa45fb122e281a168a",
+    "route_layout": "a0af4e39736885f7ddd91977eaf47e992064972b1545ae7683cfaeffa35511ef",
+    "surface_map": "364673c61e05e27582f0107ad58068396f405e94e7cc361508ec91ce5a21a375",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5796,8 +5854,8 @@
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 142,
+    "physical_routes": 143,
     "semantic_routes": 14,
-    "table_families": 78
+    "table_families": 81
   }
 }

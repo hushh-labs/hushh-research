@@ -134,11 +134,10 @@ async def test_explicit_candidate_budget_never_silently_pages(reader, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_release_rechecks_remove_and_feature_disable(reader, monkeypatch):
+async def test_release_rechecks_remove_while_owner_reads_ignore_rollout_flag(reader, monkeypatch):
     await reader.search(query="read")
     monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "false")
-    with pytest.raises(DriveReadError, match="connector_unavailable"):
-        await reader.require_current()
+    await reader.require_current()
     monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
     with reader.store.db.engine.begin() as connection:
         connection.execute(text("DELETE FROM connected_documents WHERE user_id='owner'"))

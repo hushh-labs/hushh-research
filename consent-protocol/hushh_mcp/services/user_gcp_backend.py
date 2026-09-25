@@ -1623,7 +1623,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
-                "ingress": "internal",
+                "ingress": _ingress_metadata(spec, "internal"),
                 "image": self._user_pod_image_ref(spec, image_digest),
                 "source_image": spec.upgrade_target_image or self._image,
                 "image_digest": image_digest,

@@ -5292,6 +5292,71 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/profile/discovery/page.tsx",
+        "shell_verification_includes": [
+          "CapabilityVaultPrerequisite",
+          "AppPageShell",
+          "AppPageContentRegion",
+          "PublicProfileReviewWorkspace"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.discovery",
+          "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+          "screen": "profile_discovery",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the person's review goal.",
+            "cancelled": "Respect the cancellation and leave findings unclaimed.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+            "callback_error": "Return to the protected review workspace without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+        }
+      },
+      "native": {
+        "route": "/one/profile/discovery",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+        "expectedMarker": "native-route-profile-discovery",
+        "expectedRoute": "/one/profile/discovery",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "physical_page_exists": true,
@@ -9672,5 +9737,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "de7f531dbd5a2ca204ca65d2f8854fb1e6e1575d9a94800f6d8c26d877a17970"
+  "content_sha256": "5394932f55f89b7926ce55c376b3b44e2c6d58b4d4a1ca571b35805437f9d898"
 }

@@ -152,6 +152,7 @@ from api.routes import (  # noqa: E402
     health,
     hushh_tech,
     notifications,
+    profile_discovery_work_drain,
     session,
     sse,
     trust,
@@ -312,6 +313,7 @@ app.include_router(drive_sharing.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.
 app.include_router(drive_work_drain.router)
+app.include_router(profile_discovery_work_drain.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)

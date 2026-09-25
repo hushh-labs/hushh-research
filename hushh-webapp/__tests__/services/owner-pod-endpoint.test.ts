@@ -43,6 +43,7 @@ class FakeWorld {
   calls: Call[] = [];
   endpoint = endpointBody();
   bindingIssued = false;
+  appPublicKey = "";
   podReachable = true;
   challengePayload = '{"challenge_id":"psc_1","epoch":3,"hushh_id":"ha1_owner","nonce":"n","pod_key_id":"podk_1","purpose":"pod-session-admission","subject_id":"tdv_app_1"}';
   admitted: Array<Record<string, unknown>> = [];
@@ -61,17 +62,25 @@ class FakeWorld {
   async hub(path: string, init: RequestInit): Promise<Response> {
     this.calls.push({ target: "hub", url: path, init });
     if (path === "/api/account/trusted-devices/self-enroll") {
+      this.appPublicKey = String((JSON.parse(String(init.body)) as { devicePublicKey: string }).devicePublicKey);
       return json({ device_id: "tdv_app_1", platform: "web", status: "active" });
     }
     if (path === "/api/one/personal-agent/endpoint") return json(this.endpoint);
+    const binding = {
+      kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
+      environment: "dev", url: POD_URL, pod_key_id: "podk_1",
+      subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
+      platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: "user_gcp",
+      version: 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 60_000,
+    };
     if (path.endsWith("/pod-binding") && init.method === "GET") {
       return this.bindingIssued
-        ? json({ binding: { subject_id: "tdv_app_1", pod_key_id: "podk_1" }, signature: "ed25519.kid.b", version: 1 })
+        ? json({ binding, signature: "ed25519.kid.b", version: 1 })
         : json({ detail: { code: "POD_BINDING_NOT_ISSUED" } }, 404);
     }
     if (path.endsWith("/pod-binding") && init.method === "POST") {
       this.bindingIssued = true;
-      return json({ binding: { subject_id: "tdv_app_1", pod_key_id: "podk_1" }, signature: "ed25519.kid.b", version: 1 });
+      return json({ binding, signature: "ed25519.kid.b", version: 1 });
     }
     if (path.endsWith("/pod-tombstone")) {
       this.couriered.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -84,7 +93,7 @@ class FakeWorld {
     this.calls.push({ target: "direct", url, init });
     if (!this.podReachable) throw new TypeError("Failed to fetch");
     if (url === `${POD_URL}/api/one/pod/session/challenge`) {
-      return json({ challengeId: "psc_1", nonce: "n", epoch: 3, podKeyId: "podk_1", signingPayload: this.challengePayload });
+      return json({ challengeId: "psc_1", nonce: "n", epoch: 3, podKeyId: "podk_1", expiresAt: this.now + 60_000, signingPayload: this.challengePayload });
     }
     if (url === `${POD_URL}/api/one/pod/session/admit`) {
       this.admitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -140,14 +149,16 @@ describe("owner pod endpoint", () => {
     });
 
     world.endpoint = endpointBody({ podKeyId: "podk_rotated", endpointVersion: 2 });
-    const moved = await ownerPod.refreshEndpointFromHub(USER, world.transport());
-    expect(moved.endpointVersion).toBe(2);
-
-    world.endpoint = endpointBody({ endpointVersion: 1 });
     await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
-      code: "ENDPOINT_VERSION_REGRESSION",
+      code: "BINDING_POD_KEY_MISMATCH",
     });
-    expect((await ownerPod.loadPinnedEndpoint(USER))?.podKeyId).toBe("podk_rotated");
+    expect((await ownerPod.loadPinnedEndpoint(USER))?.endpointVersion).toBe(1);
+
+    world.endpoint = endpointBody({ endpointVersion: 0 });
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
+      code: "ENDPOINT_MALFORMED",
+    });
+    expect((await ownerPod.loadPinnedEndpoint(USER))?.podKeyId).toBe("podk_1");
   });
 
   it("refuses a malformed endpoint record", async () => {
@@ -155,6 +166,21 @@ describe("owner pod endpoint", () => {
     await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
       code: "ENDPOINT_MALFORMED",
     });
+    expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+  });
+
+  it("does not pin a new address when pod admission fails", async () => {
+    world.podReachable = false;
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow();
+    expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+  });
+
+  it("refuses a pod challenge that asks the app to sign another subject", async () => {
+    world.challengePayload = world.challengePayload.replace("tdv_app_1", "tdv_other");
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
+      code: "POD_CHALLENGE_MALFORMED",
+    });
+    expect(world.admitted).toHaveLength(0);
     expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
   });
 
@@ -174,17 +200,17 @@ describe("owner pod endpoint", () => {
     expect(verifyDer(publicKey, world.challengePayload, String(admit.proof))).toBe(true);
     expect(verifyDer(publicKey, world.challengePayload + " ", String(admit.proof))).toBe(false);
     // The binding was issued (404 then POST), not invented.
-    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding")).map((c) => c.init.method)).toEqual(["GET", "POST"]);
+    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding")).map((c) => c.init.method)).toEqual(["GET", "POST", "GET"]);
   });
 
   it("refuses to dial a pod the binding does not name", async () => {
     await ownerPod.refreshEndpointFromHub(USER, world.transport());
     world.endpoint = endpointBody({ podKeyId: "podk_other", endpointVersion: 2 });
-    await ownerPod.refreshEndpointFromHub(USER, world.transport());
-    await expect(ownerPod.openPodSession(USER, world.transport())).rejects.toMatchObject({
+    const directCalls = world.calls.filter((c) => c.target === "direct").length;
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
       code: "BINDING_POD_KEY_MISMATCH",
     });
-    expect(world.calls.some((c) => c.target === "direct")).toBe(false);
+    expect(world.calls.filter((c) => c.target === "direct")).toHaveLength(directCalls);
   });
 
   it("reuses a live session and renews one that is close to expiry", async () => {

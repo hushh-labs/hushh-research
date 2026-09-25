@@ -52,6 +52,8 @@ _CASCADE_PARENT = {
     "connected_documents": "user_external_connector_connections",
     "document_chunks": "connected_documents",
     "drive_native_picker_attempts": "drive_picker_sessions",
+    "one_profile_discovery_events": "one_profile_discovery_jobs",
+    "one_profile_discovery_feed_outbox": "one_profile_discovery_jobs",
 }
 _DRIVE_SPECIALIZED_TABLES = {
     "drive_share_requests",

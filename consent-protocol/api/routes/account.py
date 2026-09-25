@@ -578,6 +578,10 @@ class PodBindingIssueRequest(BaseModel):
     puppy_inference: bool = Field(default=False, alias="puppyInference")
 
 
+class PuppyAccessRequest(BaseModel):
+    enabled: bool
+
+
 @router.get("/trusted-devices/{device_id}/pod-binding")
 async def read_pod_binding(
     device_id: str,
@@ -622,6 +626,42 @@ async def issue_pod_binding(
         raise HTTPException(
             status_code=exc.status,
             detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@router.get("/trusted-devices/{device_id}/puppy-access")
+async def get_puppy_access(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().get_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
+@router.put("/trusted-devices/{device_id}/puppy-access")
+async def set_puppy_access(
+    device_id: str,
+    payload: PuppyAccessRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Only a vault-unlocked owner may grant or withdraw Puppy inference."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().set_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id, enabled=payload.enabled
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
         ) from exc
 
 
@@ -671,6 +711,17 @@ async def issue_puppy_inference_grant(
             detail={
                 "code": "TRUSTED_DEVICE_NOT_ACTIVE",
                 "message": "The trusted device is not active.",
+            },
+        )
+
+    from hushh_mcp.services.pod_binding_service import PodBindingService
+
+    if not PodBindingService.puppy_access_approved(row, device_id):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PUPPY_OWNER_APPROVAL_REQUIRED",
+                "message": "The owner has not enabled Puppy access for this device and pod.",
             },
         )
 
@@ -1181,9 +1232,20 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _isolated_phone_fixture_enabled() -> bool:
+    """Local recorded SMS transport; ordinary auth/challenge/claim checks still run."""
+    return (
+        _runtime_environment() in {"development", "local", "test"}
+        and _clean_env("ONE_PUBLIC_PROFILE_FIXTURE_MODE") == "true"
+        and _clean_env("DB_HOST") in {"localhost", "127.0.0.1"}
+        and _clean_env("DB_NAME").startswith("hushh_profile_fixture_")
+        and not _clean_env("DB_UNIX_SOCKET")
+    )
+
+
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
-    if environment == "uat":
+    if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_numbers()
@@ -1204,7 +1266,7 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 def _configured_phone_test_code() -> str:
     environment = _runtime_environment()
-    if environment == "uat":
+    if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_code()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_code()

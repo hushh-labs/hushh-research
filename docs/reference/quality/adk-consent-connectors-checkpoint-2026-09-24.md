@@ -7,7 +7,7 @@ worktree: reconcile the latest `main`, preserve both branches' intent, commit an
 push the exact verified source, use the Admin release SOP and merge queue, deploy
 the landed `main` SHA to UAT, then ship that UAT-backed SHA to TestFlight. These
 are distinct gates; neither a local merge nor a green PR means deployment or
-TestFlight is complete. Do not initiate Drive OAuth for the user.
+TestFlight is not complete. Do not initiate Drive OAuth for the user.
 
 ### Plan
 
@@ -27,33 +27,49 @@ TestFlight is complete. Do not initiate Drive OAuth for the user.
 
 ### Current evidence at this checkpoint
 
-- **Main integration:** fetched and normally merged `origin/main`
-  `1703b8900cd019faa5c850103511995a554848c3` (PR #7041) as `fd4e19510` on the
-  existing ADK branch. The incoming delta was five People-mobile files and
-  merged without conflict; the earlier ADK/Drive integration at `4ac22d155`
-  remains an ancestor. No branch switch, reset, or history rewrite occurred.
+- **Main integration:** fetched live `origin/main`
+  `75c3528bd499c99d6e8830e19e5c25a41db79e1d` (PR #7045) and normally merged it
+  as `c45de6aa3` on the existing ADK branch. The merge added Drive live-query
+  request/allow-deny flows and migration `242`; its only conflict was the
+  generated runtime-topology index, regenerated from its authored contracts.
+  The topology generator check passes. A fresh remote query confirmed this
+  SHA at the last check. No branch switch, reset, or history rewrite occurred.
 - **Security gate repair:** commit `30b8513e8` removes `--ancestry-path` from
   secret-scan ranges, adds a synthetic merge-graph regression, renames test-only
   idempotency sentinels, and adds only exact gitleaks fingerprints for the old
-  synthetic values. The regression passes; gitleaks scanned 21 commits / about
-  280 KB with zero findings, and GitHub reports zero secret-scanning alerts.
-  Eighteen existing Dependabot alerts remain advisory in this lane.
-- **Automated after current main merge:** 43 focused consent receipt/service
-  backend tests, 79 focused consent/Chat/connector/People web tests, and 521
-  One Voice/native contract tests pass. TypeScript typecheck passes. One Voice
-  generated checks first identified stale capability projections; the owning
-  generator was run and its four projection files are included in this
-  checkpoint. The canonical Capacitor build passed; `verify:native:css` reports
-  5,869 selectors and zero missing. Full canonical pre-PR verification has not
-  yet run on this exact head.
-- **Browser/runtime:** frontend `3000` and backend `8000` were previously
-  verified as this worktree and healthy. The read-only reviewer root-scope trial
-  passed for both identities: one Professional root selection, one review, and
-  a hit-testable Send action across phone/tablet/desktop layouts; both dialogs
-  were cancelled, so no request was submitted. Connector settings route and
-  same-session/cold-unlock preflight have historical browser proof, not current
-  Drive provider proof. Revalidate the served source pair before final browser
-  acceptance.
+  synthetic values. The regression passes; the prior secret scan covered 24
+  commits / about 287 KB with zero Gitleaks findings and zero GitHub secret
+  alerts. Eighteen Dependabot alerts remain advisory in this release lane.
+- **Automated:** before the latest main merge, the frontend full suite passed
+  9,114 tests across 984 files (9 skipped); the Connect page-client suite was
+  104/104. The Workspace MCP/Gmail route suite was 28/28, backend mypy passed
+  across 160 source files, and changed-file Ruff passed. After merging PR #7045,
+  Drive live-query backend service/route tests pass 44/44 and consent-card,
+  request, and Drive-sharing frontend suites pass 76/76. On the integrated
+  source, the full frontend suite first hit host `ENOSPC` under default worker
+  parallelism (6,835 tests passed, 8 skipped; 308 files could not create temp
+  files). A single retry at two workers passed 985 files / 9,155 tests, with 2
+  files / 9 tests skipped. Governance, MCP package (7 tests plus packed-runtime
+  check), PKM integration (87 frontend and 91 backend tests), docs verification,
+  voice/capability generation, surface map, native static and native plugin
+  parity all pass. Exact-range DCO (24 non-merge commits), Gitleaks (24 commits,
+  zero findings), and GitHub secret-alert parity (zero open secret alerts) pass.
+  The complete local protocol pytest lane was intentionally stopped after 549
+  of 5,591 tests; mypy had passed across 160 files and the focused post-main
+  Drive tests passed 44/44, but a full local backend-suite pass is not claimed.
+  The web-targeted runner saw only this pending documentation edit and selected
+  no feature test packs. The original `codex pre-pr --json` wrapper therefore
+  remains non-green because its default-parallel frontend run hit `ENOSPC`; its
+  later protocol/package/integration stages were checked separately as stated.
+  The regenerated runtime topology check passes (139 routes, 19 agents, 73
+  table families).
+- **Browser/runtime:** frontend `3000` and backend `8000` returned HTTP 200 from
+  this worktree. The read-only C→A reviewer trial unlocked separate contexts,
+  selected the Professional root as one request, and confirmed the Send action
+  is hit-testable in light/dark at phone/tablet/desktop sizes. Both dialogs were
+  cancelled, so no consent request was submitted. Connector settings, same-
+  session/cold-unlock preflight, Chat readback and notifications are not proven
+  on this exact source/runtime pair.
 - **Connector state:** the Settings catalog and Chat entry are implemented.
   Local reviewer configuration keeps Drive connect disabled; existing UAT
   rollout configuration is enabled. No rollout values were changed and no OAuth
@@ -64,16 +80,22 @@ TestFlight is complete. Do not initiate Drive OAuth for the user.
   export built successfully and passed the CSS freshness check, but current-
   source physical interaction remains unverified; TestFlight must build the
   exact landed main SHA and processing/distribution must be checked.
-- **Release:** no open PR currently targets this branch, and the former PR is
-  merged. The branch includes the current main merge; fetch the feature ref
-  again before push. Canonical pre-PR, exact-head
-  PR checks/review resolution, queue/Admin SOP landing, post-merge main smoke,
-  exact-SHA UAT, and TestFlight remain pending.
-- **Still open:** fresh live root-scope submission/approval/readback, three-account
-  Memory fixtures, the full 12-journey Chat/Profile matrix, Drive OAuth and a
-  real provider read, current-source physical iOS interaction, deployed UAT, and
-  TestFlight evidence. Do not promote automated tests or the cancelled dialog
-  trial into live-consent acceptance.
+- **Release:** no open PR currently targets this branch; earlier PRs are merged.
+  `main` branch protection was verified against the SOP before this integration.
+  The ADK branch now includes latest fetched `main`, but this merge and checkpoint
+  update have not been pushed as a new PR. DCO, secret hygiene, governance,
+  full frontend, MCP package and integration checks pass on this source, but the
+  canonical local PR wrapper did not pass because of the initial `ENOSPC` run
+  and the full local protocol test lane was stopped early. Feature-specific CI,
+  review resolution, queue/Admin SOP landing, post-merge smoke, exact-SHA UAT,
+  and TestFlight remain pending.
+  UAT/TestFlight dispatch is paused until the previously exposed environment
+  credential is confirmed rotated or revoked.
+- **Still open:** live root-scope submission/approval/readback in Chat, three-
+  account Memory fixtures, the full 12-journey Chat/Profile matrix, Drive OAuth
+  and a real provider read, current-source physical iOS interaction, deployed
+  UAT, and TestFlight evidence. Do not promote automated tests or the cancelled
+  dialog trial into live-consent acceptance.
 
 This active continuation supersedes the older status and plans below. Those
 entries remain historical evidence with their original revisions and limits.
@@ -85,8 +107,8 @@ Canonical visual index: [Architecture reference](../architecture/README.md).
 
 | Boundary | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Main → ADK branch | Latest fetched main `1703b8900` merged locally at `fd4e19510` | Freshness, PR checks, queue/Admin SOP, landed-SHA smoke |
-| Connector → One | Owner-bound Drive MCP read path and 93 backend/126 web tests pass | User OAuth, actual provider read, and native proof |
+| Main → ADK branch | Latest fetched main `75c3528bd` merged locally at `c45de6aa3` | New PR checks, queue/Admin SOP, landed-SHA smoke |
+| Connector → One | Owner-bound Workspace MCP and Drive allow/deny contracts; 44 focused backend and 76 frontend tests pass | User OAuth, actual provider read, and native proof |
 | Consent → Chat | Metadata-only receipt and restoration committed | Browser revisit and fresh encrypted readback |
 | Sidebar → connection authority | Calendar/Plaid owning status, 11 tests | Real authenticated visual rehearsal |
 

@@ -321,22 +321,19 @@ async def test_unhealthy_connection_does_not_hide_or_prevent_removal(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["flag", "policy", "deactivate"])
+@pytest.mark.parametrize("change", ["policy", "deactivate"])
 async def test_selection_commit_revalidates_live_policy_and_rolls_back_claim(
     documents, monkeypatch, change
 ):
     session = await documents.start_selection(user_id="owner", generation=1)
-    if change == "flag":
-        monkeypatch.setenv("GOOGLE_DRIVE_PICKER", "false")
-    else:
-        with documents.db.engine.begin() as conn:
-            conn.execute(
-                text(
-                    "UPDATE external_mcp_connectors SET capability_policy='{}'::jsonb WHERE connector_id='google_drive'"
-                    if change == "policy"
-                    else "UPDATE external_mcp_connectors SET is_active=false WHERE connector_id='google_drive'"
-                )
+    with documents.db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE external_mcp_connectors SET capability_policy='{}'::jsonb WHERE connector_id='google_drive'"
+                if change == "policy"
+                else "UPDATE external_mcp_connectors SET is_active=false WHERE connector_id='google_drive'"
             )
+        )
     with pytest.raises(DriveReadError, match="connector_"):
         await documents.select(
             user_id="owner", generation=1, session_id=str(session["session_id"]), files=[source()]

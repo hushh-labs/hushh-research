@@ -137,6 +137,9 @@ class AccountService:
             "one_model_preferences": text(
                 "DELETE FROM one_model_preferences WHERE user_id = :user_id"
             ),
+            "one_profile_discovery_jobs": text(
+                "DELETE FROM one_profile_discovery_jobs WHERE user_id = :user_id"
+            ),
             "pkm_embeddings": text("DELETE FROM pkm_embeddings WHERE user_id = :user_id"),
             "ria_business_contacts": text(
                 "DELETE FROM ria_business_contacts WHERE user_id = :user_id"
@@ -1891,6 +1894,7 @@ class AccountService:
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "feed_events": False,
+            "one_profile_discovery_jobs": False,
             "runtime_persona_state": False,
             "ria_pick_legacy_retirements": False,
             "developer_oauth_tokens": False,
@@ -1958,6 +1962,7 @@ class AccountService:
                         "one_location_nearby_check_in_preferences",
                         "one_location_sos_voice_preferences",
                         "one_model_preferences",
+                        "one_profile_discovery_jobs",
                         "pkm_embeddings",
                         "ria_business_contacts",
                         "ria_claim_dossiers",

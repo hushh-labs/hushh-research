@@ -47,6 +47,8 @@ describe("Next proxy root-entry contract", () => {
 
   it.each([
     "/one/profile/connectors",
+    "/one/profile/discovery",
+    "/one/profile/discovery/",
     "/one/profile/hosting",
     "/one/profile/software-updates",
   ])("keeps the canonical %s page out of the legacy profile redirect", (route) => {

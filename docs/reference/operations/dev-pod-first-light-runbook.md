@@ -45,6 +45,28 @@ service version without pod installation controls. The authored dev release and
 its source tests do not establish a completed live update rehearsal or authorize
 publication through the production stable channel.
 
+### Controlled owner-direct access
+
+Keep an existing BYOC pod private while applying its owner-approved image update.
+Verify its service UID, image digest, single-writer recovery and machine-route
+wall before changing ingress. On the same service, verify or widen Cloud Run
+ingress and grant the public invoker only for the dev direct pilot. Verify the live IAM
+policy, HTTPS/WSS reachability, frontend CORS preflight, hub machine-route
+authentication, and a signed subject binding plus pod admission from a separate
+network. A health response or public Cloud Run URL alone is insufficient.
+Record the observed ingress with
+`PersonalAgentRegistryRepo.record_direct_ingress_observed` only after the live
+service and IAM checks; it keeps endpoint publication closed.
+
+After those checks, use `PersonalAgentRegistryRepo.record_direct_readiness`
+with the exact owner, HushhID, service UID, pod key, URL and verification time.
+Its conditional write refuses a replaced pod or private ingress record. The
+hub then publishes the signed endpoint; the browser pins it only after its own
+admission succeeds. If any check fails, retain private ingress and leave the
+direct-ready record absent. An update keeps the ingress axis; recheck the route
+wall and recovery before treating the new image as accepted. Puppy access
+still requires the owner's explicit per-device choice in Trusted devices.
+
 ### Model project ownership
 
 The owner pod uses Vertex in its own cloud project through its native runtime

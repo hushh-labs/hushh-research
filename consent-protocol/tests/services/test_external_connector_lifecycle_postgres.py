@@ -954,11 +954,10 @@ async def test_native_handoff_contains_only_reference_and_requires_original_owne
 
 
 @pytest.mark.asyncio
-async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, monkeypatch):
+async def test_owner_connection_remains_available_when_rollout_flag_is_off(drive, monkeypatch):
     await drive_connect(drive)
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    with pytest.raises(DriveOAuthError, match="connector_unavailable"):
-        await drive_start(drive)
+    await drive_start(drive)
     drive._post.side_effect = DriveOAuthError("provider_unavailable", status_code=503)
     result = await drive.disconnect(user_id="owner")
     assert result["status"] == "revoked" and result["revocationOutcome"] == "failed"
@@ -968,7 +967,7 @@ async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["client", "registry", "flag", "cohort", "redirect"])
+@pytest.mark.parametrize("change", ["client", "registry", "redirect"])
 async def test_staged_native_credentials_cannot_activate_after_configuration_or_admission_changes(
     drive, monkeypatch, change
 ):
@@ -980,10 +979,6 @@ async def test_staged_native_credentials_cannot_activate_after_configuration_or_
         monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "rotated-client")
     elif change == "registry":
         drive.registry.get_connector.return_value = None
-    elif change == "flag":
-        monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    elif change == "cohort":
-        monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "different-owner")
     else:
         drive.registry.get_connector.return_value = replace(
             drive.registry.get_connector.return_value, registered_redirect_uris=()

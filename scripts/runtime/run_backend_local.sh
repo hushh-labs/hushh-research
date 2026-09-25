@@ -15,6 +15,7 @@ For local, this will start a Cloud SQL proxy automatically when the
 active backend profile includes CLOUDSQL_INSTANCE_CONNECTION_NAME.
 
 Options:
+  --profile-fixture  Use isolated local profile databases and recorded model responses
   --reload       Start backend with uvicorn autoreload enabled (slower)
   --no-reload    Start backend without autoreload (default, faster)
 USAGE
@@ -27,6 +28,8 @@ fi
 
 RAW_PROFILE="${1:-}"
 shift || true
+PROFILE_FIXTURE=false
+PROFILE_WORKER=false
 SKIP_ACTIVATE=false
 PREFLIGHT_ONLY=false
 SKIP_PREFLIGHT=false
@@ -34,6 +37,12 @@ BACKEND_RELOAD="${BACKEND_RELOAD:-false}"
 
 for arg in "$@"; do
   case "$arg" in
+    --profile-worker)
+      PROFILE_WORKER=true
+      ;;
+    --profile-fixture)
+      PROFILE_FIXTURE=true
+      ;;
     --skip-activate)
       SKIP_ACTIVATE=true
       ;;
@@ -70,6 +79,31 @@ if [ "$(runtime_profile_backend_mode "$PROFILE")" != "local" ]; then
   echo "Runtime mode $PROFILE does not start a local backend." >&2
   echo "Use a remote mode with './bin/hushh web --mode $PROFILE'." >&2
   exit 1
+fi
+
+if [ "$PROFILE_WORKER" = "true" ] && [ "$PROFILE_FIXTURE" != "true" ]; then
+  echo "--profile-worker requires --profile-fixture" >&2
+  exit 1
+fi
+
+if [ "$PROFILE_FIXTURE" = "true" ]; then
+  export KAI_MARKET_BACKGROUND_REFRESH=false
+  export HUSHH_UAT_PHONE_TEST_NUMBERS=+12025550101 HUSHH_UAT_PHONE_TEST_CODE=123456
+  export ENVIRONMENT=development DB_HOST=127.0.0.1 DB_PORT="${PROFILE_FIXTURE_DB_PORT:-5432}"
+  export DB_NAME="${PROFILE_FIXTURE_DB_NAME:-hushh_profile_fixture_app}"
+  export DB_USER="${PROFILE_FIXTURE_DB_USER:-$(whoami)}" DB_PASSWORD="${PROFILE_FIXTURE_DB_PASSWORD:-local-fixture-unused}"
+  export DB_UNIX_SOCKET="" CLOUDSQL_INSTANCE_CONNECTION_NAME=""
+  export ONE_PUBLIC_PROFILE_FIXTURE_MODE=true ONE_PUBLIC_PROFILE_DISCOVERY_ENABLED=true ONE_PUBLIC_PROFILE_PROTOCOL=a2a
+  export INTELLIGENCE_API_BASE_URL="${PROFILE_FIXTURE_ONE_URL:-http://127.0.0.1:3001}"
+  export INTELLIGENCE_API_KEY="local-fixture-service-key"
+  cd "$REPO_ROOT/consent-protocol"
+  if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    exec .venv/bin/python -c 'from scripts.profile_discovery_fixture_backend import validate_fixture_environment; validate_fixture_environment(); print("Isolated fixture configuration validated")'
+  fi
+  if [ "$PROFILE_WORKER" = "true" ]; then
+    exec .venv/bin/python -m scripts.profile_discovery_worker
+  fi
+  exec .venv/bin/python -m scripts.profile_discovery_fixture_backend
 fi
 
 if [ "$SKIP_ACTIVATE" != "true" ]; then

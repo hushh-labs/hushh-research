@@ -17,6 +17,7 @@ const capacitorMocks = vi.hoisted(() => ({
 
 const ownerPodMocks = vi.hoisted(() => ({
   loadPinnedEndpoint: vi.fn(),
+  refreshEndpointFromHub: vi.fn(),
   currentPodSession: vi.fn(),
   revokeAtPod: vi.fn(),
 }));
@@ -72,7 +73,9 @@ vi.mock("@/lib/motion/api-progress-tracker", () => ({
 }));
 
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
+  OwnerPodError: Error,
   loadPinnedEndpoint: ownerPodMocks.loadPinnedEndpoint,
+  refreshEndpointFromHub: ownerPodMocks.refreshEndpointFromHub,
   currentPodSession: ownerPodMocks.currentPodSession,
   revokeAtPod: ownerPodMocks.revokeAtPod,
 }));
@@ -110,14 +113,22 @@ function json(body: unknown, status = 200) {
 
 describe("ApiService.runPodTurn on the owner-direct path", () => {
   beforeEach(() => {
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({
+      hostingMode: "shared", state: "active", hushhId: "ha1_owner",
+    });
     mockFetch.mockReset();
     ownerPodMocks.loadPinnedEndpoint.mockReset();
     ownerPodMocks.currentPodSession.mockReset();
+    ownerPodMocks.refreshEndpointFromHub.mockReset();
+    ownerPodMocks.refreshEndpointFromHub.mockRejectedValue(
+      Object.assign(new Error("POD_DIRECT_NOT_READY"), { code: "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY" }),
+    );
     ownerPodMocks.revokeAtPod.mockReset();
     vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -161,13 +172,30 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(ownerPodMocks.currentPodSession).not.toHaveBeenCalled();
   });
 
-  it("ignores a pin that names another owner's pod", async () => {
-    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue({ ...PIN, hushhId: "ha1_other" });
-    mockFetch.mockResolvedValue(json({ text: "via hub", model: "m", provider: "gemini", grounded: false, runtimeMode: "user_adc" }));
+  it("discovers a verified BYOC endpoint before the first direct turn", async () => {
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
+      hostingMode: "byoc", state: "active", hushhId: "ha1_owner",
+    });
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
+    ownerPodMocks.refreshEndpointFromHub.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    mockFetch.mockResolvedValue(json({ text: "direct", model: "m", provider: "gemini", grounded: false, runtimeMode: "pod" }));
 
     await ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello" });
 
-    expect(String(mockFetch.mock.calls[0][0])).toContain("/api/one/u/ha1_owner/turn");
+    expect(ownerPodMocks.refreshEndpointFromHub).toHaveBeenCalledTimes(1);
+    expect(String(mockFetch.mock.calls[0][0])).toBe(`${POD_URL}/api/one/pod/turn`);
+  });
+
+  it("refuses a pin that names another owner's pod", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue({ ...PIN, hushhId: "ha1_other" });
+    mockFetch.mockResolvedValue(json({ text: "via hub", model: "m", provider: "gemini", grounded: false, runtimeMode: "user_adc" }));
+
+    await expect(ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello" })).rejects.toThrow(
+      "POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH",
+    );
+
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(ownerPodMocks.currentPodSession).not.toHaveBeenCalled();
   });
 

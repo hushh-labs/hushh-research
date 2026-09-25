@@ -175,6 +175,75 @@ class PodBindingService:
             )
         return pod_key_id, pod_public_key, url
 
+    @staticmethod
+    def puppy_access_approved(row: dict, device_id: str) -> bool:
+        metadata = row.get("backend_metadata")
+        if not isinstance(metadata, dict):
+            return False
+        choices = metadata.get("puppyAccess")
+        choice = choices.get(device_id) if isinstance(choices, dict) else None
+        service_uid = _clean(metadata.get("serviceUid"))
+        readiness = metadata.get("directReadiness")
+        return bool(
+            isinstance(choice, dict)
+            and choice.get("enabled") is True
+            and service_uid
+            and _clean(row.get("pod_key_id"))
+            and _clean(metadata.get("ingress")) == "direct"
+            and isinstance(readiness, dict)
+            and readiness.get("verified") is True
+            and _clean(readiness.get("url")) == _pod_url(row)
+            and _clean(readiness.get("podKeyId")) == _clean(row.get("pod_key_id"))
+            and _clean(readiness.get("serviceUid")) == service_uid
+            and _clean(choice.get("podKeyId")) == _clean(row.get("pod_key_id"))
+            and _clean(choice.get("serviceUid")) == service_uid
+            and _clean(row.get("deployment_target")) == "user_gcp"
+        )
+
+    async def set_puppy_access(
+        self, *, user_id: str, device_id: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Record the owner's explicit choice for this active device and pod."""
+        row = await self._owner_row(user_id, request_id=f"puppy-access:{device_id}")
+        device = self._devices.active_device(user_id=user_id, device_id=device_id)
+        if not device or role_for_platform(_clean(device.get("platform")).lower()) != ROLE_DEVICE:
+            raise PodBindingError(
+                "TRUSTED_DEVICE_NOT_ACTIVE", "An active Puppy device is required.", status=403
+            )
+        if (
+            _clean(row.get("deployment_target")) != "user_gcp"
+            or _clean(row.get("status")) != "provisioned"
+        ):
+            raise PodBindingError(
+                "PUPPY_REQUIRES_BYOC_POD", "Puppy requires your active BYOC pod.", status=409
+            )
+        metadata = (
+            row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
+        )
+        pod_key_id, _public, _url = self._deployment(row)
+        if not _clean(metadata.get("serviceUid")):
+            raise PodBindingError(
+                "POD_IDENTITY_NOT_DURABLE",
+                "This pod has no verified service identity yet.",
+                status=409,
+            )
+        if enabled:
+            await self.endpoint(user_id=user_id)
+        choice = {
+            "enabled": enabled,
+            "podKeyId": pod_key_id,
+            "serviceUid": _clean(metadata.get("serviceUid")),
+            "updatedAt": int(self._clock() * 1000),
+        }
+        binding_version = await self._registry.record_puppy_access(
+            user_id=user_id, device_id=device_id, access=choice
+        )
+        return {"deviceId": device_id, "bindingVersion": binding_version, **choice}
+
+    async def get_puppy_access(self, *, user_id: str, device_id: str) -> dict[str, Any]:
+        row = await self._owner_row(user_id, request_id=f"puppy-access-read:{device_id}")
+        return {"deviceId": device_id, "enabled": self.puppy_access_approved(row, device_id)}
+
     # -- bindings -------------------------------------------------------------------
 
     async def issue(
@@ -211,6 +280,12 @@ class PodBindingService:
                     "Only a device binding may carry Puppy inference.",
                 )
             scopes = APP_SCOPES
+        if puppy_inference and not self.puppy_access_approved(row, device_id):
+            raise PodBindingError(
+                "PUPPY_OWNER_APPROVAL_REQUIRED",
+                "The owner has not enabled Puppy access for this device and pod.",
+                status=403,
+            )
         bindings = self._binding_records(row)
         previous = bindings.get(device_id) or {}
         version = int(previous.get("version") or 0) + 1
@@ -234,7 +309,7 @@ class PodBindingService:
             deployment_target=deployment_target,
         )
         envelope = {"binding": binding.to_dict(), "signature": _sign(binding.canonical())}
-        await self._registry.record_binding(
+        recorded = await self._registry.record_binding(
             user_id=user_id,
             device_id=device_id,
             record={
@@ -244,7 +319,21 @@ class PodBindingService:
                 "issuedAt": now_ms,
                 "envelope": envelope,
             },
+            puppy_approval=(
+                {
+                    "podKeyId": pod_key_id,
+                    "serviceUid": _clean((row.get("backend_metadata") or {}).get("serviceUid")),
+                }
+                if puppy_inference
+                else None
+            ),
         )
+        if recorded is False:
+            raise PodBindingError(
+                "PUPPY_OWNER_APPROVAL_REQUIRED",
+                "Puppy access changed while the binding was being issued.",
+                status=403,
+            )
         try:
             self._devices.audit_event(
                 user_id=user_id,
@@ -263,6 +352,10 @@ class PodBindingService:
             return None
         record = self._binding_records(row).get(device_id)
         if not isinstance(record, dict) or not isinstance(record.get("envelope"), dict):
+            return None
+        if "puppy.inference" in (record.get("scopes") or []) and not self.puppy_access_approved(
+            row, device_id
+        ):
             return None
         return {
             **record["envelope"],
@@ -291,6 +384,22 @@ class PodBindingService:
         metadata = (
             row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
         )
+        readiness = metadata.get("directReadiness")
+        if (
+            _clean(row.get("deployment_target")) != "user_gcp"
+            or _clean(row.get("status")) != "provisioned"
+            or _clean(metadata.get("ingress")) != "direct"
+            or not isinstance(readiness, dict)
+            or readiness.get("verified") is not True
+            or _clean(readiness.get("url")) != url
+            or _clean(readiness.get("podKeyId")) != pod_key_id
+            or _clean(readiness.get("serviceUid")) != _clean(metadata.get("serviceUid"))
+        ):
+            raise PodBindingError(
+                "POD_DIRECT_NOT_READY",
+                "Direct access to this pod has not been verified.",
+                status=409,
+            )
         recorded = metadata.get("endpoint") if isinstance(metadata.get("endpoint"), dict) else {}
         version = int(recorded.get("version") or 0)
         if version < 1 or recorded.get("url") != url or recorded.get("podKeyId") != pod_key_id:

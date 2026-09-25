@@ -381,6 +381,28 @@ server-side, then bind both actions to that source.
 
 The maintained architecture reference is [Personal Gmail Information Requests](./personal-gmail-information-requests.md).
 
+### One-time Public Profile Discovery
+
+Discovery is explicitly opt-in, one-time, and independent of PKM storage. Public
+findings stay in the service-only shared pool; private edits are client-encrypted
+under the unlocked vault; `claimed` is an owner-scoped terminal handoff state.
+The background worker uses HusshOne's existing scan API and never runs in the
+browser request path.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/profile-discovery` | Firebase Bearer | Read only the signed-in owner's job and, once ready, its revision-pinned public profile. |
+| POST | `/api/one/profile-discovery/start` | Firebase Bearer | Start or resume the owner's one-time job. Requires versioned public-web consent; external phone matching has a separate opt-in. |
+| POST | `/api/one/profile-discovery/anchors` | Firebase Bearer | Add optional name, email, public profile URL, employer or city details to a pending owner job. These do not write to the shared public pool. |
+| POST | `/api/one/profile-discovery/draft` | `VAULT_OWNER` | Store only the encrypted owner review draft for the pinned profile revision. |
+| POST | `/api/one/profile-discovery/claim` | `VAULT_OWNER` | Complete the one-time handoff after the client reports all selected PKM writes succeeded, or after explicit reject-all. |
+| POST | `/api/one/profile-discovery/cancel` | Firebase Bearer | Cancel pending owner discovery. |
+| POST | `/api/internal/profile-discovery/drain` | Cloud Scheduler OIDC | Process a bounded batch under a dedicated scheduler identity and publish the transactional Feed outbox. |
+
+The global feature and worker gates default off. Hosted access also requires a
+small Firebase UID allowlist. See [public profile discovery storage and rollout](./public-profile-discovery.md)
+for the current implementation boundary and release checks.
+
 ### One Google Calendar
 
 Private-pod Calendar reads use the existing owner-bound

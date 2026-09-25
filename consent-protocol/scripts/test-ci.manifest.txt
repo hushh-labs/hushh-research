@@ -443,5 +443,12 @@ tests/test_drive_result_privacy.py
 tests/test_cloudrun_revision_provenance.py
 tests/test_dev_candidate_gate.py
 
+# Profile discovery authority, claims, and optional isolated bridge rehearsal.
+tests/services/test_profile_claim_receipts.py
+tests/services/test_public_profile_discovery.py
+tests/test_profile_discovery_routes.py
+tests/test_profile_discovery_work_drain_routes.py
+tests/integration/test_public_profile_bridge.py
+tests/services/test_public_profile_prepared_boundary.py
 
 tests/test_pod_release.py

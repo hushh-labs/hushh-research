@@ -9,6 +9,10 @@ import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 vi.mock("@/components/dashboard/one-agent-presence", () => ({
   OneAgentPresence: () => null,
 }));
+// Discovery has its own auth and service tests; these assertions cover the roster.
+vi.mock("@/components/profile/public-profile-discovery-card", () => ({
+  PublicProfileDiscoveryCard: () => null,
+}));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";

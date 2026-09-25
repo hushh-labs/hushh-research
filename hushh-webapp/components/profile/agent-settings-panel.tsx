@@ -67,6 +67,22 @@ export function AgentSettingsPanel({
     }
   }
 
+  async function reconnectDirectPod() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await ApiService.reconnectOwnerPod();
+      refresh();
+    } catch {
+      setError("Your pod could not be reached. Check its connection and try again.");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   if (kind === "hosting") {
     return (
       <div className="space-y-4">
@@ -110,7 +126,13 @@ export function AgentSettingsPanel({
           <Button variant="muted" onClick={refresh}>
             Check hosting
           </Button>
+          {mode === "byoc" ? (
+            <Button variant="muted" disabled={busy} onClick={() => void reconnectDirectPod()}>
+              Reconnect your pod
+            </Button>
+          ) : null}
         </div>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <p className="text-sm text-muted-foreground">
           New Hussh Pods deployments are currently unavailable.
         </p>

@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 142,
-    "physical_page_count": 141,
-    "route_contract_count": 142,
-    "surface_map_count": 142,
+    "total_screens": 143,
+    "physical_page_count": 142,
+    "route_contract_count": 143,
+    "surface_map_count": 143,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 47,
-      "vault-backed": 57,
+      "vault-backed": 58,
       "hidden flow": 17,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -3407,6 +3407,51 @@
       "findings": []
     },
     {
+      "route": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/profile/gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "route_contract_mode": "redirect",
@@ -6375,5 +6420,5 @@
       ]
     }
   ],
-  "content_sha256": "2d04687de61f2d2965b7577d8b069d3f773aece110d9eab1672d75b3d9473c33"
+  "content_sha256": "6ed0cc64d868d100d6e9fb6b67551b22b8ff426473982aba2b5718cb758f8c08"
 }

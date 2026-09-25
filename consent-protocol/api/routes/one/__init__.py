@@ -40,6 +40,7 @@ from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_relay import router as pod_relay_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
+from .profile_discovery import router as profile_discovery_router
 from .puppy_relay import router as puppy_relay_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
@@ -78,6 +79,7 @@ router.include_router(marketplace_requests_router)
 router.include_router(opportunity_signals_router)
 router.include_router(personal_agent_router)
 router.include_router(places_router)
+router.include_router(profile_discovery_router)
 router.include_router(public_people_router)
 router.include_router(people_router)
 # Hub-only: the private relay is the sole authorized door to a pod. A pod must

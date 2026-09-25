@@ -3882,6 +3882,63 @@ export class ApiService {
     return response.json();
   }
 
+  static async getPuppyAccess(deviceId: string, vaultOwnerToken: string): Promise<boolean> {
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-access`,
+      { method: "GET", headers: { Authorization: `Bearer ${vaultOwnerToken}` }, cache: "no-store" },
+    );
+    if (!response.ok) throw new Error(`PUPPY_ACCESS_UNAVAILABLE:${response.status}`);
+    return Boolean(((await response.json()) as { enabled?: boolean }).enabled);
+  }
+
+  static async setPuppyAccess(
+    deviceId: string,
+    enabled: boolean,
+    vaultOwnerToken: string,
+  ): Promise<{ enabled: boolean; revocationPending: boolean }> {
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
+    const ownerPod = await import("./owner-pod-endpoint");
+    const transport = await ApiService.ownerPodTransport();
+    const status = await ApiService.getPersonalAgentStatus();
+    if (status.hostingMode !== "byoc" || !status.hushhId) {
+      throw new Error("PUPPY_REQUIRES_BYOC_POD");
+    }
+    let revocationPending = false;
+    if (enabled) {
+      await ownerPod.refreshEndpointFromHub(uid, transport);
+    }
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-access`,
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${vaultOwnerToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_ACCESS_CHANGE_FAILED:${response.status}`);
+    if (!enabled) {
+      const changed = (await response.json()) as { bindingVersion?: number };
+      const atVersion = Number(changed.bindingVersion);
+      if (!Number.isInteger(atVersion) || atVersion < 1) {
+        throw new Error("PUPPY_ACCESS_DISABLED_REVOCATION_RETRY_REQUIRED");
+      }
+      try {
+        const revoked = await ownerPod.revokeAtPod(uid, deviceId, transport, {
+          atVersion,
+          reason: "owner_withdrew_puppy_access",
+          hushhId: status.hushhId,
+        });
+        revocationPending = !revoked.delivered;
+      } catch {
+        // New grants are disabled at the hub. The UI must report that the old
+        // pod session still needs a signed revocation, not claim completion.
+        revocationPending = true;
+      }
+    }
+    return { enabled, revocationPending };
+  }
+
   static async getPuppyRelayStatus(deviceId: string): Promise<{
     device_id: string;
     state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
@@ -3955,6 +4012,25 @@ export class ApiService {
     };
   }
 
+  static async reconnectOwnerPod(): Promise<void> {
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    const status = await ApiService.getPersonalAgentStatus();
+    if (status.hostingMode !== "byoc" || status.state !== "active") {
+      throw new Error("POD_DIRECT_BYOC_REQUIRED");
+    }
+    const ownerPod = await import("./owner-pod-endpoint");
+    const endpoint = await ownerPod.refreshEndpointFromHub(uid, await ApiService.ownerPodTransport());
+    if (endpoint.hushhId !== status.hushhId) throw new Error("POD_DIRECT_OWNER_MISMATCH");
+    const session = await ownerPod.currentPodSession(uid, await ApiService.ownerPodTransport());
+    const probe = await apiFetch(`${endpoint.url}/api/one/pod/status`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${session.session}` },
+      cache: "no-store",
+    });
+    if (!probe.ok) throw new Error(`POD_DIRECT_UNAVAILABLE:${probe.status}`);
+  }
+
   private static async ownerDirectPodTurn(
     hushhId: string,
     body: string,
@@ -3971,8 +4047,27 @@ export class ApiService {
     const ownerPod = await import("./owner-pod-endpoint");
     const uid = AuthService.getCurrentUser()?.uid;
     if (!uid) return null;
-    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
-    if (!pin || pin.hushhId !== hushhId) return null;
+    let pin = await ownerPod.loadPinnedEndpoint(uid);
+    if (!pin) {
+      const hosting = await ApiService.getPersonalAgentStatus();
+      if (hosting.hostingMode !== "byoc" || hosting.state !== "active") return null;
+      if (hosting.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
+      const transport = await ApiService.ownerPodTransport();
+      try {
+        pin = await ownerPod.refreshEndpointFromHub(uid, transport);
+      } catch (error) {
+        if (
+          error instanceof ownerPod.OwnerPodError &&
+          (error.code === "ENDPOINT_UNAVAILABLE:404" ||
+            error.code === "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY")
+        ) {
+          return null;
+        }
+        const code = error instanceof Error ? error.message : "unknown";
+        throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+      }
+    }
+    if (pin.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
     let session: import("./owner-pod-endpoint").PodSessionRecord;
     try {
       session = await ownerPod.currentPodSession(uid, await ApiService.ownerPodTransport());

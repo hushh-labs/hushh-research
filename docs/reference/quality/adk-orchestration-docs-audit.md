@@ -565,13 +565,10 @@ The complete local CI suite was verified stage by stage on the combined state;
 it did not produce a single terminal green `./bin/hushh ci` run. No application
 candidate has been deployed to dev yet.
 
-A read-only dev predeploy check on 2026-09-25 reconfirmed that migration 239
-would refuse legacy Plaid Items and a regulated funding consent record. The
-approved retirement and retention evidence is still pending. The governed dev
-deployment must not apply that migration or promote backend traffic until the
-records are handled through the existing Plaid retirement procedure and the
-funding record has an approved disposition. Exact inventory and environment
-identifiers stay in private operational evidence.
+A read-only dev predeploy check on 2026-09-25 found legacy Plaid Items and a
+funding consent record that migration 239 would refuse. The dev-specific
+retirement and disposition were completed later that day; see the dated update
+below. This paragraph records the earlier observation, not the current dev state.
 
 A direct BYOC Puppy client is implemented and focused-tested in the local Hussh
 One checkout at `2d07f50ef8` (22 relay tests passed). The current dev service
@@ -580,6 +577,40 @@ its binding route returned HTTP 404. The client therefore cannot complete direct
 admission against the serving dev revision yet. This check did not establish a
 live two-device relay. Re-enrollment is unnecessary: the device status is active.
 Keep the dev deployment and physical-device acceptance gates open.
+
+### Combined direct-access candidate (2026-09-25)
+
+Source baseline: pod branch `e1ce90505` plus local ADK `ed8e84f79`, including
+their separately frozen working-tree edits. The isolated merge was conflict-free.
+The browser now discovers a BYOC endpoint only for an active owner deployment,
+checks the binding and challenge against that owner, pod, app key and environment,
+and pins a new address only after successful pod admission. A failed direct turn
+is visible. Endpoint publication requires a registry record for verified direct
+ingress on the exact service UID, URL and pod key. Puppy inference issuance and
+the compatibility grant require an owner choice bound to that same BYOC pod;
+the Trusted devices screen exposes grant and withdrawal, with pending pod
+revocation reported rather than treated as delivered.
+
+The environment-bound dev retirement procedure found the legacy sandbox Items
+already absent upstream and removed their server-held rows. The only remaining
+funding consent row matched the approved dated smoke disposition, had no linked
+transfer or trade records, and was backed up privately before its deletion.
+Migration 239's dev data guard is now clear. These actions do not establish that
+the migration has run or that UAT and production are ready; their inventories
+and retention decisions remain separate.
+
+Local owner-direct acceptance passed with in-memory fakes. Focused binding,
+trusted-device, frontend direct-turn and TypeScript checks passed. The first
+complete local CI run found one stale MCP catalog test fixture after 9,798 web
+tests passed; that fixture was corrected. A subsequent full local CI run passed
+all blocking lanes, including 9,801 web tests and the protocol, MCP and
+integration gates. The final reconnect control and conditional direct-readiness
+write were added afterward, then typecheck, focused checks, documentation
+governance and diff checks passed. The dev database also has a successful
+pre-migration backup after cleanup. An exact-commit full CI run, exact-head
+GitHub CI, governed dev deployment, live BYOC
+ingress admission and two-network browser/Puppy rehearsal are still required.
+No direct-ready marker should be written solely from these local checks.
 
 ## Follow-up ownership
 
