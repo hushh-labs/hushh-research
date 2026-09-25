@@ -2074,27 +2074,27 @@ export default function GmailReceiptsPage({
               journeyVariant === "workspace" &&
               workspace === "overview" &&
               !loadingStatus ? (
-                <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                  <Button
-                    type="button"
-                    variant="muted"
-                    onClick={() => void handleConnectGmail()}
-                    disabled={gmailActionBusy !== null}
-                    className="w-full sm:w-auto"
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Reconnect Mail
-                  </Button>
+                <div className="flex w-full flex-row items-center gap-2 flex-nowrap pt-2">
                   <Button
                     type="button"
                     variant="destructive"
                     effect="fade"
                     onClick={() => setShowDisconnectConfirm(true)}
                     disabled={gmailActionBusy !== null}
-                    className="w-full sm:w-auto"
+                    className="flex-1 min-w-0 px-2 sm:px-4"
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Disconnect Mail
+                    <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
+                    <span className="truncate">Disconnect Mail</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="muted"
+                    onClick={() => void handleConnectGmail()}
+                    disabled={gmailActionBusy !== null}
+                    className="flex-1 min-w-0 px-2 sm:px-4"
+                  >
+                    <RefreshCw className="mr-1.5 h-4 w-4 shrink-0" />
+                    <span className="truncate">Reconnect Mail</span>
                   </Button>
                 </div>
               ) : null}
@@ -2127,78 +2127,26 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
+            <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-indigo-500/10 p-2 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0">
-                  <PenLine className="h-4.5 w-4.5" />
+                <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0 mt-0.5">
+                  <PenLine className="h-5 w-5" />
                 </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">Draft with One</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground">Draft with One</h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
                     Draft, reply, or follow up with One. Nothing sends without your approval.
                   </p>
                 </div>
               </div>
-              <div className="flex justify-start w-full">
+              <div className="flex justify-center w-full pt-1">
                 <AskOneButton
                   onClick={handleOpenOneChat}
                   showIcon={false}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
+                  className="w-40 h-10 justify-center text-sm font-semibold rounded-full"
                 >
                   Chat with One
                 </AskOneButton>
-              </div>
-            </SurfaceInset>
-          ) : null}
-
-          {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400 shrink-0">
-                  <ShieldCheck className="h-4.5 w-4.5" />
-                </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">KYC requests</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Store KYC details privately and review auto-generated replies.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-start w-full">
-                <Button
-                  type="button"
-                  variant="muted"
-                  onClick={() => setWorkspace("kyc")}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
-                >
-                  Open KYC
-                </Button>
-              </div>
-            </SurfaceInset>
-          ) : null}
-
-          {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
-                  <ShoppingBag className="h-4.5 w-4.5" />
-                </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">Receipts</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Sync purchase emails and keep order insights private.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-start w-full">
-                <Button
-                  type="button"
-                  variant="muted"
-                  onClick={() => setWorkspace("receipts")}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
-                >
-                  Open receipts
-                </Button>
               </div>
             </SurfaceInset>
           ) : null}
