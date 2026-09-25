@@ -1,6 +1,6 @@
 # Drive connection and sharing: working memory
 
-Status: current code map, checked on 2026-09-26. PRs [#7079](https://github.com/hushh-labs/hushh-research/pull/7079) and [#7089](https://github.com/hushh-labs/hushh-research/pull/7089) are merged. This note follows `origin/main` at `b4b6b15c2` plus the local `fix/drive-live-search-latency-p0` changes described below. It records code paths and investigation leads, not a measured latency diagnosis or proof of the deployed UAT configuration.
+Status: current code map, checked on 2026-09-26. PRs [#7079](https://github.com/hushh-labs/hushh-research/pull/7079) and [#7089](https://github.com/hushh-labs/hushh-research/pull/7089) are merged. This note follows the `fix/drive-live-search-latency-p0` branch and its base. It records code paths, one redacted UAT timing observation, and investigation leads. It is not proof that the branch is deployed or that live Google latency improved.
 
 ## Visual Map
 
@@ -116,6 +116,14 @@ These are source-level candidates. No end-to-end trace or live timing was collec
 The code settings do not establish current deployed scheduler state, queue depth, Google response times, or which interval the reported latency concerns. Generic chat latency baselines are not measurements of these Drive card and worker paths. The live Drive path has outcome/stage logs but lacks per-stage elapsed measurements; worker HTTP returns aggregate counts.
 
 The P0 branch uses Google Drive REST `files.list` and `files.get`/export for live search. The separate selected-file index remains opt-in. The new review stream reports actual completed file-check counts to A only; a typed chat turn shows its private-memory preparation and Drive tool activity but does not stream each document's bytes or model tokens. Real Google latency and end-to-end improvement still require a deployed UAT run with redacted timing evidence.
+
+### Long-range owner listing and the UAT failure
+
+At 2026-09-25 20:08 UTC, a redacted UAT log recorded `drive_chat.read_failed stage=select_candidates type=SpecialistAdkTurnError`. Drive search had reached candidate selection, so that event does not establish a Google Drive outage. A nearby likely matching chat POST lasted 168.274 seconds; first visible activity took 67.54 seconds and the first answer token took 167.71 seconds. Available logs do not establish the UI's stated “safety policy” reason or link nearby provider 429s to that request.
+
+The previous live path capped search at 25 candidates, model selection at eight, and owner presentation at ten. A request for all 25–30 named daily notes could not return all of them through that path. The branch adds an owner-only, metadata-only route for explicit “all files from the last N days” requests with a named title, including the two standup phrasings in the UAT screenshots. It searches up to 100 Google Drive title matches in `modifiedTime desc` order, filters by the requested local-calendar window (title date first, then creation date), and renders up to 60 links with dates and matching source references. This bypasses model planning, selection, and content reads for that narrow question. The result is a **bounded candidate list**, not a completeness guarantee, a compiled contents document, or Google Viewer shares to B. If a user asks about contents, the ordinary content path remains subject to its existing limits. `drive_long_range_listing.py`, `drive_chat_service.py`, and `drive_live_reader.py` own this route.
+
+When a model planning, selection, or interpretation stage fails, the branch now reports that stage truthfully. It does not label those failures as a provider outage or an unverified safety block. The owner-facing result still requires a deployed authenticated UAT run to prove behavior against the user's real Drive.
 
 For a precise follow-up, capture **which transition is slow** (chat card, Find files, each recipient Share call, review preparation, or confirmed recipient access), the environment and deployed SHA, client and server timestamps, a redacted request/correlation ID, the relevant request/operation status transitions, and scheduler outcome counts. Keep owner IDs, file names, questions, tokens and document contents out of shared logs.
 

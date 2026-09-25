@@ -15,12 +15,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.drive_candidate_selection import (
     interpret_candidate_selection,
     select_matches,
 )
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
 from hushh_mcp.services.drive_live_reader import MAX_READS, DriveLiveReader
+from hushh_mcp.services.drive_long_range_listing import (
+    filter_long_range_matches,
+    parse_long_range_listing,
+)
 from hushh_mcp.services.drive_suggestion_service import (
     interpret_live_search,
     plan_live_search,
@@ -31,6 +36,8 @@ from hushh_mcp.services.external_connector_oauth_service import get_external_con
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = logging.getLogger("drive_chat_service")
+MAX_OWNER_LIST_DISPLAY = 60
+MAX_OWNER_LIST_CANDIDATES = 100
 
 
 class DocumentAnswer(BaseModel):
@@ -122,19 +129,24 @@ def _found_files(
     date_field: str = "modified_time",
     timezone: str = "UTC",
     reasons: dict | None = None,
+    limit: int = 10,
+    intro: str | None = None,
 ) -> str:
     """Render safe owner-only opening actions from validated provider IDs.
 
     ``reasons`` maps a match's source_ref to why it could not be read.
     """
     lines = [
-        "I found these Drive files. I couldn't read their contents here, but you can open them:"
-        if unreadable
-        else "I found these Drive files:"
+        intro
+        or (
+            "I found these Drive files. I couldn't read their contents here, but you can open them:"
+            if unreadable
+            else "I found these Drive files:"
+        )
     ]
     if time_window:
         lines.append(time_window)
-    for index, match in enumerate(matches[:10], 1):
+    for index, match in enumerate(matches[:limit], 1):
         title = _safe_title(match["name"])
         modified = match.get(date_field) or match.get("modified_time")
         date = _local_date(modified, timezone)
@@ -146,7 +158,7 @@ def _found_files(
         reason = _NOT_READ_LABELS.get(str((reasons or {}).get(match.get("source_ref"))))
         detail = " · ".join(item for item in (kind, date, reason) if item)
         lines.append(f"{index}. {title} · {detail} — [Open in Drive]({match['open_url']})")
-    if truncated or len(matches) > 10:
+    if truncated or len(matches) > limit:
         lines.append("More matches may exist. Ask for a narrower filename or period.")
     return "\n".join(lines)
 
@@ -174,10 +186,10 @@ def _share_file(item: dict) -> dict:
     }
 
 
-def _metadata_sources(matches: list[dict]) -> list[dict]:
+def _metadata_sources(matches: list[dict], *, limit: int = 10) -> list[dict]:
     return [
         {"source_ref": item["source_ref"], "label": "Document", "kind": "metadata", "page": None}
-        for item in matches[:10]
+        for item in matches[:limit]
     ]
 
 
@@ -378,6 +390,67 @@ class DriveChatService:
                     owner_timezone = ZoneInfo(timezone or "UTC").key
                 except (ValueError, ZoneInfoNotFoundError):
                     owner_timezone = "UTC"
+                # An explicit all-files owner listing is a metadata question.
+                # Keep it away from the model selector that can fail after a
+                # successful Drive search, and never use it for B's question or
+                # an owner-to-recipient sharing review.
+                listing = parse_long_range_listing(message) if live and not require_live else None
+                if listing is not None:
+                    stage = "search_files"
+                    await require_access()
+                    found = await reader.find(
+                        query=[listing.anchor],
+                        recent=True,
+                        max_results=MAX_OWNER_LIST_CANDIDATES,
+                        title_only=True,
+                    )
+                    matches = filter_long_range_matches(
+                        listing,
+                        found["matches"],
+                        now_utc=now_utc,
+                        timezone=owner_timezone,
+                    )
+                    await reader.require_current()
+                    if not matches:
+                        return _outcome(
+                            "input_required",
+                            "I couldn't find a matching file in that date window. "
+                            "Try the exact meeting title or a narrower period.",
+                        )
+                    window = listing.window_description(now_utc=now_utc, timezone=owner_timezone)
+                    count = len(matches)
+                    opening = (
+                        f"I found {count} candidate files by title and date "
+                        "in a bounded Drive search."
+                    )
+                    if listing.requested_count is not None and count < listing.requested_count:
+                        opening += f" You asked for {listing.requested_count}."
+                    text = (
+                        opening
+                        + "\n\n"
+                        + _found_files(
+                            matches,
+                            truncated=found["truncated"],
+                            time_window=window,
+                            date_field="listing_day",
+                            timezone=owner_timezone,
+                            limit=MAX_OWNER_LIST_DISPLAY,
+                            intro="Open these possible matches:",
+                        )
+                    )
+                    return _outcome(
+                        "ok",
+                        text,
+                        sources=_metadata_sources(matches, limit=MAX_OWNER_LIST_DISPLAY),
+                        titles=[item["name"] for item in matches[:MAX_OWNER_LIST_DISPLAY]],
+                        truncated=found["truncated"] or count > MAX_OWNER_LIST_DISPLAY,
+                        metadata_only=True,
+                        selection={
+                            "stage": "owner_title_date_listing",
+                            "candidates": len(found["matches"]),
+                            "selected": count,
+                        },
+                    )
                 selection = None
                 if live:
                     stage = "search_plan"
@@ -674,6 +747,17 @@ class DriveChatService:
                     "source_changed",
                     "Drive access or the file changed. Try again.",
                 )
+        except SpecialistAdkTurnError:
+            logger.warning("drive_chat.model_stage_failed stage=%s", stage)
+            message = {
+                "search_plan": "I couldn't plan this Drive search. No files were checked. Try a more specific title or date.",
+                "select_candidates": "I found Drive candidates, but couldn't verify which files match. Try a more specific title or date.",
+                "interpret": "I found Drive files, but couldn't finish an answer from their contents. Try again or ask for filenames only.",
+            }.get(stage, "I couldn't finish this Drive request. Please try again.")
+            return _outcome(
+                "unavailable",
+                message,
+            )
         except Exception as error:
             # Only the stage and exception type are safe operational evidence.
             logger.warning("drive_chat.read_failed stage=%s type=%s", stage, type(error).__name__)

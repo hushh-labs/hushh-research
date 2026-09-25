@@ -27,6 +27,7 @@ from hushh_mcp.services.google_drive_adapter import (
 from hushh_mcp.services.google_drive_rest_transport import PARSE_REASONS, GoogleDriveRestTransport
 
 MAX_SEARCH_RESULTS = 25
+MAX_OWNER_LIST_RESULTS = 100
 MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
 EXCERPT_CHARS = 4000
@@ -274,6 +275,8 @@ class DriveLiveReader:
         shared_with_me: bool = False,
         recent: bool = False,
         title_dates: list[str] | tuple[str, ...] = (),
+        max_results: int = MAX_SEARCH_RESULTS,
+        title_only: bool = False,
     ) -> dict:
         """Search bounded file metadata; no content read, selection, or index.
 
@@ -281,6 +284,13 @@ class DriveLiveReader:
         may match only when that finds nothing. A file type is a mimeType clause.
         """
         date_bounded = time_field is not None or start_time is not None or end_time is not None
+        if (
+            not isinstance(max_results, int)
+            or isinstance(max_results, bool)
+            or not 1 <= max_results <= MAX_OWNER_LIST_RESULTS
+            or not isinstance(title_only, bool)
+        ):
+            raise DriveReadError("narrow_selection_required")
         if file_kind not in MIME_CLAUSES and file_kind != "any":
             raise DriveReadError("narrow_selection_required")
         # Meet names recordings and notes in the meeting's own timezone, so a day
@@ -302,10 +312,19 @@ class DriveLiveReader:
                 )
             )
         term_clauses = [
-            f"(title contains '{term}' or fullText contains '{term}')" for term in terms
+            f"title contains '{term}'"
+            if title_only
+            else f"(title contains '{term}' or fullText contains '{term}')"
+            for term in terms
         ]
-        # A date window ranks by that file time, so the result cut keeps the newest.
-        order = {"orderBy": f"{time_field} desc"} if date_bounded else {}
+        # A date window ranks by its requested file time. A recent keyword
+        # search must ask Drive for newest files before the bounded page cut.
+        if date_bounded:
+            order = {"orderBy": f"{time_field} desc"}
+        elif recent:
+            order = {"orderBy": "modifiedTime desc"}
+        else:
+            order = {}
         requests: list[tuple[str, dict]] = []
         if term_clauses:
             requests.append(
@@ -327,7 +346,7 @@ class DriveLiveReader:
         pages = 0
         for tool_name, request in requests:
             page_token = None
-            while pages < MAX_SEARCH_PAGES and len(matches) < MAX_SEARCH_RESULTS:
+            while pages < MAX_SEARCH_PAGES and len(matches) < max_results:
                 await self.require_access()
                 arguments = {
                     **request,
@@ -350,7 +369,7 @@ class DriveLiveReader:
                 if len(candidates) > SEARCH_PAGE_SIZE:
                     raise DriveReadError("provider_response_invalid")
                 for candidate in candidates:
-                    if len(matches) >= MAX_SEARCH_RESULTS:
+                    if len(matches) >= max_results:
                         truncated = True
                         break
                     match = self._match(candidate)
@@ -374,7 +393,7 @@ class DriveLiveReader:
                 page_token = next_token
             if page_token:
                 truncated = True
-            if pages >= MAX_SEARCH_PAGES or len(matches) >= MAX_SEARCH_RESULTS:
+            if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
                 truncated = True
                 break
             if matches:
@@ -429,7 +448,8 @@ class DriveLiveReader:
             else:
                 truncated = True
         if dated:
-            matches = [*dated, *matches][:MAX_SEARCH_RESULTS]
+            truncated = truncated or len(dated) + len(matches) > max_results
+            matches = [*dated, *matches][:max_results]
         if recent and tool_name == "search_files":
             field = "created_time" if time_field == "createdTime" else "modified_time"
             matches.sort(key=lambda item: item.get(field) or "", reverse=True)

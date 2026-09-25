@@ -181,6 +181,101 @@ async def test_find_caps_results_within_the_last_page():
 
 
 @pytest.mark.asyncio
+async def test_owner_listing_opt_in_pages_past_default_cap_without_content_reads():
+    reader, adapter, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        assert tool_name == "search_files"
+        assert arguments["pageSize"] == 25
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, min(offset + 25, 35))
+        ]
+        return ExternalMcpToolResult(
+            False,
+            {"files": files, "nextPageToken": str(offset + 25) if offset + 25 < 35 else None},
+            False,
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=100)
+    assert len(result["matches"]) == 35
+    assert result["truncated"] is False
+    assert mcp.read_tool.await_count == 2
+    adapter.get_metadata.assert_not_awaited()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_opt_in_reports_truncation_at_explicit_cap():
+    reader, _, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, offset + 25)
+        ]
+        return ExternalMcpToolResult(
+            False, {"files": files, "nextPageToken": str(offset + 25)}, False
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=30)
+    assert len(result["matches"]) == 30
+    assert result["truncated"] is True
+    assert mcp.read_tool.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_cancellation_stops_the_next_page_without_releasing_results():
+    reader, _, mcp, _ = fixture()
+    next_page_started = asyncio.Event()
+    next_page_cancelled = asyncio.Event()
+
+    async def page(*, user_id, tool_name, arguments):
+        if "pageToken" not in arguments:
+            return ExternalMcpToolResult(
+                False,
+                {
+                    "files": [
+                        {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+                        for index in range(25)
+                    ],
+                    "nextPageToken": "next",
+                },
+                False,
+            )
+        next_page_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            next_page_cancelled.set()
+            raise
+
+    mcp.read_tool.side_effect = page
+    task = asyncio.create_task(reader.find(query=["standup"], max_results=100))
+    try:
+        await asyncio.wait_for(next_page_started.wait(), timeout=1)
+    finally:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert next_page_cancelled.is_set()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_results", [0, 101, True, 25.0])
+async def test_owner_listing_rejects_invalid_caps_before_provider_call(max_results):
+    reader, _, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["standup"], max_results=max_results)
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_read_matches_reads_only_chosen_file_and_rechecks_name():
     reader, adapter, mcp, _ = fixture()
     chosen = [{"file_id": "file-1", "name": "March statement.pdf"}]

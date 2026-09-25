@@ -171,15 +171,15 @@ class GoogleDriveRestTransport:
                 or order not in _SEARCH_ORDERS
             ):
                 raise DriveOAuthError("invalid_argument", status_code=400)
-            # Drive ranks fullText matches by relevance and cannot sort them;
-            # every other search comes back newest first by the requested file
-            # time, so a page cut keeps the most recent files.
+            # Keep every bounded search in the requested file-time order. Drive
+            # files.list has no default ordering, including for fullText q;
+            # an unsorted page cut can omit recent matches arbitrarily.
             page = await self.adapter.list_files(
                 access_token=token,
                 query=rest_query(query),
                 page_size=page_size,
                 page_token=page_token,
-                order_by=None if "fullText" in query else order,
+                order_by=order,
             )
         files = page.get("files", [])
         if not isinstance(files, list):
