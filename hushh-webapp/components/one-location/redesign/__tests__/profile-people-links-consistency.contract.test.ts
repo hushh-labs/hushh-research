@@ -106,7 +106,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toMatch(/icon=\{PreferencesProfileIcon\}\s+iconTone="capability"/);
     expect(source).toMatch(/icon=\{SecurityProfileIcon\}\s+iconTone="capability"/);
     expect(source).toMatch(/icon=\{DevicesProfileIcon\}\s+iconTone="capability"/);
-    expect(source).toMatch(/icon=\{RiaAgentIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{InviteFriendsProfileIcon\}\s+iconTone="capability"/);
     expect(source).toMatch(/icon=\{SupportProfileIcon\}\s+iconTone="capability"/);
     expect(source).toMatch(/icon=\{DeveloperToolsProfileIcon\}\s+iconTone="capability"/);
     expect(source).toContain('tone="destructive"');
