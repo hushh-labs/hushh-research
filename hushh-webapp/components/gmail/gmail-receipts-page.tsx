@@ -2213,10 +2213,10 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && receiptsContentActive ? (
-            <SurfaceInset className="space-y-4 px-4 py-4.5 text-sm sm:px-5 sm:py-5.5">
-              <div className="space-y-1.5">
-                <p className="font-medium text-foreground">Shopping summary</p>
-                <p className="text-muted-foreground">
+            <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">Shopping summary</h2>
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   Generated from your synced receipts. You choose when to save
                   it to your private memory.
                 </p>
