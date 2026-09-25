@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   documents: vi.fn(),
   push: vi.fn(),
   calendarRefresh: vi.fn(),
+  calendarDisconnect: vi.fn(),
   calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
   gmailStatus: { connected: false, compose_permission_granted: false },
@@ -17,6 +18,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));
+vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { disconnect: state.calendarDisconnect } }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ usePkmDomainResource: () => state.financial }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
@@ -68,6 +70,8 @@ describe("supported connector catalog", () => {
     state.documents.mockReset().mockResolvedValue([]);
     state.push.mockReset();
     state.calendarRefresh.mockReset();
+    state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
+    state.user.getIdToken.mockResolvedValue("synthetic-firebase-token");
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
     state.gmailStatus = { connected: false, compose_permission_granted: false };
@@ -195,6 +199,15 @@ describe("supported connector catalog", () => {
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
   });
 
+  it("shows a compact Gmail disconnect action and asks before changing access", async () => {
+    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    render(panel());
+    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    fireEvent.click(await connected.findByRole("button", { name: "Disconnect Gmail" }));
+    expect(screen.getByText("Disconnect Mail? Drive stays connected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
   it("never duplicates the built-in Drive connection", async () => {
     state.overview.mockResolvedValue(overview([{ ...catalogItem, connectorId: "google_drive", displayName: "Duplicate Drive" }]));
     render(panel());
@@ -233,20 +246,26 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Gmail" })).toBeInTheDocument();
   });
 
-  it("offers Calendar connection when disconnected and management when connected", async () => {
+  it("offers Calendar connection when disconnected and a reviewed disconnect when connected", async () => {
     const view = render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
     expect(callbacks.onBack).toHaveBeenCalledOnce();
     expect(state.push).toHaveBeenCalledExactlyOnceWith("/one/calendar");
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     view.rerender(panel());
-    expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Calendar" }));
+    expect(screen.getByText("Disconnect Calendar from One? Other connections stay active.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledExactlyOnceWith("synthetic-firebase-token", "owner-a"));
+    await waitFor(() => expect(state.calendarRefresh).toHaveBeenCalledOnce());
   });
 
-  it("retries Calendar status instead of claiming an unchecked connection is manageable", async () => {
+  it("does not claim an unchecked Calendar connection is manageable", async () => {
     state.calendar = { connected: false, loaded: true, error: "Status unavailable", status: { status: "disconnected" } };
     render(panel());
-    fireEvent.click(await screen.findByRole("button", { name: "Retry Calendar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Calendar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(state.calendarRefresh).toHaveBeenCalledOnce();
     expect(state.push).not.toHaveBeenCalled();
   });
