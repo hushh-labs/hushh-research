@@ -116,6 +116,9 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'process.argv.includes("--full")',
         'params: { journey: "investor", step: "entered" }',
         'params: { route_id: "kai_home" }',
+        '"portfolio_viewed"',
+        'payload.result === "success" && Boolean(payload.portfolio_source)',
+        'portfolio_source: portfolioEvent.payload.portfolio_source',
         'entry_surface: activationEvent.payload.entry_surface',
     )
     package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")

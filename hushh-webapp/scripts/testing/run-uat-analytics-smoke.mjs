@@ -78,8 +78,12 @@ function classifySmokeFailure(message) {
   if (/missing canonical reviewer test identity/i.test(message)) {
     return "missing_fixture_credentials";
   }
-  if (/recommendation_viewed|investor_activation_completed/i.test(message)) {
-    return "analysis_recommendation_or_activation_instrumentation";
+  if (
+    /portfolio_viewed|recommendation_viewed|investor_activation_completed/i.test(
+      message,
+    )
+  ) {
+    return "portfolio_analysis_or_activation_instrumentation";
   }
   if (/measurement ID|forbidden production measurement/i.test(message)) {
     return "measurement_id_or_sink_mismatch";
@@ -97,6 +101,9 @@ function validateRequiredParams(eventName, payload) {
   }
   if (eventName === "growth_funnel_step_completed") {
     required.push("step");
+  }
+  if (eventName === "portfolio_viewed") {
+    required.push("result", "portfolio_source");
   }
   const missing = required.filter(
     (key) => payload[key] === undefined || payload[key] === "",
@@ -361,6 +368,7 @@ function parseAnalyticsCollectRequests(request) {
       step: params.get("ep.step") || "",
       result: params.get("ep.result") || "",
       entry_surface: params.get("ep.entry_surface") || "",
+      portfolio_source: params.get("ep.portfolio_source") || "",
     });
     const queryEventName = parsed.searchParams.get("en");
     if (!measurementId) return [];
@@ -513,6 +521,22 @@ try {
   };
 
   if (fullJourney) {
+    const portfolioEvent = await waitForAnalyticsEvent(
+      page,
+      "portfolio_viewed",
+      (payload) =>
+        payload.result === "success" && Boolean(payload.portfolio_source),
+      analysisTimeoutMs,
+    );
+    requiredCollectEvents.push({
+      eventName: "portfolio_viewed",
+      params: {
+        result: "success",
+        portfolio_source: portfolioEvent.payload.portfolio_source,
+      },
+    });
+    outputEvents.portfolio_viewed = portfolioEvent.payload;
+
     await navigateInApp(
       page,
       `/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
