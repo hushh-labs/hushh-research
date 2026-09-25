@@ -8,6 +8,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -52,17 +53,20 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
 
   useEffect(() => {
     let active = true;
+    const accessForLoad = { userId: access.userId, vaultKey: access.vaultKey, vaultOwnerToken: access.vaultOwnerToken };
     const owner = snapshotValidatedAuthSessionOwner();
     const epoch = snapshotVaultSessionEpoch();
-    const current = () => Boolean(active && owner?.userId === access.userId &&
+    const current = () => Boolean(active && owner?.userId === accessForLoad.userId &&
       isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
     lifetime.current = current;
     inFlight.current = false;
     setBusy(false); setCatalogs({}); setAuthRequired({}); setRemoving(null);
     setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
-    void loadCustomConnectorConfigurations(access, true).then(records => {
+    void loadCustomConnectorConfigurations(accessForLoad, true).then(records => {
       if (!current()) return;
       setItems(records.map(savedConnector));
+      const handoff = takeRefreshedMcpCatalog({ ownerUserId: accessForLoad.userId, vaultEpoch: epoch, configurations: records });
+      if (handoff) setCatalogs({ [handoff.connectorId]: handoff.tools });
       setStatus("ready");
     }).catch(() => { if (current()) setStatus("failed"); });
     return () => { active = false; refreshAbort.current?.abort(); };

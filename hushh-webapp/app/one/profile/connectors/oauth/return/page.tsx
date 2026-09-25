@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { saveCustomConnectorOAuthResult } from "@/lib/connections/custom-connector-configuration";
+import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
@@ -231,9 +232,13 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
       savedSuccessfully = true;
       onPhase("saved");
       try {
-        await ExternalConnectorService.refreshMcpCatalog({ vaultOwnerToken, configuration: saved,
+        const tools = await ExternalConnectorService.refreshMcpCatalog({ vaultOwnerToken, configuration: saved,
           signal: controller.signal, isEffectCurrent: current });
-        if (current()) setMessage("Sign-in saved in your vault. Tools refreshed.");
+        if (current()) {
+          rememberRefreshedMcpCatalog({ ownerUserId: user.uid, vaultEpoch: epoch,
+            connectorId: saved.connectorId, configurationRevision: saved.revision, tools });
+          setMessage("Sign-in saved in your vault. Tools refreshed.");
+        }
       } catch {
         if (current()) setMessage(`Sign-in saved in your vault, but tools could not be refreshed. Retry Refresh tools in ${returnLabel}.`);
       }

@@ -7,6 +7,8 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { Capacitor } from "@capacitor/core";
 import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
+import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
   McpCatalogAuthenticationError: class extends Error {},
@@ -157,6 +159,19 @@ it("refreshes tools from the current vault configuration on explicit tap", async
   expect(loadCustomConnectorConfigurations).toHaveBeenCalledTimes(2);
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
   expect(screen.queryByRole("button", { name: "Sign in to Synthetic" })).toBeNull();
+});
+
+it("shows the one-time catalog refreshed during OAuth return without another provider call", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "oauth" as const, accessToken: "synthetic", expiresAt: Math.floor(Date.now() / 1000) + 300 } };
+  const tools = [{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1" }];
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  rememberRefreshedMcpCatalog({ ownerUserId: access.userId, vaultEpoch: snapshotVaultSessionEpoch(),
+    connectorId: record.connectorId, configurationRevision: record.revision, tools });
+  render(<CustomConnectorsSettings access={access} />);
+  expect(await screen.findByText("1 tools available")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("1 tools · Ask first"));
+  expect(screen.getByText("search_files")).toBeInTheDocument();
+  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
 });
 
 it("offers OAuth only after an unauthenticated server requests it", async () => {
