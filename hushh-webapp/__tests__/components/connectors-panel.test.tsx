@@ -80,8 +80,8 @@ describe("supported connector catalog", () => {
     for (const label of ["Connectors", "Google Drive", "Gmail"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
-    expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage Plaid" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plaid" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Connected" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
@@ -95,6 +95,21 @@ describe("supported connector catalog", () => {
   it("shows built-in Drive when the external registry is empty", async () => {
     render(panel());
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
+  });
+
+  it("opens connected Plaid details without redirecting to portfolio sources", async () => {
+    state.financial.data = { data: { connections_v1: {
+      "synthetic-item": { institution_name: "Synthetic Bank", status: "active", products: [] },
+    } } };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Plaid" }));
+    expect(screen.getByText("Synthetic Bank")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(state.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(screen.getByText(/remove its connected financial records/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it("does not offer a dead Drive connection action when OAuth is unconfigured", async () => {
@@ -216,14 +231,14 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Gmail" })).toBeInTheDocument();
   });
 
-  it.each([
-    ["Calendar", "/one/calendar"],
-    ["Plaid", "/one/kai/portfolio/sources"],
-  ])("opens %s in this app", async (name, route) => {
-    render(panel());
-    fireEvent.click(await screen.findByRole("button", { name: `Manage ${name}` }));
+  it("offers Calendar connection when disconnected and management when connected", async () => {
+    const view = render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
     expect(callbacks.onBack).toHaveBeenCalledOnce();
-    expect(state.push).toHaveBeenCalledExactlyOnceWith(route);
+    expect(state.push).toHaveBeenCalledExactlyOnceWith("/one/calendar");
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    view.rerender(panel());
+    expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
   });
 
   it("rejects a delayed catalog after same-owner token rotation", async () => {
