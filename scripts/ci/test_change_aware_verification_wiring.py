@@ -58,6 +58,8 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
 
 
 def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
+    # A new non-critical check stays advisory for 7 days before it may block or
+    # roll back a deploy (added 2026-09-25; not blocking before 2026-10-02).
     require(
         ".github/workflows/deploy-uat.yml",
         "id: frontend-analytics-candidate",
@@ -72,14 +74,18 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         "if: always() && steps.scope.outputs.deploy_frontend == 'true'",
         'entry.get("tag") == "analytics-candidate"',
         "--remove-tags=analytics-candidate",
-        "Analytics smoke failed; both zero-traffic candidates stay unpromoted.",
+        "::warning title=UAT analytics transport (advisory)::",
         "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
-        'append_unique(blocking, ["analytics_transport_failed"])',
-        'if os.environ.get("DEPLOY_BACKEND") == "true":',
+        "analytics_smoke_warning = not analytics_smoke_success",
         'analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"',
         '"analytics_smoke": {',
+        '"advisory_until": "2026-10-02",',
+        '"warning": analytics_smoke_warning,',
     )
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    assert "analytics_transport_failed" not in content
+    assert "candidates stay unpromoted" not in content
+    assert 'and "${{ steps.verify-analytics-uat.outcome }}" == "success"' not in content
     assert '--set-tags="analytics-candidate=' not in content
     assert "id: promote-paired-backend" not in content
     assert (

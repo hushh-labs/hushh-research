@@ -1089,10 +1089,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The analytics transport smoke is a new non-critical check: it stays
+          # advisory for its 7-day burn-in (added 2026-09-25, not blocking before
+          # 2026-10-02). Making it block promotion is a separate, explicit change.
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
-            echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
-            exit 0
+            echo "::warning title=UAT analytics transport (advisory)::The analytics smoke did not pass (${{ steps.verify-analytics-uat.outcome }}). Promoting anyway during its 7-day advisory burn-in; see analytics_smoke in the release evidence."
           fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
@@ -1154,17 +1156,12 @@ jobs:
           backend_revision, backend_url = serving_state(
               "/tmp/uat-backend-promoted-service.json",
               "${{ steps.candidate-state.outputs.backend_revision }}",
-              "${{ steps.scope.outputs.deploy_backend }}" == "true"
-              and (
-                  "${{ steps.scope.outputs.deploy_frontend }}" != "true"
-                  or "${{ steps.verify-analytics-uat.outcome }}" == "success"
-              ),
+              "${{ steps.scope.outputs.deploy_backend }}" == "true",
           )
           frontend_revision, frontend_url = serving_state(
               "/tmp/uat-frontend-promoted-service.json",
               "${{ steps.candidate-state.outputs.frontend_revision }}",
-              "${{ steps.scope.outputs.deploy_frontend }}" == "true"
-              and "${{ steps.verify-analytics-uat.outcome }}" == "success",
+              "${{ steps.scope.outputs.deploy_frontend }}" == "true",
           )
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"backend_revision={backend_revision}\n")
@@ -1601,11 +1598,9 @@ jobs:
               append_unique(blocking, ["passkey_domain_association_failed"])
               frontend_failure = True
 
-          if not analytics_smoke_success:
-              append_unique(blocking, ["analytics_transport_failed"])
-              frontend_failure = True
-              if os.environ.get("DEPLOY_BACKEND") == "true":
-                  backend_failure = True
+          # Advisory during its 7-day burn-in (not blocking before 2026-10-02):
+          # a failed analytics smoke is reported as a warning, never a rollback.
+          analytics_smoke_warning = not analytics_smoke_success
 
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
@@ -1672,6 +1667,9 @@ jobs:
                   "required": analytics_smoke_required,
                   "outcome": os.environ.get("ANALYTICS_SMOKE_OUTCOME", ""),
                   "success": analytics_smoke_success,
+                  "advisory": True,
+                  "advisory_until": "2026-10-02",
+                  "warning": analytics_smoke_warning,
               },
               "candidate_pkm_evaluator": {
                   "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,

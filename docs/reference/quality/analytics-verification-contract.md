@@ -93,9 +93,11 @@ This command intentionally fails unless repo schema tests, sandbox transport aud
 
 UAT smoke note:
 
-- every governed UAT frontend deployment runs this smoke after semantic verification;
-  a failure is classified as `analytics_transport_failed` and the candidate frontend
-  is rolled back instead of being promoted
+- every governed UAT frontend deployment runs this smoke on the zero-traffic candidate;
+  it is advisory during its 7-day burn-in (added 2026-09-25, not blocking before
+  2026-10-02): a failure is reported as a warning and in the `analytics_smoke`
+  release evidence, and never blocks promotion or rolls a deploy back. Making it
+  blocking is a separate, explicit change after 7 days of green evidence
 - `npm run smoke:analytics:uat` uses Playwright against the deployed UAT origin and the existing reviewer test fixture via maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE`.
 - `UAT_SMOKE_*` and `KAI_TEST_*` are accepted only as one-release migration aliases.
 - it must not fabricate analytics events; it only observes events produced by the app during a real browser journey
