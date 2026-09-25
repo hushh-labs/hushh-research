@@ -55,13 +55,26 @@ describe("connector read receipts", () => {
       kind: "metadata", label: "Document", page: null,
     }));
     const listing = { ...receipt, connector: "drive", sources,
-      owner_compile_available: true };
+      owner_compile_available: true,
+      owner_compile_query: "share all last 30 days standup notes",
+      owner_compile_window: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" } };
     expect(parseConnectorReadReceipt(listing)).toMatchObject({
-      ownerCompileAvailable: true, sourceRefs: expect.any(Array),
+      ownerCompileAvailable: true, ownerCompileQuery: listing.owner_compile_query,
+      ownerCompileWindow: listing.owner_compile_window, sourceRefs: expect.any(Array),
     });
     expect(parseConnectorReadReceipt({ ...listing, connector: "mail" })).toBeNull();
     expect(parseConnectorReadReceipt({ ...listing, status: "unavailable" })).toBeNull();
     expect(parseConnectorReadReceipt({ ...listing, metadata_only: false })).toBeNull();
     expect(parseConnectorReadReceipt({ ...listing, sources: [...sources, ...sources, ...sources] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: "a".repeat(2049) })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_window: {
+      ...listing.owner_compile_window, start_date: "2026-02-30",
+    } })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_window: {
+      ...listing.owner_compile_window, timezone: "Bad/Timezone",
+    } })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: null,
+      owner_compile_window: null })).not.toHaveProperty("ownerCompileAvailable");
   });
 });

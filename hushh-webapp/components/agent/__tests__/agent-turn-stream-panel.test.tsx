@@ -275,7 +275,9 @@ describe("AgentTurnStreamPanel", () => {
     const experience = {
       type: "one.connector_read.v1" as const, connector: "drive" as const,
       status: "ok" as const, sourceRefs: [], metadataOnly: true, truncated: false,
-      ownerCompileAvailable: true,
+      ownerCompileAvailable: true, ownerCompileQuery: "share all last 30 days standup notes",
+      ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
     };
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText=""
       isStreaming={false} structuredExperience={experience}
@@ -295,6 +297,11 @@ describe("AgentTurnStreamPanel", () => {
 
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
       structuredExperience={{ ...experience, ownerCompileAvailable: false }}
+      onCompileDriveNotes={onCompileDriveNotes} />);
+    expect(screen.queryByRole("button", { name: "Compile original notes" })).not.toBeInTheDocument();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperience={{ ...experience, ownerCompileWindow: undefined }}
       onCompileDriveNotes={onCompileDriveNotes} />);
     expect(screen.queryByRole("button", { name: "Compile original notes" })).not.toBeInTheDocument();
   });

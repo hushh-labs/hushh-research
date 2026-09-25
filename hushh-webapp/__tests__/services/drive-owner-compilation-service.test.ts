@@ -38,7 +38,8 @@ beforeEach(() => mockTransport.fetch.mockReset());
 describe("owner Drive compilation stream", () => {
   const input = {
     token: "synthetic-owner", message: "Compile all 30 days standup notes",
-    timezone: "Asia/Kolkata", guard: vi.fn(),
+    window: { start_date: "2026-08-27", end_date: "2026-09-25", timezone: "Asia/Kolkata" },
+    guard: vi.fn(),
   };
 
   it("reports real file counts and releases Markdown only after the complete frame", async () => {
@@ -69,7 +70,7 @@ describe("owner Drive compilation stream", () => {
     const [path, request] = mockTransport.fetch.mock.calls[0];
     expect(path).toBe("/api/connectors/google_drive/sharing/owner/compile/stream");
     expect(request.headers.Authorization).toBe("Bearer synthetic-owner");
-    expect(JSON.parse(request.body)).toEqual({ message: input.message, timezone: input.timezone });
+    expect(JSON.parse(request.body)).toEqual({ message: input.message, window: input.window });
   });
 
   it("rejects an interrupted stream and never returns its partial Markdown", async () => {
@@ -88,6 +89,17 @@ describe("owner Drive compilation stream", () => {
         failed: 0, truncated: false }),
     ]));
     await expect(streamOwnerDriveCompilation(input)).rejects.toBeInstanceOf(DriveCompilationError);
+  });
+
+  it("accepts a bounded Unicode chunk after JSON escaping expands the wire frame", async () => {
+    const text = "🙂".repeat(8_192);
+    mockTransport.fetch.mockResolvedValue(streamResponse([
+      `event: markdown\ndata: {"event":"markdown","index":0,"text":"${"\\ud83d\\ude42".repeat(8_192)}"}\n\n`,
+      frame("complete", { status: "complete", matched: 1, included: 1,
+        failed: 0, truncated: false }),
+    ]));
+    const result = await streamOwnerDriveCompilation(input);
+    expect(result.markdown).toBe(text);
   });
 
   it("uses only an allowlisted error code and drops private server text", async () => {

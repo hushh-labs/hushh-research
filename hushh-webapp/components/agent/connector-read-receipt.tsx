@@ -31,7 +31,7 @@ const DRIVE_STATUS: Record<ConnectorReadExperience["status"], string> = {
 const COMPILATION_ERROR_TEXT: Record<NonNullable<DriveCompilationUiState["errorReason"]>, string> = {
   connect_required: "Connect Drive, then try again.",
   reconnect_required: "Reconnect Drive, then try again.",
-  input_required: "Ask for a specific note title and date range, then try again.",
+  input_required: "This search is out of date or needs a more specific title. Search again in chat.",
   source_changed: "Drive changed during compilation. Try again.",
   interrupted: "Compilation stopped before it finished. Try again.",
   unavailable: "Drive could not finish the compilation. Try again.",
@@ -66,7 +66,8 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
           Open Connectors
         </Button>
       ) : null}
-      {drive && experience.ownerCompileAvailable && onCompileDriveNotes ? (
+      {drive && experience.ownerCompileAvailable && experience.ownerCompileQuery &&
+        experience.ownerCompileWindow && onCompileDriveNotes ? (
         <div className="space-y-2">
           {driveCompilation?.status === "ready" || driveCompilation?.status === "partial" ? (
             <p role="status">

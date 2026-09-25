@@ -1,4 +1,5 @@
 import { parseDriveBatchProgressActivity, type DriveBatchProgress } from "@/lib/agent/drive-batch-progress";
+import { parseDriveOwnerCompileWindow, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
@@ -6,8 +7,11 @@ import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 const COMPILE_PATH = "/api/connectors/google_drive/sharing/owner/compile/stream";
 const MAX_REQUEST_BYTES = 2_048;
 const MAX_MARKDOWN_BYTES = 2_000_000;
-const MAX_WIRE_BYTES = 8_000_000;
-const MAX_FRAME_CHARS = 32_768;
+// An 8192-codepoint chunk can expand to 12 ASCII chars/codepoint when JSON
+// escapes emoji; the owner plaintext cap below remains 2 MB after decoding.
+const MAX_MARKDOWN_CHUNK_CODEPOINTS = 8_192;
+const MAX_WIRE_BYTES = 16_000_000;
+const MAX_FRAME_CHARS = 131_072;
 
 export type DriveCompilationStage = "starting" | "searching" | "fetching" | "finalizing";
 export type DriveCompilationResult = {
@@ -46,14 +50,15 @@ function safeCode(value: unknown): string {
 export async function streamOwnerDriveCompilation(input: {
   token: string;
   message: string;
-  timezone?: string;
+  window: DriveOwnerCompileWindow;
   signal?: AbortSignal;
   guard: () => void;
   onStage?: (stage: DriveCompilationStage) => void;
   onFile?: (progress: DriveBatchProgress) => void;
 }): Promise<DriveCompilationResult> {
   const request = input.message.trim();
-  if (!request || new TextEncoder().encode(request).byteLength > MAX_REQUEST_BYTES) {
+  const window = parseDriveOwnerCompileWindow(input.window);
+  if (!request || new TextEncoder().encode(request).byteLength > MAX_REQUEST_BYTES || !window) {
     throw new DriveCompilationError("invalid_argument");
   }
   input.guard();
@@ -65,7 +70,7 @@ export async function streamOwnerDriveCompilation(input: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },
-    body: JSON.stringify({ message: request, ...(input.timezone ? { timezone: input.timezone } : {}) }),
+    body: JSON.stringify({ message: request, window }),
     signal: input.signal,
   });
   input.guard();
@@ -143,7 +148,8 @@ export async function streamOwnerDriveCompilation(input: {
           fileTotal = progress.total;
           input.onFile?.(progress);
         } else if (frame.event === "markdown") {
-          if (payload.index !== nextIndex || typeof payload.text !== "string") {
+          if (payload.index !== nextIndex || typeof payload.text !== "string" ||
+            Array.from(payload.text).length > MAX_MARKDOWN_CHUNK_CODEPOINTS) {
             throw new DriveCompilationError("invalid_response");
           }
           markdownBytes += encoder.encode(payload.text).byteLength;
