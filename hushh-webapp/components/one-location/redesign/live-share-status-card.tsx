@@ -145,7 +145,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     return (
       <span
         aria-hidden="true"
-        className="flex h-7 w-14 shrink-0 items-center"
+        className="flex h-7 shrink-0 items-center"
         data-testid="one-location-live-share-identities"
       >
         {slots.map((person, index) => (
@@ -168,7 +168,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
         ))}
         {remaining > 0 ? (
           <span
-            className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+            className="ml-1.5 inline-flex shrink-0 items-center text-[12px] font-semibold leading-none text-[color:var(--app-secondary-label)]"
             data-testid="one-location-live-share-remaining"
           >
             +{remaining}

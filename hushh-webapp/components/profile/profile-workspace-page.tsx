@@ -38,7 +38,7 @@ import {
   LocationAgentIcon,
   MemoryAgentIcon,
   PreferencesProfileIcon,
-  RiaAgentIcon,
+  InviteFriendsProfileIcon,
   SecurityProfileIcon,
   SignOutProfileIcon,
   SupportProfileIcon,
@@ -4594,7 +4594,7 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={RiaAgentIcon}
+                icon={InviteFriendsProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron

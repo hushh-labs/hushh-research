@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { describeContactSyncOutcome } from "@/lib/one-location/contact-signals";
+import {
+  describeContactSyncOutcome,
+  describeContactSyncToast,
+} from "@/lib/one-location/contact-signals";
 
 const base = {
   matchedUserIds: [] as string[],
@@ -22,6 +25,22 @@ const base = {
 };
 
 describe("describeContactSyncOutcome", () => {
+  it("keeps the toast to one concise title and one concise detail", () => {
+    const toast = describeContactSyncToast({
+      ...base,
+      matchedUserIds: ["a", "b", "c"],
+      totalContacts: 36,
+      autoConnectedCount: 2,
+      alreadyConnectedCount: 1,
+      inviteCandidateCount: 33,
+    });
+
+    expect(toast).toEqual({
+      title: "3 contacts connected",
+      description: "33 contacts can be invited.",
+    });
+  });
+
   it("distinguishes automatic connections from request-required matches", () => {
     const outcome = describeContactSyncOutcome({
       ...base,

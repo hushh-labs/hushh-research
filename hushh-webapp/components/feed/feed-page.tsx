@@ -706,7 +706,7 @@ function FeedPageSession({
             ) : null}
 
             {canClear ? (
-              <div className="flex w-full pt-3 sm:justify-end" aria-live="polite">
+              <div className="flex w-full justify-end pt-3" aria-live="polite">
                 <StockButton
                   type="button"
                   variant="secondary"
@@ -724,7 +724,7 @@ function FeedPageSession({
                       ? "Confirm clear feed notifications on this device"
                       : "Clear feed notifications on this device"
                   }
-                  className="w-full bg-destructive/10 text-destructive hover:bg-destructive/15 sm:w-auto sm:min-w-44"
+                  className="w-auto max-w-full whitespace-nowrap bg-destructive/10 px-4 text-destructive hover:bg-destructive/15"
                 >
                   {clearing
                     ? "Clearing…"

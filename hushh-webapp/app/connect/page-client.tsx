@@ -230,7 +230,7 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * this field filters read straight through it as they scroll past.
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -300,9 +300,13 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-2.5";
+  "ui-text-compact-button-label h-9 min-h-9 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
-  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-3";
+  "ui-text-compact-button-label h-9 min-h-9 rounded-xl px-2.5 text-[13px] leading-4";
+const CONNECT_REMOVE_BUTTON_CLASSNAME =
+  "text-destructive hover:bg-destructive/10 hover:text-destructive";
+const CONNECT_REMOVE_CONFIRM_BUTTON_CLASSNAME =
+  "border border-destructive/20 bg-destructive/10 text-destructive shadow-none hover:bg-destructive/15 hover:text-destructive";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME =
   "connect-section-control-label";
 const CONNECT_REFRESH_BUTTON_CLASSNAME =
@@ -3108,18 +3112,19 @@ export default function ConnectPageClient() {
                                       : undefined
                                   }
                                   trailing={
-                                    <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+                                    <span className="flex shrink-0 items-center justify-end gap-1 whitespace-nowrap">
                                       {pendingRemoveId ===
                                       connection.connectionId ? (
                                         <>
                                           <Button
                                             type="button"
-                                            variant="destructive"
-                                            effect="fill"
+                                            variant="none"
+                                            effect="fade"
                                             size="compact"
-                                            className={
-                                              CONNECT_INLINE_BUTTON_CLASSNAME
-                                            }
+                                            className={cn(
+                                              CONNECT_INLINE_BUTTON_CLASSNAME,
+                                              CONNECT_REMOVE_CONFIRM_BUTTON_CLASSNAME,
+                                            )}
                                             disabled={
                                               busyId === connection.connectionId
                                             }
@@ -3166,7 +3171,7 @@ export default function ConnectPageClient() {
                                           aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
                                           className={cn(
                                             CONNECT_INLINE_BUTTON_CLASSNAME,
-                                            "text-muted-foreground hover:text-destructive",
+                                            CONNECT_REMOVE_BUTTON_CLASSNAME,
                                           )}
                                         >
                                           Remove
@@ -3829,7 +3834,7 @@ export default function ConnectPageClient() {
                             }}
                             className={cn(
                               CONNECT_INLINE_BUTTON_CLASSNAME,
-                              "text-muted-foreground hover:text-destructive",
+                              CONNECT_REMOVE_BUTTON_CLASSNAME,
                             )}
                           >
                             Remove

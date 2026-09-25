@@ -199,10 +199,13 @@ for (const width of [393, 1440]) {
       results.getByRole("link", { name: "Check Google Contacts" }),
     ).toBeVisible();
     await expect(
-      results.getByRole("button", { name: "Choose Google account" }),
+      results.getByRole("link", { name: "Proceed to connections" }),
     ).toBeVisible();
     await expect(
-      results.getByRole("button", { name: "Choose Google account" }),
+      results.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    await expect(
+      results.getByRole("link", { name: "Proceed to connections" }),
     ).toHaveClass(/bg-\[[^\]]*var\(--app-accent\)/);
     await expect(
       results.getByRole("button", { name: "Invite contacts" }),

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "@/components/icons";
+import Link from "next/link";
+import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
@@ -25,6 +26,7 @@ import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
 import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const MATCH_PAGE_SIZE = 100;
 
@@ -174,15 +176,6 @@ export function ContactSyncResultsSheet({
     0,
     result.matches.length - visibleMatches.length,
   );
-  const capOnlyPartial =
-    result.lookupLimitExceeded &&
-    !result.mutationOutcomeUnknown &&
-    !result.partialFailureMessage &&
-    !result.limited &&
-    !result.truncated &&
-    result.unknownContactCount === 0 &&
-    result.uncheckedContactCount === result.lookupLimitedContactCount;
-
   return (
     <Sheet modal open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -197,12 +190,12 @@ export function ContactSyncResultsSheet({
           takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
         )}
       >
-        <SheetHeader className="text-left">
+        <SheetHeader className="pr-14 text-left">
           <SheetTitle>Contact sync results</SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="line-clamp-1">
             {invitations?.enabled
-              ? "Names, numbers and invitation mail messages stay on your device. Choose contacts to invite from this session after reviewing your matches."
-              : "Only eligible Hushh accounts are listed. Names and raw phone numbers are never sent to Hushh; contacts without a match are shown only as counts."}
+              ? "Contact details stay on your device."
+              : "Only eligible Hushh accounts are shown."}
           </SheetDescription>
         </SheetHeader>
 
@@ -415,33 +408,18 @@ export function ContactSyncResultsSheet({
             !emptyGoogleBook && "sm:grid-cols-2",
           )}
         >
-          {capOnlyPartial ? (
-            <Button
-              type="button"
-              variant="outline"
+          <Button
+            asChild
+            variant={emptyGoogleBook ? "default" : "outline"}
+            className="h-11 rounded-full"
+          >
+            <Link
+              href={`${ROUTES.CONNECT}?tab=all`}
               onClick={() => onOpenChange(false)}
-              className="h-11 rounded-full"
             >
-              Done
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant={emptyGoogleBook ? "default" : "outline"}
-              disabled={syncing}
-              onClick={() => void onSyncAgain()}
-              className="h-11 rounded-full"
-            >
-              {syncing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              {result.sourcePlatform === "google"
-                ? "Choose Google account"
-                : "Sync again"}
-            </Button>
-          )}
+              Proceed to connections
+            </Link>
+          </Button>
           {!emptyGoogleBook ? (
             <Button
               type="button"

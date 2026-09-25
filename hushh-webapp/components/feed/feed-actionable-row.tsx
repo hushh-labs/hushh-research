@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   Avatar,
@@ -24,10 +23,12 @@ import type {
 
 function ActionButton({
   action,
+  mobileLabel,
   runningActionKey,
   runAction,
 }: {
   action: FeedActionButton;
+  mobileLabel?: string;
   runningActionKey: string | null;
   runAction: (action: FeedActionButton) => Promise<void>;
 }) {
@@ -63,7 +64,7 @@ function ActionButton({
       }
       disabled={action.disabled || actionsLocked}
       aria-label={
-        action.confirm ? confirmTap.ariaLabel(action.label) : undefined
+        action.confirm ? confirmTap.ariaLabel(action.label) : action.label
       }
       onClick={(event) => {
         // The row itself may be a link/button; never let an action bubble into it.
@@ -77,7 +78,7 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "w-full min-w-0 sm:min-w-28",
+        "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
         action.tone === "danger" &&
           !showConfirm &&
           "text-destructive hover:bg-destructive/10",
@@ -86,9 +87,39 @@ function ActionButton({
       {isRunning ? (
         <Icon icon={Loader2} size="xs" className="animate-spin" />
       ) : null}
-      {action.confirm ? confirmTap.label(action.label) : action.label}
+      {mobileLabel && !showConfirm ? (
+        <>
+          <span aria-hidden="true" className="sm:hidden">
+            {mobileLabel}
+          </span>
+          <span aria-hidden="true" className="hidden sm:inline">
+            {action.label}
+          </span>
+        </>
+      ) : action.confirm ? (
+        confirmTap.label(action.label)
+      ) : (
+        action.label
+      )}
     </Button>
   );
+}
+
+function mobileDecisionLabel(action: FeedActionButton): string | undefined {
+  const label = action.label.toLowerCase();
+  if (
+    action.tone === "danger" &&
+    /\b(deny|decline|reject)\b/.test(label)
+  ) {
+    return "Decline";
+  }
+  if (
+    action.tone === "primary" &&
+    /\b(accept|approve|confirm)\b/.test(label)
+  ) {
+    return "Accept";
+  }
+  return undefined;
 }
 
 function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
@@ -112,10 +143,14 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   };
 
   if (!actions.length) return null;
-  const renderAction = (action: FeedActionButton) => (
+  const renderAction = (
+    action: FeedActionButton,
+    mobileLabel?: string,
+  ) => (
     <ActionButton
       key={action.key}
       action={action}
+      mobileLabel={mobileLabel}
       runningActionKey={runningActionKey}
       runAction={runAction}
     />
@@ -127,16 +162,24 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
       actions[actions.length - 1]!;
     const secondary = actions.find((action) => action !== primary);
     return (
-      <FlowActionGroup
-        primary={renderAction(primary)}
-        secondary={secondary ? renderAction(secondary) : undefined}
-      />
+      <div
+        data-testid="feed-action-buttons"
+        className="flex w-full min-w-0 flex-nowrap items-center justify-end gap-2 sm:w-auto"
+      >
+        {secondary
+          ? renderAction(secondary, mobileDecisionLabel(secondary))
+          : null}
+        {renderAction(primary, mobileDecisionLabel(primary))}
+      </div>
     );
   }
 
   return (
-    <div className="grid w-full gap-2.5 sm:flex sm:flex-wrap sm:justify-end">
-      {actions.map(renderAction)}
+    <div
+      data-testid="feed-action-buttons"
+      className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto"
+    >
+      {actions.map((action) => renderAction(action))}
     </div>
   );
 }

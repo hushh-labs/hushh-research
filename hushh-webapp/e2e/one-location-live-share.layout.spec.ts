@@ -142,7 +142,7 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8"><title>One Location live share actions</title>
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>One Location live share actions</title>
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
 <body style="margin:0;background:#f2f2f7;color:#1c1c1e;--app-accent:#0a84ff;--app-secondary-label:#6e6e73;--app-neutral-fill:rgba(0,0,0,.055);--app-neutral-fill-strong:rgba(0,0,0,.09);--font-app-body:InterVariable,Arial,sans-serif">

@@ -7744,7 +7744,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps all Location hub outcomes named and retryable after a partial scan", async () => {
+  it("keeps all Location hub outcomes named and proceeds to connections after a partial scan", async () => {
     let finishScan!: (result: OneLocationContactSignalResult) => void;
     mockSyncOneLocationContactSignals.mockImplementationOnce(
       () =>
@@ -7785,24 +7785,16 @@ describe("OneLocationAgentPage", () => {
     ).toBeInTheDocument();
     expect(mockSendConnectionRequest).not.toHaveBeenCalled();
 
-    mockSyncOneLocationContactSignals.mockResolvedValueOnce(
-      contactSyncOutcomeFixture(),
-    );
-    const retry = within(sheet).getByRole("button", { name: "Sync again" });
-    await waitFor(() => expect(retry).toBeEnabled());
-    expect(sheet).toBeInTheDocument();
-    fireEvent.click(retry);
-    await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2),
-    );
-    await waitFor(() =>
-      expect(
-        within(sheet).queryByText(
-          "Only part of your contact list was checked.",
-        ),
-      ).toBeNull(),
-    );
-    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
+    const proceed = within(sheet).getByRole("link", {
+      name: "Proceed to connections",
+    });
+    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+    proceed.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(proceed);
+    await waitFor(() => expect(sheet).not.toBeInTheDocument());
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1);
   });
 
   it("reconciles the connection graph when a contact-sync mutation outcome is unknown", async () => {

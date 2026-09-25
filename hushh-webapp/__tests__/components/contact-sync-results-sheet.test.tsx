@@ -69,6 +69,11 @@ describe("ContactSyncResultsSheet", () => {
       </>,
     );
     const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+    const header = sheet.querySelector('[data-slot="sheet-header"]');
+    expect(header).toHaveClass("pr-14");
+    expect(screen.getByText("Only eligible Hushh accounts are shown.")).toHaveClass(
+      "line-clamp-1",
+    );
     expect(
       screen.queryByRole("button", { name: "Launch contacts" }),
     ).toBeNull();
@@ -174,8 +179,9 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText("Asha Rao")).toBeInTheDocument();
     expect(screen.getByText("1199")).toBeInTheDocument();
     expect(
-      screen.getByText(/raw phone numbers are never sent to Hushh/i),
+      screen.getByText("Only eligible Hushh accounts are shown."),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/raw phone numbers/i)).toBeNull();
     expect(screen.getByText("No match")).toBeInTheDocument();
     expect(screen.queryByText("Not on Hushh")).toBeNull();
     expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
@@ -249,12 +255,13 @@ describe("ContactSyncResultsSheet", () => {
     { limited: true, sourcePlatform: "web" as const },
     { truncated: true, sourcePlatform: "google" as const },
   ])(
-    "explains a partial $sourcePlatform read and retries from the named sheet",
+    "explains a partial $sourcePlatform read and lets the user continue to connections",
     (partial) => {
       const onSyncAgain = vi.fn();
+      const onOpenChange = vi.fn();
       const props = {
         open: true,
-        onOpenChange: vi.fn(),
+        onOpenChange,
         result: result({ ...partial, partial: true }),
         syncing: false,
         onSyncAgain,
@@ -266,11 +273,20 @@ describe("ContactSyncResultsSheet", () => {
       expect(
         screen.getByText("Only part of your contact list was checked."),
       ).toBeInTheDocument();
-      const retryLabel = partial.sourcePlatform === "google" ? "Choose Google account" : "Sync again";
-      fireEvent.click(screen.getByRole("button", { name: retryLabel }));
-      expect(onSyncAgain).toHaveBeenCalledTimes(1);
+      const proceed = screen.getByRole("link", {
+        name: "Proceed to connections",
+      });
+      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+      proceed.addEventListener("click", (event) => event.preventDefault(), {
+        once: true,
+      });
+      fireEvent.click(proceed);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onSyncAgain).not.toHaveBeenCalled();
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
-      expect(screen.getByRole("button", { name: retryLabel })).toBeDisabled();
+      expect(
+        screen.getByRole("link", { name: "Proceed to connections" }),
+      ).toBeInTheDocument();
     },
   );
 
@@ -331,7 +347,7 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText(/not counted as unmatched or inviteable/i)).toBeInTheDocument();
   });
 
-  it("offers Done only for cap-only partials and keeps retry for ambiguous mutation", () => {
+  it("uses the same connections destination for bounded and ambiguous results", () => {
     const view = render(
       <ContactSyncResultsSheet
         open
@@ -348,7 +364,9 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
     expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
 
     view.rerender(
@@ -369,7 +387,9 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Sync again" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
 
     view.rerender(
       <ContactSyncResultsSheet
@@ -387,8 +407,10 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Sync again" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
   });
 
   it("shows connected provenance and no request action for auto-connected rows", () => {
