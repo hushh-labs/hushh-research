@@ -44,6 +44,10 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     );
     expect(persistAt).toBeGreaterThan(-1);
     expect(navigateAt).toBeGreaterThan(persistAt);
+    const catchAt = source.indexOf("} catch (error) {", navigateAt);
+    const errorMetricAt = source.indexOf('"one_calendar_action"', catchAt);
+    expect(catchAt).toBeGreaterThan(navigateAt);
+    expect(errorMetricAt).toBeGreaterThan(catchAt);
   });
 
   it("returns null for non-calendar tools", () => {

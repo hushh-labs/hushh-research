@@ -6937,6 +6937,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           setPendingSpecialistDirective(null);
                           window.location.assign(start.authorize_url);
                         } catch (error) {
+                          trackEvent("one_calendar_action", {
+                            route_id: "one_calendar",
+                            action: "connected",
+                            result: "error",
+                          });
                           addErrorMessage(
                             error instanceof Error
                               ? error.message

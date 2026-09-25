@@ -50,6 +50,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
+  consumeStoredGoogleOAuthPopupSettlement,
   isGoogleOAuthPopupSettlement,
   navigateGoogleOAuthPopup,
   openGoogleOAuthPopup,
@@ -132,6 +133,7 @@ export function CalendarAgentPage({
       ) {
         return;
       }
+      consumeStoredGoogleOAuthPopupSettlement(attemptId);
       const completedAccessLevel = popupAccessLevelRef.current;
       clearAttempt();
       if (outcome === "succeeded") {
@@ -173,6 +175,9 @@ export function CalendarAgentPage({
       failureResult: "expected_error" | "error",
     ) => {
       if (!expectedPopupAttempt.current) return;
+      const callbackSettlement = consumeStoredGoogleOAuthPopupSettlement(
+        expectedPopupAttempt.current,
+      );
       const requestedAccessLevel = popupAccessLevelRef.current;
       clearAttempt();
       const currentStatus = await refresh().catch(() => null);
@@ -181,11 +186,15 @@ export function CalendarAgentPage({
         (requestedAccessLevel !== "manage" ||
           currentStatus.access_level === "manage")
       ) {
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+        if (!callbackSettlement) {
+          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+        }
         morphyToast.success("Google Calendar connected.");
         return;
       }
-      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: failureResult });
+      if (!callbackSettlement) {
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: failureResult });
+      }
       morphyToast.error(message);
     };
     const popupWatcher = window.setInterval(() => {

@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   clearGoogleOAuthAttempt,
+  consumeStoredGoogleOAuthPopupSettlement,
   openGoogleOAuthPopup,
   persistGoogleOAuthSameWindowAttempt,
   readGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
+  settleGoogleOAuthPopup,
 } from "@/lib/google/google-oauth-popup";
 
 describe("openGoogleOAuthPopup", () => {
@@ -47,6 +49,23 @@ describe("openGoogleOAuthPopup", () => {
     expect(
       isGoogleOAuthPopupSettlement({ ...settlement, service: "drive" }),
     ).toBe(false);
+  });
+  it("persists and consumes one callback-owned terminal marker", () => {
+    const attempt = {
+      version: 1 as const,
+      attemptId: "synthetic-calendar-attempt",
+      service: "calendar" as const,
+      startedAt: Date.now(),
+    };
+    vi.spyOn(window, "close").mockImplementation(() => undefined);
+
+    settleGoogleOAuthPopup(attempt, "succeeded");
+
+    expect(consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId)).toMatchObject({
+      attemptId: attempt.attemptId,
+      outcome: "succeeded",
+    });
+    expect(consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId)).toBeNull();
   });
   it("falls back when a popup cannot persist its settlement attempt", () => {
     const close = vi.fn();

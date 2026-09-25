@@ -680,6 +680,8 @@ async function fetchStatusFromNetwork(params: {
         }
       }
 
+      if (params.isCurrent && !params.isCurrent()) return null;
+
       console.error(
         "[gmail-connector-store] Failed to refresh Gmail status:",
         error,

@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => {
       open: vi.fn(),
       navigate: vi.fn(),
       clear: vi.fn(),
+      consumeStoredSettlement: vi.fn(() => null),
     },
     assignWindowLocation: vi.fn(),
     capacitor: {
@@ -297,6 +298,8 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
   },
   clearGmailOAuthPopupAttempt: (...args: unknown[]) =>
     mocks.gmailOAuthPopup.clear(...args),
+  consumeStoredGmailOAuthPopupSettlement: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.consumeStoredSettlement(...args),
   isGmailOAuthPopupSettlement: () => false,
   readGmailOAuthPopupSettlementFallback: () => null,
 }));
@@ -531,6 +534,7 @@ describe("ProfileReceiptsPage", () => {
     mocks.gmailOAuthPopup.popup.close.mockReset();
     mocks.gmailOAuthPopup.popup.sessionStorage.setItem.mockReset();
     mocks.gmailOAuthPopup.popup.sessionStorage.removeItem.mockReset();
+    mocks.gmailOAuthPopup.consumeStoredSettlement.mockReturnValue(null);
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
       window.localStorage.clear();

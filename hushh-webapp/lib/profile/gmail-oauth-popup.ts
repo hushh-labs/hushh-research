@@ -221,12 +221,35 @@ export function notifyGmailOAuthPopupOpenerFallback(
       FALLBACK_SETTLEMENT_KEY,
       JSON.stringify({ ...settlement, sentAt: Date.now() }),
     );
-    // Clear it right after so a later reload of this same tab doesn't
-    // replay a stale settlement as if it just happened.
-    window.localStorage.removeItem(FALLBACK_SETTLEMENT_KEY);
     return true;
   } catch {
     return false;
+  }
+}
+
+export function consumeStoredGmailOAuthPopupSettlement(
+  attemptId: string,
+): GmailOAuthPopupSettlement | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(FALLBACK_SETTLEMENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GmailOAuthPopupSettlement & {
+      sentAt?: number;
+    };
+    if (
+      !isGmailOAuthPopupSettlement(parsed) ||
+      parsed.attemptId !== attemptId ||
+      typeof parsed.sentAt !== "number" ||
+      Date.now() - parsed.sentAt < 0 ||
+      Date.now() - parsed.sentAt > MAX_ATTEMPT_AGE_MS
+    ) {
+      return null;
+    }
+    window.localStorage.removeItem(FALLBACK_SETTLEMENT_KEY);
+    return parsed;
+  } catch {
+    return null;
   }
 }
 

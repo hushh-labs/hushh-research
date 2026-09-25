@@ -97,6 +97,7 @@ const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   clearGmailOAuthPopupAttempt,
+  consumeStoredGmailOAuthPopupSettlement,
   createGmailOAuthPopupAttempt,
   getGmailOAuthPopupSessionStorage,
   isGmailOAuthPopupSettlement,
@@ -716,6 +717,9 @@ export default function GmailReceiptsPage({
       failureCode = "USER_CANCELLED",
     ) => {
       const intent = readOnboardingConnectorIntent();
+      const callbackSettlement = consumeStoredGmailOAuthPopupSettlement(
+        attempt.attemptId,
+      );
       const status = await refreshGmailStatus({
         force: true,
         reconcile: false,
@@ -746,9 +750,11 @@ export default function GmailReceiptsPage({
       if (status?.connected) {
         toast.success("Mail connected. You can finish setup when ready.");
       } else {
-        GmailReceiptsService.recordConsentFailure({
-          code: failureCode,
-        });
+        if (!callbackSettlement) {
+          GmailReceiptsService.recordConsentFailure({
+            code: failureCode,
+          });
+        }
         toast.message(
           message ||
             "The Mail window closed. You can try again whenever you are ready.",
@@ -761,6 +767,7 @@ export default function GmailReceiptsPage({
       message?: string;
     }) => {
       if (settledGmailPopupAttemptRef.current === attempt.attemptId) return;
+      consumeStoredGmailOAuthPopupSettlement(attempt.attemptId);
       settledGmailPopupAttemptRef.current = attempt.attemptId;
       const intent = readOnboardingConnectorIntent();
       clearAttempt();

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearGmailOAuthPopupAttempt,
+  consumeStoredGmailOAuthPopupSettlement,
+  notifyGmailOAuthPopupOpenerFallback,
   openGmailOAuthPopup,
   readGmailOAuthPopupAttempt,
   type GmailOAuthPopupAttempt,
@@ -123,5 +125,20 @@ describe("gmail-oauth-popup", () => {
 
     clearGmailOAuthPopupAttempt();
     expect(readGmailOAuthPopupAttempt()).toBeNull();
+  });
+
+  it("persists and consumes one callback-owned settlement marker", () => {
+    const settlement = {
+      schemaVersion: 1 as const,
+      type: "gmail_oauth_settlement" as const,
+      attemptId: makeAttempt().attemptId,
+      outcome: "failed" as const,
+    };
+
+    expect(notifyGmailOAuthPopupOpenerFallback(settlement)).toBe(true);
+    expect(
+      consumeStoredGmailOAuthPopupSettlement(settlement.attemptId),
+    ).toMatchObject(settlement);
+    expect(consumeStoredGmailOAuthPopupSettlement(settlement.attemptId)).toBeNull();
   });
 });

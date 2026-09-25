@@ -165,11 +165,35 @@ export function settleGoogleOAuthPopup(
       SETTLEMENT_KEY,
       JSON.stringify({ ...settlement, sentAt: Date.now() }),
     );
-    window.localStorage.removeItem(SETTLEMENT_KEY);
   } catch {
     /* best effort */
   }
   window.setTimeout(() => window.close(), 0);
+}
+
+export function consumeStoredGoogleOAuthPopupSettlement(
+  attemptId: string,
+): GoogleOAuthPopupSettlement | null {
+  try {
+    const raw = window.localStorage.getItem(SETTLEMENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GoogleOAuthPopupSettlement & {
+      sentAt?: number;
+    };
+    if (
+      !isGoogleOAuthPopupSettlement(parsed) ||
+      parsed.attemptId !== attemptId ||
+      typeof parsed.sentAt !== "number" ||
+      Date.now() - parsed.sentAt < 0 ||
+      Date.now() - parsed.sentAt > MAX_AGE_MS
+    ) {
+      return null;
+    }
+    window.localStorage.removeItem(SETTLEMENT_KEY);
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export function readGoogleOAuthPopupSettlement(

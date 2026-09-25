@@ -753,6 +753,11 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByText(/1 reviewed detail saved. Check Memory/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm",
+      action: "capture_saved",
+      result: "success",
+    });
   });
 
   it("does not let a late owner-A settlement unlock owner-B's pending save", async () => {

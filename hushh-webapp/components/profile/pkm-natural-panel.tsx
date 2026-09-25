@@ -994,6 +994,9 @@ export function PkmNaturalPanel({
         error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
+      if (result.saved > 0) {
+        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "success" });
+      }
       if (!guard.isCurrent()) {
         if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
           if (result.saved > 0) pkmCaptureReconciliationNeeded.add(operationOwnerId);
@@ -1013,7 +1016,6 @@ export function PkmNaturalPanel({
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
-        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "success" });
         if (result.failed > 0 || captureHasUnresolvedSource) {
           const savedIds = new Set(result.results.filter((item) => item.success).map((item) => item.cardId));
           setCaptureCards((current) => current.filter((card) => !savedIds.has(card.card_id)));
