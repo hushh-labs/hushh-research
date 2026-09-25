@@ -219,11 +219,11 @@ describe("circle discovery actions", () => {
     render(ui());
     const expected = {
       family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
+      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
       investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
-      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
       location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
+      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.marketplace,
     };
     for (const [id, style] of Object.entries(expected)) {
       const node = screen.getByTestId(`circle-starter-${id}`);
