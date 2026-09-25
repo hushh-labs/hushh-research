@@ -39,6 +39,11 @@ that token or requiring background consent. Its empty request body forbids mode
 flags. Worker preparation still requires the separately enabled background
 setting. Proxy/browser timeouts for this endpoint are 170/180 seconds; execution
 remains bounded to 160 seconds.
+`POST …/prepare/stream` runs the same preparation and streams stage names,
+then one committed status (never files, ids, contents or coverage).
+Closing the tab, locking the vault or signing out
+does not stop a started preparation; token expiry or revocation, account
+deletion, decline and refresh do.
 
 Approval optionally carries `trustFutureRequests`, `trustScope` and
 `trustDisclosureVersion`. The broad scope `any_requested_drive_file` requires
@@ -335,11 +340,14 @@ The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
 audience or an unverified service-account email.
 
-Run [`deploy/drive/setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
-through the infrastructure/release owner with `BACKEND_URL` and the matching `OIDC_AUDIENCE`.
-The helper creates or updates only `drive-work-drain-uat`, posts to the fixed drain route every
-two minutes, and verifies its OIDC target. If Cloud Run ingress requires IAM invocation, grant
-only that scheduler account `roles/run.invoker` through the approved infrastructure path before
+The current Drive worker [release script](../../../deploy/drive/deploy_worker_service.sh)
+invokes [`setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
+once per fixed UAT stage with its stage-specific job name, schedule, worker origin,
+and matching OIDC audience. A direct helper run defaults to the documents stage
+only. The jobs run documents every four minutes, suggestions every four minutes
+at a two-minute offset, and sharing every minute. Each posts to the fixed drain
+route and verifies its OIDC target. If Cloud Run ingress requires IAM invocation,
+grant only that scheduler account `roles/run.invoker` through the approved infrastructure path before
 running the helper; do not weaken the route or make a direct Cloud Run deployment. A successful
 Scheduler attempt means a bounded work dispatch occurred—not that Firebase delivered a push,
 someone opened a review, or Google shared a file.
@@ -424,8 +432,8 @@ and web root responded successfully. Their image digests were
 `sha256:2a4fce17aa85b0f811a9d4aab38fe598c975462e21ee290d08299c4c2f4d6fc3`,
 respectively. The fixed UAT Drive REST registry was activated and
 read-only rechecked with policy hash `7d82cda74ab72a36d5b39d211a6991df456e247f894cde25b6e54c0256383da4`.
-The OIDC-protected `drive-work-drain-uat` scheduler is enabled every two minutes, and one
-explicit invocation returned HTTP 200.
+At this 2026-09-23 checkpoint, the OIDC-protected `drive-work-drain-uat` scheduler
+was enabled every two minutes, and one explicit invocation returned HTTP 200.
 
 These checks establish deployment and dispatch, not document-processing success or
 end-to-end A/B sharing. The serving backend has one 1 GiB container, no ClamAV daemon,

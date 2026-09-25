@@ -57,6 +57,123 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     )
 
 
+def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
+    require(
+        ".github/workflows/deploy-uat.yml",
+        "id: frontend-analytics-candidate",
+        '--update-tags="analytics-candidate=${smoke_revision}"',
+        "--remove-secrets=BACKEND_URL,DEVELOPER_API_URL",
+        'BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}',
+        'steps.scope.outputs.deploy_backend == \'true\'',
+        "id: verify-analytics-uat",
+        "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
+        "npm run smoke:analytics:uat",
+        "Remove zero-traffic frontend analytics candidate tag",
+        "if: always() && steps.scope.outputs.deploy_frontend == 'true'",
+        'entry.get("tag") == "analytics-candidate"',
+        "--remove-tags=analytics-candidate",
+        "Analytics smoke failed; both zero-traffic candidates stay unpromoted.",
+        "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
+        'append_unique(blocking, ["analytics_transport_failed"])',
+        'if os.environ.get("DEPLOY_BACKEND") == "true":',
+        'analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"',
+        '"analytics_smoke": {',
+    )
+    content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    candidate_step = content.split(
+        "      - name: Resolve zero-traffic frontend analytics candidate", 1
+    )[1].split("      - name: Set up Node runtime for UAT analytics verification", 1)[0]
+    secret_removal = candidate_step.index("--remove-secrets=BACKEND_URL,DEVELOPER_API_URL")
+    literal_binding = candidate_step.index('--update-env-vars="BACKEND_URL=')
+    assert (
+        'gcloud run services update "${{ env.FRONTEND_SERVICE }}"'
+        in candidate_step[secret_removal:literal_binding]
+    ), "Cloud Run requires separate updates to switch a secret-backed variable to a literal"
+    restore_step = content.split("      - name: Restore canonical frontend backend bindings", 1)[1].split(
+        "      - name: Promote deployed revisions to UAT traffic", 1
+    )[0]
+    assert "--no-traffic" in restore_step
+    assert "--remove-env-vars=BACKEND_URL,DEVELOPER_API_URL" in restore_step
+    assert "--update-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest" in restore_step
+    assert "Canonical secret binding missing" in restore_step
+    rollback_step = content.split("      - name: Resolve rollback targets from predeploy traffic", 1)[1].split(
+        "      - name: Resolve UAT verification plan", 1
+    )[0]
+    assert 'backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in rollback_step
+    assert 'frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"' in rollback_step
+    assert 'if [ -z "${backend_revision}" ]; then' in rollback_step
+    assert 'if [ -z "${frontend_revision}" ]; then' in rollback_step
+    assert '--set-tags="analytics-candidate=' not in content
+    assert "id: promote-paired-backend" not in content
+    assert (
+        'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n'
+        '            && [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ]; then'
+        not in content
+    )
+    require(
+        ".github/workflows/deploy-uat.yml",
+        'release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"',
+        'smoke_revision="${release_revision}"',
+        '--update-tags="analytics-candidate=${smoke_revision}"',
+        'echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"',
+    )
+
+
+def test_uat_and_production_resolve_frontend_candidate_by_exact_deploy_labels() -> None:
+    resolver = "scripts/ci/resolve-cloud-run-deploy-revision.py"
+    require(
+        ".github/workflows/deploy-uat.yml",
+        resolver,
+        "--deploy-env uat",
+        "--deploy-source deploy-uat",
+        '--github-run-id "${{ github.run_id }}"',
+        '--github-run-attempt "${{ github.run_attempt }}"',
+        '${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py',
+    )
+    require(
+        ".github/workflows/deploy-production.yml",
+        resolver,
+        "--deploy-env production",
+        "--deploy-source deploy-production",
+        '--github-run-id "${{ github.run_id }}"',
+        '--github-run-attempt "${{ github.run_attempt }}"',
+        '--deploy-sha "${{ github.event.inputs.sha }}"',
+        '${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py',
+    )
+
+
+def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
+    path = "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs"
+    require(
+        path,
+        'page.on("requestfinished", async (request) => {',
+        'status: response?.ok() ? "finished" : "failed"',
+        'page.on("requestfailed", (request) => {',
+        'entry.status === "finished"',
+        'candidate.status === "failed"',
+    )
+    content = (ROOT / path).read_text(encoding="utf-8")
+    assert 'page.on("response",' not in content
+    require(
+        path,
+        '"page_view"',
+        '"/one/kai?tab=portfolio"',
+        '`/one/kai?tab=analysis&ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`',
+        'payload.route_id === "kai_home"',
+        'process.argv.includes("--full")',
+        'params: { route_id: "kai_home" }',
+        '"portfolio_viewed"',
+        'payload.result === "success" && Boolean(payload.portfolio_source)',
+        'portfolio_source: portfolioEvent.payload.portfolio_source',
+        'requestId: getAnalyticsRequestId(request)',
+        'candidate.requestId === entry.requestId',
+        'entry_surface: activationEvent.payload.entry_surface',
+    )
+    assert 'payload.journey === "investor" && payload.step === "entered"' not in content
+    package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")
+    assert "npm run smoke:analytics:uat -- --full" in package_json
+
+
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
     """Keep the CapabilityGraph compiler out of ambient runner Python."""
 
@@ -87,6 +204,8 @@ def main() -> int:
         test_ci_and_queue_pass_selector_decision_to_integration,
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
+        test_uat_frontend_release_blocks_on_real_analytics_smoke,
+        test_uat_analytics_smoke_requires_successful_collect_responses,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
         test_web_targeted_layout_check_tracks_people_fixture_inputs,
     )

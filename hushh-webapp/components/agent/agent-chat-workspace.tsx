@@ -117,6 +117,7 @@ import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
+  PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
@@ -4780,6 +4781,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       text: "",
       timestamp,
       status: "streaming",
+      // A cold decrypted context read happens before the AG-UI request starts.
+      // Show that real local work immediately without exposing private facts.
+      ...(!options.deferPkmContext
+        ? {
+            streamEvents: [{
+              id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+              label: "Private memory",
+              message: "Preparing your private memory.",
+              status: "running" as const,
+              createdAtMs: Date.now(),
+            }],
+          }
+        : {}),
     };
 
     setMessages((current) => {
@@ -4971,6 +4985,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           finishCanceledTurn();
           return;
         }
+      }
+
+      if (!options.deferPkmContext) {
+        upsertTurnStreamEvent({
+          id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+          label: "Private memory",
+          message: "Private memory ready.",
+          status: "done",
+          createdAtMs: Date.now(),
+        });
       }
 
       performance.mark("hushh:agent-chat:dispatch-start");

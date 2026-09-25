@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const fetcher = vi.hoisted(() => vi.fn());
+const streamer = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({
+  nativeStreamFetch: streamer,
+}));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: fetcher,
@@ -9,6 +13,7 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   DriveSharingService,
   DriveSharingError,
+  StreamUnavailable,
   parseDriveQueryView,
   validDocumentRequestPeriod,
   validDriveQuery,
@@ -524,6 +529,114 @@ describe("drive question transport", () => {
     expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
   });
 
+  it("searches the owner's own Drive by person reference and shares only found references", async () => {
+    const personRef = "33333333-3333-4333-8333-333333333333";
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        requestId,
+        status: "ready",
+        recipientName: "Bo",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: "2026-09-24T18:00:00Z" }],
+        shareRequestId: null,
+        expiresAt: "2026-09-25T20:00:00Z",
+      }),
+    );
+    const view = await DriveSharingService.prepareOwnerShare(
+      "vault",
+      { recipientPersonRef: personRef, clientRequestId, query: "Chris recordings", timeZone: "Asia/Kolkata" },
+      guard,
+    );
+    expect(view).toMatchObject({ status: "ready", recipientName: "Bo", files: [{ ref: "f1" }] });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/owner-shares");
+    expect(JSON.parse(options.body)).toEqual({
+      recipientPersonRef: personRef,
+      clientRequestId,
+      query: "Chris recordings",
+      timeZone: "Asia/Kolkata",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "shared", recipientName: "Bo", shareRequestId: documentId,
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.shareOwnerFiles("vault", requestId, ["f1"], guard),
+    ).resolves.toMatchObject({ status: "shared", shareRequestId: documentId });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      `/api/connectors/google_drive/sharing/owner-shares/${requestId}/share`,
+    );
+    for (const refs of [[], ["f9"], ["f1", "f1"], ["1AbCdEfGhIjKlMnOpQrStUvWxYz012345"]]) {
+      await expect(
+        DriveSharingService.shareOwnerFiles("vault", requestId, refs, guard),
+      ).rejects.toThrow(DriveSharingError);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a no-match search empty and refuses a found file carrying a Drive id", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId: null, status: "no_match", files: [], message: "Which file do you mean?" }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).resolves.toEqual({
+      requestId: null,
+      status: "no_match",
+      recipientName: null,
+      files: [],
+      shareRequestId: null,
+      message: "Which file do you mean?",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "ready", files: [{ ref: "fileid", name: "x", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
+  it("searches for the Trusted circle and parses who can and cannot receive", async () => {
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        status: "ready",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }],
+        recipients: [{ requestId, name: "Bo", status: "ready", shareRequestId: null }],
+        excluded: [{ name: "Cy", reason: "contacts" }, { name: null, reason: "not_connected" }],
+        message: null,
+      }),
+    );
+    const view = await DriveSharingService.prepareTrustedShare(
+      "vault",
+      { clientRequestId, query: "Chris recordings" },
+      guard,
+    );
+    expect(view.recipients).toEqual([
+      { requestId, name: "Bo", status: "ready", shareRequestId: null },
+    ]);
+    expect(view.excluded.map((item) => item.reason)).toEqual(["contacts", "not_connected"]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      audience: "trusted_circle",
+      clientRequestId,
+      query: "Chris recordings",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ status: "ready", files: [], recipients: [], excluded: [{ name: "x", reason: "because" }] }),
+    );
+    await expect(
+      DriveSharingService.prepareTrustedShare("vault", { clientRequestId, query: "x" }, guard),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
   it("never grants decisions or owner errors to the person who asked", async () => {
     fetcher.mockResolvedValueOnce(
       reply(rawView({ canDecide: true, lastError: "reconnect_required" })),
@@ -572,5 +685,175 @@ describe("drive question transport", () => {
     expect(isDriveSharingEntry({ id: "x", action: "DRIVE_QUERY_REVIEW" } as ConsentCenterEntry)).toBe(true);
     expect(isDriveSharingEntry({ id: "x", action: "REQUESTED", metadata: { request_source: "drive_live_query_request" } } as unknown as ConsentCenterEntry)).toBe(true);
     expect(isDriveSharingEntry({ id: "x", action: "REQUESTED" } as ConsentCenterEntry)).toBe(false);
+  });
+});
+
+describe("streamed preparation", () => {
+  beforeEach(() => vi.resetAllMocks());
+  const encoder = new TextEncoder();
+  const frame = (event: string, payload: Record<string, unknown> = {}) =>
+    `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+  const streamOf = (chunks: string[], { hang = false } = {}) => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        if (!hang) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return {
+      response: new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+      cancelled: () => cancelled,
+    };
+  };
+  const run = (
+    onStage = vi.fn(),
+    signal?: AbortSignal,
+    check = guard,
+  ) =>
+    DriveSharingService.prepareStream("owner-a", requestId, check, {
+      onStage,
+      signal,
+    });
+
+  it("reports stages in order and returns the committed status", async () => {
+    const whole =
+      frame("stage", { stage: "starting" }) +
+      frame("heartbeat") +
+      frame("stage", { stage: "searching" }) +
+      frame("stage", { stage: "checking" }) +
+      frame("stage", { stage: "choosing" }) +
+      frame("complete", { status: "review_ready" });
+    // Frames split mid-line across reads are reassembled.
+    const chunks = [whole.slice(0, 17), whole.slice(17, 90), whole.slice(90)];
+    streamer.mockResolvedValueOnce(streamOf(chunks).response);
+    const onStage = vi.fn();
+    await expect(run(onStage)).resolves.toBe("review_ready");
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual([
+      "starting",
+      "searching",
+      "checking",
+    ]);
+    const [path, init] = streamer.mock.calls[0];
+    expect(path).toBe(
+      `/api/connectors/google_drive/sharing/requests/${requestId}/prepare/stream`,
+    );
+    expect(init).toMatchObject({ method: "POST", cache: "no-store", body: "{}" });
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer owner-a",
+      Accept: "text/event-stream",
+    });
+  });
+
+  it("rejects an unknown stage, an unknown status and oversized frames", async () => {
+    for (const body of [
+      frame("stage", { stage: "reading-private-file.pdf" }),
+      frame("complete", { status: "shared" }),
+      frame("stage", { stage: "starting", pad: "x".repeat(2000) }),
+      `event: stage\ndata: {"event":"complete","status":"review_ready"}\n\n`,
+    ]) {
+      streamer.mockResolvedValueOnce(streamOf([body]).response);
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("surfaces only an allowlisted server code and never a client-internal one", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([
+        frame("error", { code: "reconnect_required", message: "<b>provider</b>" }),
+      ]).response,
+    );
+    const error = await run().catch((cause) => cause);
+    expect(error).toBeInstanceOf(DriveSharingError);
+    expect(error.code).toBe("reconnect_required");
+    expect(error.message).not.toContain("provider");
+    for (const code of ["session_changed", "request_failed", "made_up"]) {
+      streamer.mockResolvedValueOnce(
+        streamOf([frame("error", { code, message: "x" })]).response,
+      );
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("treats a stream that ends or breaks without a result as interrupted", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([frame("stage", { stage: "starting" })]).response,
+    );
+    await expect(run()).resolves.toBe("interrupted");
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError("network"));
+      },
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(broken, { headers: { "content-type": "text/event-stream" } }),
+    );
+    await expect(run()).resolves.toBe("interrupted");
+  });
+
+  it("asks for the POST fallback only when this route cannot stream", async () => {
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockResolvedValueOnce(Response.json({ status: "review_ready" }));
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockRejectedValueOnce(
+      Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A busy stream route defers to the plain POST.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "sharing_unavailable", message: "x" },
+        }),
+        { status: 503 },
+      ),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A coded refusal is a real error, not a missing route.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "request_unavailable", message: "x" },
+        }),
+        { status: 404 },
+      ),
+    );
+    await expect(run()).rejects.toMatchObject({
+      code: "request_unavailable",
+      status: 404,
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Owner authorization required" }), {
+        status: 401,
+      }),
+    );
+    await expect(run()).rejects.toMatchObject({ code: "request_failed", status: 401 });
+  });
+
+  it("stops reading and cancels the stream once the session changes or the run is aborted", async () => {
+    const stream = streamOf([frame("stage", { stage: "starting" })], { hang: true });
+    streamer.mockResolvedValueOnce(stream.response);
+    let current = true;
+    const onStage = vi.fn(() => {
+      current = false;
+    });
+    const check = () => {
+      if (!current) throw new DriveSharingError("session_changed");
+    };
+    const controller = new AbortController();
+    const pending = run(onStage, controller.signal, check);
+    await vi.waitFor(() => expect(onStage).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    expect(stream.cancelled()).toBe(true);
+    expect(onStage).toHaveBeenCalledTimes(1);
   });
 });

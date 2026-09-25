@@ -30,6 +30,7 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -39,6 +40,7 @@ import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   FeedService,
@@ -434,12 +436,7 @@ function FeedPageSession({
       ...(data?.items ?? []),
       ...pagination.additionalItems,
     ]) {
-      if (
-        item.source_domain === "connected_systems" &&
-        !isLocalCrmBuildEnabled()
-      ) {
-        continue;
-      }
+      if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
       if (seen.has(item.id)) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
         continue;
@@ -621,6 +618,7 @@ function FeedPageSession({
         {/* No in-body header: the shared top bar owns the single Feed title. */}
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
+            <FeedPushPrompt />
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>

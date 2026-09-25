@@ -96,8 +96,7 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
-async def test_full_text_search_keeps_drive_relevance_order(monkeypatch):
-    # Drive ranks fullText matches by relevance and does not sort them.
+async def test_full_text_search_uses_the_validated_file_time_order(monkeypatch):
     listing = AsyncMock(return_value={"files": []})
     drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
     await drive.read_tool(
@@ -105,8 +104,7 @@ async def test_full_text_search_keeps_drive_relevance_order(monkeypatch):
         tool_name="search_files",
         arguments={"query": "(title contains 'tax' or fullText contains 'tax')"},
     )
-    assert listing.await_args.kwargs["order_by"] is None
-    # A requested date order cannot apply either: Drive does not sort fullText matches.
+    assert listing.await_args.kwargs["order_by"] == "modifiedTime desc"
     await drive.read_tool(
         user_id="owner",
         tool_name="search_files",
@@ -115,7 +113,7 @@ async def test_full_text_search_keeps_drive_relevance_order(monkeypatch):
             "orderBy": "createdTime desc",
         },
     )
-    assert listing.await_args.kwargs["order_by"] is None
+    assert listing.await_args.kwargs["order_by"] == "createdTime desc"
 
 
 async def test_a_created_window_is_listed_newest_created_first(monkeypatch):

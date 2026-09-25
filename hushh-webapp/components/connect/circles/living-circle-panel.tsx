@@ -97,11 +97,11 @@ export function LivingCirclePanel({
     <section
       data-testid="connect-living-circle-detail"
       aria-label={`${circleName} members`}
-      className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-6"
+      className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 sm:px-6 sm:py-6"
     >
       <div
         data-testid="connect-circle-drop-zone"
-        className={`mx-auto w-fit rounded-full transition-colors motion-reduce:transition-none ${overCircle ? "bg-[color:var(--app-secondary-fill)] ring-2 ring-[color:var(--app-accent)]" : ""}`}
+        className={`mx-auto w-fit rounded-full bg-[radial-gradient(circle,var(--app-secondary-surface)_0%,transparent_70%)] transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none ${overCircle ? "ring-2 ring-[color:var(--app-accent)]" : ""}`}
         onDragOver={(event) => {
           if (!canInvite || !event.dataTransfer.types.includes(DRAG_TYPE)) return;
           event.preventDefault();
@@ -212,7 +212,7 @@ export function LivingCirclePanel({
                     event.dataTransfer.setData(DRAG_TYPE, person.userId);
                     event.dataTransfer.effectAllowed = "copy";
                   }}
-                  className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-2.5 py-2 sm:cursor-grab sm:active:cursor-grabbing"
+                  className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] sm:cursor-grab sm:active:cursor-grabbing"
                 >
                   <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
                   <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>

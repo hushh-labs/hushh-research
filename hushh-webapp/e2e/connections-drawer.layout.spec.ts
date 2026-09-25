@@ -48,6 +48,7 @@ test.beforeAll(async () => {
           "@/lib/connections/custom-connector-configuration",
           "next/navigation",
         ].map((find) => ({
+          // Exact aliases preserve Capacitor subpath imports.
           find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
           replacement: path.join(
             root,

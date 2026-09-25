@@ -82,6 +82,7 @@ beforeEach(() => {
 
 import {
   AgentTurnStreamPanel,
+  PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   agentToolEventToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
@@ -196,6 +197,32 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+  });
+
+  it("shows private-memory preparation without a second generic pending line", () => {
+    const preparation = {
+      id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+      label: "Private memory",
+      message: "Preparing your private memory.",
+      status: "running" as const,
+      createdAtMs: 1_700_001,
+    };
+    const { rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />,
+    );
+
+    expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+
+    rerender(
+      <AgentTurnStreamPanel
+        streamEvents={[{ ...preparation, message: "Private memory ready.", status: "done" }]}
+        responseText=""
+        isStreaming
+      />,
+    );
+    expect(screen.getByText("Private memory ready.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
   });
 
   it("never renders legacy reasoning during a turn or after the answer arrives", () => {

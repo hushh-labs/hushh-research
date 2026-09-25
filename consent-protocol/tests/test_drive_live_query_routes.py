@@ -24,7 +24,17 @@ def setup(monkeypatch):
     service = SimpleNamespace(
         **{
             name: AsyncMock(return_value={"status": "pending"})
-            for name in ("create", "list_requests", "status", "allow", "deny", "cancel")
+            for name in (
+                "create",
+                "list_requests",
+                "status",
+                "allow",
+                "deny",
+                "cancel",
+                "prepare_owner_share",
+                "prepare_trusted_share",
+                "share_owner_files",
+            )
         }
     )
     monkeypatch.setattr(routes, "_query_service", lambda: service)
@@ -204,3 +214,112 @@ def test_unexpected_failures_never_leak_details(setup):
     response = client.post(BASE + f"/{REQUEST_ID}/allow", json={"revision": 1})
     assert response.status_code == 503
     assert "secret" not in response.text
+
+
+OWNER_SHARES = "/api/connectors/google_drive/sharing/owner-shares"
+
+
+def owner_share_body(**changes):
+    return {
+        "recipientPersonRef": str(uuid4()),
+        "clientRequestId": str(uuid4()),
+        "query": "Chris onboarding recordings",
+        **changes,
+    }
+
+
+@pytest.mark.parametrize(
+    "suffix,body",
+    [("", owner_share_body()), (f"/{REQUEST_ID}/share", {"fileRefs": ["f1"]})],
+)
+def test_owner_share_routes_require_the_vault_owner(setup, suffix, body):
+    client, _, service, _ = setup
+    response = client.post(OWNER_SHARES + suffix, json=body)
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    assert all(not value.called for value in vars(service).values())
+
+
+def test_owner_share_resolves_the_person_server_side_and_carries_the_owner_token(
+    setup, monkeypatch
+):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    resolve = SimpleNamespace(get_relationship_target=lambda **kwargs: ("recipient", {}))
+    monkeypatch.setattr(routes, "PersonProfileService", lambda: resolve)
+    body = owner_share_body(timeZone="Asia/Kolkata")
+    assert client.post(OWNER_SHARES, json=body).status_code == 200
+    service.prepare_owner_share.assert_awaited_once_with(
+        user_id="owner",
+        recipient_user_id="recipient",
+        client_request_id=body["clientRequestId"],
+        query="Chris onboarding recordings",
+        consent_token=OWNER_PROOF,
+        timezone="Asia/Kolkata",
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        owner_share_body(query=""),
+        owner_share_body(query="x" * 2001),
+        owner_share_body(recipientPersonRef="not-a-uuid"),
+        owner_share_body(fileId="1AbCdEfGhIjKlMnOpQrStUvWxYz012345"),
+    ],
+)
+def test_invalid_owner_shares_are_rejected(setup, body):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    assert client.post(OWNER_SHARES, json=body).status_code == 422
+    service.prepare_owner_share.assert_not_called()
+
+
+@pytest.mark.parametrize("refs", [["f9"], ["f1", "f1"], [], ["1AbCdEfGhIjKlMnOpQrStUvWxYz012345"]])
+def test_owner_share_accepts_only_references_from_the_search(setup, refs):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    response = client.post(OWNER_SHARES + f"/{REQUEST_ID}/share", json={"fileRefs": refs})
+    assert response.status_code == 422
+    service.share_owner_files.assert_not_called()
+
+
+def test_owner_share_passes_the_chosen_references(setup):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    response = client.post(OWNER_SHARES + f"/{REQUEST_ID}/share", json={"fileRefs": ["f1", "f2"]})
+    assert response.status_code == 202
+    service.share_owner_files.assert_awaited_once_with(
+        user_id="owner", request_id=REQUEST_ID, file_refs=["f1", "f2"]
+    )
+
+
+def test_a_trusted_circle_share_needs_no_person_and_carries_the_owner_token(setup):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    body = owner_share_body(audience="trusted_circle")
+    body.pop("recipientPersonRef")
+    assert client.post(OWNER_SHARES, json=body).status_code == 200
+    service.prepare_trusted_share.assert_awaited_once_with(
+        user_id="owner",
+        client_request_id=body["clientRequestId"],
+        query="Chris onboarding recordings",
+        consent_token=OWNER_PROOF,
+        timezone="UTC",
+    )
+    service.prepare_owner_share.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"audience": "trusted_circle"}, {"audience": "everyone"}, {"recipientPersonRef": None}],
+)
+def test_an_owner_share_names_exactly_one_audience(setup, changes):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    body = {**owner_share_body(), **changes}
+    if body.get("recipientPersonRef") is None:
+        body.pop("recipientPersonRef")
+    assert client.post(OWNER_SHARES, json=body).status_code == 422
+    service.prepare_owner_share.assert_not_called()
+    service.prepare_trusted_share.assert_not_called()

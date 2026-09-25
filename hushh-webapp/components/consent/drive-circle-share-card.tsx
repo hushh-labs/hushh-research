@@ -1,0 +1,327 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { Button } from "@/lib/morphy-ux/button";
+import { BodyText, HelperText, MediumRowLabel } from "@/components/app-ui/typography";
+import {
+  DriveSharingError,
+  DriveSharingService,
+  type DriveCircleExclusion,
+  type DriveCircleShareView,
+} from "@/lib/services/drive-sharing-service";
+
+type Phase = "idle" | "searching" | "sharing";
+type Result = "shared" | "failed";
+
+const EXCLUSION_COPY: Record<DriveCircleExclusion, string> = {
+  not_connected: "not connected with you",
+  contacts: "connected through contacts, not a request",
+  circle: "connected through a circle, not a request",
+  imported: "an imported connection, not a request",
+  unavailable: "Drive sharing isn't available for them yet",
+  no_google_account: "no Google account on One",
+  limit: "more than 10 people; share with them by name",
+};
+
+function codeOf(cause: unknown): string {
+  return cause instanceof DriveSharingError ? cause.code : "request_failed";
+}
+
+function failureCopy(code: string): string {
+  switch (code) {
+    case "reconnect_required":
+    case "connection_changed":
+      return "Reconnect Google Drive, then try again.";
+    case "drive_query_unavailable":
+      return "Drive didn't answer. Try again.";
+    case "sharing_unavailable":
+      return "Sharing Drive files isn't available right now.";
+    default:
+      return "Couldn't finish that. Try again.";
+  }
+}
+
+function browserTimeZone(): string | undefined {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return /^[A-Za-z0-9_+\-/]{1,64}$/.test(zone) ? zone : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The owner shares their own Drive files with their Trusted circle, from chat.
+ * Only members the owner connected with by request can receive; everyone
+ * else is listed with the reason. Nothing is searched until Find files and
+ * nothing is shared until Share; each person gets their own Viewer share.
+ */
+export function DriveCircleShareCard({
+  clientRequestId,
+  filesRequest,
+}: {
+  clientRequestId: string;
+  filesRequest: string;
+}) {
+  const { user } = useAuth();
+  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
+  if (!user || !isVaultUnlocked)
+    return <BodyText role="status">Unlock your vault to share Drive files.</BodyText>;
+  return (
+    <UnlockedDriveCircleShareCard
+      key={`${user.uid}:${clientRequestId}:${snapshotVaultSessionEpoch()}`}
+      userId={user.uid}
+      clientRequestId={clientRequestId}
+      filesRequest={filesRequest}
+      getToken={getVaultOwnerToken}
+    />
+  );
+}
+
+function UnlockedDriveCircleShareCard({
+  userId,
+  clientRequestId,
+  filesRequest,
+  getToken,
+}: {
+  userId: string;
+  clientRequestId: string;
+  filesRequest: string;
+  getToken: () => string | null;
+}) {
+  const [view, setView] = useState<DriveCircleShareView | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [unsharedFiles, setUnsharedFiles] = useState<string[]>([]);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [results, setResults] = useState<Record<string, Result>>({});
+  const alive = useRef(false);
+  const serial = useRef(0);
+
+  useEffect(() => {
+    alive.current = true;
+    const operations = serial;
+    return () => {
+      alive.current = false;
+      operations.current += 1;
+    };
+  }, []);
+
+  const guarded = useCallback(() => {
+    const token = getToken();
+    if (!token) return null;
+    const epoch = snapshotVaultSessionEpoch();
+    const operation = ++serial.current;
+    const current = () =>
+      alive.current &&
+      operation === serial.current &&
+      isVaultSessionEpochCurrent(epoch) &&
+      getToken() === token;
+    const guard = () => {
+      if (!current()) throw new DriveSharingError("session_changed");
+    };
+    return { token, current, guard };
+  }, [getToken]);
+
+  const find = async () => {
+    if (phase !== "idle") return;
+    const session = guarded();
+    if (!session) {
+      setNotice("Unlock your vault to share Drive files.");
+      return;
+    }
+    setPhase("searching");
+    setNotice(null);
+    try {
+      const result = await DriveSharingService.prepareTrustedShare(
+        session.token,
+        { clientRequestId, query: filesRequest, timeZone: browserTimeZone() },
+        session.guard,
+      );
+      if (!session.current()) return;
+      setView(result);
+      setUnsharedFiles([]);
+      setSkipped([]);
+    } catch (cause) {
+      if (session.current()) setNotice(failureCopy(codeOf(cause)));
+    } finally {
+      if (session.current()) setPhase("idle");
+    }
+  };
+
+  const files = view && (view.status === "ready" || view.status === "shared") ? view.files : [];
+  const selectedFiles = files.map((file) => file.ref).filter((ref) => !unsharedFiles.includes(ref));
+  const open = (view?.recipients ?? []).filter(
+    (item) => item.status === "ready" && results[item.requestId] !== "shared",
+  );
+  const chosen = open.filter((item) => !skipped.includes(item.requestId));
+
+  const share = async () => {
+    if (phase !== "idle" || !selectedFiles.length || !chosen.length) return;
+    const session = guarded();
+    if (!session) {
+      setNotice("Unlock your vault to share Drive files.");
+      return;
+    }
+    const refs = [...selectedFiles];
+    setPhase("sharing");
+    setNotice(null);
+    const next: Record<string, Result> = {};
+    let stale = false;
+    // One person at a time: each is their own Viewer share and outcome.
+    for (const person of chosen) {
+      try {
+        await DriveSharingService.shareOwnerFiles(session.token, person.requestId, refs, session.guard);
+        next[person.requestId] = "shared";
+      } catch (cause) {
+        const code = codeOf(cause);
+        if (code === "session_changed") return;
+        if (code === "owner_share_expired" || code === "request_changed") stale = true;
+        next[person.requestId] = "failed";
+      }
+      if (!session.current()) return;
+      setResults((prior) => ({ ...prior, ...next }));
+    }
+    if (stale) {
+      // The search is gone or changed: find the files again, never re-share it.
+      setView(null);
+      setResults({});
+      setNotice("This search expired. Find the files again.");
+      setPhase("idle");
+      return;
+    }
+    CacheSyncService.onConsentMutated(userId);
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
+    );
+    if (Object.values(next).includes("failed"))
+      setNotice("Some people didn't get the files. Try again for them.");
+    if (session.current()) setPhase("idle");
+  };
+
+  const sharedCount =
+    (view?.recipients ?? []).filter(
+      (item) => item.status === "shared" || results[item.requestId] === "shared",
+    ).length;
+  const statusLine =
+    phase === "searching"
+      ? "Searching your Drive…"
+      : phase === "sharing"
+        ? "Sharing…"
+        : view?.status === "no_match"
+          ? "No matching files found."
+          : view?.status === "no_recipients"
+            ? "No one in your Trusted circle can receive files yet."
+            : sharedCount > 0 && open.length === 0
+              ? `Shared with ${sharedCount} ${sharedCount === 1 ? "person" : "people"}.`
+              : view
+                ? "Choose the files and people."
+                : null;
+
+  return (
+    <section aria-label="Share Drive files with your Trusted circle" className="min-w-0 space-y-4 break-words"
+      data-testid="drive-circle-share" aria-busy={phase !== "idle"}>
+      <div role="status" aria-live="polite" className="min-w-0 space-y-1">
+        <MediumRowLabel as="p">Share Drive files with your Trusted circle</MediumRowLabel>
+        {statusLine ? <BodyText>{statusLine}</BodyText> : null}
+      </div>
+      <BodyText className="whitespace-pre-wrap break-words">“{filesRequest}”</BodyText>
+      {notice ? <HelperText role="alert">{notice}</HelperText> : null}
+      {view?.message ? <HelperText className="whitespace-pre-wrap">{view.message}</HelperText> : null}
+      {!view || view.status === "no_match" || view.status === "no_recipients" ? (
+        <>
+          <HelperText>
+            Your private agent searches your Drive once for these files. Only people in your Trusted
+            circle you connected with by request can receive them. Nothing is shared until you
+            choose and tap Share.
+          </HelperText>
+          <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+            {phase === "searching" ? "Searching…" : view ? "Search again" : "Find files"}
+          </Button>
+        </>
+      ) : null}
+      {files.length > 0 && open.length > 0 ? (
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+          <legend>
+            <MediumRowLabel as="span">Files</MediumRowLabel>
+          </legend>
+          <ul aria-label="Files you can share" className="min-w-0 space-y-1">
+            {files.map((file) => (
+              <li key={file.ref}>
+                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                  <input type="checkbox" checked={selectedFiles.includes(file.ref)}
+                    onChange={(event) => setUnsharedFiles(event.target.checked
+                      ? unsharedFiles.filter((ref) => ref !== file.ref)
+                      : [...unsharedFiles, file.ref])} />
+                  <span className="min-w-0 break-all">{file.name}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+      ) : null}
+      {view && view.recipients.length > 0 ? (
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+          <legend>
+            <MediumRowLabel as="span">People</MediumRowLabel>
+          </legend>
+          <ul aria-label="People who can receive" className="min-w-0 space-y-1">
+            {view.recipients.map((person) => {
+              const done = person.status === "shared" || results[person.requestId] === "shared";
+              return (
+                <li key={person.requestId}>
+                  <label className="flex min-h-11 min-w-0 items-center gap-3">
+                    <input type="checkbox" disabled={done}
+                      checked={done || !skipped.includes(person.requestId)}
+                      onChange={(event) => setSkipped(event.target.checked
+                        ? skipped.filter((item) => item !== person.requestId)
+                        : [...skipped, person.requestId])} />
+                    <span className="min-w-0 break-all">
+                      {person.name ?? "A connection"}
+                      {done ? <HelperText as="span"> · shared</HelperText> : null}
+                      {results[person.requestId] === "failed" ? <HelperText as="span"> · not shared</HelperText> : null}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
+      ) : null}
+      {view && view.excluded.length > 0 ? (
+        <div className="min-w-0 space-y-1">
+          <HelperText>Not included:</HelperText>
+          <ul aria-label="Not included" className="min-w-0 list-inside list-disc space-y-1">
+            {view.excluded.map((person, index) => (
+              <li key={index} className="break-words text-sm">
+                {person.name ?? "Someone"} — {EXCLUSION_COPY[person.reason]}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {files.length > 0 && open.length > 0 ? (
+        <>
+          <HelperText>
+            Each person gets Viewer access to the original files in Google Drive. You can remove
+            access anytime.
+          </HelperText>
+          <Button size="prominent" disabled={phase !== "idle" || !selectedFiles.length || !chosen.length}
+            onClick={() => void share()}>
+            {phase === "sharing"
+              ? "Sharing…"
+              : `Share ${selectedFiles.length === 1 ? "1 file" : `${selectedFiles.length} files`} with ${chosen.length === 1 ? "1 person" : `${chosen.length} people`}`}
+          </Button>
+        </>
+      ) : null}
+    </section>
+  );
+}

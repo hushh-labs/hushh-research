@@ -106,22 +106,29 @@ def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None
     assert "No Next.js server chunks found" in verifier
 
 
-def test_uat_automatic_rollback_uses_tagged_last_known_good() -> None:
+def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
     rollback_block = workflow[
-        workflow.index("- name: Resolve last-known-good rollback targets") : workflow.index(
+        workflow.index("- name: Resolve rollback targets from predeploy traffic") : workflow.index(
             "- name: Resolve final Cloud Run state"
         )
     ]
 
+    assert (
+        'backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in rollback_block
+    )
+    assert (
+        'frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"'
+        in rollback_block
+    )
+    assert 'if [ -z "${backend_revision}" ]; then' in rollback_block
+    assert 'if [ -z "${frontend_revision}" ]; then' in rollback_block
     assert "git fetch --force origin" in rollback_block
     assert "refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest" in rollback_block
     assert "scripts/ci/resolve-rollback-target.sh uat backend" in rollback_block
     assert "scripts/ci/resolve-rollback-target.sh uat frontend" in rollback_block
     assert "steps.rollback-targets.outputs.backend_revision" in rollback_block
     assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
-    assert "steps.predeploy-state.outputs.backend_revision" not in rollback_block
-    assert "steps.predeploy-state.outputs.frontend_revision" not in rollback_block
 
 
 def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
@@ -557,14 +564,17 @@ def test_production_health_gates_only_probe_after_successful_promotion() -> None
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
-    for path, expected_created_revision_lookups in (
-        (".github/workflows/deploy-uat.yml", 2),
+    for path, expected_unguarded_candidate_lookups in (
+        # UAT resolves governed candidates from exact deployment labels. Dev
+        # still uses latestCreatedRevisionName for its non-release candidates.
+        (".github/workflows/deploy-uat.yml", 0),
         (".github/workflows/deploy-dev.yml", 2),
     ):
         workflow = _read(path)
         assert workflow.count("status.latestReadyRevisionName") == 0
         assert (
-            workflow.count("status.latestCreatedRevisionName") == expected_created_revision_lookups
+            workflow.count("status.latestCreatedRevisionName")
+            == expected_unguarded_candidate_lookups
         )
         assert "--format='value(status.traffic[0].revisionName)'" not in workflow
         assert "resolve-cloud-run-serving-state.py" in workflow

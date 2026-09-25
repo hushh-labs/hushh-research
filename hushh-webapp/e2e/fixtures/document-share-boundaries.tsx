@@ -40,6 +40,16 @@ export const ApiService = {
     // eslint-disable-next-line no-restricted-syntax -- Synthetic browser transport; intercepted by Playwright.
     return fetch(path, options);
   },
+  // The streamed preparation's web transport; Playwright answers it.
+  apiFetchStream: (path: string, options: RequestInit = {}) =>
+    // eslint-disable-next-line no-restricted-syntax -- Synthetic browser transport; intercepted by Playwright.
+    fetch(path, {
+      ...options,
+      headers: {
+        ...(options.headers as Record<string, string> | undefined),
+        Accept: "text/event-stream",
+      },
+    }),
 };
 
 // Popup identity is synthetic here; Firebase's same-user semantics have their

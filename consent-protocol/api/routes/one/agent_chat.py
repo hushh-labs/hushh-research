@@ -672,6 +672,68 @@ def _safe_document_request_descriptor(
     return None
 
 
+def _safe_drive_share_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore the owner's Drive share card: a person and the files in words.
+
+    It carries no file id and grants nothing; the card searches and shares
+    only after the owner's own taps, through the owner-authenticated routes.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        if response is None or getattr(response, "name", "") != "propose_drive_share":
+            continue
+        result = _record(getattr(response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready":
+            return None
+        client_id = _bounded_text(result.get("clientRequestId"), 36)
+        files_request = _bounded_text(result.get("filesRequest"), 2000)
+        if result.get("audience") == "trusted_circle":
+            if not client_id or not files_request or not re.fullmatch(r"[0-9a-f-]{36}", client_id):
+                return None
+            return {
+                "activityType": "one.drive_share_review.v1",
+                "content": {
+                    "audience": "trusted_circle",
+                    "clientRequestId": client_id,
+                    "filesRequest": files_request,
+                },
+            }
+        person = _record(result.get("person")) or {}
+        person_ref = _bounded_text(person.get("personRef"), 36)
+        person_name = _bounded_text(person.get("displayName"), 120)
+        if (
+            not person_ref
+            or not client_id
+            or not person_name
+            or not files_request
+            or not re.fullmatch(r"[0-9a-f-]{36}", person_ref)
+            or not re.fullmatch(r"[0-9a-f-]{36}", client_id)
+        ):
+            return None
+        return {
+            "activityType": "one.drive_share_review.v1",
+            "content": {
+                "personRef": person_ref,
+                "personName": person_name,
+                "clientRequestId": client_id,
+                "filesRequest": files_request,
+            },
+        }
+    return None
+
+
 def _safe_submitted_information_request_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
@@ -728,6 +790,8 @@ def _safe_agent_history_metadata(
             descriptor = _safe_information_request_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_document_request_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_drive_share_descriptor(event, [part])
         if descriptor is None:
             continue
         invocation_identity = _bounded_text(

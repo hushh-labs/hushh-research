@@ -1009,6 +1009,19 @@
       "expected_row_growth": "one_row_per_question_sent_between_connections"
     },
     {
+      "id": "drive_owner_shares",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_owner_shares"],
+      "primary_access_path": "The owner stages a share from chat with one connected person, or with the Trusted circle members the owner accepted by request or invite (contact-sync, circle-only and imported connections never receive). Only the owner's own tap runs one live Drive search under the owner's authority; the found files (at most eight, no folders) are sealed so a share binds exactly what the owner saw, by reference. The owner's explicit selection then goes through the existing exact-file lane (owner-initiated request, owner-selected review, ledger approval, permission worker). The recipient never reads this table.",
+      "retention_policy": "A search stays shareable for one hour. One row per owner search and recipient; the shared row keeps the link to its document share request.",
+      "deletion_behavior": "Owner or recipient account deletion removes the row.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 AES-256-GCM envelope bound to owner, row id and purpose holds the owner's words and the found files (names, dates, Drive file ids). Plaintext holds opaque participant ids, a keyed request digest, status, the document share request id and timestamps.",
+      "plaintext_posture": "encrypted_search_and_files_with_workflow_metadata",
+      "expected_row_growth": "one_row_per_owner_share_search_and_recipient"
+    },
+    {
       "id": "drive_original_sharing_coordination",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -1195,7 +1208,7 @@
       "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache.",
       "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
       "deletion_behavior": "Hard-delete owned Feed with account deletion; derived counterpart links cascade when either the Feed event or counterpart account is deleted. No copied photos.",
-      "trust_boundary": "The companion table holds server-only counterpart identity references resolved from viewer-authorized source records. They never enter the browser DTO. Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
+      "trust_boundary": "The companion table holds server-only counterpart identity references resolved from viewer-authorized source records. They never enter the browser DTO. Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems, and the Drive sharing/question outboxes drive_share_events and drive_query_events, projected as connected_systems rows carrying only the closed type, request id, status word and counterpart label) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
     },

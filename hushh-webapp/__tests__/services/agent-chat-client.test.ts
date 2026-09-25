@@ -163,6 +163,37 @@ describe("AG-UI Agent One client", () => {
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     })).rejects.toThrow();
   });
+  it("shows Drive search progress without exposing the private tool request", async () => {
+    const onToolStart = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "drive-call", toolCallName: "ask_documents_agent" } });
+      subscriber.onToolCallEndEvent({
+        event: { toolCallId: "drive-call" },
+        toolCallName: "ask_documents_agent",
+        toolCallArgs: { request: "PRIVATE_FILENAME.pdf" },
+      });
+    };
+
+    await streamAgentChat({
+      userId: "u1",
+      message: "Find my file",
+      vaultOwnerToken: "fixture",
+      handlers: { onToolStart, onToolWaiting },
+    });
+
+    expect(onToolStart.mock.calls[0][0]).toMatchObject({
+      label: "Google Drive",
+      message: "Searching your Drive for this answer.",
+    });
+    expect(onToolWaiting.mock.calls[0][0]).toMatchObject({
+      label: "Google Drive",
+      message: "Searching your Drive for this answer.",
+    });
+    expect(JSON.stringify([onToolStart.mock.calls, onToolWaiting.mock.calls]))
+      .not.toContain("PRIVATE_FILENAME.pdf");
+  });
+
   it("shows selected Drive status activity without exposing private filenames", async () => {
     const onToolResult = vi.fn();
     const onToolWaiting = vi.fn();

@@ -217,9 +217,11 @@
     "242_drive_live_query_requests.sql",
     "243_drive_live_query_cancel.sql",
     "244_drive_query_notifications.sql",
-    "245_private_mcp_registration.sql",
-    "246_adk_chat_action_authority.sql",
-    "247_public_profile_bridge.sql"
+    "245_drive_owner_shares.sql",
+    "246_drive_feed_projection.sql",
+    "247_private_mcp_registration.sql",
+    "248_adk_chat_action_authority.sql",
+    "249_public_profile_bridge.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -451,8 +453,10 @@
     "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
     "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql",
     "244_drive_query_notifications.sql": "rollback/244_drive_query_notifications.rollback.sql",
-    "245_private_mcp_registration.sql": "rollback/245_private_mcp_registration.rollback.sql",
-    "246_adk_chat_action_authority.sql": "rollback/246_adk_chat_action_authority.rollback.sql",
-    "247_public_profile_bridge.sql": "rollback/247_public_profile_bridge.rollback.sql"
+    "245_drive_owner_shares.sql": "rollback/245_drive_owner_shares.rollback.sql",
+    "246_drive_feed_projection.sql": "rollback/246_drive_feed_projection.rollback.sql",
+    "247_private_mcp_registration.sql": "rollback/247_private_mcp_registration.rollback.sql",
+    "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql",
+    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql"
   }
 }

@@ -263,8 +263,8 @@ def ledger_db(connector_postgres_url):  # noqa: F811 - imported shared pytest fi
                 "212_location_command_runtime.sql",
                 "231_document_review_authority.sql",
                 "231_document_review_authority.sql",
-                "246_adk_chat_action_authority.sql",
-                "246_adk_chat_action_authority.sql",
+                "248_adk_chat_action_authority.sql",
+                "248_adk_chat_action_authority.sql",
             ):
                 connection.exec_driver_sql((MIGRATIONS / name).read_text())
             connection.commit()

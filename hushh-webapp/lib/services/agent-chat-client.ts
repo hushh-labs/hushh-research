@@ -357,8 +357,8 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking your mail request.",
   },
   ask_documents_agent: {
-    label: "Drive",
-    message: "Checking your file request.",
+    label: "Google Drive",
+    message: "Searching your Drive for this answer.",
   },
   ask_connected_systems_agent: {
     label: "Connected systems",
