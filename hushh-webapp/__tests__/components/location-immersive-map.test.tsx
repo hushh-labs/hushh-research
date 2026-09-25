@@ -3270,6 +3270,56 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
   });
 
+  it("does not publish a fallback zoom for a rejected camera move", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setCamera.mockImplementation(
+      async (camera: { zoom?: number }) => {
+        if (camera.zoom === 16) {
+          throw new Error("native camera transaction rejected");
+        }
+      },
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({ zoom: 16 }),
+      );
+    });
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(false);
+
+    // A later accepted Locate Me command can safely publish its target and
+    // restore the renderer-owned dot; the rejection did not poison the scale.
+    mapHarness.map.setCamera.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+  });
+
   it("resizes the self dot for distant framing without camera callbacks", async () => {
     stubPhoneGeometry();
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
@@ -4001,6 +4051,39 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(ownerControl).not.toHaveClass("sr-only");
       expect(layer).toHaveClass("opacity-100");
     });
+  });
+
+  it("keeps web HTML overlays disabled when bounds changes cannot be observed", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera bounds listener unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+    expect(screen.queryAllByTestId("one-location-map-name-label")).toHaveLength(
+      0,
+    );
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(true);
   });
 
   it("keeps native HTML overlays disabled when move-start cannot be observed", async () => {

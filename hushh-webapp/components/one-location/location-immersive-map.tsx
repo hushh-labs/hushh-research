@@ -1272,6 +1272,32 @@ export function LocationImmersiveMap({
     [auth.userId],
   );
 
+  const moveCameraAndPublishZoom = useCallback(
+    async (
+      map: GoogleMap,
+      camera: {
+        coordinate: { lat: number; lng: number };
+        zoom: number;
+        animate: boolean;
+      },
+    ) => {
+      const cameraRevision = settledCameraRevisionRef.current;
+      await map.setCamera(camera);
+      // Compatibility bridges can accept a camera command without ever
+      // reporting idle. Publish that target only after acceptance, and never
+      // overwrite a newer authoritative report (or a replacement/revoked map)
+      // when this promise resolves late.
+      if (
+        mapRef.current === map &&
+        rendererReadyRef.current &&
+        settledCameraRevisionRef.current === cameraRevision
+      ) {
+        setSettledCameraZoom(camera.zoom);
+      }
+    },
+    [],
+  );
+
   const focusSelfPoint = useCallback(
     async (
       point: PlainLocationPoint,
@@ -1300,17 +1326,15 @@ export function LocationImmersiveMap({
       }
       if (options.moveCamera === false) return;
       const targetZoom = zoomForAccuracy(point.accuracyM);
-      // The target is authoritative even on compatibility bridges that never
-      // send an idle callback. Updating before the animated camera move also
-      // prevents a world-view-sized circle flashing over a street-level map.
-      setSettledCameraZoom(targetZoom);
-      await mapRef.current?.setCamera({
+      const map = mapRef.current;
+      if (!map || !rendererReadyRef.current) return;
+      await moveCameraAndPublishZoom(map, {
         coordinate: { lat: point.latitude, lng: point.longitude },
         zoom: targetZoom,
         animate: options.animate,
       });
     },
-    [auth.userId],
+    [auth.userId, moveCameraAndPublishZoom],
   );
 
   useEffect(() => {
@@ -1808,23 +1832,21 @@ export function LocationImmersiveMap({
         isNative()
           ? moveStartedListenerRegistered &&
               (boundsListenerRegistered || idleListenerRegistered)
-          : boundsListenerRegistered ||
-              (idleListenerRegistered && moveStartedListenerRegistered),
+          : boundsListenerRegistered,
       );
       await map.setOnMarkerClickListener((event) => {
         if (!currentInstance()) return;
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
-        setSettledCameraZoom(15);
-        void map.setCamera({
+        void moveCameraAndPublishZoom(map, {
           coordinate: {
             lat: marker.point.latitude,
             lng: marker.point.longitude,
           },
           zoom: 15,
           animate: true,
-        });
+        }).catch(() => undefined);
       });
       if (!currentInstance()) return;
       setMapReady(true);
@@ -2121,16 +2143,17 @@ export function LocationImmersiveMap({
     // even a stale queued activation disclose that coordinate to the renderer.
     if (!rendererReady || !mapSelfMarker) return;
     setSelected(mapSelfMarker);
-    setSettledCameraZoom(15);
-    void mapRef.current?.setCamera({
+    const map = mapRef.current;
+    if (!map) return;
+    void moveCameraAndPublishZoom(map, {
       coordinate: {
         lat: mapSelfMarker.point.latitude,
         lng: mapSelfMarker.point.longitude,
       },
       zoom: 15,
       animate: true,
-    });
-  }, [mapSelfMarker, rendererReady]);
+    }).catch(() => undefined);
+  }, [mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
 
   /**
    * Non-owner pins managed as one renderer batch. The owner fallback is a
@@ -2961,20 +2984,24 @@ export function LocationImmersiveMap({
     vaultOwnerToken,
   ]);
 
-  const focusMarker = useCallback(async (marker: RenderMarker) => {
-    setSelected(marker);
-    setSearchQuery("");
-    setTrayExpanded(false);
-    setSettledCameraZoom(15);
-    await mapRef.current?.setCamera({
-      coordinate: {
-        lat: marker.point.latitude,
-        lng: marker.point.longitude,
-      },
-      zoom: 15,
-      animate: true,
-    });
-  }, []);
+  const focusMarker = useCallback(
+    async (marker: RenderMarker) => {
+      setSelected(marker);
+      setSearchQuery("");
+      setTrayExpanded(false);
+      const map = mapRef.current;
+      if (!map || !rendererReadyRef.current) return;
+      await moveCameraAndPublishZoom(map, {
+        coordinate: {
+          lat: marker.point.latitude,
+          lng: marker.point.longitude,
+        },
+        zoom: 15,
+        animate: true,
+      });
+    },
+    [moveCameraAndPublishZoom],
+  );
 
   const locateMe = useCallback(async () => {
     const activeUserId = auth.userId;
