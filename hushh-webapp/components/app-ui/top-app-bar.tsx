@@ -1045,6 +1045,15 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
+              // Clip only vertically: the max-height collapse needs it, but the
+              // back button sits in a -ml-3.5 box so its glyph lines up with the
+              // content column, which put its pressed/focus circle ~10px past a
+              // horizontal clip edge and sliced it. `clip` (unlike `hidden`)
+              // keeps the other axis visible without becoming a scroll
+              // container; where `clip` is unsupported the overflow-hidden
+              // class still applies.
+              overflowX: "visible",
+              overflowY: "clip",
               maxHeight: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
