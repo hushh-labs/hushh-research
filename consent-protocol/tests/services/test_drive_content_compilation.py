@@ -330,6 +330,18 @@ async def test_vague_request_never_reaches_drive():
 
 
 @pytest.mark.asyncio
+async def test_saturated_search_with_no_match_reports_incomplete_coverage():
+    reader = Reader([], truncated=True)
+    with pytest.raises(CompilationInputError, match="search was incomplete"):
+        await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+            user_id="owner",
+            message="all last 30 days standup sync",
+            timezone="UTC",
+            require_access=AsyncAccess(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_owner_revocation_cancels_remaining_reads():
     reader = Reader(notes())
     checks = 0

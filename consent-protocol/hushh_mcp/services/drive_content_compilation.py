@@ -395,6 +395,11 @@ class DriveContentCompilationService:
             matches = found["matches"]
             discovery_truncated = found["truncated"]
             if not matches:
+                if discovery_truncated:
+                    raise CompilationInputError(
+                        "The bounded Drive search was incomplete before any note was "
+                        "confirmed. Try a narrower title or period."
+                    )
                 raise CompilationInputError(
                     "No title-and-date matches were confirmed in this bounded Drive search."
                 )

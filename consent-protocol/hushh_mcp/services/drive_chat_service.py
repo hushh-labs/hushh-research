@@ -464,6 +464,12 @@ class DriveChatService:
                     matches = found["matches"]
                     await reader.require_current()
                     if not matches:
+                        if found["truncated"]:
+                            return _outcome(
+                                "input_required",
+                                "This bounded Drive search was incomplete before a note "
+                                "could be confirmed. Try a narrower meeting title or period.",
+                            )
                         return _outcome(
                             "input_required",
                             "I couldn't confirm a title-and-date match in this bounded "
