@@ -88,10 +88,11 @@ async def test_actual_one_runner_blocks_parallel_followup_and_restores_next_user
     assert executed == ["read"]
     assert model._advertised == [{"ask_email_agent", "forbidden_action"}, set()]
     responses = [response for event in first for response in event.get_function_responses()]
-    assert next(r for r in responses if r.name == "forbidden_action").response == {
-        "status": "blocked",
-        "reason": "external_content_answer_only",
-    }
+    blocked = next(r for r in responses if r.name == "forbidden_action").response
+    assert blocked["status"] == "blocked"
+    assert blocked["reason"] == "connector_read_complete"
+    assert "This blocked call did not reach the provider" in blocked["message"]
+    assert "external_content_answer_only" not in str(blocked)
     assert len({event.invocation_id for event in first}) == 1
     second = [
         event
