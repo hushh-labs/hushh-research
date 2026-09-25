@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from datetime import timezone as datetime_timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -398,9 +398,22 @@ class DriveChatService:
                 if listing is not None:
                     stage = "search_files"
                     await require_access()
+                    # Bound Google files.list before its 100-candidate cut. In
+                    # particular, newer standups must not crowd an explicitly
+                    # requested preceding 30-day window out of the results.
+                    first_day, last_day = listing.window(now_utc=now_utc, timezone=owner_timezone)
+                    owner_zone = ZoneInfo(owner_timezone)
+                    start_utc = datetime.combine(first_day, time.min, tzinfo=owner_zone).astimezone(
+                        datetime_timezone.utc
+                    )
+                    end_utc = datetime.combine(
+                        last_day + timedelta(days=1), time.min, tzinfo=owner_zone
+                    ).astimezone(datetime_timezone.utc)
                     found = await reader.find(
                         query=[listing.anchor],
-                        recent=True,
+                        time_field="createdTime",
+                        start_time=start_utc.isoformat().replace("+00:00", "Z"),
+                        end_time=end_utc.isoformat().replace("+00:00", "Z"),
                         max_results=MAX_OWNER_LIST_CANDIDATES,
                         title_only=True,
                     )
@@ -414,8 +427,8 @@ class DriveChatService:
                     if not matches:
                         return _outcome(
                             "input_required",
-                            "I couldn't find a matching file in that date window. "
-                            "Try the exact meeting title or a narrower period.",
+                            "I couldn't confirm a title-and-date match in this bounded "
+                            "Drive search. Try the exact meeting title or a narrower period.",
                         )
                     window = listing.window_description(now_utc=now_utc, timezone=owner_timezone)
                     count = len(matches)

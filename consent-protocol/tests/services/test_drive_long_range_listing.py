@@ -35,10 +35,13 @@ def test_exact_uat_and_generic_named_file_requests_are_bounded():
         requested_count=30,
     )
     assert standup.window(now_utc=NOW, timezone="Asia/Kolkata") == (
-        date(2026, 8, 28),
-        date(2026, 9, 26),
+        date(2026, 8, 27),
+        date(2026, 9, 25),
     )
-    assert "2026-08-28 through 2026-09-26" in standup.window_description(
+    assert "2026-08-27 through 2026-09-25" in standup.window_description(
+        now_utc=NOW, timezone="Asia/Kolkata"
+    )
+    assert "Completed local calendar days" in standup.window_description(
         now_utc=NOW, timezone="Asia/Kolkata"
     )
 
@@ -94,8 +97,8 @@ def test_prior_window_accepts_clear_phrase_and_exact_uat_wording():
     assert uat is not None
     assert canonical.offset_days == uat.offset_days == 30
     assert canonical.window(now_utc=NOW, timezone="Asia/Kolkata") == (
-        date(2026, 7, 29),
-        date(2026, 8, 27),
+        date(2026, 7, 28),
+        date(2026, 8, 26),
     )
     assert (
         parse_long_range_listing(
@@ -112,20 +115,25 @@ def test_filter_prefers_title_day_and_preserves_stable_order_for_ties():
     matches = [
         match("Standup Sync Notes - 2026/09/01", created="2026-01-01T00:00:00Z"),
         match("Standup Notes - 2026-08-01"),  # fresh edit cannot override title
-        match("Standup - 2026/09/20", created="2026-01-01T00:00:00Z"),
-        match("Standup 2026-09-20", created="2026-01-01T00:00:00Z"),
-        match("Standup Notes", created="2026-08-27T20:00:00Z"),
+        match("Standup Sync - 2026/09/20", created="2026-01-01T00:00:00Z"),
+        match("Stand-up Sync - 2026/09/20", created="2026-01-01T00:00:00Z"),
+        match("Standup Notes", created="2026-08-27T20:00:00Z"),  # missing sync
+        match("Standup Sync Notes", created="2026-08-26T20:00:00Z"),
+        match("Standup Syncing Notes - 2026/09/20"),  # sync is not a whole word
         match("Tax Receipts - 2026/09/20"),
-        match("Standup - 2026/02/30"),
-        match("Standup - 2026/09/19 - 2026/09/20"),
-        {**match("Standup folder - 2026/09/20"), "mime_type": "application/vnd.google-apps.folder"},
+        match("Standup Sync - 2026/02/30"),
+        match("Standup Sync - 2026/09/19 - 2026/09/20"),
+        {
+            **match("Standup Sync folder - 2026/09/20"),
+            "mime_type": "application/vnd.google-apps.folder",
+        },
     ]
     found = filter_long_range_matches(spec, matches, now_utc=NOW, timezone="Asia/Kolkata")
     assert [(row["name"], row["listing_day"]) for row in found] == [
-        ("Standup - 2026/09/20", "2026-09-20"),
-        ("Standup 2026-09-20", "2026-09-20"),
+        ("Standup Sync - 2026/09/20", "2026-09-20"),
+        ("Stand-up Sync - 2026/09/20", "2026-09-20"),
         ("Standup Sync Notes - 2026/09/01", "2026-09-01"),
-        ("Standup Notes", "2026-08-28"),
+        ("Standup Sync Notes", "2026-08-27"),
     ]
     assert "listing_day" not in matches[0]
 
@@ -138,11 +146,42 @@ def test_prior_window_uses_title_date_before_metadata_date():
     found = filter_long_range_matches(
         spec,
         [
-            match("Tax receipt - 2026/08/27"),
-            match("Tax receipt - 2026/08/28", created="2026-08-27T00:00:00Z"),
-            match("Tax receipt - 2026/07/29", created="2026-09-20T00:00:00Z"),
+            match("Tax receipt - 2026/08/26"),
+            match("Tax receipt - 2026/08/27", created="2026-08-26T00:00:00Z"),
+            match("Tax receipt - 2026/07/28", created="2026-09-20T00:00:00Z"),
+            match("Tax return - 2026/08/20"),  # receipt term is required
+            match("Taxation receipts - 2026/08/20"),  # tax is a whole word
         ],
         now_utc=NOW,
         timezone="Asia/Kolkata",
     )
-    assert [row["listing_day"] for row in found] == ["2026-08-27", "2026-07-29"]
+    assert [row["listing_day"] for row in found] == ["2026-08-26", "2026-07-28"]
+
+
+def test_one_distinctive_term_still_matches_stand_up_spelling():
+    spec = parse_long_range_listing("show my last 25 days standup notes")
+    assert spec is not None
+    assert parse_long_range_listing("show my last 25 days stand-up notes") == spec
+    found = filter_long_range_matches(
+        spec,
+        [match("Stand-up Notes - 2026/09/18"), match("Standup Notes - 2026/09/19")],
+        now_utc=NOW,
+        timezone="Asia/Kolkata",
+    )
+    assert [row["listing_day"] for row in found] == ["2026-09-19", "2026-09-18"]
+
+
+def test_singular_subject_accepts_plural_title_with_word_boundaries():
+    spec = parse_long_range_listing("show me all my last 25 days tax receipt")
+    assert spec is not None
+    found = filter_long_range_matches(
+        spec,
+        [
+            match("Tax Receipts - 2026/09/18"),
+            match("Taxation Receipts - 2026/09/18"),
+            match("Tax Receiptbook - 2026/09/18"),
+        ],
+        now_utc=NOW,
+        timezone="Asia/Kolkata",
+    )
+    assert [row["name"] for row in found] == ["Tax Receipts - 2026/09/18"]

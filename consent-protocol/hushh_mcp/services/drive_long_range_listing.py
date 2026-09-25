@@ -116,7 +116,10 @@ class LongRangeListing:
     anchor: str = ""
     title_terms: tuple[str, ...] = ()
     requested_count: int | None = None
-    basis: str = "Dated by filename where present, otherwise Drive file dates."
+    basis: str = (
+        "Completed local calendar days. Dated by filename where present, "
+        "otherwise Drive file dates."
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -127,14 +130,15 @@ class LongRangeListing:
             or not re.fullmatch(r"[a-z0-9-]{2,50}", self.anchor)
             or not 1 <= len(self.title_terms) <= 3
             or self.title_terms[0] != self.anchor
+            or any(not re.fullmatch(r"[a-z0-9-]{2,50}", term) for term in self.title_terms)
         ):
             raise ValueError("invalid long-range listing")
 
     def window(self, *, now_utc: datetime, timezone: str) -> tuple[date, date]:
-        """Return N local calendar dates, inclusive, ending on today's date."""
+        """Return N completed local calendar dates, inclusive, ending yesterday."""
         if now_utc.tzinfo is None or now_utc.utcoffset() is None:
             raise ValueError("current listing time must include a timezone")
-        last = now_utc.astimezone(_zone(timezone)).date() - timedelta(days=self.offset_days)
+        last = now_utc.astimezone(_zone(timezone)).date() - timedelta(days=self.offset_days + 1)
         return last - timedelta(days=self.relative_days - 1), last
 
     def window_description(self, *, now_utc: datetime, timezone: str) -> str:
@@ -152,7 +156,7 @@ def _zone(timezone: str) -> ZoneInfo:
 
 
 def _subject_terms(title: str) -> tuple[str, ...] | None:
-    words = title.lower().split()
+    words = ["standup" if word == "stand-up" else word for word in title.lower().split()]
     if any(word in _CONTENT_OR_VAGUE_WORDS for word in words):
         return None
     distinctive = tuple(dict.fromkeys(word for word in words if word not in _GENERIC_SUBJECT_WORDS))
@@ -243,6 +247,24 @@ def _metadata_day(match: dict, *, zone: ZoneInfo) -> date | None:
     return timestamp.astimezone(zone).date()
 
 
+def _term_pattern(term: str) -> re.Pattern[str]:
+    """Match a whole filename word with common singular/plural spelling."""
+    if term == "standup":
+        return re.compile(r"(?<!\w)stand[\s-]?ups?(?!\w)", re.IGNORECASE)
+    if term.endswith("ies") and len(term) > 4:
+        variants = (term, term[:-3] + "y")
+    elif term.endswith(("xes", "ches", "shes", "sses", "zes")):
+        variants = (term, term[:-2])
+    elif term.endswith("s") and len(term) > 3 and not term.endswith("ss"):
+        variants = (term, term[:-1])
+    elif term.endswith(("x", "ch", "sh", "s", "z")):
+        variants = (term, term + "es")
+    else:
+        variants = (term, term + "s")
+    alternatives = "|".join(re.escape(value) for value in variants)
+    return re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", re.IGNORECASE)
+
+
 def filter_long_range_matches(
     spec: LongRangeListing,
     matches: list[dict],
@@ -258,11 +280,7 @@ def filter_long_range_matches(
     """
     first, last = spec.window(now_utc=now_utc, timezone=timezone)
     zone = _zone(timezone)
-    anchor = (
-        re.compile(r"(?<!\w)stand[\s-]?up(?!\w)", re.IGNORECASE)
-        if spec.anchor == "standup"
-        else re.compile(rf"(?<!\w){re.escape(spec.anchor)}(?!\w)", re.IGNORECASE)
-    )
+    title_patterns = tuple(_term_pattern(term) for term in spec.title_terms)
     kept = []
     for match in matches:
         if not isinstance(match, dict):
@@ -270,7 +288,7 @@ def filter_long_range_matches(
         title = match.get("name")
         if (
             not isinstance(title, str)
-            or not anchor.search(title)
+            or not all(pattern.search(title) for pattern in title_patterns)
             or match.get("mime_type") == _FOLDER_MIME
         ):
             continue

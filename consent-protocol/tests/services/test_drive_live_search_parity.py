@@ -709,8 +709,8 @@ async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
             return NOW if tz is None else NOW.astimezone(tz)
 
     monkeypatch.setattr(drive_chat_service, "datetime", FrozenDatetime)
-    days = [(NOW.date() - timedelta(days=offset_days + offset)) for offset in range(30)]
-    older_day = NOW.date() - timedelta(days=offset_days + 30)
+    days = [(NOW.date() - timedelta(days=offset_days + offset + 1)) for offset in range(30)]
+    older_day = NOW.date() - timedelta(days=offset_days + 31)
     matches = [
         {
             "file_id": f"standup-{index}",
@@ -758,8 +758,15 @@ async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
     assert "30. Team Standup Sync Notes" in response["response"]
     assert f"{older_day:%Y/%m/%d}" not in response["response"]
     assert len(response["structured"]["sources"]) == 30
+    first_day = NOW.date() - timedelta(days=offset_days + 30)
+    end_day = NOW.date() - timedelta(days=offset_days)
     reader.find.assert_awaited_once_with(
-        query=["standup"], recent=True, max_results=100, title_only=True
+        query=["standup"],
+        time_field="createdTime",
+        start_time=f"{first_day.isoformat()}T00:00:00Z",
+        end_time=f"{end_day.isoformat()}T00:00:00Z",
+        max_results=100,
+        title_only=True,
     )
     planner.assert_not_awaited()
     selector.assert_not_awaited()

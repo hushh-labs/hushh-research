@@ -479,10 +479,10 @@ async def test_thirty_owner_listing_sources_cross_documents_bridge_without_model
         "matches": [
             {
                 "file_id": f"standup-{index}",
-                "name": f"Standup sync notes - {(today - timedelta(days=index)).isoformat()}",
+                "name": f"Standup sync notes - {(today - timedelta(days=index + 1)).isoformat()}",
                 "mime_type": "application/vnd.google-apps.document",
-                "created_time": datetime.now(UTC).isoformat(),
-                "modified_time": datetime.now(UTC).isoformat(),
+                "created_time": f"{today - timedelta(days=index + 1)}T12:00:00Z",
+                "modified_time": f"{today - timedelta(days=index + 1)}T12:00:00Z",
                 "source_ref": "document:" + f"{index:032d}",
                 "open_url": f"https://drive.google.com/open?id=standup-{index}",
             }
