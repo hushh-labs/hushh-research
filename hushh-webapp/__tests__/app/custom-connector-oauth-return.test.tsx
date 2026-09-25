@@ -1,11 +1,11 @@
 import React, { StrictMode } from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), replace: vi.fn(), current: true, owner: "owner" }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), replace: vi.fn(), current: true, locked: false, owner: "owner" }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
-vi.mock("@/components/vault/vault-lock-guard", () => ({ VaultLockGuard: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("@/components/vault/vault-lock-guard", () => ({ VaultLockGuard: ({ children }: { children: React.ReactNode }) => mocks.locked ? <div>Unlock vault</div> : children }));
 vi.mock("@/lib/profile/drive-oauth-popup", () => ({ hasDrivePopupMarker: () => false }));
 vi.mock("@/lib/agent/drive-oauth-chat-recovery", () => ({
   readDriveChatRecoveryHandoff: () => ({ reason: "web_full_page", ownerUserId: "owner", attemptId: "a".repeat(43), customConnector: { connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" } }),
@@ -18,7 +18,7 @@ vi.mock("@/lib/connections/custom-connector-configuration", () => ({ saveCustomC
 import Page from "@/app/one/profile/connectors/oauth/return/page";
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.current = true; mocks.owner = "owner";
+  vi.clearAllMocks(); mocks.current = true; mocks.locked = false; mocks.owner = "owner";
   mocks.complete.mockResolvedValue({ privateSyntheticResult: true });
   mocks.save.mockResolvedValue({});
   mocks.refresh.mockResolvedValue([]);
@@ -45,4 +45,20 @@ it("does not exchange under a different signed-in owner", async () => {
   await waitFor(() => expect(screen.getByText(/Could not save this connection/)).toBeTruthy());
   expect(mocks.complete).not.toHaveBeenCalled();
   expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it("does not replay completion after lock during refresh and preserves the saved outcome", async () => {
+  let settle!: () => void;
+  mocks.refresh.mockReturnValue(new Promise<void>(resolve => { settle = resolve; }));
+  const view = render(<Page />);
+  await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  mocks.locked = true; mocks.current = false;
+  view.rerender(<Page />);
+  expect(screen.getByText("Unlock vault")).toBeTruthy();
+  mocks.locked = false; mocks.current = true;
+  view.rerender(<Page />);
+  await screen.findByText("Sign-in saved in your vault. Refresh tools in Chat.");
+  settle();
+  expect(mocks.complete).toHaveBeenCalledOnce();
+  expect(mocks.save).toHaveBeenCalledOnce();
 });

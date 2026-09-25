@@ -114,6 +114,7 @@ function DrivePopupReturn() {
 
 function ConnectorOAuthReturnRouter() {
   const captured = useRef(false);
+  const [customPhase, setCustomPhase] = useState<"fresh" | "running" | "saved" | "failed" | "cancelled">("fresh");
   const [popup, setPopup] = useState<boolean | null>(null);
   const [fullPageDetails, setFullPageDetails] = useState<{
     code: string | null;
@@ -157,12 +158,14 @@ function ConnectorOAuthReturnRouter() {
     <DrivePopupReturn />
   ) : (
     <VaultLockGuard>
-      {fullPageDetails?.customConnector ? <CustomConnectorOAuthReturnContent details={fullPageDetails} /> : <ConnectorOAuthReturnContent details={fullPageDetails!} />}
+      {fullPageDetails?.customConnector ? <CustomConnectorOAuthReturnContent details={fullPageDetails} phase={customPhase} onPhase={setCustomPhase} /> : <ConnectorOAuthReturnContent details={fullPageDetails!} />}
     </VaultLockGuard>
   );
 }
 
-function CustomConnectorOAuthReturnContent({ details }: { details: {
+type CustomOAuthPhase = "fresh" | "running" | "saved" | "failed" | "cancelled";
+function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase: CustomOAuthPhase;
+  onPhase: (phase: CustomOAuthPhase) => void; details: {
   code: string | null; state: string | null; cancelled: boolean;
   attemptId: string | null; ownerUserId: string | null; issuer: string | null;
   customConnector?: { connectorId: string; revision: string };
@@ -176,8 +179,26 @@ function CustomConnectorOAuthReturnContent({ details }: { details: {
   const [finished, setFinished] = useState(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    if (started.current || ownerTokenStatus === "renewing" || !user || !vaultKey || !vaultOwnerToken) return;
+    if (ownerTokenStatus === "renewing" || !user || !vaultKey || !vaultOwnerToken) return;
+    if (details.ownerUserId !== user.uid) {
+      setMessage("Could not save this connection. Return to Chat with the original account.");
+      setFinished(true);
+      return;
+    }
+    if (started.current) return;
+    // This phase lives above VaultLockGuard. Re-unlock must not replay a
+    // single-use callback whose exchange/save may already have succeeded.
+    if (phase !== "fresh") {
+      setMessage(phase === "saved" ? "Sign-in saved in your vault. Refresh tools in Chat."
+        : phase === "running" ? "Sign-in was interrupted. Return to Chat to check the connection."
+        : phase === "cancelled" ? "Sign-in cancelled. Your saved connection is unchanged."
+        : "Connection was not completed. Return to Chat and sign in again.");
+      setFinished(true);
+      return;
+    }
     started.current = true;
+    onPhase("running");
+    let savedSuccessfully = false;
     const owner = snapshotValidatedAuthSessionOwner();
     const epoch = snapshotVaultSessionEpoch();
     const current = () => Boolean(mounted.current && owner?.userId === user.uid &&
@@ -191,6 +212,7 @@ function CustomConnectorOAuthReturnContent({ details }: { details: {
           operation: "cancel", payload: { attemptId: details.attemptId, revision: connector.revision },
           signal: controller.signal, isEffectCurrent: current });
         if (current()) setMessage("Sign-in cancelled. Your saved connection is unchanged.");
+        onPhase("cancelled");
         return;
       }
       if (!details.code || !details.state) throw new Error("Invalid return.");
@@ -200,6 +222,8 @@ function CustomConnectorOAuthReturnContent({ details }: { details: {
       const saved = await saveCustomConnectorOAuthResult({ userId: user.uid, vaultKey, vaultOwnerToken },
         connector.connectorId, connector.revision, result,
         { confirmedByUser: true, surface: "web", source: "connector_oauth_return" }, current);
+      savedSuccessfully = true;
+      onPhase("saved");
       try {
         await ExternalConnectorService.refreshMcpCatalog({ vaultOwnerToken, configuration: saved,
           signal: controller.signal, isEffectCurrent: current });
@@ -208,9 +232,12 @@ function CustomConnectorOAuthReturnContent({ details }: { details: {
         if (current()) setMessage("Sign-in saved in your vault, but tools could not be refreshed. Retry Refresh tools in Chat.");
       }
     };
-    void run().catch(() => { if (current()) setMessage("Could not save this connection. Return to Chat and sign in again."); })
+    void run().catch(() => {
+      if (!savedSuccessfully) onPhase("failed");
+      if (current()) setMessage("Could not save this connection. Return to Chat and sign in again.");
+    })
       .finally(() => { if (current()) setFinished(true); });
-  }, [details, user, vaultKey, vaultOwnerToken, ownerTokenStatus]);
+  }, [details, user, vaultKey, vaultOwnerToken, ownerTokenStatus, phase, onPhase]);
   return <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-6 text-center">
     <p role="status" className="text-sm text-muted-foreground">{message}</p>
     {finished ? <Button className="min-h-11" onClick={() => router.replace(`${ROUTES.HOME}?panel=connectors`)}>Return to Chat</Button> : null}
