@@ -107,6 +107,33 @@ async def _drain(agent: TimedADKAgent) -> list[BaseEvent]:
     return [event async for event in agent.run(_input())]
 
 
+async def test_vault_catalog_handoff_is_consumed_before_bridge_state(monkeypatch):
+    from hushh_mcp.one_adk.mcp_turn_scope import (
+        STATE_MCP_CONFIGURATION,
+        admit_turn_configurations,
+        current_mcp_turn,
+    )
+
+    run = _input()
+    run.state = {
+        "hussh:user_id": "owner",
+        STATE_MCP_CONFIGURATION: admit_turn_configurations(
+            {"mcpConfigurations": []},
+            owner_id="owner",
+            conversation_id=run.thread_id,
+        ),
+    }
+
+    async def bridge(self, input):
+        assert STATE_MCP_CONFIGURATION not in input.state
+        assert current_mcp_turn().has_vault_configurations
+        assert current_mcp_turn().vault_catalog("owner") == []
+        yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+
+    monkeypatch.setattr(ADKAgent, "run", bridge)
+    assert len([event async for event in _agent().run(run)]) == 1
+
+
 @pytest.mark.asyncio
 async def test_disconnect_closes_bridge_before_turn_resources(monkeypatch):
     from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn

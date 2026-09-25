@@ -12,6 +12,47 @@ from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, Resolve
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
+def test_configuration_handoff_scrubs_input_and_is_single_use():
+    forwarded = {"mcpConfigurations": [], "timezone": "UTC"}
+    reference = module.admit_turn_configurations(
+        forwarded, owner_id="owner", conversation_id="thread"
+    )
+    assert forwarded == {"timezone": "UTC"}
+    state = {module.STATE_MCP_CONFIGURATION: reference}
+    assert (
+        module.consume_turn_configurations(state, owner_id="owner", conversation_id="thread") == []
+    )
+    assert state == {}
+    with pytest.raises(ExternalMcpError):
+        module.consume_turn_configurations(
+            {module.STATE_MCP_CONFIGURATION: reference}, owner_id="owner", conversation_id="thread"
+        )
+
+
+@pytest.mark.parametrize("owner,thread", [("other", "thread"), ("owner", "other")])
+def test_configuration_handoff_rejects_changed_identity(owner, thread):
+    reference = module.admit_turn_configurations(
+        {"mcpConfigurations": []}, owner_id="owner", conversation_id="thread"
+    )
+    with pytest.raises(ExternalMcpError):
+        module.consume_turn_configurations(
+            {module.STATE_MCP_CONFIGURATION: reference}, owner_id=owner, conversation_id=thread
+        )
+
+
+def test_configuration_handoff_rejects_unauthenticated_and_literal_input():
+    forwarded = {"mcpConfigurations": []}
+    with pytest.raises(ExternalMcpError):
+        module.admit_turn_configurations(forwarded, owner_id="", conversation_id="thread")
+    assert forwarded == {}
+    with pytest.raises(ExternalMcpError):
+        module.consume_turn_configurations(
+            {module.STATE_MCP_CONFIGURATION: '{"configurations":[]}'},
+            owner_id="owner",
+            conversation_id="thread",
+        )
+
+
 @pytest.fixture
 def runtime(monkeypatch):
     created = []

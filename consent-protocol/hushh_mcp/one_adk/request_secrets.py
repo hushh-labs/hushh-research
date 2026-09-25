@@ -18,7 +18,7 @@ _lock = threading.Lock()
 _values: dict[str, tuple[float, str]] = {}
 
 
-def store_request_secret(value: str) -> str:
+def store_request_secret(value: str, *, ttl_seconds: int = _TTL_SECONDS) -> str:
     clean = str(value or "").strip()
     if not clean:
         return ""
@@ -28,7 +28,7 @@ def store_request_secret(value: str) -> str:
         expired = [key for key, (deadline, _) in _values.items() if deadline <= now]
         for key in expired:
             _values.pop(key, None)
-        _values[reference] = (now + _TTL_SECONDS, clean)
+        _values[reference] = (now + min(_TTL_SECONDS, max(1, ttl_seconds)), clean)
     return reference
 
 
@@ -44,4 +44,13 @@ def resolve_request_secret(value: object) -> str:
         return record[1]
 
 
-__all__ = ["resolve_request_secret", "store_request_secret"]
+def consume_request_secret(reference: object) -> str:
+    """Strict single-use handoff; unlike the legacy resolver, never accept literals."""
+    if not isinstance(reference, str) or not reference.startswith(_PREFIX):
+        return ""
+    with _lock:
+        record = _values.pop(reference, None)
+        return record[1] if record and record[0] > time.monotonic() else ""
+
+
+__all__ = ["consume_request_secret", "resolve_request_secret", "store_request_secret"]

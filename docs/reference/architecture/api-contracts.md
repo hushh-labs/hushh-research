@@ -1102,6 +1102,17 @@ for compatibility. Client transport and backend review support are implemented;
 automatic loading from the active vault into Chat cards remains an integration
 gate, not a verified end-to-end capability.
 
+Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
+Owner authority. It removes that private field before handing the input to
+AG-UI, validates the bounded catalog, and stages it in the existing process-local
+secret store for at most 60 seconds. The owner/conversation-bound reference is
+consumed once and removed from state before the ADK bridge runs. The turn-local
+toolset receives the configuration, rechecks authority per call, and closes at
+turn completion. An explicit empty catalog cannot resurrect a custom connector
+from the legacy database. Omitted catalogs retain compatibility behavior until
+the browser vault-loading migration is complete. This server ingress is covered
+by focused contract tests, not live provider or browser acceptance.
+
 For a native ADK pending call, include `pendingHandle`. Review resolves its
 owner/thread/tool/call-bound transient arguments and verifies both stored native
 call identities and the current catalog. It returns the original directive,

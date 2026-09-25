@@ -42,10 +42,12 @@ from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionServi
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
+from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
     get_personal_gmail_information_request_service,
@@ -150,8 +152,17 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                 status_code=503,
                 detail="The selected Gmail request is temporarily unavailable. Please try again.",
             ) from exc
+    try:
+        mcp_configuration = admit_turn_configurations(
+            forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
+        )
+    except ExternalMcpError:
+        raise HTTPException(
+            status_code=403, detail="Connector configuration is unavailable. Unlock and try again."
+        ) from None
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
         WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),
         STATE_USER_ID: session_user_id,
