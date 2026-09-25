@@ -20,7 +20,9 @@ import {
   resolveConsentNavigationTarget,
 } from "@/lib/consent/consent-sheet-route";
 import {
+  documentShareNotificationCopy,
   documentShareNotificationRequestId,
+  documentShareNotificationSelection,
   isDocumentShareNotificationCandidate,
   isDocumentShareNotificationType,
 } from "@/lib/consent/document-share-consent";
@@ -43,7 +45,10 @@ const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
 const IOS_DEFAULT_NOTIFICATION_ACTION =
   "com.apple.UNNotificationDefaultActionIdentifier";
 
-/** Never render a file name, recipient, request purpose, or provider copy in a push. */
+/**
+ * Generic fallback copy. Reviewed types use documentShareNotificationCopy;
+ * never render a file name, recipient, request purpose, or provider copy.
+ */
 export const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
   body: "Open One to review.",
@@ -114,7 +119,7 @@ function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
       ? {
           ...(record.notification as Record<string, unknown>),
           data: safeData,
-          ...DOCUMENT_SHARE_NOTIFICATION_COPY,
+          ...documentShareNotificationCopy(safeData),
         }
       : record.notification;
   return {
@@ -131,11 +136,9 @@ function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
 export function documentShareNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string | null {
-  const requestId = documentShareNotificationRequestId(data);
-  if (!requestId) return null;
-  return buildConsentCenterHref("pending", {
-    requestId: `document_share_request:${requestId}`,
-  });
+  const selection = documentShareNotificationSelection(data);
+  if (!selection) return null;
+  return buildConsentCenterHref("pending", { requestId: selection });
 }
 
 function incomingLocationShareTarget(
@@ -629,10 +632,10 @@ function setupWebServiceWorkerBridge(): void {
       data,
       notification: {
         title: safeDocumentData
-          ? DOCUMENT_SHARE_NOTIFICATION_COPY.title
+          ? documentShareNotificationCopy(safeDocumentData).title
           : message.title || "Notification",
         body: safeDocumentData
-          ? DOCUMENT_SHARE_NOTIFICATION_COPY.body
+          ? documentShareNotificationCopy(safeDocumentData).body
           : message.body || "",
       },
       source: "service_worker",

@@ -497,6 +497,10 @@ async def test_owner_selected_files_bind_metadata_only_and_queue_viewer_grants(l
         == "review_ready"
     )
     assert observed["matches"] == chosen and observed["time_field"] == "modifiedTime"
+    # A approves these exact files next: no "ready to review" alert about A's own tap.
+    assert "document_share_review_ready" not in {
+        item["event_type"] for item in rows(store, "drive_share_events")
+    }
     review = await store.owner_review(user_id="owner", request_id=request_id)
     assert review["canApprove"] and [item["documentId"] for item in review["files"]] == [
         document_id

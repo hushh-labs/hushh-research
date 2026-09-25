@@ -113,6 +113,28 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         if owner == requester or not row:
             raise DriveSharingError("connection_required")
 
+    @staticmethod
+    def _event(connection, row, user_id, event_type):
+        """Queue one opaque notification in the same transaction as the change.
+
+        Only ids, the revision and a closed type are stored (migration 244);
+        the notification worker never sees the question or the answer.
+        """
+        connection.execute(
+            text("""
+            INSERT INTO drive_query_events(event_id,request_id,user_id,revision,event_type)
+            VALUES (:id,:request,:user,:revision,:type)
+            ON CONFLICT (request_id,user_id,revision,event_type) DO NOTHING
+        """),
+            {
+                "id": str(uuid4()),
+                "request": str(row["request_id"]),
+                "user": user_id,
+                "revision": row["revision"],
+                "type": event_type,
+            },
+        )
+
     def _seal_query(self, owner, request_id, query):
         return self.cipher.seal(
             {"query": query}, user_id=owner, resource_id=request_id, purpose="live-query"
@@ -266,6 +288,9 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
                 )
                 if not row or row["query_digest"] != digest or row["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
+            else:
+                # A new question tells the owner; a retried send does not repeat it.
+                self._event(connection, row, owner_user_id, "document_share_question")
             return self._render(connection, row, requester_user_id)
 
         return cast(dict, await self._transaction(operation))
@@ -410,6 +435,7 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             )
             if not row:
                 raise DriveSharingError("request_changed")
+            self._event(connection, row, row["requester_user_id"], "document_share_answered")
             return self._render(connection, row, user_id)
 
         return cast(dict, await self._transaction(operation))
@@ -539,6 +565,7 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             )
             if not denied:
                 raise DriveSharingError("request_changed")
+            self._event(connection, denied, denied["requester_user_id"], "document_share_declined")
             return self._render(connection, denied, user_id)
 
         return cast(dict, await self._transaction(operation))
