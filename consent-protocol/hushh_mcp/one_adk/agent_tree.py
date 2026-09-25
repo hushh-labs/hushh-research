@@ -781,6 +781,8 @@ def _one_runtime_instruction(context: Any) -> str:
         "or the limited selected library from the owner's actual grant. Live access "
         "requires no selected files or index. Preserve numbered file results and their Drive "
         "opening links; finding a recording does not require reading its content. "
+        "Keep the stated date window, file type and whether files were made or changed "
+        "in the request you pass; never drop or widen a stated period. "
         "For connection status or explicit selected-file "
         "processing questions, call inspect_selected_drive_files; follow its access mode. "
         "Never infer disconnection or missing Drive files from an empty index. "

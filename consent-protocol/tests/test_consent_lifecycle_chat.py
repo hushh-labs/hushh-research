@@ -1053,3 +1053,35 @@ class TestPropose:
         assert "unlock their private agent" in result["nextStep"]
         assert "profilePath" not in result["nextStep"]
         assert f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request" not in state
+
+
+@pytest.mark.asyncio
+async def test_document_request_keeps_its_purpose_after_choosing_between_two_rahuls():
+    """T8: choosing between two people with the same name keeps the document request."""
+    second_ref = "22222222-2222-4222-8222-222222222222"
+    context = _ctx(_state())
+    relationship = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections(
+            {"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF},
+            {"displayName": "Rahul Verma", "publicPersonRef": second_ref},
+        ),
+        relationship,
+    ):
+        ambiguous = await action_tools.propose_document_request("Rahul", "bank statements", context)
+        assert ambiguous["status"] == "needs_clarification"
+        assert len(ambiguous["candidates"]) == 2
+        chosen = next(
+            item for item in ambiguous["candidates"] if item["displayName"] == "Rahul Verma"
+        )
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = chosen["selectionHandle"]
+        ready = await action_tools.propose_document_request("Rahul", "bank statements", context)
+    assert ready["status"] == "proposal_ready"
+    assert ready["person"] == {"personRef": second_ref, "displayName": "Rahul Verma"}
+    assert ready["purpose"]["purpose"] == "bank statements"
+    assert "Ask as a question" in ready["nextStep"]
+    assert "Only Request files needs a Google sign-in check" in ready["nextStep"]

@@ -41,6 +41,26 @@ def test_admitted_drive_instruction_uses_live_reads_and_keeps_chat_referents_loc
     assert "Never infer disconnection or missing Drive files from an empty index" in composed
 
 
+def test_admitted_drive_instruction_keeps_the_stated_date_window(monkeypatch):
+    # One passes a free-text request to ask_documents_agent; that text is the
+    # planner's only input, so a dropped period silently widens the search.
+    sentence = "Keep the stated date window"
+    assert sentence not in agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    composed = agent_tree._one_runtime_instruction(
+        SimpleNamespace(
+            state={
+                agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+                agent_tree.STATE_USER_ID: "owner",
+            }
+        )
+    )
+    assert sentence in composed
+    assert "never drop or widen a stated period" in composed
+
+
 def test_selected_drive_status_is_available_only_in_owner_chat_roster():
     tools = agent_tree._one_roster_tools(specialist_model="test-model")
     assert agent_tree.inspect_selected_drive_files in tools
@@ -106,3 +126,10 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     assert agent_tree.read_google_drive not in agent_tree._one_roster_tools(
         specialist_model="test-model", allow_owner_drive_tools=True
     )
+
+
+def test_one_knows_a_question_needs_no_google_step():
+    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    assert "Ask as a question gets an answer and file names only, with no Google step" in composed
+    assert "carry on with the request they were making" in composed
+    assert "The card sends only after a direct tap and fresh Google identity check" not in composed

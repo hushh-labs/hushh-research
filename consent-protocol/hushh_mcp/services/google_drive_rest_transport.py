@@ -15,7 +15,11 @@ import re
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.drive_document_parser import ParseError, parse_document
+from hushh_mcp.services.drive_document_parser import ParseError
+
+# The live lane parses what the selected lane does, plus CSV (a Google Sheets
+# export or an uploaded .csv). Bound to this name so the read path is unchanged.
+from hushh_mcp.services.drive_document_parser import parse_live_document as parse_document
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -28,8 +32,16 @@ from hushh_mcp.services.google_drive_adapter import (
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 
 REST_TOOLS = frozenset({"search_files", "list_recent_files", "read_file_content"})
+# Parse failures the owner can act on (unlock, use a text PDF, split a file,
+# re-save a damaged or mis-encoded file). Only these codes leave the transport;
+# every other one stays unsupported.
+PARSE_REASONS = frozenset(
+    {"encrypted_document", "no_extractable_text", "file_too_large", "invalid_document"}
+)
 _MAX_ARGUMENT_BYTES = 4_096
 _MAX_QUERY_CHARS = 1_800
+# A search may only rank by a file time, newest first; anything else is refused.
+_SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 
 
@@ -125,7 +137,10 @@ class GoogleDriveRestTransport:
             )
             try:
                 text = "\n\n".join(page for page in parse_document(content, mime_type).pages)
-            except ParseError:
+            except ParseError as error:
+                code = str(error)
+                if code in PARSE_REASONS:
+                    return {"textFormattingNotSupported": True, "reason": code}
                 return {"textFormattingNotSupported": True}
             return {"fileContent": text}
         page_size = arguments.get("pageSize", 8)
@@ -148,17 +163,23 @@ class GoogleDriveRestTransport:
             )
         else:
             query = arguments.get("query")
-            if not isinstance(query, str) or not 1 <= len(query) <= _MAX_QUERY_CHARS:
+            order = arguments.get("orderBy", "modifiedTime desc")
+            if (
+                not isinstance(query, str)
+                or not 1 <= len(query) <= _MAX_QUERY_CHARS
+                or not isinstance(order, str)
+                or order not in _SEARCH_ORDERS
+            ):
                 raise DriveOAuthError("invalid_argument", status_code=400)
             # Drive ranks fullText matches by relevance and cannot sort them;
-            # every other search comes back newest first, so a page cut keeps
-            # the most recent files.
+            # every other search comes back newest first by the requested file
+            # time, so a page cut keeps the most recent files.
             page = await self.adapter.list_files(
                 access_token=token,
                 query=rest_query(query),
                 page_size=page_size,
                 page_token=page_token,
-                order_by=None if "fullText" in query else "modifiedTime desc",
+                order_by=None if "fullText" in query else order,
             )
         files = page.get("files", [])
         if not isinstance(files, list):

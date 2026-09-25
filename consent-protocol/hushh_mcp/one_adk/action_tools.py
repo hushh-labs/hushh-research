@@ -2887,7 +2887,7 @@ async def propose_document_request(
             "person": {"personRef": person_ref, "displayName": display_name},
             "purpose": terms.model_dump(),
             "clientRequestId": str(uuid.uuid4()),
-            "nextStep": "Show the dates and purpose in the card. Nothing is sent until the person taps Send and verifies their Google identity.",
+            "nextStep": "Show the dates and purpose in the card. Nothing is sent until the person taps Request files or Ask as a question. Only Request files needs a Google sign-in check.",
         }
     except ConsentLifecycleError as error:
         return _information_person_error(error, tool_context, user_id)

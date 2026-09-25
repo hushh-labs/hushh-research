@@ -144,6 +144,27 @@ invented citations, oversized data, changed selection/generation, and provider d
 they do not infer statement coverage. Live two-account selected-file acceptance is
 required before promotion. This is implemented source, not deployed UAT evidence.
 
+Live Drive relevance is a declared semantic stage (per
+`consent-protocol/docs/reference/backend-semantic-boundary.md`):
+
+| Declaration | Value |
+| --- | --- |
+| Owning agent | `agent_documents`, gene `agent_documents_live_select` |
+| Manifest | `consent-protocol/hushh_mcp/agents/documents/agent.yaml` |
+| Output contracts | `CandidateSelection{selected}`: opaque refs `c1`..`cN` into the found files, at most 8, best first. `DocumentAnswer.none_relevant`: an explicit, uncited negative from `agent_documents_interpreter`. |
+| Validator rules | The gene sees only ref, title, file type and modified/created day, never file ids or links. Every ref must be one that was offered; duplicates are dropped in the gene's order; more than 8 is rejected. A selector failure or invented ref fails closed to `unavailable` (question lane: released as `drive_query_unavailable`; file-request lane: `preparation_unavailable`), never to the unfiltered list. An empty selection is an honest no-match (`input_required`, or `no_relevant_files` for a file request). `none_relevant` requires no `source_refs`. When the selector is not asked (exact title already resolved, metadata-only listing, file-activity window), the skip is recorded as `selection.stage` in the turn outcome and, for file requests, in the sealed review coverage. |
+| Live eval before promotion | `consent-protocol/scripts/eval_drive_candidate_selection.py` (opt-in, `DRIVE_SELECT_EVAL_LIVE=1`, precision and recall only). |
+
+Files the live reader could not read are reported with one allowlisted reason
+(`encrypted_document`, `file_too_large`, `unsupported_format`,
+`no_extractable_text`, `source_unavailable`). The interpreter receives only
+counts by reason (`retrieved_documents.not_read`), never names, because its
+answer can reach a connection; a connection's answer adds only the count. The
+host names the files and reasons for the owner alone, and the owner-private
+file-request suggestions prompt may list them as gaps. The conflicting-values
+and per-item rules in the interpreter instruction are model behaviour and need
+the live eval before promotion.
+
 The in-process `dispatch` table wires `agent_location`, `agent_nav`, `agent_personal_information` and `agent_email`. Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone product surfaces. Email's `ask_email_agent` path admits only owner-authorized typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow them. It preserves One's conversation, permits only `list_needs_reply` / `search_inbox`, and closes further tool execution for that invocation before exposing external content. Its interpreter has no tools; durable tool history contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync tools are not admitted through this lane. Connected Systems remains authority-ingress-only. Connections is reached through Nav; its separate legacy mutation adapter retains its full information/action authority gate. There is no separate Gmail specialist roster entry.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.

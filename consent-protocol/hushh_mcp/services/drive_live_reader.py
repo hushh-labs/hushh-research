@@ -17,20 +17,24 @@ from uuid import uuid4
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
+    LIVE_PARTIAL_EXPORTS,
     LIVE_POLICY_HASH,
     DriveReadError,
     GoogleDriveAdapter,
 )
-from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+from hushh_mcp.services.google_drive_rest_transport import PARSE_REASONS, GoogleDriveRestTransport
 
 MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
+EXCERPT_CHARS = 4000
 SEARCH_PAGE_SIZE = 8
 MAX_SEARCH_PAGES = 6
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
 TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# A found file that could not be read is reported with exactly one of these.
+UNREADABLE = frozenset({"source_unavailable", "unsupported_format"}) | PARSE_REASONS
 MAX_TITLE_DATES = 3
 # Drive MCP: file types belong in mimeType clauses, never title/fullText words.
 MIME_CLAUSES = {
@@ -86,6 +90,29 @@ def _open_url(file_id: str, value: object) -> str:
     ):
         return value
     return fallback
+
+
+def _json_size(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode())
+
+
+def _fitted_excerpt(entry: dict, body: str, *, limit: int) -> str:
+    """Longest excerpt whose whole entry fits ``limit`` JSON UTF-8 bytes.
+
+    Measured, not estimated: Hindi text, escaped newlines and control
+    characters cost more bytes per character than English.
+    """
+    text = body[:EXCERPT_CHARS]
+    if _json_size({**entry, "text": text}) <= limit:
+        return text
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _json_size({**entry, "text": text[:middle]}) <= limit:
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low]
 
 
 class DriveLiveReader:
@@ -148,10 +175,13 @@ class DriveLiveReader:
         if result.is_error or result.truncated:
             raise DriveReadError("provider_response_invalid")
         if result.payload.get("textFormattingNotSupported") is True:
-            raise DriveReadError("unsupported_format")
+            reason = result.payload.get("reason")
+            raise DriveReadError(reason if reason in PARSE_REASONS else "unsupported_format")
         value = result.payload.get("fileContent")
-        if isinstance(value, str) and value.strip():
-            return value
+        if isinstance(value, str):
+            if value.strip():
+                return value
+            raise DriveReadError("no_extractable_text")
         if isinstance(value, dict):
             for key in ("text", "content"):
                 if isinstance(value.get(key), str) and value[key].strip():
@@ -264,14 +294,18 @@ class DriveLiveReader:
         term_clauses = [
             f"(title contains '{term}' or fullText contains '{term}')" for term in terms
         ]
+        # A date window ranks by that file time, so the result cut keeps the newest.
+        order = {"orderBy": f"{time_field} desc"} if date_bounded else {}
         requests: list[tuple[str, dict]] = []
         if term_clauses:
-            requests.append(("search_files", {"query": " and ".join([*term_clauses, *base])}))
+            requests.append(
+                ("search_files", {"query": " and ".join([*term_clauses, *base]), **order})
+            )
             if len(term_clauses) > 1:
                 either = "(" + " or ".join(term_clauses) + ")"
-                requests.append(("search_files", {"query": " and ".join([either, *base])}))
+                requests.append(("search_files", {"query": " and ".join([either, *base]), **order}))
         elif base:
-            requests.append(("search_files", {"query": " and ".join(base)}))
+            requests.append(("search_files", {"query": " and ".join(base), **order}))
         elif recent:
             requests.append(("list_recent_files", {"orderBy": "recency"}))
         else:
@@ -577,6 +611,7 @@ class DriveLiveReader:
             credential=credential,
             truncated=truncated or len(matches) > MAX_READS,
             expected_names=expected,
+            match_refs={item["file_id"]: item.get("source_ref") for item in chosen},
         )
 
     async def _read_file_ids(
@@ -586,10 +621,23 @@ class DriveLiveReader:
         credential: dict,
         truncated: bool,
         expected_names: dict[str, str] | None = None,
+        match_refs: dict[str, str | None] | None = None,
     ) -> dict:
+        """Read bounded text; report each file that could not be read, with why.
+
+        ``unreadable`` entries carry the found name, an allowlisted reason and
+        the match's source_ref. They are owner-private: callers pass only
+        counts to anything whose output can reach another person.
+        """
         content: list[dict] = []
+        unreadable: list[dict] = []
         self._rows = []
-        for file_id in file_ids:
+        # Every chosen file gets an equal share of what is left of the context,
+        # so six monthly statements all reach the model instead of three in
+        # full and none of the rest; an unreadable or short file leaves its
+        # share to the files after it. The budget check below stays the hard
+        # limit.
+        for position, file_id in enumerate(file_ids):
             if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
                 raise DriveReadError("provider_response_invalid")
             await self.require_access()
@@ -618,7 +666,14 @@ class DriveLiveReader:
                 if after != metadata:
                     raise DriveReadError("source_changed")
             except DriveReadError as error:
-                if str(error) in {"source_unavailable", "unsupported_format", "file_too_large"}:
+                if str(error) in UNREADABLE:
+                    unreadable.append(
+                        {
+                            "name": (expected_names or {}).get(file_id),
+                            "reason": str(error),
+                            "source_ref": (match_refs or {}).get(file_id),
+                        }
+                    )
                     truncated = True
                     continue
                 raise
@@ -628,10 +683,17 @@ class DriveLiveReader:
                 "document_ref": document_id,
                 "name": metadata.name,
                 "page": None,
-                "text": body[:4000],
+                "text": "",
                 "source_version": metadata.version,
             }
-            if len(body) > 4000:
+            # Two bytes for the list separator; the list's brackets are in used.
+            share = (MAX_CONTEXT_BYTES - _json_size(content)) // (len(file_ids) - position) - 2
+            entry["text"] = _fitted_excerpt(entry, body, limit=share)
+            if not entry["text"]:
+                # No room left for even a fragment of this file.
+                truncated = True
+                break
+            if len(entry["text"]) < len(body) or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
                 truncated = True
             if len(json.dumps(content + [entry], ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
                 truncated = True
@@ -649,4 +711,8 @@ class DriveLiveReader:
                 }
             )
         await self.require_current()
-        return {"untrusted_external_content": content, "truncated": truncated}
+        return {
+            "untrusted_external_content": content,
+            "truncated": truncated,
+            "unreadable": unreadable,
+        }

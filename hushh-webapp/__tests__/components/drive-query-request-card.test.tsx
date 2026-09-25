@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
     getQuery: vi.fn(),
     allowQuery: vi.fn(),
     denyQuery: vi.fn(),
+    cancelQuery: vi.fn(),
     // Drive-reading and file-review calls of the document flow. A question
     // card must never touch them.
     prepare: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("@/components/consent/document-share-review", () => ({
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const view = (overrides: Partial<DriveQueryView> = {}): DriveQueryView => ({
@@ -295,6 +297,84 @@ describe("Drive question card", () => {
     expect(screen.getByText("Unlock your vault to see this question.")).toBeVisible();
     expect(screen.queryByText("March statement.pdf")).toBeNull();
     expect(state.invalidate).not.toHaveBeenCalled();
+  });
+  it("lets the asker cancel a waiting question once and never reads Drive", async () => {
+    let finish!: (value: DriveQueryView) => void;
+    state.service.cancelQuery.mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    state.service.getQuery.mockResolvedValue(
+      view({ direction: "outgoing", counterpartName: "Alex", canDecide: false }),
+    );
+    mount({ direction: "outgoing" });
+    const cancel = await screen.findByRole("button", { name: "Cancel question" });
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+    expect(await screen.findByText("Cancelling…")).toBeVisible();
+    expect(state.service.cancelQuery).toHaveBeenCalledOnce();
+    expect(state.service.cancelQuery).toHaveBeenCalledWith("owner-a", requestId, 2, expect.any(Function));
+    await act(async () =>
+      finish(
+        view({
+          direction: "outgoing",
+          counterpartName: "Alex",
+          canDecide: false,
+          status: "cancelled",
+          revision: 3,
+          decidedAt: new Date().toISOString(),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Cancelled")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+    for (const reader of ["allowQuery", "denyQuery", "prepare", "review", "approve", "decide"] as const)
+      expect(state.service[reader]).not.toHaveBeenCalled();
+    expect(state.invalidate).toHaveBeenCalledWith("a");
+  });
+
+  it("tells the owner the asker cancelled, with no Allow or Deny", async () => {
+    state.service.getQuery.mockResolvedValue(
+      view({ status: "cancelled", canDecide: false, decidedAt: new Date().toISOString() }),
+    );
+    mount({ direction: "incoming" });
+    expect(await screen.findByText("Bea cancelled this question.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+    expect(state.periodic.mock.lastCall?.[3]).toEqual({ enabled: false });
+  });
+
+  it("offers no cancel once the question is answered, declined or expired", async () => {
+    for (const status of ["answered", "denied", "expired"] as const) {
+      state.service.getQuery.mockResolvedValue(
+        status === "answered"
+          ? answered({ direction: "outgoing" })
+          : view({ direction: "outgoing", status, canDecide: false }),
+      );
+      const rendered = mount({ direction: "outgoing" });
+      await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+      expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+      rendered.unmount();
+    }
+  });
+
+  it("offers a reconnect link when Allow needs Google Drive again", async () => {
+    state.service.getQuery.mockResolvedValue(view({ lastError: "reconnect_required" }));
+    const rendered = mount({ direction: "incoming" });
+    const link = await screen.findByRole("link", { name: "Reconnect Google Drive" });
+    expect(link).toHaveAttribute("href", ROUTES.PROFILE_CONNECTORS);
+    rendered.unmount();
+    state.service.getQuery.mockResolvedValue(view({ lastError: "drive_query_unavailable" }));
+    const other = mount({ direction: "incoming" });
+    expect(await screen.findByText("Drive didn't answer. Try again.")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Reconnect Google Drive" })).toBeNull();
+    other.unmount();
+    state.service.getQuery.mockResolvedValue(
+      view({ direction: "outgoing", canDecide: false, lastError: "reconnect_required" }),
+    );
+    mount({ direction: "outgoing" });
+    expect(await screen.findByRole("button", { name: "Cancel question" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Reconnect Google Drive" })).toBeNull();
   });
 });
 

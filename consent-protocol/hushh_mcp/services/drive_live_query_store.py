@@ -5,7 +5,7 @@ cannot cause a read. The question and the answer are sealed under
 DRIVE_SHARING_KEY_V1; only opaque ids, status and timestamps are plaintext.
 Only a single claim moves a question to ``running``, so one Allow runs at most
 one live turn. A claim abandoned by a crash can be reclaimed after
-STALE_CLAIM_SECONDS.
+STALE_CLAIM_SECONDS. The asker can cancel a pending or running question.
 """
 
 from __future__ import annotations
@@ -209,6 +209,14 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         row = self._participant_row(connection, user_id, request_id)
         if row["user_id"] != user_id:
             raise DriveSharingError("request_unavailable")
+        lock_connection_graph_users(connection, user_ids=[row["user_id"], row["requester_user_id"]])
+        return self._participant_row(connection, user_id, request_id, lock=True)
+
+    def _requester_row(self, connection, user_id, request_id):
+        row = self._participant_row(connection, user_id, request_id)
+        if row["requester_user_id"] != user_id:
+            raise DriveSharingError("request_unavailable")
+        # Same lock order as claim and deny: graph users first, then the row.
         lock_connection_graph_users(connection, user_ids=[row["user_id"], row["requester_user_id"]])
         return self._participant_row(connection, user_id, request_id, lock=True)
 
@@ -532,5 +540,45 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             if not denied:
                 raise DriveSharingError("request_changed")
             return self._render(connection, denied, user_id)
+
+        return cast(dict, await self._transaction(operation))
+
+    async def cancel(self, *, user_id, request_id, revision):
+        """The asker withdraws a pending or running question. Never reads Drive.
+
+        Only the requester can cancel, and withdrawing needs no feature
+        admission or active connection. 'cancelled' is terminal and the
+        revision is bumped, which fences a running Allow: claim, require_claim,
+        complete and release all refuse or skip the row afterwards, so no
+        answer is stored. Expiry follows the view, including an abandoned
+        claim older than STALE_CLAIM_SECONDS past its deadline. A retried
+        cancel of a cancelled question returns it unchanged.
+        """
+
+        def operation(connection):
+            row = self._requester_row(connection, user_id, request_id)
+            if row["status"] == "cancelled":
+                return self._render(connection, row, user_id)
+            if row["status"] not in {"pending", "running"}:
+                raise DriveSharingError("request_already_decided")
+            if row["revision"] != revision:
+                raise DriveSharingError("request_changed")
+            now = datetime.now(UTC)
+            if row["expires_at"] <= now and (row["status"] == "pending" or self._stale(row, now)):
+                raise DriveSharingError("request_expired")
+            cancelled = self._row(
+                connection,
+                """
+                UPDATE drive_live_query_requests
+                SET status='cancelled', revision=revision+1, decided_at=clock_timestamp(),
+                  last_error_code=NULL, updated_at=clock_timestamp()
+                WHERE request_id=:id AND revision=:revision AND status IN ('pending','running')
+                RETURNING *
+            """,
+                {"id": str(row["request_id"]), "revision": revision},
+            )
+            if not cancelled:
+                raise DriveSharingError("request_changed")
+            return self._render(connection, cancelled, user_id)
 
         return cast(dict, await self._transaction(operation))
