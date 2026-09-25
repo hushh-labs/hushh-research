@@ -19,6 +19,11 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "explicit document trust rule" in composed
     assert "share this file with Chris" in composed
     assert "One can stage a document request in chat using propose_document_request" in composed
+    # The owner shares their own files from chat; circles are not a sharing list.
+    assert 'On "share this file with Chris," use propose_drive_share' in composed
+    assert "explain the recipient request and owner review step" not in composed
+    # The card's search cannot see chat: files are passed by name, not "it".
+    assert "put those files' exact names in files_request" in composed
     assert "DRIVE READ ADMISSION: disabled" in composed
     assert "Do not claim Drive is disconnected" in composed
 

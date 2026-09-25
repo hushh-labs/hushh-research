@@ -2901,6 +2901,67 @@ async def propose_document_request(
         return {"status": "failed", "message": "The document request cannot be prepared right now."}
 
 
+async def propose_drive_share(
+    person: str,
+    files_request: str,
+    tool_context: ToolContext,
+    selection_handle: str = "",
+) -> dict[str, Any]:
+    """Stage sharing the owner's own Drive files with one connected person.
+
+    Nothing is searched or shared here. The chat card searches the owner's
+    Drive only when the owner taps it, shows the exact files it found, and
+    shares only the files the owner then picks and confirms, as Viewer.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    request = str(files_request or "").strip()
+    if not request or len(request) > 2000 or len(request.encode()) > 2048:
+        return {
+            "status": "needs_clarification",
+            "message": "Say which Drive files to share, for example a name, type or date.",
+        }
+    try:
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            ConnectionsService(),
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
+        )
+        _, relationship = await asyncio.to_thread(
+            PersonProfileService().get_relationship_target,
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        if relationship.get("status") != "connected":
+            return {
+                "status": "connection_required",
+                "message": "Connect with this person before sharing Drive files.",
+            }
+        return {
+            "status": "proposal_ready",
+            "person": {"personRef": person_ref, "displayName": display_name},
+            "filesRequest": request,
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "The card finds the files when the person taps Find files, then shows them to choose from. Nothing is shared until they pick files and tap Share. The recipient gets Viewer access in Google Drive.",
+        }
+    except ConsentLifecycleError as error:
+        return _information_person_error(error, tool_context, user_id)
+    except (ValueError, PersonProfileNotFoundError):
+        return {
+            "status": "needs_clarification",
+            "message": "Choose one connected person to share with.",
+        }
+    except Exception:
+        logger.exception("propose_drive_share failed")
+        return {"status": "failed", "message": "Drive sharing cannot be prepared right now."}
+
+
 async def list_pending_connection_requests(
     tool_context: ToolContext,
     direction: Literal["incoming", "outgoing"] = "incoming",
