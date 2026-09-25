@@ -6300,26 +6300,16 @@ html[data-accent="gold"].dark {
   }
 }
 
-/* Android draws the WebView through its own Vulkan pass, where persistent
- * backdrop filters are recomputed during every frame of page motion. Keep the
- * always-on chrome blur disabled and its glass fill nearly opaque. Modal
- * overlays opt back into only the lightweight 4px touch scrim below: unlike
- * chrome, they are short-lived and the requested focus separation is their
- * entire job. */
+/* Android draws the WebView through its own Vulkan pass, where backdrop
+ * filters are recomputed during every frame of page and overlay motion. Keep
+ * both persistent chrome and modal scrims blur-free on native Android; the
+ * shared scrim color still dims and isolates blocking surfaces without the
+ * physical-device frame-time regression. */
 html.native-android *,
 html.native-android *::before,
 html.native-android *::after {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
-}
-
-html.native-android [data-slot="dialog-overlay"],
-html.native-android [data-slot="sheet-overlay"],
-html.native-android [data-slot="drawer-overlay"],
-html.native-android [data-slot="alert-dialog-overlay"],
-html.native-android [data-slot="popover-scrim"] {
-  -webkit-backdrop-filter: var(--app-scrim-filter) !important;
-  backdrop-filter: var(--app-scrim-filter) !important;
 }
 
 html.native-android {

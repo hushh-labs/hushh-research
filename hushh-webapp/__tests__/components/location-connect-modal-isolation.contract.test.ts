@@ -99,20 +99,20 @@ describe("Location and Connect blocking surfaces", () => {
     }
   });
 
-  it("keeps modal backgrounds blurred on touch screens and native Android", () => {
+  it("uses lighter touch blur while preserving the native Android dim-only safeguard", () => {
     const css = sourceOf("app/globals.css");
 
     expect(css).toMatch(
       /@media \(pointer: coarse\) \{[\s\S]*?--app-scrim-filter: blur\(4px\);[\s\S]*?\}/,
     );
-    for (const slot of [
-      "dialog-overlay",
-      "sheet-overlay",
-      "drawer-overlay",
-      "alert-dialog-overlay",
-      "popover-scrim",
-    ]) {
-      expect(css).toContain(`html.native-android [data-slot="${slot}"]`);
-    }
+    expect(css).toMatch(
+      /html\.native-android \*[\s\S]*?-webkit-backdrop-filter: none !important;[\s\S]*?backdrop-filter: none !important;/,
+    );
+    expect(css).not.toMatch(
+      /html\.native-android \[data-slot="(?:dialog|sheet|drawer|alert-dialog)-overlay"\]/,
+    );
+    expect(css).not.toContain(
+      'html.native-android [data-slot="popover-scrim"]',
+    );
   });
 });
