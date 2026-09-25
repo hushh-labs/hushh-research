@@ -124,6 +124,7 @@ function ConnectorOAuthReturnRouter() {
     ownerUserId: string | null;
     issuer: string | null;
     customConnector?: { connectorId: string; revision: string };
+    returnTo?: "connector_settings";
   } | null>(null);
   useEffect(() => {
     if (captured.current) return;
@@ -132,7 +133,7 @@ function ConnectorOAuthReturnRouter() {
     if (!isPopup) {
       const search = new URL(window.location.href).searchParams;
       const handoff = readDriveChatRecoveryHandoff();
-      if (handoff?.reason === "web_full_page") {
+      if (handoff?.reason === "web_full_page" && handoff.returnTo !== "connector_settings") {
         markDriveChatRecoveryReturned({
           attemptId: handoff.attemptId,
           reason: "web_full_page",
@@ -146,6 +147,7 @@ function ConnectorOAuthReturnRouter() {
         ownerUserId: handoff?.reason === "web_full_page" ? handoff.ownerUserId ?? null : null,
         issuer: search.get("iss"),
         customConnector: handoff?.customConnector,
+        returnTo: handoff?.returnTo,
       });
       // A full-page return may wait for vault unlock. Keep provider codes and
       // signed state only in this mounted component, never in browser history.
@@ -169,10 +171,14 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   code: string | null; state: string | null; cancelled: boolean;
   attemptId: string | null; ownerUserId: string | null; issuer: string | null;
   customConnector?: { connectorId: string; revision: string };
+  returnTo?: "connector_settings";
 } }) {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, ownerTokenStatus } = useVault();
   const router = useRouter();
+  const returnHref = details.returnTo === "connector_settings"
+    ? ROUTES.PROFILE_CONNECTORS : `${ROUTES.HOME}?panel=connectors`;
+  const returnLabel = details.returnTo === "connector_settings" ? "Connectors" : "Chat";
   const started = useRef(false);
   const mounted = useRef(true);
   const [message, setMessage] = useState("Finishing connection…");
@@ -181,7 +187,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   useEffect(() => {
     if (ownerTokenStatus === "renewing" || !user || !vaultKey || !vaultOwnerToken) return;
     if (details.ownerUserId !== user.uid) {
-      setMessage("Could not save this connection. Return to Chat with the original account.");
+      setMessage(`Could not save this connection. Return to ${returnLabel} with the original account.`);
       setFinished(true);
       return;
     }
@@ -189,10 +195,10 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
     // This phase lives above VaultLockGuard. Re-unlock must not replay a
     // single-use callback whose exchange/save may already have succeeded.
     if (phase !== "fresh") {
-      setMessage(phase === "saved" ? "Sign-in saved in your vault. Refresh tools in Chat."
-        : phase === "running" ? "Sign-in was interrupted. Return to Chat to check the connection."
+      setMessage(phase === "saved" ? `Sign-in saved in your vault. Refresh tools in ${returnLabel}.`
+        : phase === "running" ? `Sign-in was interrupted. Return to ${returnLabel} to check the connection.`
         : phase === "cancelled" ? "Sign-in cancelled. Your saved connection is unchanged."
-        : "Connection was not completed. Return to Chat and sign in again.");
+        : `Connection was not completed. Return to ${returnLabel} and sign in again.`);
       setFinished(true);
       return;
     }
@@ -229,18 +235,18 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
           signal: controller.signal, isEffectCurrent: current });
         if (current()) setMessage("Sign-in saved in your vault. Tools refreshed.");
       } catch {
-        if (current()) setMessage("Sign-in saved in your vault, but tools could not be refreshed. Retry Refresh tools in Chat.");
+        if (current()) setMessage(`Sign-in saved in your vault, but tools could not be refreshed. Retry Refresh tools in ${returnLabel}.`);
       }
     };
     void run().catch(() => {
       if (!savedSuccessfully) onPhase("failed");
-      if (current()) setMessage("Could not save this connection. Return to Chat and sign in again.");
+      if (current()) setMessage(`Could not save this connection. Return to ${returnLabel} and sign in again.`);
     })
       .finally(() => { if (current()) setFinished(true); });
-  }, [details, user, vaultKey, vaultOwnerToken, ownerTokenStatus, phase, onPhase]);
+  }, [details, user, vaultKey, vaultOwnerToken, ownerTokenStatus, phase, onPhase, returnLabel]);
   return <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-6 text-center">
     <p role="status" className="text-sm text-muted-foreground">{message}</p>
-    {finished ? <Button className="min-h-11" onClick={() => router.replace(`${ROUTES.HOME}?panel=connectors`)}>Return to Chat</Button> : null}
+    {finished ? <Button className="min-h-11" onClick={() => router.replace(returnHref)}>Return to {returnLabel}</Button> : null}
   </div>;
 }
 

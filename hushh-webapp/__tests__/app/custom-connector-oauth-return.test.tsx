@@ -1,15 +1,15 @@
 import React, { StrictMode } from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), replace: vi.fn(), current: true, locked: false, owner: "owner" }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", returnTo: undefined as "connector_settings" | undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
 vi.mock("@/components/vault/vault-lock-guard", () => ({ VaultLockGuard: ({ children }: { children: React.ReactNode }) => mocks.locked ? <div>Unlock vault</div> : children }));
 vi.mock("@/lib/profile/drive-oauth-popup", () => ({ hasDrivePopupMarker: () => false }));
 vi.mock("@/lib/agent/drive-oauth-chat-recovery", () => ({
-  readDriveChatRecoveryHandoff: () => ({ reason: "web_full_page", ownerUserId: "owner", attemptId: "a".repeat(43), customConnector: { connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" } }),
-  markDriveChatRecoveryReturned: vi.fn(),
+  readDriveChatRecoveryHandoff: () => ({ reason: "web_full_page", ownerUserId: "owner", attemptId: "a".repeat(43), returnTo: mocks.returnTo, customConnector: { connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" } }),
+  markDriveChatRecoveryReturned: mocks.markReturned,
 }));
 vi.mock("@/lib/auth/session-owner", () => ({ snapshotValidatedAuthSessionOwner: () => ({ userId: mocks.owner }), isValidatedAuthSessionOwnerCurrent: () => mocks.current }));
 vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => 1, isVaultSessionEpochCurrent: () => mocks.current }));
@@ -18,7 +18,7 @@ vi.mock("@/lib/connections/custom-connector-configuration", () => ({ saveCustomC
 import Page from "@/app/one/profile/connectors/oauth/return/page";
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.current = true; mocks.locked = false; mocks.owner = "owner";
+  vi.clearAllMocks(); mocks.current = true; mocks.locked = false; mocks.owner = "owner"; mocks.returnTo = undefined;
   mocks.complete.mockResolvedValue({ privateSyntheticResult: true });
   mocks.save.mockResolvedValue({});
   mocks.refresh.mockResolvedValue([]);
@@ -45,6 +45,15 @@ it("does not exchange under a different signed-in owner", async () => {
   await waitFor(() => expect(screen.getByText(/Could not save this connection/)).toBeTruthy());
   expect(mocks.complete).not.toHaveBeenCalled();
   expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it("returns Settings sign-in to Settings without arming Chat draft recovery", async () => {
+  mocks.returnTo = "connector_settings";
+  render(<Page />);
+  await screen.findByText(/Sign-in saved in your vault/);
+  expect(mocks.markReturned).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Return to Connectors" }));
+  expect(mocks.replace).toHaveBeenCalledWith("/one/profile/connectors");
 });
 
 it("does not replay completion after lock during refresh and preserves the saved outcome", async () => {
