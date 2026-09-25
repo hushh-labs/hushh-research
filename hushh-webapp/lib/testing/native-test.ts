@@ -202,7 +202,8 @@ export function shouldDisableExternalTelemetryForAutomation(
   if (!isAutomatedReviewerSession(config)) return false;
   const governedUatAnalyticsHost =
     hostname === "uat.one.hushh.ai" ||
-    /^analytics-candidate---hushh-webapp-[a-z0-9]+-uc\.a\.run\.app$/.test(hostname);
+    hostname ===
+      "analytics-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app";
   const allowGovernedUatSmoke =
     typeof window !== "undefined" &&
     governedUatAnalyticsHost &&

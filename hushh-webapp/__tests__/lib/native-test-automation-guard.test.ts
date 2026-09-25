@@ -75,6 +75,12 @@ describe("native test automation guards", () => {
         "analytics-candidate---other-service-f2gsa4kfsq-uc.a.run.app",
       ),
     ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-rpphvsc3tq-uc.a.run.app",
+      ),
+    ).toBe(true);
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "one.hushh.ai")).toBe(true);
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "localhost")).toBe(true);
   });

@@ -1049,6 +1049,16 @@ jobs:
           export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
           npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
 
+      - name: Remove zero-traffic frontend analytics candidate tag
+        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.frontend-analytics-candidate.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --remove-tags=analytics-candidate
+
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
         shell: bash
