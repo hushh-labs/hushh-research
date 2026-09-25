@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
+const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
 
@@ -14,6 +14,12 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
+  it("forces a coherent snapshot for invocation and confirmation instead of warm credentials", async () => {
+    storage.loadDomainSnapshot.mockResolvedValue({ data: { connectors: { [record.connectorId]: JSON.stringify(record) } } });
+    expect(await loadCustomConnectorConfigurations(access, true)).toEqual([record]);
+    expect(storage.loadDomainSnapshot).toHaveBeenCalledWith({ ...access, domain: "runtime_secrets", force: true });
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+  });
   it("projects only transient access credentials without mutating vault configuration", () => {
     const oauth = { ...record, enabled: false, authentication: { kind: "oauth" as const,
       accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };

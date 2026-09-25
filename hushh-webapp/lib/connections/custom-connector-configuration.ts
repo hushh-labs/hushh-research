@@ -83,8 +83,10 @@ function reference(connectorId: string): string {
   return `pkm:runtime_secrets.connectors.${connectorId}`;
 }
 
-async function storedRecords(access: VaultAccess): Promise<Record<string, unknown>> {
-  const domain = await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
+async function storedRecords(access: VaultAccess, force = false): Promise<Record<string, unknown>> {
+  const domain = force
+    ? (await PersonalKnowledgeModelService.loadDomainSnapshot({ ...access, domain: "runtime_secrets", force: true })).data
+    : await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
   if (domain === null) return {};
   if (!domain || typeof domain !== "object" || Array.isArray(domain)) throw invalidConfiguration();
   if (domain.connectors === undefined) return {};
@@ -111,8 +113,8 @@ async function expectedRecord(access: VaultAccess, connectorId: string, expected
 }
 
 /** Caller owns unlocked-session validity; no decrypted configuration is cached here. */
-export async function loadCustomConnectorConfigurations(access: VaultAccess): Promise<CustomConnectorConfiguration[]> {
-  return Object.entries(await storedRecords(access)).map(([key, value]) => parseStoredRecord(key, value));
+export async function loadCustomConnectorConfigurations(access: VaultAccess, force = false): Promise<CustomConnectorConfiguration[]> {
+  return Object.entries(await storedRecords(access, force)).map(([key, value]) => parseStoredRecord(key, value));
 }
 
 /** One encrypted record per edit; conflict recovery preserves sibling records. */

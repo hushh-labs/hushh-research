@@ -43,10 +43,11 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
       return () => controller.abort();
     }
     const timeout = setTimeout(expire, Math.min(remaining, 2_147_483_647));
-    void ExternalConnectorService.reviewMcpCall({
+    void (async () => ExternalConnectorService.reviewMcpCall({
+      configuration: await review.loadConfiguration?.(),
       vaultOwnerToken, conversationId: review.conversationId, reference: review.reference,
       signal: controller.signal, isEffectCurrent: review.isCurrent,
-    }).then((value) => {
+    }))().then((value) => {
       if (controller.signal.aborted || !review.isCurrent()) return;
       setPreview(value);
       setPhase("ready");
@@ -66,6 +67,7 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
     let resumeStarted = false;
     const operation = (async () => {
       const approval = confirmed ? await ExternalConnectorService.confirmMcpCall({
+        configuration: await review.loadConfiguration?.(),
         vaultOwnerToken, conversationId: review.conversationId, reference: preview,
         signal: controller.signal, isEffectCurrent: review.isCurrent,
       }) : null;

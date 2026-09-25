@@ -80,6 +80,36 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 describe("AG-UI Agent One client", () => {
+  it("loads a transient connector catalog without forwarding refresh credentials", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const loadConnectorConfigurations = vi.fn(async () => [{
+      version: 1 as const, connectorId: `custom_${"a".repeat(32)}`,
+      revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic",
+      endpoint: "https://example.com/mcp", enabled: true,
+      authentication: { kind: "oauth" as const, accessToken: "synthetic-access", expiresAt: 4070908800, refreshToken: "synthetic-refresh" },
+    }]);
+    await streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token", loadConnectorConfigurations });
+    expect(loadConnectorConfigurations).toHaveBeenCalledOnce();
+    const request = mockTransport.runAgent.mock.calls[0][0];
+    expect(request.forwardedProps.mcpConfigurations[0].authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 4070908800 });
+    expect(JSON.stringify(request)).not.toContain("synthetic-refresh");
+  });
+
+  it("does not dispatch after vault lock during connector loading", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    await expect(streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+      loadConnectorConfigurations: async () => { advanceVaultSessionEpoch(); return []; },
+    })).rejects.toThrow("vault session changed");
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("does not treat failed connector loading as an empty catalog", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    await expect(streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+      loadConnectorConfigurations: async () => { throw new Error("Synthetic unavailable"); },
+    })).rejects.toThrow("Synthetic unavailable");
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
   it("never treats native connector content as a debug payload or app directive", async () => {
     mockTransport.emitEvents = subscriber => {
       subscriber.onToolCallStartEvent?.({ event: { toolCallId: "mcp-call", toolCallName: `mcp_${"a".repeat(40)}` } });

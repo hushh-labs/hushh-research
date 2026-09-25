@@ -1099,8 +1099,12 @@ validates endpoint, owner, enabled state and credential expiry, and binds approv
 to the complete configuration as well as the discovered tool revision. It does
 not create a private registry row. Omission retains the legacy registration path
 for compatibility. Client transport and backend review support are implemented;
-automatic loading from the active vault into Chat cards remains an integration
-gate, not a verified end-to-end capability.
+Chat's authenticated workspace now loads these configurations from the encrypted
+`runtime_secrets` domain using a forced coherent snapshot. Initial turns, action
+resumes and connector review/confirmation reload the catalog and check the
+authenticated owner and vault-session epoch before dispatch. Failed loading is
+not treated as an empty catalog or a reason to fall back to private registration.
+This is source-level integration, not verified live provider/native acceptance.
 
 Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
 Owner authority. It removes that private field before handing the input to
@@ -1110,7 +1114,8 @@ consumed once and removed from state before the ADK bridge runs. The turn-local
 toolset receives the configuration, rechecks authority per call, and closes at
 turn completion. An explicit empty catalog cannot resurrect a custom connector
 from the legacy database. Omitted catalogs retain compatibility behavior until
-the browser vault-loading migration is complete. This server ingress is covered
+all compatibility callers have migrated. The authenticated Chat workspace sends
+an explicit catalog, including an empty one. This server ingress is covered
 by focused contract tests, not live provider or browser acceptance.
 
 For a native ADK pending call, include `pendingHandle`. Review resolves its

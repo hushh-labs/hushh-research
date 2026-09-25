@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
@@ -84,6 +85,7 @@ export type AgentChatStreamHandlers = {
     reference: McpCallReviewReference;
     conversationId: string;
     isCurrent: () => boolean;
+    loadConfiguration?: () => Promise<CustomConnectorConfiguration | undefined>;
     resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
   }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
@@ -410,6 +412,7 @@ export async function streamAgentChat(input: {
   message: string;
   conversationId?: string | null;
   vaultOwnerToken: string;
+  loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
   personSelectionHandle?: string;
   /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
@@ -433,6 +436,13 @@ export async function streamAgentChat(input: {
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
     isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
   );
+  const connectorProjection = async () => {
+    if (!input.loadConnectorConfigurations) return {};
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    const configurations = await input.loadConnectorConfigurations();
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    return { mcpConfigurations: projectCustomConnectorTurnConfigurations(configurations) };
+  };
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
@@ -540,6 +550,7 @@ export async function streamAgentChat(input: {
             tools,
             context: [],
             forwardedProps: {
+              ...await connectorProjection(),
               timezone,
               pkmContext: input.pkmContext,
               personSelectionHandle: input.personSelectionHandle,
@@ -826,6 +837,14 @@ export async function streamAgentChat(input: {
             reference,
             conversationId: threadId,
             isCurrent: mcpSessionCurrent,
+            loadConfiguration: input.loadConnectorConfigurations ? async () => {
+              const projection = await connectorProjection();
+              const configuration = projection.mcpConfigurations?.find(item => item.connectorId === reference.connectorId);
+              if (reference.connectorId.startsWith("custom_") && !configuration) {
+                throw new Error("This connector was removed. Prepare a new request.");
+              }
+              return configuration;
+            } : undefined,
             resume: async (approval, signal) => {
               if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= Date.now()) {
                 throw new Error("This connector review expired or was already used.");
@@ -846,6 +865,7 @@ export async function streamAgentChat(input: {
                 await agent.runAgent({
                   tools, context: [],
                   forwardedProps: {
+                    ...await connectorProjection(),
                     timezone, pkmContext: input.pkmContext,
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
@@ -908,6 +928,7 @@ export async function streamAgentChat(input: {
       tools,
       context: [],
       forwardedProps: {
+        ...await connectorProjection(),
         timezone,
         pkmContext: input.pkmContext,
         personSelectionHandle: input.personSelectionHandle,
