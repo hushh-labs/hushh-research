@@ -656,6 +656,16 @@ device does not need re-registration solely to fetch a newer relay client.
 This is a dev acceptance gap, not a passing direct-access result. The separate
 consumer worktree was not part of this candidate.
 
+Freshness check after the dev deployment found a new merge blocker. The pod
+branch's deployed migration `244_private_mcp_registration.sql` and newer `main`'s
+`244_drive_query_notifications.sql` claim the same numeric version. The migration
+runner requires unique versions, while dev has already applied the pod branch's
+version. A trial merge was aborted without changing the branch. Reconcile the
+numbering and each environment's applied-migration ledger before merging the
+newer `main` or proposing main promotion; do not rename an already applied file
+without a deliberate environment-aware migration path. Generated schema and
+runtime contracts must then be rebuilt from the merged owning sources.
+
 ## Follow-up ownership
 
 - **Frontend proxy and dashboard integration:** verify response-header propagation through [`api-contract-change`](../../../.codex/workflows/api-contract-change/workflow.json) and migrate/verify the mounted status/refresh consumer against the vault contract through [`frontend-cache-coherence`](../../../.codex/workflows/frontend-cache-coherence/workflow.json). Evidence required: route-level header test and a same-contract dashboard integration check.
