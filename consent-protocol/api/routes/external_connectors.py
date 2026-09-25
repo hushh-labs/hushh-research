@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.one_adk import mcp_review_service
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_features
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
@@ -144,6 +145,17 @@ class McpReviewRequest(BaseModel):
     toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
     arguments: dict[str, Any]
     pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
+    connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
+
+    @field_validator("connectorConfiguration")
+    @classmethod
+    def validate_configuration(cls, value):
+        if value is None:
+            return None
+        try:
+            return next(iter(validate_mcp_turn_configurations([value]).values()))
+        except ExternalMcpError:
+            raise ValueError("Invalid connector configuration.") from None
 
     @field_validator("arguments")
     @classmethod
@@ -192,6 +204,11 @@ async def prepare_mcp_review(
         conversation_id=body.conversationId,
         tool_name=body.toolName,
         arguments=body.arguments,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
         **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 
@@ -211,6 +228,11 @@ async def confirm_mcp_review(
         arguments=body.arguments,
         directive_id=body.directiveId,
         confirmed=body.confirmed,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
         **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 

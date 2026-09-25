@@ -1053,7 +1053,12 @@ No silent success is emitted on terminal failures.
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
 
-### Owner-private MCP registration checkpoint
+### Legacy owner-private MCP registration (compatibility only)
+
+The readable private-registration path below is superseded by the owner's
+browser-encrypted vault configuration. Do not apply migration 243 to enable new
+custom connectors. Existing callers remain until replacement parity is proven;
+their presence does not establish the intended custody architecture.
 
 `POST /api/connectors/registrations` requires a Vault Owner token and accepts only
 `registrationId` (a stable retry UUID), `displayName`, `endpoint`, and `authStyle`
@@ -1080,11 +1085,22 @@ Settings controls, ADK invocation, or native acceptance. Those remain separate g
 `conversationId`, namespaced `toolName`, and bounded JSON `arguments` (32 KB).
 The request stream is capped at 64 KB before JSON parsing, with a five-second
 body-read deadline; chunked input cannot bypass that cap.
-It verifies the owner's private registration and encrypted ADK conversation,
+It verifies the owner's connector configuration and encrypted ADK conversation,
 resolves current credentials, rediscovers tools and validates the exact schema.
 It issues metadata-only authority through the existing action ledger (migration
 244), returning the complete arguments for transient browser review plus the
 directive ID and expiry. It does not invoke the provider tool.
+
+Vault-backed calls supply optional `connectorConfiguration`: one versioned
+configuration for the exact connector, including its transient access credential.
+The browser projection excludes OAuth refresh tokens; the server rejects them.
+This field is excluded from model serialization and representation. The server
+validates endpoint, owner, enabled state and credential expiry, and binds approval
+to the complete configuration as well as the discovered tool revision. It does
+not create a private registry row. Omission retains the legacy registration path
+for compatibility. Client transport and backend review support are implemented;
+automatic loading from the active vault into Chat cards remains an integration
+gate, not a verified end-to-end capability.
 
 For a native ADK pending call, include `pendingHandle`. Review resolves its
 owner/thread/tool/call-bound transient arguments and verifies both stored native
@@ -1103,7 +1119,7 @@ before dispatch. There is no separate HTTP tool-execution endpoint.
 
 Both routes use the existing Next connector proxy and return `no-store`, including
 errors. Validation/errors never echo private input or provider diagnostics.
-These endpoints currently admit owner-private registrations only; curated
+These endpoints currently admit owner-private configurations/registrations only; curated
 Workspace adapters, Chat review-card/resume wiring and live acceptance remain
 separate integration gates. Confirmation is not proof that a tool executed.
 

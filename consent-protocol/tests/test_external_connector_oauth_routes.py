@@ -19,6 +19,36 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_review_configuration_is_transient_and_rejects_refresh_tokens():
+    from pydantic import ValidationError
+
+    configuration = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Synthetic",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {
+            "kind": "oauth",
+            "accessToken": "synthetic-access",
+            "expiresAt": 4070908800,
+        },
+    }
+    payload = dict(
+        conversationId="thread",
+        toolName="mcp_" + "a" * 40,
+        arguments={},
+        connectorConfiguration=configuration,
+    )
+    model = routes.McpReviewRequest(**payload)
+    assert "connectorConfiguration" not in model.model_dump()
+    assert "synthetic-access" not in repr(model)
+    configuration["authentication"]["refreshToken"] = "synthetic-refresh"
+    with pytest.raises(ValidationError):
+        routes.McpReviewRequest(**payload)
+
+
 @pytest.fixture
 def route_client(monkeypatch):
     drive = SimpleNamespace(

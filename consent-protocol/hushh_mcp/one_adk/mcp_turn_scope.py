@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _CURRENT: ContextVar[McpTurnResources | None] = ContextVar("one_mcp_turn_resources", default=None)
 
 
-def _private_configurations(value: Any) -> dict[str, dict[str, Any]]:
+def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
     """Validate a transient browser projection, never a stored authority record.
 
     Refresh tokens are deliberately not admitted. Endpoint DNS/rebinding checks
@@ -132,7 +132,7 @@ class McpTurnResources:
         if configurations is not None and not owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         self._configurations = (
-            _private_configurations(configurations) if configurations is not None else {}
+            validate_mcp_turn_configurations(configurations) if configurations is not None else {}
         )
         self._closed = False
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}

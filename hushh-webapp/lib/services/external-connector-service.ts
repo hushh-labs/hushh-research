@@ -1,6 +1,10 @@
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
 import {
+  projectCustomConnectorTurnConfigurations,
+  type CustomConnectorConfiguration,
+} from "@/lib/connections/custom-connector-configuration";
+import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
 } from "@/lib/agent/mcp-call-review";
@@ -182,6 +186,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }): Promise<McpCallPreview> {
@@ -196,6 +201,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallPreview;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }): Promise<McpCallApproval> {
@@ -209,12 +215,18 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }, operation: "review" | "confirm", args: Record<string, unknown>): Promise<unknown> {
     const current = () => !input.signal.aborted && input.isEffectCurrent() &&
       Date.parse(input.reference.expiresAt) > Date.now();
     if (!current()) throw new Error("This review expired or your vault session changed.");
+    const configuration = input.configuration === undefined ? undefined :
+      projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (configuration && (!configuration.enabled || configuration.connectorId !== input.reference.connectorId)) {
+      throw new Error("This connector configuration changed. Open the review again.");
+    }
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
       {
@@ -226,6 +238,7 @@ export class ExternalConnectorService {
           toolName: input.reference.toolName,
           pendingHandle: input.reference.pendingHandle,
           arguments: args,
+          ...(configuration ? { connectorConfiguration: configuration } : {}),
           ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
         }),
       },

@@ -98,6 +98,35 @@ def harness(monkeypatch):
     )
 
 
+async def test_vault_configuration_reviews_without_private_registry(harness, monkeypatch):
+    h = harness
+    monkeypatch.setattr(
+        mcp_turn_scope, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    configuration = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Vault connector",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "api_key", "header": "X-API-Key", "value": "synthetic-secret"},
+    }
+    request = {
+        **h.request,
+        "connector_id": configuration["connectorId"],
+        "configuration": configuration,
+    }
+    preview = await module.prepare_review(**request)
+    assert preview["connectorLabel"] == "Vault connector"
+    assert "synthetic-secret" not in str(preview)
+    h.registry.get_connector.assert_not_called()
+    h.resolver.assert_not_called()
+    h.tool.run_async.assert_not_called()
+    with pytest.raises(ExternalMcpError):
+        await module.prepare_review(**{**request, "connector_id": "custom_" + "b" * 32})
+
+
 async def test_review_and_confirmation_use_current_terms_without_executing(harness):
     h = harness
     preview = await module.prepare_review(**h.request)

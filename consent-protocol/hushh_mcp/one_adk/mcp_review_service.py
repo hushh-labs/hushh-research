@@ -19,7 +19,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
 )
 from hushh_mcp.one_adk.mcp_call_approval import McpCallApproval
 from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
-from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
+from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope, validate_mcp_turn_configurations
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
@@ -42,16 +42,25 @@ async def review_tool(
     connector_id: str,
     conversation_id: str,
     tool_name: str,
+    configuration: dict[str, Any] | None = None,
 ):
     owner = str(token["user_id"])
-    registry = get_external_connector_registry_service()
-    definition = await registry.get_connector(connector_id, user_id=owner)
-    # Registration admission is shared with Chat; the same resolver below
-    # checks provider profile, current credentials and capabilities for review.
-    if not native_registration_admitted(definition, owner):
-        raise ExternalMcpError(
-            "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
-        )
+    if configuration is not None:
+        records = validate_mcp_turn_configurations([configuration])
+        record = records.get(connector_id)
+        if record is None or not record["enabled"]:
+            raise ExternalMcpError(
+                "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
+            )
+        connector_label = record["displayName"]
+    else:
+        registry = get_external_connector_registry_service()
+        definition = await registry.get_connector(connector_id, user_id=owner)
+        if not native_registration_admitted(definition, owner):
+            raise ExternalMcpError(
+                "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
+            )
+        connector_label = definition.display_name
     sessions = EncryptedAdkSessionService()
     session = await sessions.get_session(
         app_name="hussh_one", user_id=owner, session_id=conversation_id
@@ -75,12 +84,16 @@ async def review_tool(
                 "hussh:consent_token": store_request_secret(token["token"]),
                 "temp:one_execution_surface": "typed_chat",
                 "temp:hussh:workspace_chat_admission": True,
-                "temp:mcp_connector_label": definition.display_name,
+                "temp:mcp_connector_label": connector_label,
             },
         ),
     )
     context = Context(invocation, function_call_id=uuid4().hex)
-    async with mcp_turn_scope(conversation_id) as scope:
+    async with mcp_turn_scope(
+        conversation_id,
+        owner_id=owner,
+        configurations=[configuration] if configuration is not None else None,
+    ) as scope:
         toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
         tools = await toolset.get_tools(context)
         tool = next((item for item in tools if item.name == tool_name), None)
@@ -106,6 +119,7 @@ async def prepare_review(
     tool_name: str,
     arguments: dict[str, Any],
     pending_handle: str | None = None,
+    configuration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if pending_handle:
         return await prepare_pending_review(
@@ -114,9 +128,14 @@ async def prepare_review(
             conversation_id=conversation_id,
             tool_name=tool_name,
             pending_handle=pending_handle,
+            configuration=configuration,
         )
     async with review_tool(
-        token=token, connector_id=connector_id, conversation_id=conversation_id, tool_name=tool_name
+        token=token,
+        connector_id=connector_id,
+        conversation_id=conversation_id,
+        tool_name=tool_name,
+        configuration=configuration,
     ) as (context, tool):
         approval = current_approval(context, tool, arguments)
         issued = await approval.issue(ActionDirectiveStore())
@@ -142,6 +161,7 @@ async def confirm_review(
     directive_id: str,
     confirmed: bool,
     pending_handle: str | None = None,
+    configuration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if pending_handle:
         pending = await prepare_pending_review(
@@ -150,12 +170,17 @@ async def confirm_review(
             conversation_id=conversation_id,
             tool_name=tool_name,
             pending_handle=pending_handle,
+            configuration=configuration,
         )
         if directive_id != pending["directiveId"] or arguments != pending["arguments"]:
             raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
     ledger = ActionDirectiveStore()
     async with review_tool(
-        token=token, connector_id=connector_id, conversation_id=conversation_id, tool_name=tool_name
+        token=token,
+        connector_id=connector_id,
+        conversation_id=conversation_id,
+        tool_name=tool_name,
+        configuration=configuration,
     ) as (context, tool):
         approval = current_approval(context, tool, arguments)
         receipt = await approval.confirm(ledger, directive_id=directive_id, confirmed=confirmed)
@@ -172,7 +197,7 @@ async def confirm_review(
 
 
 async def prepare_pending_review(
-    *, token, connector_id, conversation_id, tool_name, pending_handle
+    *, token, connector_id, conversation_id, tool_name, pending_handle, configuration=None
 ):
     """Preview the already-issued native call; never issue another directive."""
     session = await EncryptedAdkSessionService().get_session(
@@ -196,6 +221,7 @@ async def prepare_pending_review(
         connector_id=connector_id,
         conversation_id=conversation_id,
         tool_name=tool_name,
+        configuration=configuration,
     ) as (context, tool):
         if tool.revision != review.get("catalogRevision"):
             raise ActionDirectiveAuthorityError("Connector tools changed. Review again.")
