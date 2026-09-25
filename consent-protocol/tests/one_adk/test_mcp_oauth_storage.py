@@ -1,18 +1,26 @@
 """Synthetic SDK-port proof only; no provider, browser or OAuth endpoint admission."""
 
+import asyncio
+import time
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
-from mcp.client.auth.oauth2 import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 from hushh_mcp.one_adk import request_secrets
-from hushh_mcp.one_adk.mcp_oauth_storage import EphemeralMcpOAuthStorage
+from hushh_mcp.one_adk.mcp_oauth_storage import (
+    ConnectOnlyMcpOAuthProvider,
+    EphemeralMcpOAuthStorage,
+    McpOAuthConnectError,
+)
 
 
 @pytest.mark.asyncio
-async def test_sdk_authorization_delivers_tokens_once_without_durable_storage():
+@pytest.mark.parametrize("token_failure", [False, True, "callback_timeout"])
+async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
+    caplog, token_failure
+):
     storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
     redirect = {}
 
@@ -20,6 +28,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage():
         redirect.update(parse_qs(urlsplit(url).query))
 
     async def callback():
+        if token_failure == "callback_timeout":
+            await asyncio.sleep(60)
         return "synthetic-code", redirect["state"][0]
 
     def respond(request):
@@ -66,6 +76,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage():
             body = parse_qs(request.content.decode())
             assert body["code"] == ["synthetic-code"]
             assert body["code_verifier"]
+            if token_failure:
+                return httpx.Response(400, text="synthetic-private-token-body")
             return httpx.Response(
                 200,
                 json={
@@ -78,7 +90,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage():
             )
         raise AssertionError("Unexpected synthetic OAuth request")
 
-    provider = OAuthClientProvider(
+    provider = ConnectOnlyMcpOAuthProvider(
         "https://connector.example/mcp",
         OAuthClientMetadata(
             redirect_uris=["https://app.example/return"],
@@ -88,10 +100,23 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage():
         navigate,
         callback,
     )
+    if token_failure == "callback_timeout":
+        storage._deadline = time.monotonic() + 0.02
     try:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(respond), auth=provider
         ) as client:
+            if token_failure:
+                with pytest.raises(McpOAuthConnectError) as error:
+                    await client.get("https://connector.example/mcp")
+                assert "synthetic-private-token-body" not in str(error.value)
+                if token_failure is True:
+                    assert "MCP OAuth protocol event" in caplog.text
+                assert storage._closed
+                assert "synthetic-private-token-body" not in caplog.text
+                assert "synthetic-code" not in caplog.text
+                assert all(record.exc_info is None for record in caplog.records)
+                return
             assert (
                 await client.get(
                     "https://connector.example/mcp", headers={"MCP-Protocol-Version": "2025-11-25"}
@@ -162,3 +187,62 @@ async def test_oversized_result_closes_storage_without_echoing_secret():
     assert "synthetic-secret" not in str(error.value)
     with pytest.raises(ValueError, match="expired or changed"):
         await storage.get_tokens()
+
+
+@pytest.mark.asyncio
+async def test_connect_oauth_never_replays_tool_mutations():
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+
+    def unexpected(request):
+        raise AssertionError("A tool mutation must not reach OAuth transport")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(unexpected), auth=provider
+    ) as client:
+        with pytest.raises(McpOAuthConnectError):
+            await client.post(
+                "https://connector.example/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "send"},
+                },
+            )
+    assert storage._closed
+
+
+@pytest.mark.asyncio
+async def test_fresh_provider_rejects_loaded_refresh_credentials_before_network():
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    await storage.set_tokens(
+        OAuthToken(access_token="synthetic-access", refresh_token="synthetic-refresh")  # noqa: S106 - synthetic SDK fixture
+    )
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    flow = provider.async_auth_flow(httpx.Request("GET", "https://connector.example/mcp"))
+    with pytest.raises(McpOAuthConnectError):
+        await anext(flow)
+    assert storage._closed
+
+
+@pytest.mark.asyncio
+async def test_abandoned_connect_generator_clears_storage():
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    flow = provider.async_auth_flow(httpx.Request("GET", "https://connector.example/mcp"))
+    await anext(flow)
+    await flow.aclose()
+    assert storage._closed

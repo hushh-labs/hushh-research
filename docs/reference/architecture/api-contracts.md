@@ -1129,14 +1129,19 @@ store and must not be reused unchanged for vault-owned custom connectors. The
 installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior.
 `one_adk/mcp_oauth_storage.py` now implements its request-only TokenStorage port
 over the existing expiring secret handoff, with single delivery of tokens and
-registered client information for eventual browser-vault persistence. Five
-focused tests include a synthetic SDK authorization exchange, owner invalidation,
-expiry, bounded responses and one-time delivery. This adapter is not yet wired
+registered client information for eventual browser-vault persistence. Focused
+tests include a synthetic SDK authorization exchange, owner invalidation,
+expiry, bounded storage and one-time delivery. This adapter is not yet wired
 to a public login route; it does not establish browser or provider acceptance.
 Callback and protected-resource/issuer discovery integration still need owner-bound
-vault custody and endpoint protection. Before activation, suppress credential-bearing
-SDK exception logs, bound the live callback wait, bind its owner/attempt/issuer,
-and fail closed on lost worker continuity. Do not load a vault refresh token into
+vault custody and endpoint protection. `ConnectOnlyMcpOAuthProvider` now restricts
+OAuth retries to setup/read-only protocol methods, redacts the installed SDK's
+auth logger messages and tracebacks, sanitizes propagated errors and bounds the
+live flow by the attempt deadline. Failure, cancellation and generator abandonment
+clear the temporary storage. The synthetic tests exercise these boundaries, not
+a public callback API. Before activation, bind callback owner/attempt/issuer,
+bound discovery response bodies and fail closed on lost worker continuity.
+The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
 initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
 Use OAuth only for a connection handshake, not mutating tool invocation, because
