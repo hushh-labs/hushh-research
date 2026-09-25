@@ -1125,6 +1125,50 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
+  it("records a terminal outcome when the web OAuth popup is dismissed", async () => {
+    const disconnectedView = makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    disconnectedView.refreshStatus.mockResolvedValue(disconnectedView.status);
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedView);
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => {
+      expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalled();
+    });
+
+    mocks.gmailOAuthPopup.popup.closed = true;
+
+    await waitFor(
+      () => {
+        expect(
+          GmailReceiptsService.recordConsentFailure,
+        ).toHaveBeenCalledWith({ code: "USER_CANCELLED" });
+      },
+      { timeout: 1_500 },
+    );
+  });
+
   it("retries a transient Gmail status failure without starting OAuth", async () => {
     const gmailViewWithStatusError = makeGmailView({
       status: null,

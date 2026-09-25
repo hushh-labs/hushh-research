@@ -743,6 +743,9 @@ export default function GmailReceiptsPage({
       if (status?.connected) {
         toast.success("Mail connected. You can finish setup when ready.");
       } else {
+        GmailReceiptsService.recordConsentFailure({
+          code: "USER_CANCELLED",
+        });
         toast.message(
           message ||
             "The Mail window closed. You can try again whenever you are ready.",

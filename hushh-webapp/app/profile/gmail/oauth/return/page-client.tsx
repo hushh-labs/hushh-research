@@ -282,6 +282,9 @@ export default function ProfileGmailOAuthReturnPageClient({
     const code = liveCode || initialCode;
     const state = liveState || initialState;
     if (!code || !state) {
+      GmailReceiptsService.recordConsentFailure({
+        code: "MALFORMED_CALLBACK",
+      });
       setStage("error");
       setError(
         "Missing OAuth code or state. Start Connect Mail again from Mail.",

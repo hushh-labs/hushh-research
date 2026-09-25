@@ -466,6 +466,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith({
+      code: "MALFORMED_CALLBACK",
+    });
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 
