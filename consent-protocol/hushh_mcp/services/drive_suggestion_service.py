@@ -40,6 +40,18 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = logging.getLogger(__name__)
 
+PreparationStage = Literal["searching", "choosing", "checking"]
+
+
+def _emit(on_stage, stage: PreparationStage) -> None:
+    """Report a public stage name. Progress display never fails a preparation."""
+    if on_stage is None:
+        return
+    try:
+        on_stage(stage)
+    except Exception as error:  # noqa: BLE001 - a UI callback must not fail the run
+        logger.debug("drive_suggestion.stage_callback_failed type=%s", type(error).__name__)
+
 
 MAX_SOURCE_REFS = 8
 
@@ -364,7 +376,7 @@ class DriveSuggestionService:
             store=DriveSuggestionRetrievalStore(db=self.store.db, cipher=self.store.cipher),
         )
 
-    async def run_one(self, *, user_id, request_id, owner_selected=None):
+    async def run_one(self, *, user_id, request_id, owner_selected=None, on_stage=None):
         """Prepare one review. owner_selected: files A chose from B's answered
         question; they are bound by metadata only, with no planner, model or read.
         """
@@ -380,6 +392,7 @@ class DriveSuggestionService:
         )
         if job is None:
             return "not_claimed"
+        _emit(on_stage, "searching")
         stage = "reader"
         try:
             async with asyncio.timeout(160):
@@ -513,6 +526,7 @@ class DriveSuggestionService:
                             # be the requested records; never the first eight
                             # keyword hits. A failure fails the preparation.
                             stage = "select_candidates"
+                            _emit(on_stage, "choosing")
                             await self._require_current(job)
                             matches, selection = await select_matches(
                                 selector=self.candidate_selector,
@@ -541,6 +555,7 @@ class DriveSuggestionService:
                                 "selected": len(matches),
                             }
                         stage = "read_file_content"
+                        _emit(on_stage, "checking")
                         retrieved = await reader.read_matches(
                             matches=matches, truncated=found["truncated"]
                         )
@@ -605,6 +620,7 @@ class DriveSuggestionService:
                     )
                 else:
                     stage = "interpret"
+                    _emit(on_stage, "checking")
                     answer = DocumentSuggestions.model_validate(
                         await self.interpreter(
                             prompt=json.dumps(

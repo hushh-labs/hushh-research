@@ -476,6 +476,39 @@ describe("ApiService.apiFetch", () => {
     },
   );
 
+  it.each([
+    ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/prepare", "POST", 180_000],
+    ["/api/connectors/google_drive/sharing/queries/11111111-1111-4111-8111-111111111111/allow", "POST", 180_000],
+    ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111", "GET", 60_000],
+  ])("gives native %s %s the same Drive budget as the web", async (path, method, expected) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: {},
+    });
+    try {
+      await ApiService.apiFetch(path, {
+        method,
+        ...(method === "POST"
+          ? { body: "{}", headers: { "Content-Type": "application/json" } }
+          : {}),
+      });
+      expect(capacitorMocks.request.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ readTimeout: expected }),
+      );
+    } finally {
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
   it("retries native Firebase requests with a forced fresh token on 401", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");

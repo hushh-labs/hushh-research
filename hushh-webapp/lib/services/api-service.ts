@@ -885,9 +885,9 @@ async function apiFetch(
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
       // unbounded — keep legitimately-slow uploads/downloads working).
-      const readTimeoutMs =
-        isLongDriveSharingPath(path) &&
-        (path.includes("/sharing/queries/") || path.includes("/sharing/owner-shares"))
+      // Synchronous Drive work, document preparation included, waits as long
+      // natively as on the web (webFetchTimeoutMsForPath).
+      const readTimeoutMs = isLongDriveSharingPath(path)
           ? 180_000
           : isLongRunningRoute
             ? 90_000
