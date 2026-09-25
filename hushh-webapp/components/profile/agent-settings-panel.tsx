@@ -8,7 +8,10 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
-import { isAgentAsleep, isAgentNotAnswering } from "@/lib/feed/agent-presence-policy";
+import {
+  isAgentAsleep,
+  isAgentNotAnswering,
+} from "@/lib/feed/agent-presence-policy";
 
 const HOST_LABELS = {
   shared: "Hussh Shared",
@@ -76,7 +79,9 @@ export function AgentSettingsPanel({
       await ApiService.reconnectOwnerPod();
       refresh();
     } catch {
-      setError("Your pod could not be reached. Check its connection and try again.");
+      setError(
+        "Your pod could not be reached. Check its connection and try again.",
+      );
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -127,7 +132,11 @@ export function AgentSettingsPanel({
             Check hosting
           </Button>
           {mode === "byoc" ? (
-            <Button variant="muted" disabled={busy} onClick={() => void reconnectDirectPod()}>
+            <Button
+              variant="muted"
+              disabled={busy}
+              onClick={() => void reconnectDirectPod()}
+            >
               Reconnect your pod
             </Button>
           ) : null}
@@ -175,9 +184,15 @@ export function AgentSettingsPanel({
           />
         ) : null}
         <SettingsRow
-          title="Installed version"
+          title="Current version"
           description={status?.installedRelease?.version ?? "Not verified"}
         />
+        {status?.installedRelease?.sourceRevision ? (
+          <SettingsRow
+            title="Build"
+            description={status.installedRelease.sourceRevision.slice(0, 12)}
+          />
+        ) : null}
         {release ? (
           <SettingsRow
             title="Available version"
@@ -193,7 +208,9 @@ export function AgentSettingsPanel({
         {status?.installedReleaseVerifiedAt ? (
           <SettingsRow
             title="Installation verified"
-            description={new Date(status.installedReleaseVerifiedAt).toLocaleString()}
+            description={new Date(
+              status.installedReleaseVerifiedAt,
+            ).toLocaleString()}
           />
         ) : null}
       </SettingsGroup>

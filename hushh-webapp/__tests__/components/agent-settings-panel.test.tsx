@@ -38,7 +38,12 @@ beforeEach(() => {
 
 describe("owner hosting and software settings", () => {
   it("offers Shared users the existing cloud setup route, without install controls", () => {
-    status("shared");
+    status("shared", {
+      installedRelease: {
+        version: "Managed service 5d6a7ba5751e",
+        sourceRevision: "5d6a7ba5751e1234567890",
+      },
+    });
     const view = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
     fireEvent.click(screen.getByRole("button", { name: "Set up your cloud" }));
     expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud");
@@ -46,6 +51,7 @@ describe("owner hosting and software settings", () => {
       <AgentSettingsPanel userId="owner" kind="software-updates" />,
     );
     expect(screen.getByText("Managed by Hussh")).toBeTruthy();
+    expect(screen.getByText("Managed service 5d6a7ba5751e")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
   });
   it.each([
@@ -97,36 +103,53 @@ describe("owner hosting and software settings", () => {
   });
   it("distinguishes installed verification from checking a newer release", () => {
     status("byoc", {
-      installedRelease: { version: "2026.09-dev.1" },
+      installedRelease: {
+        version: "2026.09-dev.1",
+        sourceRevision: "abcdef1234567890",
+      },
       installedReleaseVerifiedAt: "2026-09-24T10:00:00Z",
       releaseCheckedAt: "2026-09-25T11:00:00Z",
       availableRelease: {
         version: "2026.09-dev.2",
         summary: "Improved reconnect behavior.",
-        notes: { improvements: ["Reconnect after a network interruption."], fixes: [], security: [] },
+        notes: {
+          improvements: ["Reconnect after a network interruption."],
+          fixes: [],
+          security: [],
+        },
       },
     });
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
     expect(screen.getByText("2026.09-dev.1")).toBeTruthy();
+    expect(screen.getByText("Current version")).toBeTruthy();
+    expect(screen.getByText("abcdef123456")).toBeTruthy();
     expect(screen.getByText("2026.09-dev.2")).toBeTruthy();
     expect(screen.getByText("Installation verified")).toBeTruthy();
     expect(screen.getByText("Release channel checked")).toBeTruthy();
-    expect(screen.getByText("Reconnect after a network interruption.")).toBeTruthy();
+    expect(
+      screen.getByText("Reconnect after a network interruption."),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
   });
   it.each([
-    ["unreachable", "Not responding. Installed version details are from the last verification."],
+    [
+      "unreachable",
+      "Not responding. Installed version details are from the last verification.",
+    ],
     ["sleeping", "Asleep; wakes when needed."],
     [undefined, "Connection not verified"],
-  ])("keeps %s connection evidence separate from a verified installation", (health, label) => {
-    mocks.follow.mockReturnValue({
-      status: { hostingMode: "byoc", health, installedReleaseVerified: true },
-      update: { ...NO_UPDATE, available: false },
-      refresh: mocks.refresh,
-    });
-    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
-    expect(screen.getByText(label)).toBeTruthy();
-    expect(screen.getByText("Latest offered version installed")).toBeTruthy();
-    expect(screen.queryByText("Up to date")).toBeNull();
-  });
+  ])(
+    "keeps %s connection evidence separate from a verified installation",
+    (health, label) => {
+      mocks.follow.mockReturnValue({
+        status: { hostingMode: "byoc", health, installedReleaseVerified: true },
+        update: { ...NO_UPDATE, available: false },
+        refresh: mocks.refresh,
+      });
+      render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+      expect(screen.getByText(label)).toBeTruthy();
+      expect(screen.getByText("Latest offered version installed")).toBeTruthy();
+      expect(screen.queryByText("Up to date")).toBeNull();
+    },
+  );
 });

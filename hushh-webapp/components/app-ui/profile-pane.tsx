@@ -2,10 +2,7 @@
 
 import { memo } from "react";
 
-import {
-  ArrowLeftIcon as ArrowLeft,
-  XIcon as X,
-} from "@/components/icons";
+import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
@@ -47,34 +44,43 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane({
+  open,
+  onOpenChange,
+}: ProfilePaneProps) {
   const { isVaultUnlocked } = useVault();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
   const canGoBack = canGoBackProfilePane(paneState.location);
   const panelTitle = paneState.location.panel
-      ? paneState.location.panel === "my-data"
-        ? "Memory"
-        : paneState.location.panel === "connected-systems"
-          ? "Connected Systems"
-          : paneState.location.panel === "gmail"
-            ? "Mail receipts"
-            : paneState.location.panel === "account"
-              ? "Your account"
-              : paneState.location.panel === "preferences"
-                ? "Appearance & preferences"
-                : paneState.location.panel === "security"
-                  ? "Security & privacy"
-                  : paneState.location.panel === "referrals"
-                    ? "Invite friends"
-                    : "Help & feedback"
-      : "Profile";
+    ? paneState.location.panel === "my-data"
+      ? "Memory"
+      : paneState.location.panel === "connected-systems"
+        ? "Connected Systems"
+        : paneState.location.panel === "gmail"
+          ? "Mail receipts"
+          : paneState.location.panel === "account"
+            ? "Your account"
+            : paneState.location.panel === "hosting"
+              ? "Hosting"
+              : paneState.location.panel === "software-updates"
+                ? "Software updates"
+                : paneState.location.panel === "preferences"
+                  ? "Appearance & preferences"
+                  : paneState.location.panel === "security"
+                    ? "Security & privacy"
+                    : paneState.location.panel === "referrals"
+                      ? "Invite friends"
+                      : "Help & feedback"
+    : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.
   // Details without a fixed name (a domain, a connection) keep the panel's.
   const detail = paneState.location.detail;
-  const title = detail ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle) : panelTitle;
+  const title = detail
+    ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle)
+    : panelTitle;
 
   // URL state requests a destination, not admission. Keep it for resume, but
   // unmount the modal while the vault gate owns the screen (including cold
@@ -97,9 +103,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
               <button
                 type="button"
                 aria-label="Back in Profile"
-                onClick={() =>
-                  popProfilePaneLocation(pathname, searchParams)
-                }
+                onClick={() => popProfilePaneLocation(pathname, searchParams)}
                 className="-ml-4 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
                 <ArrowLeft className="h-5 w-5" />

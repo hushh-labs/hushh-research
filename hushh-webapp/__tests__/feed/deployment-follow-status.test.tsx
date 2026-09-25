@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 
@@ -63,4 +63,27 @@ it("clears the previous owner's status while the next owner's request is pending
   expect(result.current.hushhId).toBeNull();
   expect(result.current.resolved).toBe(false);
   expect(result.current.update.offerable).toBe(false);
+});
+
+it("keeps the current version visible while a refresh is pending", async () => {
+  vi.stubEnv("NEXT_PUBLIC_POD_LIFECYCLE_STREAM", "0");
+  mocks.status.mockResolvedValueOnce({
+    state: "active",
+    hostingMode: "byoc",
+    installedRelease: { version: "2026.09-dev.1" },
+  });
+  const { result } = renderHook(() =>
+    useAgentDeploymentFollow({ userId: "owner" }),
+  );
+  await waitFor(() =>
+    expect(result.current.status?.installedRelease?.version).toBe(
+      "2026.09-dev.1",
+    ),
+  );
+  mocks.status.mockImplementation(() => new Promise(() => {}));
+  act(() => result.current.refresh());
+  expect(result.current.status?.installedRelease?.version).toBe(
+    "2026.09-dev.1",
+  );
+  expect(result.current.resolved).toBe(true);
 });

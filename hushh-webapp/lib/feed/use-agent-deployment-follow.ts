@@ -308,22 +308,32 @@ export function useAgentDeploymentFollow(options?: {
   // A run of failures, not a total: one flaky poll in a long session is noise, a
   // sustained run is the signal.
   const consecutiveFailuresRef = useRef<number>(0);
+  const identityRef = useRef<{
+    enabled: boolean;
+    userId: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    setStatus(null);
-    setState(null);
-    setResolved(false);
-    setFollowing(false);
-    setHushhId(null);
-    setHealth(null);
-    setCloud(null);
-    setDeploymentTarget(null);
-    setUpdate(NO_UPDATE);
-    previousRef.current = null;
-    updateInProgressRef.current = false;
-    updateMovingRef.current = false;
-    consecutiveFailuresRef.current = 0;
-    startedAtRef.current = Date.now();
+    const ownerChanged =
+      identityRef.current?.enabled !== enabled ||
+      identityRef.current.userId !== userId;
+    identityRef.current = { enabled, userId };
+    if (ownerChanged) {
+      setStatus(null);
+      setState(null);
+      setResolved(false);
+      setFollowing(false);
+      setHushhId(null);
+      setHealth(null);
+      setCloud(null);
+      setDeploymentTarget(null);
+      setUpdate(NO_UPDATE);
+      previousRef.current = null;
+      updateInProgressRef.current = false;
+      updateMovingRef.current = false;
+      consecutiveFailuresRef.current = 0;
+      startedAtRef.current = Date.now();
+    }
     if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -377,7 +387,6 @@ export function useAgentDeploymentFollow(options?: {
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;
-        if (!cancelled) setStatus(null);
         // A few transient failures are not a state change: keep the last known value
         // and try again -- guessing here would make the UI disagree with the backend.
         // But a PERSISTENT failure is different, and retaining `active` through it is
@@ -390,6 +399,8 @@ export function useAgentDeploymentFollow(options?: {
         if (consecutiveFailuresRef.current >= FAILURES_BEFORE_WARNING) {
           next = null;
           if (!cancelled) {
+            setStatus(null);
+            setState(null);
             setHushhId(null);
             setHealth(null);
             // A persistent failure is a verdict too: stop holding the router.
