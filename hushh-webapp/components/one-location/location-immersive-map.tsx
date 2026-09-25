@@ -1294,7 +1294,25 @@ export function LocationImmersiveMap({
     ) => {
       const cameraRevision = settledCameraRevisionRef.current;
       const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
-      await map.setCamera(camera);
+      try {
+        await map.setCamera(camera);
+      } catch (error) {
+        const pendingInitialFrame = initialFrameCommandRef.current;
+        if (
+          pendingInitialFrame &&
+          !framedInitialMarkersRef.current &&
+          mapRef.current === map &&
+          rendererReadyRef.current &&
+          cameraCommandGenerationRef.current === cameraCommandGeneration
+        ) {
+          // A rejected explicit move never took ownership of the viewport. Let
+          // the already-reserved first-load frame inherit this generation so a
+          // queued/future marker pass can still leave the neutral world camera.
+          pendingInitialFrame.generation = cameraCommandGeneration;
+          pendingInitialFrame.cameraRevision = settledCameraRevisionRef.current;
+        }
+        throw error;
+      }
       // Compatibility bridges can accept a camera command without ever
       // reporting idle. Publish that target only after acceptance, and never
       // overwrite a newer authoritative report (or a replacement/revoked map)

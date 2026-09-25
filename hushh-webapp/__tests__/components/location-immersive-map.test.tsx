@@ -3656,6 +3656,15 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     mapHarness.map.fitBounds.mockClear();
 
+    // A rejected explicit move did not replace the neutral renderer camera, so
+    // it must not permanently supersede the pending automatic frame.
+    mapHarness.map.setCamera.mockRejectedValueOnce(
+      new Error("native camera transaction rejected"),
+    );
+    const locate = screen.getByTestId("one-location-map-locate");
+    fireEvent.click(locate);
+    await waitFor(() => expect(locate).toHaveAttribute("aria-busy", "false"));
+
     // Map creation may report its neutral camera while clustering is pending.
     // That non-gesture report must renew, not permanently stale, the shared
     // first-frame reservation.
