@@ -2271,11 +2271,6 @@ body:has(.profile-account-content)
   }
 }
 
-/* When the chat history drawer is open, elevate the chat workspace above the bottom navigation bar */
-body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
-  z-index: 550 !important;
-}
-
 html.kb-open .agent-chat-workspace,
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
@@ -6230,13 +6225,6 @@ html[data-accent="gold"].dark {
 [data-slot="sheet-overlay"][data-state="closed"] {
   animation-duration: var(--motion-sheet-exit-duration);
   animation-timing-function: var(--motion-sheet-exit-ease);
-}
-
-@media (pointer: coarse) {
-  :root {
-    --app-scrim-color: rgb(0 0 0 / 0.4);
-    --app-scrim-filter: none;
-  }
 }
 
 /* Android draws the WebView through its own Vulkan pass, and every backdrop

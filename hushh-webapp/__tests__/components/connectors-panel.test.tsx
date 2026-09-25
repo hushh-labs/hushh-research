@@ -97,6 +97,21 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
+  it("omits unsupported catalog placeholders even when the registry returns them", async () => {
+    state.overview.mockResolvedValue(overview([
+      { ...catalogItem, connectorId: "notion", displayName: "Notion" },
+      { ...catalogItem, connectorId: "hubspot", displayName: "HubSpot" },
+      catalogItem,
+    ]));
+    const { container } = render(panel());
+    expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    expect(screen.queryByText("Notion")).not.toBeInTheDocument();
+    expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
+    for (const provider of ["gmail", "drive", "calendar", "plaid"]) {
+      expect(container.querySelector(`img[src="/icons/connectors/${provider}.svg"]`)).not.toBeNull();
+    }
+  });
+
   it("does not describe a failed Drive status check as disconnected", async () => {
     state.overview.mockRejectedValue(new Error("synthetic unavailable"));
     render(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);

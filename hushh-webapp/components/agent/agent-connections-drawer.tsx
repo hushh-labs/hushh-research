@@ -82,7 +82,7 @@ export function AgentConnectionsDrawer({
   const restoreFocus = useCallback(() => {
     const target = [returnFocus.current, triggerRef.current, fallbackFocusRef?.current]
       .find((element) => element?.isConnected && !element.closest("[inert], [hidden]"));
-    target?.focus();
+    target?.focus({ preventScroll: true });
   }, [triggerRef, fallbackFocusRef]);
   useLayoutEffect(() => {
     modalActive.current = externalModalOpen;
@@ -101,7 +101,7 @@ export function AgentConnectionsDrawer({
     returnFocus.current = triggerRef.current;
     // The transcript becomes inert in this commit. Move focus now so an
     // immediate Escape cannot land on the old, inert trigger before a RAF.
-    if (mode === "chats") focused()[0]?.focus();
+    if (mode === "chats") focused()[0]?.focus({ preventScroll: true });
   }, [open, triggerRef]);
   useEffect(() => {
     if (open) return;
@@ -115,8 +115,8 @@ export function AgentConnectionsDrawer({
       if (mode === "chats")
         drawer.current
           ?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
-          ?.focus();
-      else focused()[0]?.focus();
+          ?.focus({ preventScroll: true });
+      else focused()[0]?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [mode, historyOpen]);
@@ -190,7 +190,7 @@ export function AgentConnectionsDrawer({
         </Sheet>
       ) : (
         <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <DialogContent {...connectorContentProps} className="h-[min(34rem,85dvh)] gap-0 overflow-hidden p-0 sm:max-w-xl" srDescription="Manage your connected apps.">
+          <DialogContent {...connectorContentProps} className="h-[min(34rem,85dvh)] gap-0 overflow-hidden p-0 sm:max-w-[28rem]" srDescription="Manage your connected apps.">
             <DialogTitle className="sr-only">Connectors</DialogTitle>
             <div ref={attachConnectorHost} className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </DialogContent>
