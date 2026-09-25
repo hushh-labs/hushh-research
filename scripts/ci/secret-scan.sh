@@ -38,7 +38,7 @@ else
 
   if [ -n "$DEFAULT_BRANCH" ] && git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
     MERGE_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)"
-    LOG_OPTS="--ancestry-path ${MERGE_BASE}..HEAD"
+    LOG_OPTS="${MERGE_BASE}..HEAD"
   else
     LOG_OPTS="HEAD"
   fi
@@ -50,6 +50,7 @@ if [ -f "$REPO_ROOT/.gitleaks.toml" ]; then
 fi
 
 echo "Running gitleaks with log opts: ${LOG_OPTS}"
+python3 "$REPO_ROOT/scripts/ci/test_secret_scan_ranges.py"
 EXIT_CODE=0
 gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" || EXIT_CODE=$?
 
