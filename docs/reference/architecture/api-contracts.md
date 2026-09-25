@@ -1150,8 +1150,15 @@ the provider's `take_result()`, not the storage method directly: its terminal
 cleanup clears both expiring storage references and SDK token/client copies.
 Failure, cancellation and generator abandonment
 clear the temporary storage. The synthetic tests exercise these boundaries, not
-a public callback API. Before activation, bind callback owner/attempt/issuer,
-and fail closed on lost worker continuity. The adapter's `create_http_client`
+a public callback API. `McpOAuthCallback` binds the SDK-generated state and exact
+advertised issuer to the workflow's verified owner and current-session guard.
+It rejects replay and checks the guard again before delivering the code. The
+`iss` callback parameter is required when metadata advertises support; whenever
+present it must match exactly. `use_callback` installs this handoff before the SDK
+starts and cannot be rebound during the flow. This is an in-memory SDK integration,
+not an authenticated HTTP route: routes must still establish owner/attempt authority,
+validate registered return URIs and fail closed on lost worker continuity.
+The adapter's `create_http_client`
 uses the existing public-network transport with a 65,536-byte streamed response
 limit. It requests identity encoding and rejects compressed responses before
 decompression, keeping the bound meaningful. Redirects and environment proxies

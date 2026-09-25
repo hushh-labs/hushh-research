@@ -11,9 +11,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from mcp.client.auth.oauth2 import OAuthClientProvider
@@ -128,6 +130,77 @@ class McpOAuthConnectError(ValueError):
         super().__init__("Connector authorization could not finish. Please reconnect.")
 
 
+class McpOAuthCallback:
+    """One live SDK callback, never a durable attempt or authentication authority.
+
+    Routes must supply a verified owner and a registered redirect URI. Browser
+    session validity remains the caller's guard, checked again before delivery.
+    Loss of this in-memory continuation requires a fresh authorization attempt.
+    """
+
+    def __init__(self, *, owner_id: str, is_current: Callable[[], bool]):
+        if not isinstance(owner_id, str) or not owner_id:
+            raise McpOAuthConnectError()
+        self._owner_id = owner_id
+        self._is_current = is_current
+        self._state: str | None = None
+        self._issuer: str | None = None
+        self._require_issuer = False
+        self._future = asyncio.get_running_loop().create_future()
+
+    def bind_redirect(self, url: str, *, issuer: str, require_issuer: bool) -> None:
+        if self._state is not None or self._future.done() or not self._is_current():
+            raise McpOAuthConnectError()
+        values = parse_qs(urlsplit(url).query, keep_blank_values=True)
+        states = values.get("state", [])
+        if len(states) != 1 or not states[0] or not states[0].isascii() or len(states[0]) > 512:
+            raise McpOAuthConnectError()
+        validate_mcp_endpoint(issuer)
+        self._state = states[0]
+        self._issuer = issuer
+        self._require_issuer = require_issuer
+
+    def submit(self, *, owner_id: str, code: str, state: str, issuer: str | None) -> None:
+        if not self._is_current():
+            self.close()
+            raise McpOAuthConnectError()
+        if (
+            owner_id != self._owner_id
+            or self._state is None
+            or self._future.done()
+            or not isinstance(state, str)
+            or not state.isascii()
+            or not secrets.compare_digest(state, self._state)
+            or not isinstance(code, str)
+            or not code
+            or len(code) > 8192
+            or any(ord(char) < 32 or ord(char) == 127 for char in code)
+            or (self._require_issuer and issuer is None)
+            or (issuer is not None and issuer != self._issuer)
+        ):
+            raise McpOAuthConnectError()
+        self._future.set_result((code, state))
+
+    async def wait(self) -> tuple[str, str]:
+        try:
+            result = await self._future
+            if not self._is_current():
+                raise McpOAuthConnectError()
+            return result
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if not self._future.done():
+            self._future.cancel()
+        # A completed Future retains its result. Replace it after consumption
+        # so this holder does not keep an authorization-code copy alive.
+        replacement = asyncio.get_running_loop().create_future()
+        replacement.cancel()
+        self._future = replacement
+        self._state = self._issuer = None
+
+
 class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     """SDK OAuth restricted to setup, never an authorization retry around a write.
 
@@ -141,7 +214,30 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
         """Caller closes the client; no environment proxies or automatic redirects."""
         return create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
 
+    def use_callback(
+        self, callback: McpOAuthCallback, redirect: Callable[[str], Awaitable[None]]
+    ) -> None:
+        """Bind the live SDK redirect/state to the owning authenticated workflow."""
+        if self._initialized or getattr(self, "_callback", None) is not None:
+            raise McpOAuthConnectError()
+        self._callback = callback
+
+        async def bound_redirect(url: str) -> None:
+            self._check_sdk_metadata()
+            callback.bind_redirect(
+                url,
+                issuer=self._advertised_issuer,
+                require_issuer=getattr(self, "_require_callback_issuer", False),
+            )
+            await redirect(url)
+
+        self.context.redirect_handler = bound_redirect
+        self.context.callback_handler = callback.wait
+
     def close(self) -> None:
+        callback = getattr(self, "_callback", None)
+        if callback is not None:
+            callback.close()
         if isinstance(self.context.storage, EphemeralMcpOAuthStorage):
             self.context.storage.close()
         self.context.clear_tokens()
@@ -207,6 +303,10 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                 endpoints[key] = value
             self._admitted_endpoints = endpoints
             self._admitted_metadata = metadata
+            requires_issuer = payload.get("authorization_response_iss_parameter_supported", False)
+            if not isinstance(requires_issuer, bool):
+                raise McpOAuthConnectError()
+            self._require_callback_issuer = requires_issuer
 
     async def _perform_authorization_code_grant(self):
         self._check_sdk_metadata()

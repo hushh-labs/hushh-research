@@ -1,6 +1,5 @@
 """Synthetic SDK-port proof only; no provider, browser or OAuth endpoint admission."""
 
-import asyncio
 import time
 from urllib.parse import parse_qs, urlsplit
 
@@ -12,6 +11,7 @@ from hushh_mcp.one_adk import request_secrets
 from hushh_mcp.one_adk.mcp_oauth_storage import (
     ConnectOnlyMcpOAuthProvider,
     EphemeralMcpOAuthStorage,
+    McpOAuthCallback,
     McpOAuthConnectError,
 )
 
@@ -33,16 +33,19 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
     caplog, token_failure
 ):
     storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    handoff = McpOAuthCallback(owner_id="synthetic-owner", is_current=lambda: True)
     redirect = {}
     visited = []
 
     async def navigate(url):
         redirect.update(parse_qs(urlsplit(url).query))
-
-    async def callback():
-        if token_failure == "callback_timeout":
-            await asyncio.sleep(60)
-        return "synthetic-code", redirect["state"][0]
+        if token_failure != "callback_timeout":
+            handoff.submit(
+                owner_id="synthetic-owner",
+                code="synthetic-code",
+                state=redirect["state"][0],
+                issuer="https://auth.example",
+            )
 
     def respond(request):
         visited.append(request.url.path)
@@ -77,6 +80,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                     else "https://auth.example/token",
                     "registration_endpoint": "https://auth.example/register",
                     "response_types_supported": ["code"],
+                    "authorization_response_iss_parameter_supported": True,
                     "scopes_supported": 7 if token_failure == "invalid_metadata" else ["read"],
                     "code_challenge_methods_supported": []
                     if token_failure == "missing_pkce"
@@ -122,9 +126,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
             token_endpoint_auth_method="none",  # noqa: S106 - OAuth public-client method
         ),
         storage,
-        navigate,
-        callback,
     )
+    provider.use_callback(handoff, navigate)
     if token_failure == "callback_timeout":
         storage._deadline = time.monotonic() + 0.02
     try:
@@ -309,3 +312,49 @@ async def test_connect_client_uses_guarded_bounded_transport():
         assert not client.trust_env
         assert client.auth is provider
     storage.close()
+
+
+@pytest.mark.asyncio
+async def test_callback_is_owner_state_and_issuer_bound_and_single_use():
+    callback = McpOAuthCallback(owner_id="owner", is_current=lambda: True)
+    callback.bind_redirect(
+        "https://auth.example/authorize?state=synthetic-state",
+        issuer="https://auth.example",
+        require_issuer=True,
+    )
+    valid = dict(
+        owner_id="owner",
+        code="synthetic-code",
+        state="synthetic-state",
+        issuer="https://auth.example",
+    )
+    for changed in (
+        {"owner_id": "other"},
+        {"state": "forged"},
+        {"issuer": "https://other.example"},
+        {"issuer": None},
+    ):
+        with pytest.raises(McpOAuthConnectError):
+            callback.submit(**{**valid, **changed})
+    callback.submit(**valid)
+    with pytest.raises(McpOAuthConnectError):
+        callback.submit(**valid)
+    assert await callback.wait() == ("synthetic-code", "synthetic-state")
+    assert callback._future.cancelled()
+    assert callback._state is None
+
+
+@pytest.mark.asyncio
+async def test_callback_rechecks_session_after_submission_before_delivery():
+    current = True
+    callback = McpOAuthCallback(owner_id="owner", is_current=lambda: current)
+    callback.bind_redirect(
+        "https://auth.example/authorize?state=synthetic-state",
+        issuer="https://auth.example",
+        require_issuer=False,
+    )
+    callback.submit(owner_id="owner", code="synthetic-code", state="synthetic-state", issuer=None)
+    current = False
+    with pytest.raises(McpOAuthConnectError):
+        await callback.wait()
+    assert callback._future.cancelled()
