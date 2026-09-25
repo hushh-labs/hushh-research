@@ -1,6 +1,10 @@
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
 import {
+  projectCustomConnectorTurnConfigurations,
+  type CustomConnectorConfiguration,
+} from "@/lib/connections/custom-connector-configuration";
+import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
 } from "@/lib/agent/mcp-call-review";
@@ -177,11 +181,39 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
+  static async refreshMcpCatalog(input: {
+    vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
+    signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<Array<{ id: string; name: string; revision: string }>> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    if (!current()) throw new Error("Your vault session changed.");
+    const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (!configuration) throw new Error("Enable this connector before refreshing.");
+    const response = await ApiService.apiFetch(`/api/connectors/${encodeURIComponent(configuration.connectorId)}/mcp/catalog`, {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ connectorConfiguration: configuration }),
+    });
+    if (!response.ok) throw new Error("Could not refresh tools. Check the connection and try again.");
+    const value = await response.json();
+    if (!current() || value?.connectorId !== configuration.connectorId || value?.configurationRevision !== configuration.revision ||
+        !["available", "empty"].includes(value?.status) || !Array.isArray(value?.tools) || value.tools.length > 500) {
+      throw new Error("Connector tools changed. Refresh again.");
+    }
+    return value.tools.map((tool: Record<string, unknown>) => {
+      if (!tool || typeof tool.id !== "string" || !/^mcp_[a-f0-9]{40}$/.test(tool.id) ||
+          typeof tool.name !== "string" || tool.name.length > 256 || typeof tool.revision !== "string" ||
+          tool.revision.length > 256 || tool.permission !== "ask_first") throw new Error("Invalid connector tools.");
+      return { id: tool.id, name: tool.name, revision: tool.revision };
+    });
+  }
+
   /** Fetch exact arguments into the active review only; never cache or log them. */
   static async reviewMcpCall(input: {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }): Promise<McpCallPreview> {
@@ -196,6 +228,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallPreview;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }): Promise<McpCallApproval> {
@@ -209,12 +242,18 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     conversationId: string;
     reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }, operation: "review" | "confirm", args: Record<string, unknown>): Promise<unknown> {
     const current = () => !input.signal.aborted && input.isEffectCurrent() &&
       Date.parse(input.reference.expiresAt) > Date.now();
     if (!current()) throw new Error("This review expired or your vault session changed.");
+    const configuration = input.configuration === undefined ? undefined :
+      projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (configuration && (!configuration.enabled || configuration.connectorId !== input.reference.connectorId)) {
+      throw new Error("This connector configuration changed. Open the review again.");
+    }
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
       {
@@ -226,6 +265,7 @@ export class ExternalConnectorService {
           toolName: input.reference.toolName,
           pendingHandle: input.reference.pendingHandle,
           arguments: args,
+          ...(configuration ? { connectorConfiguration: configuration } : {}),
           ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
         }),
       },

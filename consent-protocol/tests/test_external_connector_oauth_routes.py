@@ -19,6 +19,36 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_review_configuration_is_transient_and_rejects_refresh_tokens():
+    from pydantic import ValidationError
+
+    configuration = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Synthetic",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {
+            "kind": "oauth",
+            "accessToken": "synthetic-access",
+            "expiresAt": 4070908800,
+        },
+    }
+    payload = dict(
+        conversationId="thread",
+        toolName="mcp_" + "a" * 40,
+        arguments={},
+        connectorConfiguration=configuration,
+    )
+    model = routes.McpReviewRequest(**payload)
+    assert "connectorConfiguration" not in model.model_dump()
+    assert "synthetic-access" not in repr(model)
+    configuration["authentication"]["refreshToken"] = "synthetic-refresh"
+    with pytest.raises(ValidationError):
+        routes.McpReviewRequest(**payload)
+
+
 @pytest.fixture
 def route_client(monkeypatch):
     drive = SimpleNamespace(
@@ -40,6 +70,34 @@ def route_client(monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     return TestClient(app), app, drive
+
+
+def test_catalog_refresh_requires_owner_and_transient_configuration(route_client, monkeypatch):
+    client, app, _ = route_client
+    connector_id = "custom_" + "a" * 32
+    path = f"/api/connectors/{connector_id}/mcp/catalog"
+    assert client.post(path, json={}).status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": "owner",
+        "token": "synthetic",
+    }
+    assert client.post(path, json={}).status_code == 400
+    configuration = {
+        "version": 1,
+        "connectorId": connector_id,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Synthetic",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "none"},
+    }
+    discover = AsyncMock(return_value={"connectorId": connector_id, "status": "empty", "tools": []})
+    monkeypatch.setattr(routes.mcp_review_service, "discover_catalog", discover)
+    response = client.post(path, json={"connectorConfiguration": configuration})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    discover.assert_awaited_once()
+    assert discover.await_args.kwargs["configuration"] == configuration
 
 
 def test_private_registration_derives_owner_and_never_echoes_secrets(route_client, monkeypatch):

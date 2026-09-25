@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.one_adk import mcp_review_service
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_features
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
@@ -53,7 +54,7 @@ class PrivateConnectorRoute(APIRoute):
 
         async def private_handler(request: Request):
             try:
-                if self.path.endswith(("/mcp/review", "/mcp/confirm")):
+                if self.path.endswith(("/mcp/review", "/mcp/confirm", "/mcp/catalog")):
                     # Bound the stream BEFORE FastAPI parses JSON, including
                     # chunked requests with no trustworthy Content-Length.
                     chunks, size = [], 0
@@ -138,8 +139,22 @@ class RegisterConnectorRequest(BaseModel):
     authStyle: Literal["api_key", "oauth"]
 
 
-class McpReviewRequest(BaseModel):
+class McpConfigurationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
+
+    @field_validator("connectorConfiguration")
+    @classmethod
+    def validate_configuration(cls, value):
+        if value is None:
+            return None
+        try:
+            return next(iter(validate_mcp_turn_configurations([value]).values()))
+        except ExternalMcpError:
+            raise ValueError("Invalid connector configuration.") from None
+
+
+class McpReviewRequest(McpConfigurationRequest):
     conversationId: str = Field(min_length=1, max_length=256)
     toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
     arguments: dict[str, Any]
@@ -181,6 +196,24 @@ async def _mcp_review_response(operation, **kwargs):
         ) from None
 
 
+@router.post("/{connector_id}/mcp/catalog")
+async def refresh_mcp_catalog(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    if body.connectorConfiguration is None:
+        raise HTTPException(
+            status_code=400, detail="Unlock and provide the current connector settings."
+        )
+    return await _mcp_review_response(
+        mcp_review_service.discover_catalog,
+        token=token,
+        connector_id=connector_id,
+        configuration=body.connectorConfiguration,
+    )
+
+
 @router.post("/{connector_id}/mcp/review")
 async def prepare_mcp_review(
     connector_id: str, body: McpReviewRequest, token: dict = Depends(require_vault_owner_token)
@@ -192,6 +225,11 @@ async def prepare_mcp_review(
         conversation_id=body.conversationId,
         tool_name=body.toolName,
         arguments=body.arguments,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
         **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 
@@ -211,6 +249,11 @@ async def confirm_mcp_review(
         arguments=body.arguments,
         directive_id=body.directiveId,
         confirmed=body.confirmed,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
         **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 

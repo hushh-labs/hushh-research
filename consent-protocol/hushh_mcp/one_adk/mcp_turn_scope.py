@@ -30,15 +30,56 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     ResolvedMcpConnection,
     resolve_registered_connection,
 )
-from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.one_adk.request_secrets import (
+    consume_request_secret,
+    resolve_request_secret,
+    store_request_secret,
+)
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 logger = logging.getLogger(__name__)
 _CURRENT: ContextVar[McpTurnResources | None] = ContextVar("one_mcp_turn_resources", default=None)
+STATE_MCP_CONFIGURATION = "temp:hussh:mcp_configuration"
 
 
-def _private_configurations(value: Any) -> dict[str, dict[str, Any]]:
+def admit_turn_configurations(forwarded: dict, *, owner_id: str, conversation_id: str) -> str:
+    """Remove private input before the bridge can copy/serialize forwarded props."""
+    if "mcpConfigurations" not in forwarded:
+        return ""
+    value = forwarded.pop("mcpConfigurations")
+    if not owner_id:
+        raise ExternalMcpError("Unlock your vault to use connectors.", code="MCP_OWNER_MISMATCH")
+    records = validate_mcp_turn_configurations(value)
+    return store_request_secret(
+        json.dumps(
+            {
+                "owner": owner_id,
+                "conversation": conversation_id,
+                "configurations": list(records.values()),
+            }
+        ),
+        ttl_seconds=60,
+    )
+
+
+def consume_turn_configurations(state: dict, *, owner_id: str, conversation_id: str):
+    reference = state.pop(STATE_MCP_CONFIGURATION, "")
+    if not reference:
+        return None
+    raw = consume_request_secret(reference)
+    try:
+        payload = json.loads(raw)
+        if payload["owner"] != owner_id or payload["conversation"] != conversation_id:
+            raise ValueError
+        return list(validate_mcp_turn_configurations(payload["configurations"]).values())
+    except (ValueError, TypeError, KeyError):
+        raise ExternalMcpError(
+            "Connector turn expired. Try again.", code="MCP_TURN_UNAVAILABLE"
+        ) from None
+
+
+def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
     """Validate a transient browser projection, never a stored authority record.
 
     Refresh tokens are deliberately not admitted. Endpoint DNS/rebinding checks
@@ -132,7 +173,7 @@ class McpTurnResources:
         if configurations is not None and not owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         self._configurations = (
-            _private_configurations(configurations) if configurations is not None else {}
+            validate_mcp_turn_configurations(configurations) if configurations is not None else {}
         )
         self._closed = False
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}

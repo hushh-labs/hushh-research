@@ -29,6 +29,44 @@ const respond = (body: unknown, status = 200) => vi.mocked(ApiService.apiFetch)
 beforeEach(() => vi.clearAllMocks());
 
 describe("ephemeral MCP review", () => {
+  const configuration = {
+    version: 1 as const, connectorId: `custom_${"a".repeat(32)}`,
+    revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic",
+    endpoint: "https://example.com/mcp", enabled: true,
+    authentication: { kind: "oauth" as const, accessToken: "synthetic-access",
+      expiresAt: 4070908800, refreshToken: "synthetic-refresh" },
+  };
+
+  it("transmits only the selected transient configuration without refresh credentials", async () => {
+    const selected = { ...reference, connectorId: configuration.connectorId };
+    respond({ ...preview, connectorId: selected.connectorId });
+    await ExternalConnectorService.reviewMcpCall({ ...input(), reference: selected, configuration });
+    const body = JSON.parse(vi.mocked(ApiService.apiFetch).mock.calls[0][1]!.body as string);
+    expect(body.connectorConfiguration.authentication).toEqual({
+      kind: "oauth", accessToken: "synthetic-access", expiresAt: 4070908800,
+    });
+    expect(configuration.authentication.refreshToken).toBe("synthetic-refresh");
+  });
+
+  it("refreshes a revision-bound catalog without granting permission", async () => {
+    respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
+      status: "available", tools: [{ id: reference.toolName, name: "search_files", revision: "rev1", permission: "ask_first", ignored: "private" }] });
+    const tools = await ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration });
+    expect(tools).toEqual([{ id: reference.toolName, name: "search_files", revision: "rev1" }]);
+    expect(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body).not.toContain("synthetic-refresh");
+  });
+
+  it("rejects another configuration's catalog", async () => {
+    respond({ connectorId: configuration.connectorId, configurationRevision: "other", status: "empty", tools: [] });
+    await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration })).rejects.toThrow("changed");
+  });
+
+  it("rejects a configuration for another connector before transport", async () => {
+    await expect(ExternalConnectorService.reviewMcpCall({ ...input(), configuration }))
+      .rejects.toThrow("configuration changed");
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
+
   it("projects only known references and rejects another native tool", () => {
     const args = nativeArgs();
     expect(parseMcpCallReview(args)).toEqual(reference);

@@ -143,6 +143,39 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(monkey
     assert run.state == {}
 
 
+@pytest.mark.parametrize("unlocked", [True, False])
+async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(monkeypatch, unlocked):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from api.routes.one import agent_chat
+    from hushh_mcp.one_adk.mcp_turn_scope import (
+        STATE_MCP_CONFIGURATION,
+        consume_turn_configurations,
+    )
+    from tests.test_agui_turn_timing import _input
+
+    vault = AsyncMock(return_value={"user_id": "owner", "token": "synthetic"})
+    if not unlocked:
+        vault.side_effect = HTTPException(status_code=403)
+    monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
+    monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    run = _input()
+    run.forwarded_props = {"mcpConfigurations": []}
+    if unlocked:
+        state = await agent_chat._extract_state(request, run)
+        assert state[STATE_MCP_CONFIGURATION].startswith("one_secret_ref:")
+        assert (
+            consume_turn_configurations(state, owner_id="owner", conversation_id=run.thread_id)
+            == []
+        )
+    else:
+        with pytest.raises(HTTPException):
+            await agent_chat._extract_state(request, run)
+    assert run.forwarded_props == {}
+
+
 async def test_first_call_uses_native_confirmation_without_executing(monkeypatch):
     from datetime import UTC, datetime, timedelta
 

@@ -32,6 +32,25 @@ beforeEach(() => {
 });
 
 describe("native MCP review card", () => {
+  it("reloads configuration before confirmation rather than reusing the preview credential", async () => {
+    const review = makeReview();
+    review.loadConfiguration = vi.fn(async () => undefined);
+    render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    await screen.findByText("Synthetic exact phrase");
+    expect(review.loadConfiguration).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await waitFor(() => expect(review.resume).toHaveBeenCalledOnce());
+    expect(review.loadConfiguration).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back to registry review when vault configuration fails", async () => {
+    const review = makeReview();
+    review.loadConfiguration = vi.fn(async () => { throw new Error("Synthetic unavailable"); });
+    render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    await screen.findByRole("button", { name: "Close review" });
+    expect(ExternalConnectorService.reviewMcpCall).not.toHaveBeenCalled();
+    expect(review.resume).not.toHaveBeenCalled();
+  });
   it("shows exact inputs and confirms once without persisting private references", async () => {
     const review = makeReview(), onDismiss = vi.fn();
     render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={onDismiss} />);
@@ -85,6 +104,7 @@ describe("native MCP review card", () => {
     vi.mocked(ExternalConnectorService.reviewMcpCall).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const review = makeReview();
     const view = render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    await waitFor(() => expect(ExternalConnectorService.reviewMcpCall).toHaveBeenCalledOnce());
     const signal = vi.mocked(ExternalConnectorService.reviewMcpCall).mock.calls[0][0].signal;
     view.unmount();
     expect(signal.aborted).toBe(true);

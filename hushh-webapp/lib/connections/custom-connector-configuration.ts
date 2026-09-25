@@ -56,14 +56,17 @@ export function projectCustomConnectorTurnConfigurations(
 ): CustomConnectorTurnConfiguration[] {
   if (configurations.length > 32) throw invalidConfiguration();
   const seen = new Set<string>();
-  return configurations.map(configuration => {
+  return configurations.flatMap(configuration => {
     const record = parseCustomConnectorConfiguration(configuration);
     if (seen.has(record.connectorId)) throw invalidConfiguration();
     seen.add(record.connectorId);
+    // An explicit empty catalog already blocks legacy registry fallback.
+    // Disabled connections therefore need not disclose credentials at all.
+    if (!record.enabled) return [];
     const auth = record.authentication;
-    return { ...record, authentication: auth.kind === "oauth"
+    return [{ ...record, authentication: auth.kind === "oauth"
       ? { kind: auth.kind, accessToken: auth.accessToken, expiresAt: auth.expiresAt }
-      : auth };
+      : auth }];
   });
 }
 
@@ -83,8 +86,10 @@ function reference(connectorId: string): string {
   return `pkm:runtime_secrets.connectors.${connectorId}`;
 }
 
-async function storedRecords(access: VaultAccess): Promise<Record<string, unknown>> {
-  const domain = await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
+async function storedRecords(access: VaultAccess, force = false): Promise<Record<string, unknown>> {
+  const domain = force
+    ? (await PersonalKnowledgeModelService.loadDomainSnapshot({ ...access, domain: "runtime_secrets", force: true })).data
+    : await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
   if (domain === null) return {};
   if (!domain || typeof domain !== "object" || Array.isArray(domain)) throw invalidConfiguration();
   if (domain.connectors === undefined) return {};
@@ -111,8 +116,8 @@ async function expectedRecord(access: VaultAccess, connectorId: string, expected
 }
 
 /** Caller owns unlocked-session validity; no decrypted configuration is cached here. */
-export async function loadCustomConnectorConfigurations(access: VaultAccess): Promise<CustomConnectorConfiguration[]> {
-  return Object.entries(await storedRecords(access)).map(([key, value]) => parseStoredRecord(key, value));
+export async function loadCustomConnectorConfigurations(access: VaultAccess, force = false): Promise<CustomConnectorConfiguration[]> {
+  return Object.entries(await storedRecords(access, force)).map(([key, value]) => parseStoredRecord(key, value));
 }
 
 /** One encrypted record per edit; conflict recovery preserves sibling records. */
@@ -121,15 +126,19 @@ export async function saveCustomConnectorConfiguration(
   configuration: CustomConnectorConfiguration,
   confirmation: PkmUserConfirmation,
   expectedRevision: string | null,
+  isCurrent?: () => boolean,
 ) {
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   const record = parseCustomConnectorConfiguration(configuration);
   const expectedValue = await expectedRecord(access, record.connectorId, expectedRevision);
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   // Every save invalidates prior call-review bindings, even if the caller
   // mistakenly reuses a draft revision. The generated revision is encrypted.
   record.revision = crypto.randomUUID();
   await PersonalKnowledgeModelService.storeRuntimeSecret({
     ...access, confirmation, credentialRef: reference(record.connectorId),
     secret: JSON.stringify(record), expectedValue,
+    ...(isCurrent ? { mayPublish: isCurrent } : {}),
   });
   return record;
 }
@@ -137,10 +146,14 @@ export async function saveCustomConnectorConfiguration(
 export async function removeCustomConnectorConfiguration(
   access: VaultAccess, connectorId: string, confirmation: PkmUserConfirmation,
   expectedRevision: string,
+  isCurrent?: () => boolean,
 ) {
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   const credentialRef = reference(connectorId);
   const expectedValue = await expectedRecord(access, connectorId, expectedRevision);
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   return PersonalKnowledgeModelService.removeRuntimeSecret({
     ...access, confirmation, credentialRef, expectedValue,
+    ...(isCurrent ? { mayPublish: isCurrent } : {}),
   });
 }

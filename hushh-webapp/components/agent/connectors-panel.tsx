@@ -60,6 +60,7 @@ import {
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import type { DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
+import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 
 type Props = {
   open: boolean;
@@ -1365,6 +1366,10 @@ function OwnerConnectorsPanel({
             {query && matchingEntries.length === 0 ? (
               <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
             ) : null}
+            {!query && open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+              key={user.uid}
+              access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+            /> : null}
           </>
         ) : (
           <>

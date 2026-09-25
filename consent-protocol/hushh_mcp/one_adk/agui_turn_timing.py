@@ -30,7 +30,7 @@ from hushh_mcp.one_adk.drive_result_privacy import (
 )
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
-from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
+from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import public_event
 
 logger = logging.getLogger(__name__)
@@ -240,9 +240,18 @@ class TimedADKAgent(ADKAgent):
         confirmations = ConfirmationWireProjection()
         try:
             state = input.state if isinstance(input.state, dict) else {}
+            configurations = consume_turn_configurations(
+                state,
+                owner_id=str(state.get("hussh:user_id") or ""),
+                conversation_id=input.thread_id,
+            )
             async with (
                 pending_resume_scope(state.get("temp:hussh:mcp_approval")),
-                mcp_turn_scope(input.thread_id),
+                mcp_turn_scope(
+                    input.thread_id,
+                    owner_id=str(state.get("hussh:user_id") or "") or None,
+                    configurations=configurations,
+                ),
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:

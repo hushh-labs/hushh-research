@@ -1095,7 +1095,12 @@ No silent success is emitted on terminal failures.
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
 
-### Owner-private MCP registration checkpoint
+### Legacy owner-private MCP registration (compatibility only)
+
+The readable private-registration path below is superseded by the owner's
+browser-encrypted vault configuration. Do not apply migration 243 to enable new
+custom connectors. Existing callers remain until replacement parity is proven;
+their presence does not establish the intended custody architecture.
 
 `POST /api/connectors/registrations` requires a Vault Owner token and accepts only
 `registrationId` (a stable retry UUID), `displayName`, `endpoint`, and `authStyle`
@@ -1122,11 +1127,86 @@ Settings controls, ADK invocation, or native acceptance. Those remain separate g
 `conversationId`, namespaced `toolName`, and bounded JSON `arguments` (32 KB).
 The request stream is capped at 64 KB before JSON parsing, with a five-second
 body-read deadline; chunked input cannot bypass that cap.
-It verifies the owner's private registration and encrypted ADK conversation,
+It verifies the owner's connector configuration and encrypted ADK conversation,
 resolves current credentials, rediscovers tools and validates the exact schema.
 It issues metadata-only authority through the existing action ledger (migration
 244), returning the complete arguments for transient browser review plus the
 directive ID and expiry. It does not invoke the provider tool.
+
+Vault-backed calls supply optional `connectorConfiguration`: one versioned
+configuration for the exact connector, including its transient access credential.
+The browser projection excludes OAuth refresh tokens; the server rejects them.
+This field is excluded from model serialization and representation. The server
+validates endpoint, owner, enabled state and credential expiry, and binds approval
+to the complete configuration as well as the discovered tool revision. It does
+not create a private registry row. Omission retains the legacy registration path
+for compatibility. Client transport and backend review support are implemented;
+Chat's authenticated workspace now loads these configurations from the encrypted
+`runtime_secrets` domain using a forced coherent snapshot. Initial turns, action
+resumes and connector review/confirmation reload the catalog and check the
+authenticated owner and vault-session epoch before dispatch. Failed loading is
+not treated as an empty catalog or a reason to fall back to private registration.
+This is source-level integration, not verified live provider/native acceptance.
+
+The existing Connectors panel includes a custom-server editor for public HTTPS
+endpoints with no authentication or a supplied Authorization header. It writes
+through browser-encrypted runtime settings, never the private-registration API,
+and labels records as saved rather than connected. This editor does not yet
+implement remote OAuth or persistent permissions management. Removal
+requires an explicit confirmation and the displayed record revision, and deletes
+only its encrypted vault settings; it does not revoke the provider's grant or
+undo completed actions.
+Those remain explicit integration gaps; do not advertise a saved definition as
+a verified provider connection. Owner/vault guards fence preparation, dispatch,
+retry and cache publication through the existing encrypted write service.
+
+Block/Enable updates the existing encrypted `enabled` field with revision checks.
+Blocked definitions are omitted from new turn projections, including credentials;
+enabling restores Ask first, not standing execution permission. This does not
+cancel an already-dispatched provider operation or revoke a provider grant.
+
+Custom remote OAuth remains a separate, incomplete custody boundary. The legacy
+`ExternalConnectorOAuthService.complete` writes to the server-owned credential
+store and must not be reused unchanged for vault-owned custom connectors. The
+installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior,
+but its storage, callback and protected-resource/issuer discovery integration
+still need implementation with owner-bound vault custody and endpoint protection.
+No static API-key form or Google provider token passthrough proves standard MCP
+OAuth support. See the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
+`POST /api/connectors/{connector_id}/mcp/catalog` takes a transient
+`connectorConfiguration` under Vault Owner authority. Settings' explicit Refresh
+tools action reloads the encrypted record and calls the same governed toolset as
+Chat with execution disabled. The no-store response contains connector/configuration
+revision and namespaced tool IDs, names, revisions and `ask_first` permission.
+It contains no tool results or credentials and issues no action approval.
+Settings rejects mismatched or late responses and bounds the visible tool list.
+Discovery uses the shared toolset's bounded pagination and timeout; an empty
+catalog is distinct from failure. Provider notifications and persistent per-tool
+permission controls remain unimplemented.
+
+Protocol proof: `test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_tools`
+in `tests/test_governed_mcp_toolset.py` uses a real MCP Server/ClientSession over
+the SDK memory transport and the native ADK tool implementation. It verifies two
+catalog pages, no invocation while application approval is pending, exact wire
+tool/arguments on one permitted invocation, and rejection of an old tool after
+catalog revision changes. Session acquisition and the approval decision are test
+seams; this does not certify HTTPS, real consent-ledger approval, OAuth, browser,
+or provider behavior.
+
+Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
+Owner authority. It removes that private field before handing the input to
+AG-UI, validates the bounded catalog, and stages it in the existing process-local
+secret store with a 60-second expiry and event-loop cleanup of abandoned
+handoffs. Disabled connector credentials are excluded from browser projections.
+The owner/conversation-bound reference is
+consumed once and removed from state before the ADK bridge runs. The turn-local
+toolset receives the configuration, rechecks authority per call, and closes at
+turn completion. An explicit empty catalog cannot resurrect a custom connector
+from the legacy database. Omitted catalogs retain compatibility behavior until
+all compatibility callers have migrated. The authenticated Chat workspace sends
+an explicit catalog, including an empty one. This server ingress is covered
+by focused contract tests, not live provider or browser acceptance.
 
 For a native ADK pending call, include `pendingHandle`. Review resolves its
 owner/thread/tool/call-bound transient arguments and verifies both stored native
@@ -1145,7 +1225,7 @@ before dispatch. There is no separate HTTP tool-execution endpoint.
 
 Both routes use the existing Next connector proxy and return `no-store`, including
 errors. Validation/errors never echo private input or provider diagnostics.
-These endpoints currently admit owner-private registrations only; curated
+These endpoints currently admit owner-private configurations/registrations only; curated
 Workspace adapters, Chat review-card/resume wiring and live acceptance remain
 separate integration gates. Confirmation is not proof that a tool executed.
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
+const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
 
@@ -14,15 +14,42 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
+  it("rejects a lock during preparation before starting the encrypted write", async () => {
+    let current = true;
+    storage.loadDomainData.mockImplementationOnce(async () => { current = false; return null; });
+    await expect(saveCustomConnectorConfiguration(access, record, confirmation, null, () => current)).rejects.toThrow();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("forces a coherent snapshot for invocation and confirmation instead of warm credentials", async () => {
+    storage.loadDomainSnapshot.mockResolvedValue({ data: { connectors: { [record.connectorId]: JSON.stringify(record) } } });
+    expect(await loadCustomConnectorConfigurations(access, true)).toEqual([record]);
+    expect(storage.loadDomainSnapshot).toHaveBeenCalledWith({ ...access, domain: "runtime_secrets", force: true });
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+  });
+  it.each([null, {}, { connectors: {} }])("allows a fresh Chat catalog when settings are absent: %j", async data => {
+    storage.loadDomainSnapshot.mockResolvedValue({ data });
+    const configurations = await loadCustomConnectorConfigurations(access, true);
+    expect(projectCustomConnectorTurnConfigurations(configurations)).toEqual([]);
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("does not cache a failed forced read or fall back to warm credentials", async () => {
+    storage.loadDomainData.mockResolvedValue({ connectors: { [record.connectorId]: JSON.stringify(record) } });
+    storage.loadDomainSnapshot.mockRejectedValueOnce(new Error("synthetic-unavailable"))
+      .mockResolvedValueOnce({ data: { connectors: { [record.connectorId]: JSON.stringify(record) } } });
+    await expect(loadCustomConnectorConfigurations(access, true)).rejects.toThrow("synthetic-unavailable");
+    expect(await loadCustomConnectorConfigurations(access, true)).toEqual([record]);
+    expect(storage.loadDomainSnapshot).toHaveBeenCalledTimes(2);
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+  });
   it("projects only transient access credentials without mutating vault configuration", () => {
-    const oauth = { ...record, enabled: false, authentication: { kind: "oauth" as const,
+    const oauth = { ...record, enabled: true, authentication: { kind: "oauth" as const,
       accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };
     const projected = projectCustomConnectorTurnConfigurations([oauth]);
     expect(projected[0]?.authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 2000000000 });
     expect(JSON.stringify(projected)).not.toContain("synthetic-refresh");
     expect(oauth.authentication.refreshToken).toBe("synthetic-refresh");
-    // Retain explicit disabled state so the server never falls back to an old registration.
-    expect(projected[0]?.enabled).toBe(false);
+    expect(projectCustomConnectorTurnConfigurations([{ ...oauth, enabled: false }])).toEqual([]);
   });
   it("rejects duplicate or oversized turn catalogs", () => {
     expect(() => projectCustomConnectorTurnConfigurations([record, record])).toThrow();

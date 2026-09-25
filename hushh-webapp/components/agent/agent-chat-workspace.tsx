@@ -218,6 +218,7 @@ import {
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { loadCustomConnectorConfigurations } from "@/lib/connections/custom-connector-configuration";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -4920,6 +4921,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         message: text,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
+        loadConnectorConfigurations: async () => {
+          if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
+          return loadCustomConnectorConfigurations({ userId, vaultKey, vaultOwnerToken: token }, true);
+        },
         pkmContext: agentPkmContext.text || undefined,
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
@@ -5242,6 +5247,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           `The requested action ${result.status}.`,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
+        loadConnectorConfigurations: async () => {
+          if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
+          return loadCustomConnectorConfigurations({ userId, vaultKey, vaultOwnerToken: token }, true);
+        },
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
