@@ -195,7 +195,7 @@ export function notifyGmailOAuthPopupOpener(
 ): boolean {
   if (typeof window === "undefined") return false;
   const opener = window.opener;
-  if (!opener || opener.closed) return false;
+  if (!opener) return false;
   try {
     opener.postMessage(settlement, window.location.origin);
     return true;

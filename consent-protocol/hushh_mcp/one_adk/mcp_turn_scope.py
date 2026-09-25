@@ -156,6 +156,10 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
                 if auth["header"] not in {"Authorization", "X-API-Key", "Api-Key"}:
                     raise ValueError
                 secret = auth["value"]
+                if isinstance(secret, str) and re.match(
+                    r"^(?:Bearer\s+)?HCT:", secret.strip(), re.I
+                ):
+                    raise ValueError
             elif kind == "oauth" and set(auth) == {"kind", "accessToken", "expiresAt"}:
                 if type(auth["expiresAt"]) is not int or auth["expiresAt"] <= 0:
                     raise ValueError

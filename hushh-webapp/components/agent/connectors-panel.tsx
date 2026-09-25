@@ -238,6 +238,8 @@ function OwnerConnectorsPanel({
   const [plaidMessage, setPlaidMessage] = useState("");
   const [driveBusy, setDriveBusy] = useState(false);
   const [mailBusy, setMailBusy] = useState(false);
+  const [drivePopupPending, setDrivePopupPending] = useState(false);
+  const [mailPopupPending, setMailPopupPending] = useState(false);
   const [plaidBusy, setPlaidBusy] = useState(false);
   const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -267,6 +269,8 @@ function OwnerConnectorsPanel({
   } | null>(null);
   const drainNativePickerReconcile = useRef<() => void>(() => undefined);
   const mailLock = useRef(false);
+  const drivePopupCancel = useRef<AbortController | null>(null);
+  const mailPopupCancel = useRef<AbortController | null>(null);
   const chooseRef = useRef<HTMLButtonElement>(null);
   const pendingRef = useRef<HTMLElement>(null);
   // A native app-url return and the browser bridge promise can both arrive for
@@ -832,6 +836,9 @@ function OwnerConnectorsPanel({
       });
       return;
     }
+    const attemptCancel = new AbortController();
+    drivePopupCancel.current = attemptCancel;
+    setDrivePopupPending(true);
     void runDrive(async (token, signal) => {
       const close = () => popup.close();
       signal.addEventListener("abort", close, { once: true });
@@ -852,7 +859,11 @@ function OwnerConnectorsPanel({
           expiresAt: Date.parse(start.expiresAt),
         };
         navigateDriveOAuthPopup(popup, attempt, start.authorizeUrl);
-        await waitForDrivePopup(popup, attempt, signal);
+        await waitForDrivePopup(popup, attempt, signal, attemptCancel.signal);
+        if (attemptCancel.signal.aborted) {
+          if (!signal.aborted) setDriveMessage("Drive connection cancelled.");
+          return;
+        }
         if (!signal.aborted && (await refresh(signal)))
           setDriveMessage(
             profile === "live"
@@ -860,6 +871,8 @@ function OwnerConnectorsPanel({
               : "Connection checked. Ask One to find a file.",
           );
       } finally {
+        if (drivePopupCancel.current === attemptCancel) drivePopupCancel.current = null;
+        if (!signal.aborted) setDrivePopupPending(false);
         signal.removeEventListener("abort", close);
         popup.close();
       }
@@ -1025,6 +1038,11 @@ function OwnerConnectorsPanel({
       );
       return;
     }
+    const attemptCancel = new AbortController();
+    if (popup) {
+      mailPopupCancel.current = attemptCancel;
+      setMailPopupPending(true);
+    }
     mailLock.current = true;
     setMailBusy(true);
     setMailMessage("");
@@ -1070,6 +1088,7 @@ function OwnerConnectorsPanel({
           await waitForOAuthPopup({
             popup,
             signal,
+            cancelSignal: attemptCancel.signal,
             expiresAt: Math.min(
               Date.parse(start.expires_at),
               attempt.startedAt + 10 * 60_000,
@@ -1079,6 +1098,10 @@ function OwnerConnectorsPanel({
               value.attemptId === attempt.attemptId,
             storageValue: readGmailOAuthPopupSettlementFallback,
           });
+          if (attemptCancel.signal.aborted) {
+            if (!signal.aborted) setMailMessage("Mail connection cancelled.");
+            return;
+          }
         }
         if (!signal.aborted) {
           const status = await gmail.refreshStatus({
@@ -1100,6 +1123,8 @@ function OwnerConnectorsPanel({
         if (!signal.aborted)
           setMailMessage("Could not finish Mail connection. Try again.");
       } finally {
+        if (mailPopupCancel.current === attemptCancel) mailPopupCancel.current = null;
+        if (!signal.aborted) setMailPopupPending(false);
         signal.removeEventListener("abort", close);
         popup?.close();
         clearGmailOAuthPopupAttempt();
@@ -1438,16 +1463,6 @@ function OwnerConnectorsPanel({
                       : "Connect Mail"}
                   </Button>
                 )}
-                {gmail.status?.connected && !gmail.status.compose_permission_granted && (
-                  <Button
-                    className={touch}
-                    variant="outline"
-                    disabled={mailBusy || gmail.loadingStatus}
-                    onClick={() => connectMail("compose")}
-                  >
-                    Enable Gmail drafts
-                  </Button>
-                )}
                 {(gmail.status?.connected || gmail.status?.needs_reauth) && (
                   <Button
                     className={touch}
@@ -1474,6 +1489,19 @@ function OwnerConnectorsPanel({
                   </Button>
                 )}
               </div>
+              {gmail.status?.connected && (
+                <div className="divide-y rounded-lg border border-border px-3 text-sm" aria-label="Gmail permissions">
+                  <div className="flex min-h-11 items-center justify-between gap-3"><span>Read mail</span><span className="text-muted-foreground">Allowed</span></div>
+                  <div className="flex min-h-11 items-center justify-between gap-3"><span>Send mail</span><span className="text-muted-foreground">{gmail.status.send_permission_granted ? "Allowed · review required" : "Not enabled"}</span></div>
+                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                    <span>Drafts</span>
+                    {gmail.status.compose_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                      : <Button size="compact" variant="outline" aria-label="Enable Gmail drafts" disabled={mailBusy || gmail.loadingStatus}
+                        onClick={() => connectMail("compose")}>Enable</Button>}
+                  </div>
+                </div>
+              )}
+              {mailPopupPending && <Button size="compact" variant="outline" onClick={() => mailPopupCancel.current?.abort()}>Cancel sign-in</Button>}
               <p
                 role="status"
                 aria-live="polite"
@@ -1550,6 +1578,7 @@ function OwnerConnectorsPanel({
                   Retry Drive
                 </Button>
               </div>
+              {drivePopupPending && <Button size="compact" variant="outline" onClick={() => drivePopupCancel.current?.abort()}>Cancel sign-in</Button>}
               {overview?.features.google_drive_live === true && drive?.profile !== "live" && (
                 <p className="text-sm text-muted-foreground">
                   Live access lets One search your Drive when needed. Connecting never shares files;

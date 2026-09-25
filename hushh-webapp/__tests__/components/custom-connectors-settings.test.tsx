@@ -28,6 +28,7 @@ beforeEach(() => {
   publishValidatedAuthSessionOwner(access.userId);
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([]);
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
 });
 
 it("admits only the app-owned HTTPS return for native connector sign-in", () => {
@@ -66,7 +67,7 @@ it("refuses a native callback that cannot return to this app", async () => {
   expect(HushhOAuthReturn.openAuthorization).not.toHaveBeenCalled();
 });
 
-it("saves through the vault with explicit confirmation and no connected claim", async () => {
+it("verifies tools before saving through the vault", async () => {
   render(<CustomConnectorsSettings access={access} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Add connector" })).not.toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
@@ -74,10 +75,47 @@ it("saves through the vault with explicit confirmation and no connected claim", 
   fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
   fireEvent.change(screen.getByLabelText("Authorization header (optional)"), { target: { value: "Bearer synthetic" } });
   fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
-  await screen.findByText("Saved · tools not checked");
+  await screen.findByText("1 tools discovered");
+  expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce();
   expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce();
   expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][2]).toMatchObject({ confirmedByUser: true });
   expect(document.body.textContent).not.toContain("Bearer synthetic");
+});
+
+it("keeps a failed connection draft and does not save it", async () => {
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new Error("synthetic failure"));
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unreachable" } });
+  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
+  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Name")).toHaveValue("Unreachable");
+});
+
+it("saves an OAuth challenge only as sign-in pending, never as connected", async () => {
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "GitHub" } });
+  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://api.githubcopilot.com/mcp/" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  await screen.findByText("Sign in needed");
+  expect(screen.getByRole("button", { name: "Sign in to GitHub" })).toBeEnabled();
+  expect(screen.queryByText(/tools discovered/)).toBeNull();
+});
+
+it("does not save a rejected supplied credential as an OAuth setup", async () => {
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
+  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Authorization header (optional)"), { target: { value: "Bearer invalid" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
+  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
 });
 
 it("does not enable adding when the vault catalog cannot be read", async () => {
@@ -213,22 +251,6 @@ it("discards tool catalogs and pending removal when the owner changes", async ()
   expect(removeCustomConnectorConfiguration).not.toHaveBeenCalled();
 });
 
-it("blocks a connector with its exact revision without invoking provider discovery", async () => {
-  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
-  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
-  render(<CustomConnectorsSettings access={access} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Block Synthetic" }));
-  await screen.findByText("Blocked for new turns");
-  expect(saveCustomConnectorConfiguration).toHaveBeenCalledWith(access, { ...record, enabled: false }, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
-  expect(screen.getByRole("button", { name: "Refresh tools for Synthetic" })).toBeDisabled();
-  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
-  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([{ ...record, enabled: false }]);
-  fireEvent.click(screen.getByRole("button", { name: "Enable Synthetic" }));
-  await screen.findByText("Saved · tools not checked");
-  expect(saveCustomConnectorConfiguration).toHaveBeenLastCalledWith(access, record, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
-  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
-});
-
 it("blocks and re-enables one discovered tool without disabling its connector", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
   const tool = { id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" as const };
@@ -243,5 +265,5 @@ it("blocks and re-enables one discovered tool without disabling its connector", 
     expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function),
   ));
   expect(await screen.findByRole("button", { name: "Allow reviewed calls to search_files in Synthetic" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Block Synthetic" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Block Synthetic" })).toBeNull();
 });

@@ -67,6 +67,11 @@ export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration
 };
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
 
+function containsVaultOwnerCredential(record: CustomConnectorConfiguration): boolean {
+  return record.authentication.kind === "api_key" &&
+    /^(?:Bearer\s+)?HCT:/i.test(record.authentication.value.trim());
+}
+
 /** Memory-only request projection. Never serialize vault keys or refresh tokens
  * into ADK state/history. The caller must fence the request to its vault session.
  * OAuth expiresAt is Unix time in seconds, checked again by the hosted resolver.
@@ -78,6 +83,7 @@ export function projectCustomConnectorTurnConfigurations(
   const seen = new Set<string>();
   return configurations.flatMap(configuration => {
     const record = parseCustomConnectorConfiguration(configuration);
+    if (containsVaultOwnerCredential(record)) throw invalidConfiguration();
     if (seen.has(record.connectorId)) throw invalidConfiguration();
     seen.add(record.connectorId);
     // An explicit empty catalog already blocks legacy registry fallback.
@@ -179,6 +185,7 @@ export async function saveCustomConnectorConfiguration(
 ) {
   if (isCurrent && !isCurrent()) throw invalidConfiguration();
   const record = parseCustomConnectorConfiguration(configuration);
+  if (containsVaultOwnerCredential(record)) throw invalidConfiguration();
   const expectedValue = await expectedRecord(access, record.connectorId, expectedRevision);
   if (isCurrent && !isCurrent()) throw invalidConfiguration();
   // Every save invalidates prior call-review bindings, even if the caller

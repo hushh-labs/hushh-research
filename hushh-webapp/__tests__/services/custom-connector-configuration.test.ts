@@ -81,6 +81,14 @@ describe("vault-backed custom connector configuration", () => {
     expect(() => projectCustomConnectorTurnConfigurations([record, record])).toThrow();
     expect(() => projectCustomConnectorTurnConfigurations(Array(33).fill(record))).toThrow();
   });
+  it("keeps legacy records removable but never forwards or re-saves a vault-owner credential", async () => {
+    for (const value of ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"]) {
+      const legacy = parseCustomConnectorConfiguration({ ...record, authentication: { ...record.authentication, value } });
+      expect(() => projectCustomConnectorTurnConfigurations([legacy])).toThrow();
+      await expect(saveCustomConnectorConfiguration(access, legacy, confirmation, null)).rejects.toThrow();
+    }
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
   it("keeps exact blocked-tool fingerprints in the encrypted record and turn projection", () => {
     const blockedTool = { id: `mcp_${"b".repeat(40)}`, fingerprint: "c".repeat(64) };
     const configured = parseCustomConnectorConfiguration({ ...record, blockedTools: [blockedTool] });
