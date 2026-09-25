@@ -1168,9 +1168,86 @@ cancel an already-dispatched provider operation or revoke a provider grant.
 Custom remote OAuth remains a separate, incomplete custody boundary. The legacy
 `ExternalConnectorOAuthService.complete` writes to the server-owned credential
 store and must not be reused unchanged for vault-owned custom connectors. The
-installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior,
-but its storage, callback and protected-resource/issuer discovery integration
-still need implementation with owner-bound vault custody and endpoint protection.
+installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior.
+`one_adk/mcp_oauth_storage.py` now implements its request-only TokenStorage port
+over the existing expiring secret handoff, with single delivery of tokens and
+registered client information for eventual browser-vault persistence. Focused
+tests include a synthetic SDK authorization exchange, owner invalidation,
+expiry, bounded storage and one-time delivery. This adapter is not yet wired
+to a public login route; it does not establish browser or provider acceptance.
+Callback and protected-resource/issuer discovery integration still need owner-bound
+vault custody and endpoint protection. `ConnectOnlyMcpOAuthProvider` now restricts
+OAuth retries to setup/read-only protocol methods, redacts the installed SDK's
+auth logger messages and tracebacks, sanitizes propagated errors and bounds the
+live flow by the attempt deadline. It compares the authorization metadata's issuer
+to the exact advertised issuer before SDK URL normalization, requires S256 and
+validates public HTTPS endpoint syntax before registration or authorization.
+Metadata changes clear previously admitted endpoints; metadata GETs cannot carry
+Authorization/Cookie headers, and credential POSTs use admitted endpoints only.
+Admission validates the complete SDK `OAuthMetadata` model, then requires the
+SDK's accepted metadata to equal that admitted model before registration or
+authorization. This prevents malformed optional fields from causing a silent
+SDK fallback beneath a raw-JSON endpoint whitelist. Successful delivery uses
+the provider's `take_result()`, not the storage method directly: its terminal
+cleanup clears both expiring storage references and SDK token/client copies.
+Failure, cancellation and generator abandonment
+clear the temporary storage. The synthetic tests exercise these boundaries, not
+a public callback API. `McpOAuthCallback` binds the SDK-generated state and exact
+advertised issuer to the workflow's verified owner and current-session guard.
+It rejects replay and checks the guard again before delivering the code. The
+`iss` callback parameter is required when metadata advertises support; whenever
+present it must match exactly. `use_callback` installs this handoff before the SDK
+starts and cannot be rebound during the flow. The authenticated routes below
+establish owner/attempt authority and fail closed on lost worker continuity.
+The adapter's `create_http_client`
+uses the existing public-network transport with a 65,536-byte streamed response
+limit. It requests identity encoding and rejects compressed responses before
+decompression, keeping the bound meaningful. Redirects and environment proxies
+remain disabled. Ordinary MCP clients retain their existing stream behavior;
+this additional bound is specific to OAuth setup. Synthetic transport tests cover
+exact-limit bodies, overflow, compression refusal and stream closure.
+
+`one_adk/mcp_oauth_connection.py` composes the real SDK Streamable HTTP transport,
+`ClientSession.initialize`, callback handoff and single-use result delivery into
+one live attempt. It binds owner, connector and configuration revision, bounds the
+attempt to five minutes, and closes temporary resources on completion/cancellation.
+No product tool runs during connection. Tests use synthetic OAuth/MCP HTTP responses
+with the real SDK; they do not prove public login, browser/native return or a real
+Workspace server. The handshake closes local streams
+without an OAuth-retried server-session DELETE; remote session expiry remains the
+server's responsibility and needs provider acceptance.
+
+The private `/api/connectors/{connector_id}/mcp/oauth/{begin,complete,cancel}`
+POST routes require Vault Owner authority and accept only custom connector IDs.
+`begin` receives endpoint and configuration revision; the server fixes the return
+path to `/one/profile/connectors/oauth/return` on `APP_FRONTEND_ORIGIN`, never an
+arbitrary client-supplied redirect. HTTPS is required except localhost in
+development/test. The provider must admit that exact return URI too.
+Attempts are process-local, expire after five minutes, and are bounded to two per
+owner and 128 per worker. Completion claims an attempt once and binds owner,
+connector, revision, SDK state and issuer. Its no-store result contains tokens and
+client registration for **browser-encrypted vault delivery only**. Both proxy and
+backend bound request bodies to 64KB. Restart or another worker fails closed;
+multiworker affinity and aggregate admission remain deployment prerequisites.
+Custom connector Settings now offers web Sign in when encrypted Chat recovery is
+available. It starts the private attempt, saves the existing encrypted recovery
+capsule plus opaque connector/revision references, and navigates in the same tab.
+The shared return page distinguishes this marker from legacy provider flows,
+removes callback query parameters, requires the same owner and an unlocked vault,
+and completes once. It forces a fresh connector snapshot, checks the original
+revision, and uses the existing CAS encrypted writer. Client registration and
+refresh credentials remain vault-only; turn projections contain only the access
+token and expiry. Missing/expired token lifetimes reject rather than inventing
+one. A tool refresh follows save, with a distinct recoverable refresh-failure
+message. This is covered by synthetic component/service tests, not live OAuth or
+physical-device proof. Native custom OAuth and refresh-token renewal remain
+unfinished; standard OAuth support is not proof of Workspace server compatibility.
+
+The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
+a fresh SDK provider until the issuer/token-endpoint binding is verified: its
+initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
+Use OAuth only for a connection handshake, not mutating tool invocation, because
+the SDK may replay the original HTTP request after authorization.
 No static API-key form or Google provider token passthrough proves standard MCP
 OAuth support. See the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
 

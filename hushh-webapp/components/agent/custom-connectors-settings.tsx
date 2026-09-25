@@ -10,12 +10,15 @@ import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, re
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import type { CustomConnectorRecoveryReference, DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
 
 type Access = { userId: string; vaultKey: string; vaultOwnerToken: string };
 type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision" | "enabled">;
 
 /** Vault-backed definitions only. Saving is never provider authentication or tool approval. */
-export function CustomConnectorsSettings({ access }: { access: Access }) {
+export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access: Access;
+  onPrepareRecovery?: (input: { attemptId: string; reason: DriveChatRecoveryReason; customConnector?: CustomConnectorRecoveryReference }) => Promise<"ready" | "busy" | "unavailable">;
+}) {
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, Array<{ id: string; name: string; revision: string }>>>({});
@@ -36,7 +39,9 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     const current = () => Boolean(active && owner?.userId === access.userId &&
       isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
     lifetime.current = current;
-    setItems([]); setCredential(""); setEditing(false); setStatus("loading");
+    inFlight.current = false;
+    setBusy(false); setCatalogs({}); setRemoving(null);
+    setItems([]); setCredential(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(access, true).then(records => {
       if (!current()) return;
       setItems(records.map(({ connectorId, displayName, revision, enabled }) => ({ connectorId, displayName, revision, enabled })));
@@ -66,7 +71,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
       error: "Could not save. Check the address and keep your vault unlocked.",
     });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const refresh = async (item: SavedConnector) => {
@@ -85,7 +90,42 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     })();
     morphyToast.promise(operation, { loading: "Refreshing tools…", success: "Tools refreshed.", error: "Could not refresh. Check the connection and try again." });
     try { await operation; } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+  };
+
+  const connect = async (item: SavedConnector) => {
+    if (inFlight.current || !lifetime.current() || !onPrepareRecovery || Capacitor.isNativePlatform()) return;
+    inFlight.current = true; setBusy(true);
+    const current = lifetime.current;
+    const controller = new AbortController(); refreshAbort.current = controller;
+    let attemptId: string | undefined;
+    const operation = (async () => {
+      const records = await loadCustomConnectorConfigurations(access, true);
+      if (!current()) throw new Error("Session changed.");
+      const configuration = records.find(record => record.connectorId === item.connectorId);
+      if (!configuration || !configuration.enabled || configuration.revision !== item.revision) throw new Error("Connector changed.");
+      const result = await ExternalConnectorService.privateMcpOAuth({
+        vaultOwnerToken: access.vaultOwnerToken, connectorId: item.connectorId, operation: "begin",
+        payload: { revision: item.revision, endpoint: configuration.endpoint }, signal: controller.signal, isEffectCurrent: current,
+      }) as { attemptId?: unknown; authorizeUrl?: unknown };
+      if (!result || typeof result.attemptId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(result.attemptId) || typeof result.authorizeUrl !== "string") throw new Error("Invalid connection response.");
+      attemptId = result.attemptId;
+      const url = new URL(result.authorizeUrl);
+      if (url.protocol !== "https:" || url.username || url.password || result.authorizeUrl.length > 16000) throw new Error("Invalid authorization address.");
+      const ready = await onPrepareRecovery({ attemptId, reason: "web_full_page", customConnector: {
+        connectorId: item.connectorId, revision: item.revision,
+      } });
+      if (!current() || ready !== "ready") throw new Error("Finish the current chat action first.");
+      // Explicit tap, same tab, encrypted chat recovery already saved.
+      window.location.assign(url.href);
+    })();
+    morphyToast.promise(operation, { loading: "Preparing sign-in…", success: "Continue at your provider.", error: "Could not start sign-in. Check this server supports OAuth and try again." });
+    try { await operation; } catch {
+      if (attemptId && current()) await ExternalConnectorService.privateMcpOAuth({
+        vaultOwnerToken: access.vaultOwnerToken, connectorId: item.connectorId, operation: "cancel",
+        payload: { revision: item.revision, attemptId }, signal: controller.signal, isEffectCurrent: current,
+      }).catch(() => undefined);
+    } finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const setEnabled = async (item: SavedConnector) => {
@@ -107,7 +147,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     })();
     morphyToast.promise(operation, { loading: "Updating connector…", success: item.enabled ? "Connector blocked for new turns." : "Connector enabled. Calls still require review.", error: "Could not update. Reopen connectors and try again." });
     try { await operation; } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const remove = async () => {
@@ -120,9 +160,12 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     morphyToast.promise(operation, { loading: "Removing connector…", success: "Saved connector removed.", error: "Could not remove. Reopen connectors and try again." });
     try {
       await operation;
-      if (current()) { setItems(items => items.filter(item => item.connectorId !== selected.connectorId)); setRemoving(null); }
+      if (current()) {
+        setItems(items => items.filter(item => item.connectorId !== selected.connectorId)); setRemoving(null);
+        setCatalogs(previous => { const next = { ...previous }; delete next[selected.connectorId]; return next; });
+      }
     } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   return <section aria-label="Custom connectors" className="space-y-3">
@@ -133,6 +176,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
       <p className="text-sm font-medium">{item.displayName}</p>
       <p className="text-xs text-muted-foreground">{item.enabled ? "Saved · connection not verified" : "Blocked for new turns"}</p>
       <div className="flex flex-wrap gap-2">
+        {onPrepareRecovery && !Capacitor.isNativePlatform() ? <Button size="standard" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
         <Button size="standard" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
         <Button size="standard" variant="none" effect="fade" aria-label={`${item.enabled ? "Block" : "Enable"} ${item.displayName}`} disabled={busy} onClick={() => void setEnabled(item)}>{item.enabled ? "Block" : "Enable"}</Button>
         <Button size="standard" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
 
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token" };
 const confirmation = { confirmedByUser: true as const, surface: "web" as const, source: "connector_test" };
@@ -14,6 +14,27 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
+  const oauthResult = { tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh", token_type: "Bearer" },
+    clientInfo: { client_id: "synthetic-client", client_secret: "synthetic-client-secret", redirect_uris: ["https://app.example/return"] }, expiresAt: 4070908800 };
+  it("encrypts an OAuth result only against a fresh unchanged record and strips registration from turn state", async () => {
+    const domain = { connectors: { [record.connectorId]: JSON.stringify(record) } };
+    storage.loadDomainSnapshot.mockResolvedValue({ data: domain });
+    storage.loadDomainData.mockResolvedValue(domain);
+    const saved = await saveCustomConnectorOAuthResult(access, record.connectorId, record.revision, oauthResult, confirmation, () => true);
+    expect(storage.loadDomainSnapshot).toHaveBeenCalledWith({ ...access, domain: "runtime_secrets", force: true });
+    expect(saved.authentication).toMatchObject({ kind: "oauth", clientInfo: oauthResult.clientInfo });
+    expect(JSON.stringify(projectCustomConnectorTurnConfigurations([saved]))).not.toContain("synthetic-client");
+    expect(JSON.stringify(projectCustomConnectorTurnConfigurations([saved]))).not.toContain("synthetic-refresh");
+  });
+  it("rejects an OAuth return when the record changed during sign-in", async () => {
+    storage.loadDomainSnapshot.mockResolvedValue({ data: { connectors: { [record.connectorId]: JSON.stringify({ ...record, revision: "22222222-2222-4222-8222-222222222222" }) } } });
+    await expect(saveCustomConnectorOAuthResult(access, record.connectorId, record.revision, oauthResult, confirmation, () => true)).rejects.toThrow();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it.each([null, 1])("rejects missing or expired OAuth lifetime without inventing one", async expiresAt => {
+    await expect(saveCustomConnectorOAuthResult(access, record.connectorId, record.revision, { ...oauthResult, expiresAt }, confirmation, () => true)).rejects.toThrow();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
   it("rejects a lock during preparation before starting the encrypted write", async () => {
     let current = true;
     storage.loadDomainData.mockImplementationOnce(async () => { current = false; return null; });

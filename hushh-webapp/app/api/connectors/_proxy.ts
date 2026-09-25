@@ -72,9 +72,11 @@ export async function proxyExternalConnectorRequest(
         : "application/json",
     );
     const isMcpReview =
-      path.length === 3 &&
       path[1] === "mcp" &&
-      (path[2] === "review" || path[2] === "confirm");
+      ((path.length === 3 &&
+        (path[2] === "review" || path[2] === "confirm" || path[2] === "catalog")) ||
+        (path.length === 4 && path[2] === "oauth" &&
+          ["begin", "complete", "cancel"].includes(path[3] ?? "")));
     try {
       body = isMcpReview
         ? await readMcpReviewBody(request)
@@ -103,6 +105,12 @@ export async function proxyExternalConnectorRequest(
           : CONNECTOR_PROXY_TIMEOUT_MS,
       ),
     });
+    if (response.status === 204) {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache", "X-Request-Id": requestId },
+      });
+    }
     const payload = await response
       .json()
       .catch(async () => ({ detail: await response.text().catch(() => "") }));

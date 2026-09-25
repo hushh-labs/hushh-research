@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -24,7 +24,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.one_adk import mcp_review_service
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
 from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
+from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_features
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
@@ -54,7 +56,16 @@ class PrivateConnectorRoute(APIRoute):
 
         async def private_handler(request: Request):
             try:
-                if self.path.endswith(("/mcp/review", "/mcp/confirm", "/mcp/catalog")):
+                if self.path.endswith(
+                    (
+                        "/mcp/review",
+                        "/mcp/confirm",
+                        "/mcp/catalog",
+                        "/mcp/oauth/begin",
+                        "/mcp/oauth/complete",
+                        "/mcp/oauth/cancel",
+                    )
+                ):
                     # Bound the stream BEFORE FastAPI parses JSON, including
                     # chunked requests with no trustworthy Content-Length.
                     chunks, size = [], 0
@@ -172,6 +183,123 @@ class McpReviewRequest(McpConfigurationRequest):
 class McpConfirmRequest(McpReviewRequest):
     directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
     confirmed: StrictBool
+
+
+class McpOAuthBeginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: UUID
+    endpoint: str = Field(min_length=1, max_length=4096, repr=False)
+
+
+class McpOAuthAttemptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: UUID
+    attemptId: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
+
+
+class McpOAuthCompleteRequest(McpOAuthAttemptRequest):
+    code: str = Field(min_length=1, max_length=8192, repr=False)
+    state: str = Field(min_length=1, max_length=512, repr=False)
+    issuer: str | None = Field(default=None, max_length=4096, repr=False)
+
+
+def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
+    import re
+
+    owner = _user_id(token)
+    if not owner or not re.fullmatch(r"custom_[0-9a-f]{32}", connector_id):
+        raise HTTPException(status_code=400, detail="Invalid connector authorization.")
+    return owner
+
+
+def _mcp_oauth_return_uri() -> str:
+    settings = get_app_runtime_settings()
+    origin = settings.app_frontend_origin
+    parsed = urlsplit(origin)
+    local = settings.environment in {"development", "test"} and parsed.hostname in {
+        "localhost",
+        "127.0.0.1",
+    }
+    if (
+        not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
+    ):
+        raise HTTPException(status_code=503, detail="Connector return address is not configured.")
+    return origin.rstrip("/") + "/one/profile/connectors/oauth/return"
+
+
+@router.post("/{connector_id}/mcp/oauth/begin")
+async def begin_private_mcp_oauth(
+    connector_id: str, body: McpOAuthBeginRequest, token: dict = Depends(require_vault_owner_token)
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    redirect_uri = _mcp_oauth_return_uri()
+    try:
+        return await mcp_oauth_attempts.begin(
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+            endpoint=body.endpoint,
+            redirect_uri=redirect_uri,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Could not start connector login. Retry connecting."
+        ) from None
+
+
+@router.post("/{connector_id}/mcp/oauth/complete")
+async def complete_private_mcp_oauth(
+    connector_id: str,
+    body: McpOAuthCompleteRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    try:
+        result = await mcp_oauth_attempts.complete(
+            handle=body.attemptId,
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+            code=body.code,
+            state=body.state,
+            issuer=body.issuer,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=409, detail="Connector login expired or failed. Connect again."
+        ) from None
+    # Private no-store browser delivery only, never a model-facing tool result.
+    return {
+        "tokens": result.tokens.model_dump(mode="json", exclude_none=True),
+        "clientInfo": result.client_info.model_dump(mode="json", exclude_none=True),
+        "expiresAt": result.expires_at,
+    }
+
+
+@router.post("/{connector_id}/mcp/oauth/cancel", status_code=204)
+async def cancel_private_mcp_oauth(
+    connector_id: str,
+    body: McpOAuthAttemptRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    try:
+        mcp_oauth_attempts.cancel(
+            handle=body.attemptId,
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=409, detail="Connector login is no longer available."
+        ) from None
 
 
 async def _mcp_review_response(operation, **kwargs):

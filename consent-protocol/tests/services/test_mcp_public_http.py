@@ -11,12 +11,55 @@ import httpx
 import pytest
 
 from hushh_mcp.services.mcp_public_http import (
+    McpResponseLimitError,
     PublicMcpTransport,
     PublicNetworkBackend,
     UnsafeMcpEndpoint,
     create_public_mcp_http_client,
     validate_mcp_endpoint,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "chunks,encoding,accepted",
+    [
+        ([b"1234", b"5678"], None, True),
+        ([b"1234", b"56789"], None, False),
+        ([b"tiny"], "gzip", False),
+    ],
+)
+async def test_oauth_response_limit_precedes_sdk_buffering(chunks, encoding, accepted):
+    transport = PublicMcpTransport(max_response_bytes=8)
+    await transport.aclose()
+    transport._pool = AsyncMock()
+
+    class Body(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            for chunk in chunks:
+                yield chunk
+
+        async def aclose(self):
+            self.closed = True
+
+    body = Body()
+    transport._pool.handle_async_request.return_value = httpcore.Response(
+        200,
+        headers=[] if encoding is None else [(b"content-encoding", encoding.encode())],
+        content=body,
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        if accepted:
+            response = await client.get("https://mcp.example.com/metadata")
+            assert response.content == b"12345678"
+        else:
+            with pytest.raises(McpResponseLimitError):
+                await client.get("https://mcp.example.com/metadata")
+    assert body.closed
+    sent = transport._pool.handle_async_request.await_args.args[0]
+    assert dict(sent.headers)[b"accept-encoding"] == b"identity"
 
 
 @pytest.mark.parametrize(
