@@ -93,13 +93,18 @@ This command intentionally fails unless repo schema tests, sandbox transport aud
 
 UAT smoke note:
 
+- every governed UAT frontend deployment runs this smoke after semantic verification;
+  a failure is classified as `analytics_transport_failed` and the candidate frontend
+  is rolled back instead of being promoted
 - `npm run smoke:analytics:uat` uses Playwright against the deployed UAT origin and the existing reviewer test fixture via maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE`.
 - `UAT_SMOKE_*` and `KAI_TEST_*` are accepted only as one-release migration aliases.
 - it must not fabricate analytics events; it only observes events produced by the app during a real browser journey
 - it must not create Firebase users, reviewer users, app environments, or one-off analytics fixtures
 - after the cold `/login` boot, it must use Next client navigation for protected routes so the in-memory vault key stays inside the mounted React provider tree
-- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires `growth_funnel_step_completed`, `portfolio_viewed`, `recommendation_viewed`, and `investor_activation_completed`
-- if prerequisite credentials or seeded portfolio/recommendation data are missing, the smoke fails clearly and the gate remains blocked; repair or reseed the same reviewer test fixture instead of creating another user
+- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires successful GA transport for the deterministic, frontend-owned `growth_funnel_step_completed` event and the `page_view` emitted when client navigation reaches the Finance dashboard route
+- the promotion gate intentionally does not run a provider-backed recommendation. AI/provider availability is monitored separately and must not veto a healthy analytics transport release; when frontend and backend deploy together, the workflow creates a disposable zero-traffic frontend smoke revision whose server-side backend binding points to the uniquely tagged zero-traffic backend candidate. Canonical UAT traffic remains on the previous pair until the smoke succeeds, then the normal canonical-configured frontend revision and backend candidate are promoted together
+- `npm run verify:analytics:governed` invokes the same browser harness with `--full`; that mode additionally requires the real recommendation and investor-activation journey, while the release promotion mode remains deterministic
+- if prerequisite credentials are missing, the smoke fails clearly and the gate remains blocked; repair the same reviewer test fixture instead of creating another user
 
 ## 2. GA Admin API Validation
 
