@@ -493,3 +493,61 @@ async def test_one_file_still_gets_the_full_excerpt():
     reader, matches = statements_reader(1, "A" * 6000)
     result = await reader.read_matches(matches=matches)
     assert len(result["untrusted_external_content"][0]["text"]) == 4000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("count", "text", "name_length"),
+    [
+        # Review 2026-09-25: a Hindi header over English lines overshot a
+        # proportional clip, so only three of six statements were kept.
+        (6, "क" * 1500 + "Txn 2026-01-02 UPI 450.00\n" * 200, 12),
+        (8, "\x01" * 1000 + "A" * 4000, 12),
+        (8, "A" * 6000, 240),
+    ],
+    ids=["hindi-header-six", "control-chars-eight", "long-names-eight"],
+)
+async def test_mixed_bytes_and_long_names_still_fit_every_chosen_file(count, text, name_length):
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(count, text)
+    names = {
+        item["file_id"]: "N" * (name_length - 7) + f"-{index:02d}.pdf"
+        for index, item in enumerate(matches)
+    }
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    reader.adapter.get_metadata.side_effect = metadata
+    for item in matches:
+        item["name"] = names[item["file_id"]]
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert len(content) == count
+    assert all(item["text"] for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_file_leaves_its_share_to_the_others():
+    reader, matches = statements_reader(8, "S" * 6000)
+    locked = {item["file_id"] for item in matches[:5]}
+
+    async def read(*, user_id, tool_name, arguments):
+        if arguments["fileId"] in locked:
+            return ExternalMcpToolResult(
+                False, {"textFormattingNotSupported": True, "reason": "encrypted_document"}, False
+            )
+        return ExternalMcpToolResult(False, {"fileContent": "S" * 6000}, False)
+
+    reader.mcp.read_tool.side_effect = read
+    result = await reader.read_matches(matches=matches)
+    texts = [item["text"] for item in result["untrusted_external_content"]]
+    # Five locked files leave their share: the three readable ones keep the
+    # full excerpt instead of an eighth of the budget each.
+    assert [len(text) for text in texts] == [4000, 4000, 4000]

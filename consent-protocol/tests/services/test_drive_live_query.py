@@ -502,6 +502,31 @@ def test_requester_sees_no_more_titles_than_the_owner_can_share():
     }
 
 
+def test_the_owner_only_shares_files_the_asker_was_shown():
+    """Review 2026-09-25: with a folder first, B saw 7 files and the folder
+    while A was offered an 8th file B never saw."""
+    from hushh_mcp.services.drive_chat_service import _files_outcome
+    from hushh_mcp.services.drive_live_query_store import _owner_files
+
+    folder = {
+        **match("Receipts"),
+        "file_id": "1FolderFolderFolderFolderFolder00",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    files = [
+        {**match(f"file{index}.pdf"), "file_id": f"1FileFileFileFileFileFileFile{index:04d}"}
+        for index in range(9)
+    ]
+    outcome = _files_outcome(
+        [folder, *files], {"truncated": False}, unreadable=False, time_window=""
+    )
+    shown = requester_answer(outcome)["titles"]
+    offered = [item["name"] for item in _owner_files(outcome["share_files"])]
+    assert shown == ["Receipts", *[f"file{index}.pdf" for index in range(7)]]
+    assert offered == [f"file{index}.pdf" for index in range(7)]
+    assert set(offered) <= set(shown)
+
+
 INCIDENT_TITLES = [
     "Notes by Gemini - Sync 2026/09/01",
     "Notes by Gemini - Sync 2026/09/08",

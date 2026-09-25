@@ -20,7 +20,7 @@ from hushh_mcp.services.drive_candidate_selection import (
     select_matches,
 )
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
-from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_live_reader import MAX_READS, DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import (
     interpret_live_search,
     plan_live_search,
@@ -250,7 +250,9 @@ def _files_outcome(
         metadata_only=True,
         selection=selection,
         not_read=not_read,
-        share_files=[_share_file(item) for item in matches[:10]],
+        # Only the first MAX_READS, the titles a connection is shown: A is
+        # never offered a file the asker didn't see (folders drop later).
+        share_files=[_share_file(item) for item in matches[:MAX_READS]],
     )
 
 
