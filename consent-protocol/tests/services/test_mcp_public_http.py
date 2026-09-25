@@ -100,6 +100,9 @@ def test_rejects_unsafe_or_credential_bearing_endpoints(url):
 
 def test_public_https_endpoint():
     validate_mcp_endpoint("https://mcp.example.com/api/mcp")
+    # Founder Wiki is a normal remote MCP registration, not a bespoke adapter.
+    # Endpoint admission alone does not establish its private OAuth grant.
+    validate_mcp_endpoint("https://mcp.hushh.ai/mcp")
 
 
 def dns_answers(*ips):

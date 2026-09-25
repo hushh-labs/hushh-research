@@ -372,7 +372,33 @@ async def discover_workspace_tools(
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
     if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
-        return {"status": "unavailable", "message": "Drive reading is not available yet."}
+        # A selected-file OAuth connection is useful without Google's hosted
+        # Workspace MCP preview. Do not advertise account-wide MCP reads or
+        # send a connected owner back through OAuth just because live is off.
+        drive = get_external_connector_oauth_service().drive()
+        try:
+            if not await drive.connection_available():
+                return {"status": "unavailable", "message": "Drive sign-in is not configured here."}
+            await drive.current_credential(user_id=owner, required_profile="selected")
+            if await _owner(tool_context, provider) != owner:
+                return {"status": "blocked", "message": "The session changed. Try again."}
+            return {
+                "status": "api_available",
+                "provider": provider,
+                "message": "Selected files can be read with the Documents tool after you choose them.",
+            }
+        except DriveOAuthError as error:
+            return {
+                "status": "permission_required"
+                if error.status_code in {401, 403, 409}
+                else "unavailable",
+                "provider": provider,
+                "message": "Connect Drive and choose files to read them."
+                if error.status_code in {401, 403, 409}
+                else "Drive could not be checked right now.",
+            }
+        except Exception:
+            return {"status": "unavailable", "message": "Drive could not be checked right now."}
     try:
         # Live Drive MCP owns its OAuth profile and connection-generation
         # checks. Do not require a parallel legacy Google service grant.
@@ -404,6 +430,27 @@ async def discover_workspace_tools(
             **({"provider": provider} if can_reconnect else {}),
             "message": "Check this connection and its reading permission, then try again.",
         }
+    except ExternalMcpError:
+        # Hosted Workspace discovery can be unavailable while a verified
+        # Gmail/Calendar OAuth read grant remains usable by the typed tools.
+        # Do not advertise a hosted schema or bypass a changed owner/grant.
+        if provider != "drive":
+            try:
+                if await _owner(tool_context, provider) != owner or (
+                    await _grant_binding(owner, provider) != binding
+                ):
+                    return {"status": "blocked", "message": "The session changed. Try again."}
+            except Exception:
+                return {
+                    "status": "unavailable",
+                    "message": "These capabilities could not be checked.",
+                }
+            return {
+                "status": "api_available",
+                "provider": provider,
+                "message": "Use the connected service's existing Chat tools.",
+            }
+        return {"status": "unavailable", "message": "These capabilities could not be checked."}
     except Exception:  # noqa: BLE001 - provider details may contain credentials
         return {"status": "unavailable", "message": "These capabilities could not be checked."}
     trusted_tools = _trusted_catalog(provider, tools)

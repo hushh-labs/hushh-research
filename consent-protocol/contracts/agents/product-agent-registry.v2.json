@@ -3674,7 +3674,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "44f0d8218aba851cdeaf3afd021787a38b590928ba29f57f87b9498a7d0aca02",
+      "system_instruction_sha256": "3be1af10b19402ef394913c588934f97c95896d1eb0523cc3dc47d3495c8cf20",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -3684,7 +3684,7 @@
           "required_scope": "vault.owner"
         },
         {
-          "description": "Discover currently admitted read capabilities for the owner's Drive, Gmail or Calendar through Google's official MCP servers.",
+          "description": "Check connected Drive, Gmail or Calendar read availability; return exact admitted hosted tools only when callable, otherwise report the applicable connection or API state.",
           "name": "discover_workspace_tools",
           "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.discover_workspace_tools",
           "required_scope": "vault.owner"

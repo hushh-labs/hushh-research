@@ -105,6 +105,14 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("connector_unavailable", status_code=503)
         return connector, client_id, client_secret
 
+    async def connection_available(self) -> bool:
+        """Safe catalog readiness; never reveal OAuth credentials or endpoints."""
+        try:
+            connector, _, _ = await self._configuration()
+        except DriveOAuthError:
+            return False
+        return bool(connector.registered_redirect_uris)
+
     async def start(
         self,
         *,

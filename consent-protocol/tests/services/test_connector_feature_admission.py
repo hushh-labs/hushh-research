@@ -21,8 +21,20 @@ def closed_by_default(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
 
 
-def test_unconfigured_flags_deny_every_owner():
-    assert not any(connector_features("owner").values())
+def test_connection_and_read_only_chat_available_without_rollout_flags():
+    features = connector_features("owner")
+    assert all(
+        features[name]
+        for name in (
+            "google_drive_connection",
+            "google_drive_picker",
+            "google_drive_chat_reads",
+            "gmail_chat_reads",
+        )
+    )
+    assert not features["google_drive_live"]
+    assert not features["drive_document_indexing"]
+    assert not features["drive_document_sharing"]
     assert not connector_feature_enabled("google_drive_chat_writes", "owner")
     assert not connector_feature_enabled("google_drive_downloads", "owner")
 
@@ -30,23 +42,25 @@ def test_unconfigured_flags_deny_every_owner():
 @pytest.mark.parametrize(
     "cohort", ["", "all", "*", "owner,", ",owner", "owner,all", "owner,malformed owner"]
 )
-def test_malformed_cohort_denies_even_with_enabled_flag(monkeypatch, cohort):
+def test_malformed_cohort_cannot_block_connection_or_enable_sharing(monkeypatch, cohort):
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", cohort)
-    assert not connector_feature_enabled("google_drive_connection", "owner")
+    assert connector_feature_enabled("google_drive_connection", "owner")
+    assert not connector_feature_enabled("drive_document_sharing", "owner")
 
 
 def test_owner_membership_and_flags_are_independent(monkeypatch):
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,second-owner")
     assert connector_feature_enabled("google_drive_connection", "owner")
-    assert not connector_feature_enabled("google_drive_connection", "other-owner")
-    assert not connector_feature_enabled("gmail_chat_reads", "owner")
+    assert connector_feature_enabled("google_drive_connection", "other-owner")
+    assert connector_feature_enabled("gmail_chat_reads", "owner")
     monkeypatch.setenv("ENVIRONMENT", "production")
-    assert not connector_feature_enabled("google_drive_connection", "owner")
+    assert connector_feature_enabled("google_drive_connection", "owner")
+    assert not connector_feature_enabled("google_drive_connection", "")
 
 
-def test_explicit_all_users_mode_admits_only_signed_in_uat_users(monkeypatch):
+def test_legacy_all_users_mode_does_not_control_owner_initiated_connection(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "true")
@@ -56,17 +70,17 @@ def test_explicit_all_users_mode_admits_only_signed_in_uat_users(monkeypatch):
     assert not connector_feature_enabled("google_drive_connection", "   ")
     assert not connector_feature_enabled("drive_document_sharing", "first-firebase-uid")
     monkeypatch.setenv("ENVIRONMENT", "production")
-    assert not connector_feature_enabled("google_drive_connection", "first-firebase-uid")
+    assert connector_feature_enabled("google_drive_connection", "first-firebase-uid")
     monkeypatch.setenv("ENVIRONMENT", "test")
-    assert not connector_feature_enabled("google_drive_connection", "first-firebase-uid")
+    assert connector_feature_enabled("google_drive_connection", "first-firebase-uid")
 
 
-def test_all_users_mode_fails_closed_when_cohort_is_also_set(monkeypatch):
+def test_conflicting_legacy_modes_do_not_block_connection(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "first-firebase-uid")
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "true")
-    assert not connector_feature_enabled("google_drive_connection", "first-firebase-uid")
+    assert connector_feature_enabled("google_drive_connection", "first-firebase-uid")
 
 
 def test_structured_hosted_runtime_hydrates_flags_without_exposing_cohort():

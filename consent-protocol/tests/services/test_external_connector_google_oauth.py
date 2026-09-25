@@ -23,6 +23,27 @@ def service():
     )
 
 
+async def test_drive_catalog_readiness_requires_configured_oauth_and_return(service):
+    service._configuration = AsyncMock(
+        return_value=(
+            SimpleNamespace(registered_redirect_uris=("https://example.invalid/return",)),
+            "synthetic-client",
+            "synthetic-secret",
+        )
+    )
+    assert await service.connection_available() is True
+    service._configuration.return_value = (
+        SimpleNamespace(registered_redirect_uris=()),
+        "id",
+        "secret",
+    )
+    assert await service.connection_available() is False
+    service._configuration.side_effect = oauth.DriveOAuthError(
+        "connector_unavailable", status_code=503
+    )
+    assert await service.connection_available() is False
+
+
 @pytest.fixture(scope="module")
 def identity_key():
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)

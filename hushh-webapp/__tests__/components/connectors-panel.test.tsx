@@ -97,23 +97,22 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
-  it("does not offer a dead Drive connection action when backend admission is off", async () => {
+  it("does not offer a dead Drive connection action when OAuth is unconfigured", async () => {
     state.overview.mockResolvedValue(overview());
     render(panel());
     expect(await screen.findByText("Unavailable")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Google Drive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Manage Google Drive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
-    expect(screen.getByText("Drive sign-in is not enabled for this account in this environment.")).toBeInTheDocument();
+    expect(screen.getByText("Drive sign-in is not configured here. Try again later.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
   });
 
   it("offers selected-file Drive connection without claiming live Drive access", async () => {
     state.overview.mockResolvedValue({
-      connectors: [],
+      connectors: [{ ...catalogItem, connectorId: "google_drive", available: true }],
       features: {
         connections_panel_v2: true,
-        google_drive_connection: true,
         google_drive_live: false,
         google_drive_picker: true,
       },
@@ -124,7 +123,7 @@ describe("supported connector catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
     expect(screen.getByRole("button", { name: "Connect Drive" })).toBeEnabled();
     expect(screen.getByText("You can choose files after connecting. One cannot search your entire Drive with this access.")).toBeInTheDocument();
-    expect(screen.queryByText("Drive sign-in is not enabled for this account in this environment.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drive sign-in is not configured here. Try again later.")).not.toBeInTheDocument();
   });
 
   it("omits unsupported catalog placeholders even when the registry returns them", async () => {

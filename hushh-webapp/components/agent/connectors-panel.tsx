@@ -781,7 +781,7 @@ function OwnerConnectorsPanel({
             finalized
               ? profile === "live"
                 ? "Live Drive access connected. Ask One to find files."
-                : "Drive connected. Ask One to find a file."
+                : "Drive connected. Choose files for One to read."
               : "Drive authorization is still settling. Reopen Connectors to check it.",
           );
         }
@@ -1109,10 +1109,7 @@ function OwnerConnectorsPanel({
 
   const canConnectDrive =
     statusChecked &&
-    drive?.available !== false &&
-    overview?.features.google_drive_connection === true &&
-    (overview?.features.google_drive_live === true ||
-      overview?.features.google_drive_picker === true);
+    drive?.available === true;
   const driveConnectionProfile: "live" | "selected" =
     overview?.features.google_drive_live === true ? "live" : "selected";
   const canPick =
@@ -1552,9 +1549,7 @@ function OwnerConnectorsPanel({
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
               {statusChecked && !canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
-                  {drive?.available === false
-                    ? "Drive sign-in is temporarily unavailable."
-                    : "Drive sign-in is not enabled for this account in this environment."}
+                  Drive sign-in is not configured here. Try again later.
                 </p>
               )}
               <p
