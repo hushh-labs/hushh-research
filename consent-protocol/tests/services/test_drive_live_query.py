@@ -479,6 +479,29 @@ def test_requester_answer_withholds_links_dates_and_owner_instructions():
     assert more.endswith(" More matches may exist.")
 
 
+def test_requester_sees_no_more_titles_than_the_owner_can_share():
+    """B saw up to 10 titles while A could share only 8 (f1..f8), with no note."""
+    ten = {
+        "status": "ok",
+        "answer": None,
+        "files": [match() for _ in range(10)],
+        "unreadable": False,
+        "found_truncated": False,
+        "titles": [f"File {index}.pdf" for index in range(10)],
+        "truncated": True,
+    }
+    projected = requester_answer(ten)
+    assert projected["titles"] == [f"File {index}.pdf" for index in range(8)]
+    assert projected["text"].endswith(" More matches may exist.")
+    assert projected["truncated"] is True
+    eight = {**ten, "files": ten["files"][:8], "titles": ten["titles"][:8], "truncated": False}
+    assert requester_answer(eight) == {
+        "text": "These files were found in their Drive for this question.",
+        "titles": eight["titles"],
+        "truncated": False,
+    }
+
+
 INCIDENT_TITLES = [
     "Notes by Gemini - Sync 2026/09/01",
     "Notes by Gemini - Sync 2026/09/08",

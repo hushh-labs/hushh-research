@@ -453,3 +453,43 @@ async def test_a_readable_turn_reports_no_unreadable_files():
         matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
     )
     assert result["unreadable"] == []
+
+
+def statements_reader(count, text):
+    reader, adapter, mcp, _ = fixture()
+    names = {f"file-{index}": f"Statement {index:02d}.pdf" for index in range(1, count + 1)}
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, {"fileContent": text}, False)
+    return reader, [{"file_id": file_id, "name": name} for file_id, name in names.items()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unit", ["A", "क"])  # one byte and three bytes in UTF-8
+async def test_six_statements_all_reach_the_model_with_a_fair_share_each(unit):
+    """UAT 2026-09-25: 'last six months of statements' read three files in full
+    and dropped the rest at the 16 KiB context budget."""
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(6, "Statement period March 2026. " + unit * 6000)
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert [item["name"] for item in content] == [item["name"] for item in matches]
+    assert all(item["text"].startswith("Statement period March 2026.") for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+    assert result["truncated"] is True and len(reader._rows) == 6
+
+
+@pytest.mark.asyncio
+async def test_one_file_still_gets_the_full_excerpt():
+    reader, matches = statements_reader(1, "A" * 6000)
+    result = await reader.read_matches(matches=matches)
+    assert len(result["untrusted_external_content"][0]["text"]) == 4000

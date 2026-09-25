@@ -536,7 +536,7 @@ class DriveSuggestionService:
                                 return "no_ready_files"
                         else:
                             selection = {
-                                "stage": "not_applicable_metadata_query" if not plan.terms else "no_candidates",
+                                "stage": "metadata_listing" if not plan.terms else "no_candidates",
                                 "candidates": len(matches),
                                 "selected": len(matches),
                             }

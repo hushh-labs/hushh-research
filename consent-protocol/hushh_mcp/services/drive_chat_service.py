@@ -493,7 +493,7 @@ class DriveChatService:
                         # boundary): an exact title was already resolved, or a
                         # metadata-only listing has no words to judge against.
                         selection = {
-                            "stage": "exact_title" if plan.exact_title else "not_applicable_metadata_query",
+                            "stage": "exact_title" if plan.exact_title else "metadata_listing",
                             "candidates": len(matches),
                             "selected": len(matches),
                         }

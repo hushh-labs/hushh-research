@@ -11,7 +11,7 @@ gene judges the keyword-found files before any title is released. The requester
 gets only the titles it chose, worded as what they are (judged from names,
 types and dates, not opened), or the no-clear-match text when it chose none.
 A date-only listing (no search words) and an exact-title match skip the
-selector, record the skip (``not_applicable_metadata_query`` / ``exact_title``)
+selector, record the skip (``metadata_listing`` / ``exact_title``)
 and release the found titles worded as found, not judged.
 """
 
@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_chat_service import DriveChatService
-from hushh_mcp.services.drive_live_query_store import DriveLiveQueryStore
+from hushh_mcp.services.drive_live_query_store import MAX_OWNER_FILES, DriveLiveQueryStore
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRequestPurpose
 
@@ -44,9 +44,15 @@ def requester_answer(outcome: dict) -> dict:
             )
         else:
             text = "These files were found in their Drive for this question."
-        if outcome["found_truncated"] or len(outcome["files"]) > 10:
+        # B never sees more titles than A can share (f1..f8).
+        more = outcome["found_truncated"] or len(outcome["files"]) > MAX_OWNER_FILES
+        if more:
             text += " More matches may exist."
-        return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
+        return {
+            "text": text,
+            "titles": outcome["titles"][:MAX_OWNER_FILES],
+            "truncated": outcome["truncated"] or more,
+        }
     text = outcome["answer"]
     # A count only: which files and why stay with the owner.
     unread = len(outcome.get("not_read") or [])

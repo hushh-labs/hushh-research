@@ -27,6 +27,9 @@ from hushh_mcp.services.google_drive_rest_transport import PARSE_REASONS, Google
 MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
+EXCERPT_CHARS = 4000
+# The rest of an entry (refs, name, version) needs room beside its text.
+ENTRY_OVERHEAD_BYTES = 400
 SEARCH_PAGE_SIZE = 8
 MAX_SEARCH_PAGES = 6
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
@@ -89,6 +92,15 @@ def _open_url(file_id: str, value: object) -> str:
     ):
         return value
     return fallback
+
+
+def _fair_excerpt(body: str, *, share: int) -> str:
+    """Clip text to its share of the model context, counted as JSON UTF-8 bytes."""
+    text = body[:EXCERPT_CHARS]
+    size = len(json.dumps(text, ensure_ascii=False).encode())
+    if size <= share:
+        return text
+    return text[: len(text) * share // size]
 
 
 class DriveLiveReader:
@@ -608,6 +620,10 @@ class DriveLiveReader:
         content: list[dict] = []
         unreadable: list[dict] = []
         self._rows = []
+        # Every chosen file gets an equal share of the context, so six monthly
+        # statements all reach the model instead of three in full and none of
+        # the rest. The budget check below stays the hard limit.
+        share = max(1024, MAX_CONTEXT_BYTES // max(1, len(file_ids)) - ENTRY_OVERHEAD_BYTES)
         for file_id in file_ids:
             if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
                 raise DriveReadError("provider_response_invalid")
@@ -654,10 +670,10 @@ class DriveLiveReader:
                 "document_ref": document_id,
                 "name": metadata.name,
                 "page": None,
-                "text": body[:4000],
+                "text": _fair_excerpt(body, share=share),
                 "source_version": metadata.version,
             }
-            if len(body) > 4000 or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
+            if len(entry["text"]) < len(body) or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
                 truncated = True
             if len(json.dumps(content + [entry], ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
                 truncated = True

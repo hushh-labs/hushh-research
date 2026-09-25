@@ -532,7 +532,7 @@ async def test_an_empty_selection_is_an_honest_no_match_for_the_owner(monkeypatc
             {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
             "What are my files from the last two days?",
             "",
-            "not_applicable_metadata_query",
+            "metadata_listing",
         ),
         (
             {"terms": ["March statement"], "mode": "read", "exact_title": "March statement.pdf"},
@@ -754,7 +754,7 @@ async def test_an_over_long_find_lists_eight_and_says_more_may_exist(monkeypatch
         (
             {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
             "What are my files from the last two days?",
-            "not_applicable_metadata_query",
+            "metadata_listing",
         ),
         (
             {"terms": ["March statement"], "mode": "find", "exact_title": "March statement.pdf"},
@@ -783,6 +783,11 @@ async def test_a_skipped_selector_is_logged_with_enums_and_counts(
     assert outcome["status"] == "ok"
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert f"drive_select.skipped stage={stage} mode=find candidates=1" in logged
+    # Production logs redact any 24+ char token with '_' or '-' as an ID, so a
+    # stage name must stay shorter or the recorded skip reads [REDACTED].
+    from mcp_modules.log_redaction import redact_log_value
+
+    assert redact_log_value(stage) == stage
     for private in ("March", "statement", "owner", "file-1", "last two days"):
         assert private not in logged
 
