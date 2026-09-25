@@ -472,6 +472,28 @@ describe("AG-UI Agent One client", () => {
     expect(privateMessage.content).toBe("Private reasoning");
   });
 
+  it("streams only authenticated thought-summary text without storing reasoning in the SDK", async () => {
+    const onThinkingSummary = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      expect(subscriber.onEvent({ event: {
+        type: "REASONING_MESSAGE_CONTENT", delta: "Checking the connected file.",
+        metadata: { husshThoughtSummary: true },
+      } })).toEqual({ stopPropagation: true });
+      expect(subscriber.onEvent({ event: {
+        type: "REASONING_MESSAGE_CONTENT", delta: "Unmarked reasoning",
+      } })).toEqual({ stopPropagation: true });
+      expect(subscriber.onEvent({ event: {
+        type: "REASONING_ENCRYPTED_VALUE", value: "private-signature",
+      } })).toEqual({ stopPropagation: true });
+    };
+    await streamAgentChat({
+      userId: "user-1", message: "Find a file", vaultOwnerToken: "owner-token",
+      handlers: { onThinkingSummary },
+    });
+    expect(onThinkingSummary).toHaveBeenCalledExactlyOnceWith("Checking the connected file.");
+    mockTransport.emitEvents = null;
+  });
+
   it("projects legacy history before messages reach UI caches", async () => {
     vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
       messages: [

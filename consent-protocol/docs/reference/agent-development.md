@@ -595,7 +595,11 @@ For One-led email KYC, use the [One Email KYC architecture](../../../docs/refere
 for routing, consent, drafts and send gates. Its attachment points here are
 the `agent_kyc` manifest, typed gene contracts and the existing One Email KYC
 services. Never put raw email bodies, decrypted PKM values, credentials or
-model reasoning in ADK session state or telemetry.
+raw model reasoning in ADK session state or telemetry. Authenticated One Chat
+opts into provider-authored thought summaries: only bounded summary text reaches
+the transient Chat body, while signatures remain server-side. Encrypted ADK
+continuation state may retain those summaries; saved Chat history and browser
+SDK state do not. Intro and other text heads keep summaries disabled.
 
 ---
 

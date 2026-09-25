@@ -166,6 +166,7 @@ import {
   warmAgentChatHistoryCache,
   clearAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
+import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
@@ -293,6 +294,8 @@ type AgentMessage = {
   renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
+  /** Transient provider summary for this turn; excluded from stored history. */
+  thinkingSummary?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
@@ -1582,6 +1585,7 @@ function AgentBubble({
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
+    Boolean(message.thinkingSummary) ||
     Boolean(message.sources?.length) ||
     structuredExperiences.length > 0;
   const shouldRenderStreamPanel =
@@ -1672,6 +1676,7 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
+              thinkingSummary={message.thinkingSummary}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
@@ -2275,11 +2280,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // One listed) render the same cards a push would, without a second lookup path.
   const appendPendingConsentRequestRef = useRef<((requestId: string) => Promise<void>) | null>(null);
   const updateConversationId = useCallback(
-    (nextConversationId: string | null) => {
+    (nextConversationId: string | null, remember = true) => {
       conversationIdRef.current = nextConversationId;
       setConversationId(nextConversationId);
+      if (remember && user?.uid) rememberInAppChat(user.uid, nextConversationId);
     },
-    [],
+    [user?.uid],
   );
   const oneLocationConsentActions = useOneLocationConsentActions({
     userId: user?.uid,
@@ -3042,7 +3048,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setWalletWidgets([]);
-    updateConversationId(null);
+    updateConversationId(null, false);
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
@@ -3642,18 +3648,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
 
-    const applySnapshot = (snapshot: NonNullable<typeof cached>) => {
+    const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
       if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
       setConversations(snapshot.conversations);
-      if (!snapshot.latestConversationId) {
-        updateConversationId(null);
+      const selectedId = selectedInAppChat(user.uid);
+      if (!selectedId || !snapshot.conversations.some((item) => item.id === selectedId)) {
+        updateConversationId(null, false);
         setMessages((current) =>
           mergePendingConsentMessages([createGreetingMessage()], current),
         );
         return;
       }
-      const restored = storedMessagesToAgentMessages(snapshot.latestMessages);
-      updateConversationId(snapshot.latestConversationId);
+      const stored = selectedId === snapshot.latestConversationId
+        ? snapshot.latestMessages
+        : await loadAgentChatConversationHistory({
+            userId: user.uid, conversationId: selectedId, vaultOwnerToken,
+          });
+      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      const restored = storedMessagesToAgentMessages(stored);
+      updateConversationId(selectedId, false);
       setMessages((current) =>
         mergePendingConsentMessages(
           restored.length > 0 ? restored : [createGreetingMessage()],
@@ -3661,8 +3674,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ),
       );
     };
-
-    if (cached) applySnapshot(cached);
 
     const loadRecentConversation = async () => {
       if (skipInitialHistoryLoadRef.current) {
@@ -3678,7 +3689,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           vaultOwnerToken,
           force: cached ? !cached.isFresh : false,
         });
-        applySnapshot(next);
+        await applySnapshot(next);
       } catch {
         if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
           historyLoadKeyRef.current = null;
@@ -4873,6 +4884,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
+          onThinkingSummary: (chunk) => {
+            if (streamAbortController.signal.aborted || latestVisibleTurnIdRef.current !== debugTurnId) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              thinkingSummary: `${message.thinkingSummary ?? ""}${chunk}`.slice(0, 12000),
+            }));
+          },
           onMcpReview: (review) => {
             if (streamAbortController.signal.aborted || !review.isCurrent()) return;
             // Ephemeral only: never copy pending references or private previews

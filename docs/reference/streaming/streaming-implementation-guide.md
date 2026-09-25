@@ -108,6 +108,13 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 - `Response` renders only real assistant/model text: SSE `token` deltas, or a final non-streamed assistant result when the backend did not stream tokens. Do not simulate token streaming from placeholders, staged strings, tool names, or progress events.
 - `Activity` renders app-owned lifecycle events: `tool_start`, `tool_waiting`, `tool_result`, route/action settlement, import stages, cancellation state, backend progress frames, and validated AG-UI `ACTIVITY_SNAPSHOT`/`ACTIVITY_DELTA` messages.
 - `Thinking` is optional provider telemetry. It must never be required for control flow, and it must never replace app-owned progress rows.
+- Authenticated One Chat may stream Gemini's provider-authored thought summaries
+  into the Chat body's `Thinking summary` section. The bridge forwards only
+  bounded summary text; signatures, raw events, and reasoning snapshots never
+  reach the browser. Browser SDK state and saved Chat history exclude reasoning.
+  The owner-bound encrypted ADK session may retain provider summaries for model
+  continuation. Intro Chat does not request or display them. A model may emit
+  no summaries; Activity and Response must still work normally.
 - Cards do not suppress assistant clarification or warnings. Avoid duplicate prose through the authored instruction, not text stripping. Discovery history projects allowlisted metadata in invocation order, deduplicates repeated invocation IDs, and excludes provider thought parts from answer text. Restoring a descriptor never executes its original action; current eligibility must be checked again before a consent mutation.
 - Ambiguous person discovery uses `one.person_selection.v1`. The browser sends its opaque selection handle separately from visible message text. The server validates its owner, thread and expiry before profile access, rejects a mismatched profile subject, and requires a new explicit choice when changing an already-selected recipient. Selection handles are not grants and must not become persistent browser state or visible labels.
 - Marketplace recommendations and other proactive cards should be preloaded by the workspace/session owner, then passed into the stream surface. Do not start durable fetches from a render-only accordion path when the workspace can load them at access or turn start.

@@ -339,7 +339,9 @@ class TimedADKAgent(ADKAgent):
                                 continue
                         timing.observe(event)
                         projected = (
-                            public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
+                            public_event(event, allow_thought_summary=self.head == HEAD_ONE)
+                            if self.head in (HEAD_ONE, HEAD_INTRO)
+                            else event
                         )
                         if projected is not None:
                             yield projected

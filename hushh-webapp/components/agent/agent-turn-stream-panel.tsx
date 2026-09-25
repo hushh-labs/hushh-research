@@ -26,6 +26,7 @@ export type AgentVisibleStreamEvent = {
 
 export type AgentTurnStreamPanelProps = {
   streamEvents: AgentVisibleStreamEvent[];
+  thinkingSummary?: string;
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
@@ -137,6 +138,7 @@ export function agentToolEventToVisibleStreamEvent(
 
 export function AgentTurnStreamPanel({
   streamEvents,
+  thinkingSummary = "",
   responseText,
   isStreaming,
   isError = false,
@@ -176,6 +178,12 @@ export function AgentTurnStreamPanel({
       progressItems={[...progressItems, ...specialistItems]}
       responseText={responseText}
       response={response}
+      thinkingTitle="Thinking summary"
+      thinkingContent={thinkingSummary ? (
+        <p className="max-h-44 min-h-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words text-sm text-muted-foreground">
+          {thinkingSummary}
+        </p>
+      ) : undefined}
       structuredContent={
         experienceItems.length > 0 ? (
           <div className="space-y-3">

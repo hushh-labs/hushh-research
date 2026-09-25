@@ -194,7 +194,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
 
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(allow_workspace_tools=True),
+    root_agent=build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(
@@ -216,7 +216,7 @@ _authenticated_capabilities = {
     "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
     "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
+    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
     "humanInTheLoop": {
         "supported": True,
         "approvals": True,
@@ -228,6 +228,7 @@ _authenticated_capabilities = {
 }
 _intro_capabilities = {
     **_authenticated_capabilities,
+    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
     "tools": {"supported": False, "parallelCalls": False, "clientProvided": False},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": False},
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},

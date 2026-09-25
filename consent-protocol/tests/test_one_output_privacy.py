@@ -7,6 +7,7 @@ from ag_ui.core import (
     BaseEvent,
     EventType,
     MessagesSnapshotEvent,
+    ReasoningMessageContentEvent,
     RunErrorEvent,
     RunFinishedEvent,
     StateDeltaEvent,
@@ -54,6 +55,41 @@ async def test_both_heads_suppress_every_reasoning_event(monkeypatch, head, kind
     monkeypatch.setattr(ADKAgent, "run", _scripted_run([(0, thought), (0, answer), (0, finish)]))
     assert [event async for event in _agent(head).run(_input())] == [answer, finish]
     assert thought.raw_event == {"thought": "private reasoning"}
+
+
+def test_authenticated_chat_projects_only_bounded_summary_text():
+    signature = "provider-continuation-signature"
+    thought = ReasoningMessageContentEvent(
+        message_id="r",
+        delta="summary " * 400,
+        metadata={"signature": signature},
+        raw_event={"signature": signature},
+    )
+    assert public_event(thought) is None
+    visible = public_event(thought, allow_thought_summary=True)
+    assert isinstance(visible, ReasoningMessageContentEvent)
+    assert visible.delta == thought.delta[:2048]
+    assert visible.metadata == {"husshThoughtSummary": True}
+    assert visible.raw_event is None
+    assert signature not in visible.model_dump_json()
+    assert thought.raw_event == {"signature": signature}
+
+
+@pytest.mark.parametrize("head", [HEAD_ONE, HEAD_INTRO])
+async def test_timed_adk_chat_streams_summary_only_for_authenticated_head(monkeypatch, head):
+    summary = ReasoningMessageContentEvent(
+        message_id="r",
+        delta="Provider summary",
+        raw_event={"signature": "secret"},
+    )
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run([(0, summary)]))
+    events = [event async for event in _agent(head).run(_input())]
+    if head == HEAD_INTRO:
+        assert events == []
+    else:
+        assert len(events) == 1
+        assert events[0].delta == "Provider summary"
+        assert "secret" not in events[0].model_dump_json()
 
 
 def test_snapshot_filters_reasoning_without_mutating_history_or_tool_pairing():
@@ -116,12 +152,16 @@ def test_history_and_both_capabilities_follow_public_policy():
         ),
     )
     assert agent_chat._event_text(event) == ""
-    for capabilities in (agent_chat._authenticated_capabilities, agent_chat._intro_capabilities):
-        assert capabilities["reasoning"] == {
-            "supported": False,
-            "streaming": False,
-            "encrypted": False,
-        }
+    assert agent_chat._authenticated_capabilities["reasoning"] == {
+        "supported": True,
+        "streaming": True,
+        "encrypted": False,
+    }
+    assert agent_chat._intro_capabilities["reasoning"] == {
+        "supported": False,
+        "streaming": False,
+        "encrypted": False,
+    }
 
 
 def test_raw_provider_event_is_not_a_secondary_reasoning_channel():
@@ -156,3 +196,9 @@ def test_one_builders_keep_reasoning_internal():
             builder(model="gemini-test").generate_content_config.thinking_config.include_thoughts
             is False
         )
+    assert (
+        build_one_text_agent(
+            model="gemini-test", include_thought_summaries=True
+        ).generate_content_config.thinking_config.include_thoughts
+        is True
+    )

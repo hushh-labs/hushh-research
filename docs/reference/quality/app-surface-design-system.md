@@ -337,7 +337,13 @@ Rules:
 5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
 7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
-8. Agent Chat session continuity is a surface contract: consecutive user commands reuse the active `conversationId`; reset only on explicit New chat, selecting history, user change, or vault session reset.
+8. Agent Chat session continuity is a surface contract: a cold app launch opens
+   a blank Chat without selecting the latest saved conversation. In-app route
+   navigation resumes the selected `conversationId` for that browser runtime;
+   consecutive commands reuse it. New chat and selecting history change that
+   selection explicitly. Owner identity and vault changes clear the visible
+   turn until current authority is re-established; selection remains
+   owner-isolated. Saved history stays available in the Chat sidebar.
 9. Structured model responses use a versioned, app-owned component registry.
    AG-UI transports typed tool results and activity snapshots/deltas; Morphy
    owns the visual component. Unknown activity types fail closed. Never mount
