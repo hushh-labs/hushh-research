@@ -109,12 +109,23 @@ class PublicNetworkBackend(httpcore.AsyncNetworkBackend):
         await asyncio.sleep(seconds)
 
 
+class McpResponseLimitError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("Connector authorization response exceeded its transport limits.")
+
+
 class _ResponseStream(httpx.AsyncByteStream):
-    def __init__(self, stream) -> None:
+    def __init__(self, stream, max_bytes: int | None = None) -> None:
         self._stream = stream
+        self._max_bytes = max_bytes
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
+        size = 0
         async for chunk in self._stream:
+            size += len(chunk)
+            if self._max_bytes is not None and size > self._max_bytes:
+                await self.aclose()
+                raise McpResponseLimitError()
             yield chunk
 
     async def aclose(self) -> None:
@@ -122,7 +133,12 @@ class _ResponseStream(httpx.AsyncByteStream):
 
 
 class PublicMcpTransport(httpx.AsyncBaseTransport):
-    def __init__(self) -> None:
+    def __init__(self, *, max_response_bytes: int | None = None) -> None:
+        if max_response_bytes is not None and (
+            type(max_response_bytes) is not int or max_response_bytes <= 0
+        ):
+            raise ValueError("Invalid connector response limit.")
+        self._max_response_bytes = max_response_bytes
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=httpcore.default_ssl_context(),
             network_backend=PublicNetworkBackend(),
@@ -133,6 +149,11 @@ class PublicMcpTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         validate_mcp_endpoint(str(request.url))
+        headers = request.headers.raw
+        if self._max_response_bytes is not None:
+            # OAuth metadata/token responses must not expand after this bound.
+            headers = [(key, value) for key, value in headers if key.lower() != b"accept-encoding"]
+            headers.append((b"accept-encoding", b"identity"))
         # Do not admit caller-controlled TLS names or routing extensions.
         response = await self._pool.handle_async_request(
             httpcore.Request(
@@ -143,15 +164,22 @@ class PublicMcpTransport(httpx.AsyncBaseTransport):
                     port=request.url.port,
                     target=request.url.raw_path,
                 ),
-                headers=request.headers.raw,
+                headers=headers,
                 content=request.stream,
                 extensions={"timeout": request.extensions.get("timeout", {})},
             )
         )
+        if (
+            self._max_response_bytes is not None
+            and httpx.Headers(response.headers).get("content-encoding", "identity").strip().lower()
+            != "identity"
+        ):
+            await response.aclose()
+            raise McpResponseLimitError()
         return httpx.Response(
             status_code=response.status,
             headers=response.headers,
-            stream=_ResponseStream(response.stream),
+            stream=_ResponseStream(response.stream, self._max_response_bytes),
             extensions=response.extensions,
         )
 
@@ -163,12 +191,14 @@ def create_public_mcp_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
+    *,
+    max_response_bytes: int | None = None,
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         headers=headers,
         timeout=timeout or httpx.Timeout(20),
         auth=auth,
-        transport=PublicMcpTransport(),
+        transport=PublicMcpTransport(max_response_bytes=max_response_bytes),
         follow_redirects=False,
         trust_env=False,
     )

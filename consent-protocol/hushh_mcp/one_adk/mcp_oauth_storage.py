@@ -24,7 +24,7 @@ from hushh_mcp.one_adk.request_secrets import (
     resolve_request_secret,
     store_request_secret,
 )
-from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
+from hushh_mcp.services.mcp_public_http import create_public_mcp_http_client, validate_mcp_endpoint
 
 
 class _SafeOAuthDiagnostic(logging.Filter):
@@ -136,6 +136,10 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     Fresh authorization only: vault refresh credentials must not enter a provider
     that has not yet established the authorization server/token endpoint.
     """
+
+    def create_http_client(self) -> httpx.AsyncClient:
+        """Caller closes the client; no environment proxies or automatic redirects."""
+        return create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
 
     def _admit_metadata_response(self, outgoing: httpx.Request, response: httpx.Response) -> None:
         if (

@@ -271,3 +271,22 @@ async def test_abandoned_connect_generator_clears_storage():
     await anext(flow)
     await flow.aclose()
     assert storage._closed
+
+
+@pytest.mark.asyncio
+async def test_connect_client_uses_guarded_bounded_transport():
+    from hushh_mcp.services.mcp_public_http import PublicMcpTransport
+
+    storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
+    provider = ConnectOnlyMcpOAuthProvider(
+        "https://connector.example/mcp",
+        OAuthClientMetadata(redirect_uris=["https://app.example/return"]),
+        storage,
+    )
+    async with provider.create_http_client() as client:
+        assert isinstance(client._transport, PublicMcpTransport)
+        assert client._transport._max_response_bytes == 65_536
+        assert not client.follow_redirects
+        assert not client.trust_env
+        assert client.auth is provider
+    storage.close()

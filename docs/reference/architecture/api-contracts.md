@@ -1145,7 +1145,13 @@ Authorization/Cookie headers, and credential POSTs use admitted endpoints only.
 Failure, cancellation and generator abandonment
 clear the temporary storage. The synthetic tests exercise these boundaries, not
 a public callback API. Before activation, bind callback owner/attempt/issuer,
-bound discovery response bodies and fail closed on lost worker continuity.
+and fail closed on lost worker continuity. The adapter's `create_http_client`
+uses the existing public-network transport with a 65,536-byte streamed response
+limit. It requests identity encoding and rejects compressed responses before
+decompression, keeping the bound meaningful. Redirects and environment proxies
+remain disabled. Ordinary MCP clients retain their existing stream behavior;
+this additional bound is specific to OAuth setup. Synthetic transport tests cover
+exact-limit bodies, overflow, compression refusal and stream closure.
 The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
 initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
