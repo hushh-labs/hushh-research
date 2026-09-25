@@ -705,11 +705,47 @@ Puppy and browser access from separate networks remain unverified.
 Source inspection found that market refresh holds a pooled database connection
 through provider calls while its advisory lock is held in
 `MarketCacheStoreService.try_with_advisory_lock`. The first failed run's logs
-also show pool-acquisition timeouts with `DB_POOL_MAX_SIZE=4`. This is a
-capacity and reliability follow-up for the backend owner; the passing retry
-does not prove that contention is gone. A later `main` added its own migration
-245 after this candidate froze its 245–247 sequence, so branch-to-main
-freshness and migration numbering must be reconciled before PR promotion.
+also show pool-acquisition timeouts with `DB_POOL_MAX_SIZE=4`. At that
+revision, this was a capacity and reliability follow-up for the backend owner;
+the passing retry did not prove that contention was gone. A later `main` added
+its own migration 245 after this candidate froze its 245–247 sequence, so
+branch-to-main freshness and migration numbering must be reconciled before PR
+promotion.
+
+### Combined ADK and pod dev verification — 2026-09-25
+
+The pod branch integrated the locally committed ADK connector, chat and
+generated-contract changes through `44c22dec4`, along with the Settings icon,
+Software updates title/current-version display and refresh-state corrections.
+The application revision `ca6ac85672f98b8e3c3608557b0dbb03f5af1b8c`
+passed [full PR Validation run 36176404262](https://github.com/hushh-labs/hushh-research/actions/runs/36176404262),
+including protocol, web core and targeted contracts, integration, MCP package,
+Android and iOS. The run was dispatched for the application branch; it did not
+merge that branch into `main`.
+
+[Governed dev run 36180318045](https://github.com/hushh-labs/hushh-research/actions/runs/36180318045)
+used that exact SHA with `scope=auto` and selected both services. Its release
+artifact reports `healthy`, with successful candidate, provenance, runtime
+parity, semantic and postdeploy database checks. At readback, backend revision
+`consent-protocol-00098-gdm` and frontend revision `hushh-webapp-00068-dwt`
+each served 100% traffic. Both revision labels bind `dev`, `deploy-dev`, run
+`36180318045` and the application SHA. Their image digests are respectively
+`sha256:c972e8636bfbaefc1baccc9096afe36f32f502f4fe854124eb29f32fd14b7d0a`
+and `sha256:fc4d9db6d766465da6c73541dc21dc669988dd2b3bc410691424c4485c7305a4`.
+The backend `/health` and frontend `/login` returned HTTP 200. The prior
+revisions `consent-protocol-00097-nk6` and `hushh-webapp-00067-d96` remain
+the recorded workflow rollback targets.
+
+The pool-contention fix at `5d6a7ba` had already reached dev backend revision
+`consent-protocol-00097-nk6` in [run 36170671087](https://github.com/hushh-labs/hushh-research/actions/runs/36170671087).
+The latest dev run's semantic check passed; sustained capacity under concurrent
+market refresh and requests remains an independent load-test question. The
+candidate did not install a new image on the named BYOC test pod or widen its
+private ingress. An owner-approved upgrade with recovery, live browser and
+Puppy access to the same pod from separate networks, and direct-route refusal
+checks remain unverified. This dev source release does not establish UAT or
+production readiness. The branch still requires a fresh `main` reconciliation,
+including the migration 245 collision, before an application PR is ready.
 
 ## Follow-up ownership
 
