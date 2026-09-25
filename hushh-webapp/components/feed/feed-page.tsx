@@ -40,6 +40,7 @@ import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   FeedService,
@@ -435,12 +436,7 @@ function FeedPageSession({
       ...(data?.items ?? []),
       ...pagination.additionalItems,
     ]) {
-      if (
-        item.source_domain === "connected_systems" &&
-        !isLocalCrmBuildEnabled()
-      ) {
-        continue;
-      }
+      if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
       if (seen.has(item.id)) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
         continue;
