@@ -439,10 +439,13 @@ def test_prepare_stream_emits_public_stages_then_status(setup, monkeypatch):
     client, app, _, current = setup
     unlock(app)
 
-    async def run_one(*, user_id, request_id, on_stage):
+    async def run_one(*, user_id, request_id, on_stage, on_progress):
         assert (user_id, request_id) == ("recipient", REQUEST_ID)
         for stage in ("searching", "choosing", "checking", "checking"):
             on_stage(stage)
+        on_progress(1, 2)
+        on_progress(2, 2)
+        on_progress(0, 2)  # invalid counts cannot reach the owner
         return "review_ready"
 
     factory = stream_worker(monkeypatch, run_one)
@@ -455,6 +458,8 @@ def test_prepare_stream_emits_public_stages_then_status(setup, monkeypatch):
         ("stage", {"event": "stage", "stage": "searching"}),
         ("stage", {"event": "stage", "stage": "choosing"}),
         ("stage", {"event": "stage", "stage": "checking"}),
+        ("file", {"event": "file", "completed": 1, "total": 2}),
+        ("file", {"event": "file", "completed": 2, "total": 2}),
         ("complete", {"event": "complete", "status": "review_ready"}),
     ]
     # Before the 200 and again after the run, like POST /prepare.
@@ -545,7 +550,7 @@ async def test_prepare_stream_disconnect_never_cancels_the_preparation(monkeypat
     release = asyncio.Event()
     finished = []
 
-    async def run_one(*, user_id, request_id, on_stage):
+    async def run_one(*, user_id, request_id, on_stage, on_progress):
         await release.wait()
         finished.append(request_id)
         return "review_ready"
@@ -573,7 +578,7 @@ async def test_prepare_stream_deadline_closes_without_a_terminal_frame(monkeypat
 
     release = asyncio.Event()
 
-    async def run_one(*, user_id, request_id, on_stage):
+    async def run_one(*, user_id, request_id, on_stage, on_progress):
         await release.wait()
         return "review_ready"
 

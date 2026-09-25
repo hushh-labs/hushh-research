@@ -231,6 +231,110 @@ def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
     LiveSearchPlan.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    "question, field",
+    [
+        ("Which files were modified in the last two days?", "modifiedTime"),
+        ("What Drive files were created within the past 2 days?", "createdTime"),
+    ],
+)
+async def test_simple_file_activity_listing_skips_model_and_content(monkeypatch, question, field):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
+    listed = {
+        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+        "name": "Recent budget.pdf",
+        "mime_type": "application/pdf",
+        "modified_time": "2026-09-24T10:00:00Z",
+        "created_time": "2026-09-24T09:00:00Z",
+        "source_ref": "document:" + "a" * 32,
+        "open_url": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view",
+    }
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [listed], "truncated": False}),
+        read_matches=AsyncMock(side_effect=AssertionError("content read")),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(side_effect=AssertionError("model planner reached"))
+    selector = AsyncMock(side_effect=AssertionError("candidate selector reached"))
+    interpreter = AsyncMock(side_effect=AssertionError("content interpreter reached"))
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+        interpreter=interpreter,
+    )
+
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query=question,
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+
+    assert reader.find.await_args.kwargs == {
+        "query": [],
+        "file_kind": "any",
+        "shared_with_me": False,
+        "recent": True,
+        "time_field": field,
+        "start_time": "2026-09-22T17:00:00Z",
+        "end_time": "2026-09-24T17:00:00Z",
+    }
+    assert outcome["status"] == "ok"
+    assert outcome["titles"] == ["Recent budget.pdf"]
+    assert outcome["metadata_only"] is True
+    assert outcome["selection"]["stage"] == "metadata_listing"
+    shown = drive_chat_service._found_files(
+        outcome["files"],
+        truncated=outcome["found_truncated"],
+        time_window=outcome["time_window"],
+        date_field=outcome["date_field"],
+        timezone=outcome["timezone"],
+    )
+    assert "Recent budget" in shown and "2026-09-24" in shown
+    assert "Asia/Kolkata" in shown
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+    interpreter.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Which files were modified in the last two days and what changed?",
+        "Which files were modified in the last two days for the sales team?",
+        "Which file was modified on September 24?",
+    ],
+)
+async def test_ambiguous_file_activity_question_keeps_model_planning(monkeypatch, question):
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [], "truncated": False}),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(
+        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+    )
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+    )
+
+    await chat.run_live_query(
+        user_id="owner", consent_token="", query=question, require_access=AsyncMock()
+    )
+
+    planner.assert_awaited_once()
+
+
 async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monkeypatch):
     class _FrozenDatetime(datetime):
         @classmethod

@@ -326,6 +326,10 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Drive",
     message: "Checking selected file status.",
   },
+  ask_documents_agent: {
+    label: "Google Drive",
+    message: "Searching your Drive for this answer.",
+  },
   list_pending_connection_requests: {
     label: "Connection requests",
     message: "Checking your pending connection requests.",

@@ -7,9 +7,11 @@ the sharing store. No selected-file row or indexing operation is involved.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
@@ -28,7 +30,9 @@ MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
 EXCERPT_CHARS = 4000
-SEARCH_PAGE_SIZE = 8
+# Match the existing result cap in one bounded Drive files.list request. The
+# previous eight-file page made a full result require four serial round trips.
+SEARCH_PAGE_SIZE = MAX_SEARCH_RESULTS
 MAX_SEARCH_PAGES = 6
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
@@ -605,7 +609,13 @@ class DriveLiveReader:
         await self.require_current()
         return {"untrusted_external_content": content, "truncated": truncated}
 
-    async def read_matches(self, *, matches: list[dict], truncated: bool = False) -> dict:
+    async def read_matches(
+        self,
+        *,
+        matches: list[dict],
+        truncated: bool = False,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict:
         """Read only the already-found, supported files for an explicit read request."""
         if not isinstance(matches, list) or len(matches) > MAX_SEARCH_RESULTS:
             raise DriveReadError("narrow_selection_required")
@@ -618,6 +628,7 @@ class DriveLiveReader:
             truncated=truncated or len(matches) > MAX_READS,
             expected_names=expected,
             match_refs={item["file_id"]: item.get("source_ref") for item in chosen},
+            on_progress=on_progress,
         )
 
     async def _read_file_ids(
@@ -628,6 +639,7 @@ class DriveLiveReader:
         truncated: bool,
         expected_names: dict[str, str] | None = None,
         match_refs: dict[str, str | None] | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> dict:
         """Read bounded text; report each file that could not be read, with why.
 
@@ -638,14 +650,14 @@ class DriveLiveReader:
         content: list[dict] = []
         unreadable: list[dict] = []
         self._rows = []
-        # Every chosen file gets an equal share of what is left of the context,
-        # so six monthly statements all reach the model instead of three in
-        # full and none of the rest; an unreadable or short file leaves its
-        # share to the files after it. The budget check below stays the hard
-        # limit.
-        for position, file_id in enumerate(file_ids):
+        # Only two independent Google reads run at once. Each retains its own
+        # before/read/after source and access fences; results are consumed in
+        # the original search order so the excerpt budget remains deterministic.
+        for file_id in file_ids:
             if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
                 raise DriveReadError("provider_response_invalid")
+
+        async def read_one(file_id: str):
             await self.require_access()
             try:
                 metadata = await self.adapter.get_metadata(
@@ -662,7 +674,14 @@ class DriveLiveReader:
                     arguments={"fileId": file_id},
                 )
                 body = self._content(read)
-                await self.require_access()
+            except DriveReadError as error:
+                if str(error) in UNREADABLE:
+                    return None, None, str(error)
+                raise
+            # Authority failure is never an unreadable document, even when a
+            # gate happens to use an allowlisted provider error code.
+            await self.require_access()
+            try:
                 after = await self.adapter.get_metadata(
                     file_id=file_id,
                     access_token=credential["accessToken"],
@@ -673,50 +692,97 @@ class DriveLiveReader:
                     raise DriveReadError("source_changed")
             except DriveReadError as error:
                 if str(error) in UNREADABLE:
+                    return None, None, str(error)
+                raise
+            return metadata, body, None
+
+        pending: dict[int, asyncio.Task] = {}
+        next_index = 0
+
+        def start_reads() -> None:
+            nonlocal next_index
+            while len(pending) < 2 and next_index < len(file_ids):
+                pending[next_index] = asyncio.create_task(read_one(file_ids[next_index]))
+                next_index += 1
+
+        start_reads()
+        # Every chosen file gets an equal share of what is left of the context,
+        # so six monthly statements all reach the model instead of three in
+        # full and none of the rest; an unreadable or short file leaves its
+        # share to the files after it. The budget check below stays the hard
+        # limit.
+        try:
+            for position, file_id in enumerate(file_ids):
+                metadata, body, reason = await pending.pop(position)
+                if on_progress is not None:
+                    try:
+                        # Counts only. The callback never receives a private
+                        # title, file ID, source ref or document bytes.
+                        on_progress(position + 1, len(file_ids))
+                    except Exception:  # noqa: BLE001 - progress cannot fail a read
+                        pass
+                if reason is not None:
                     unreadable.append(
                         {
                             "name": (expected_names or {}).get(file_id),
-                            "reason": str(error),
+                            "reason": reason,
                             "source_ref": (match_refs or {}).get(file_id),
                         }
                     )
                     truncated = True
+                    start_reads()
                     continue
-                raise
-            document_id = str(uuid4())
-            entry = {
-                "source_ref": "document:" + hashlib.sha256(document_id.encode()).hexdigest()[:32],
-                "document_ref": document_id,
-                "name": metadata.name,
-                "page": None,
-                "text": "",
-                "source_version": metadata.version,
-            }
-            # Two bytes for the list separator; the list's brackets are in used.
-            share = (MAX_CONTEXT_BYTES - _json_size(content)) // (len(file_ids) - position) - 2
-            entry["text"] = _fitted_excerpt(entry, body, limit=share)
-            if not entry["text"]:
-                # No room left for even a fragment of this file.
-                truncated = True
-                break
-            if len(entry["text"]) < len(body) or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
-                truncated = True
-            if len(json.dumps(content + [entry], ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
-                truncated = True
-                break
-            content.append(entry)
-            self._rows.append(
-                {
-                    "document_id": document_id,
-                    "file_id": metadata.file_id,
+                document_id = str(uuid4())
+                entry = {
+                    "source_ref": "document:"
+                    + hashlib.sha256(document_id.encode()).hexdigest()[:32],
+                    "document_ref": document_id,
                     "name": metadata.name,
+                    "page": None,
+                    "text": "",
                     "source_version": metadata.version,
-                    "content_fingerprint": hashlib.sha256(body.encode("utf-8")).hexdigest(),
-                    "connection_generation": self._generation,
-                    "_live": True,
                 }
-            )
-        await self.require_current()
+                # Two bytes for the list separator; the list's brackets are in used.
+                share = (MAX_CONTEXT_BYTES - _json_size(content)) // (len(file_ids) - position) - 2
+                entry["text"] = _fitted_excerpt(entry, body, limit=share)
+                if not entry["text"]:
+                    # No room left for even a fragment of this file.
+                    truncated = True
+                    break
+                if len(entry["text"]) < len(body) or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
+                    truncated = True
+                if (
+                    len(json.dumps(content + [entry], ensure_ascii=False).encode())
+                    > MAX_CONTEXT_BYTES
+                ):
+                    truncated = True
+                    break
+                content.append(entry)
+                self._rows.append(
+                    {
+                        "document_id": document_id,
+                        "file_id": metadata.file_id,
+                        "name": metadata.name,
+                        "source_version": metadata.version,
+                        "content_fingerprint": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                        "connection_generation": self._generation,
+                        "_live": True,
+                    }
+                )
+                start_reads()
+            await self.require_current()
+        except BaseException:
+            # A fatal read, source change or cancellation must not retain a
+            # partially assembled set of observations for a later caller.
+            self._rows = []
+            raise
+        finally:
+            # A bounded read may stop at the context limit; never leave the
+            # prefetched sibling running after that or after an error.
+            if pending:
+                for task in pending.values():
+                    task.cancel()
+                await asyncio.gather(*pending.values(), return_exceptions=True)
         return {
             "untrusted_external_content": content,
             "truncated": truncated,

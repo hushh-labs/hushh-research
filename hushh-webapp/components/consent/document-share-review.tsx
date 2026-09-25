@@ -32,6 +32,7 @@ import {
   DriveSharingService,
   StreamUnavailable,
   type PrepareStage,
+  type PrepareFileProgress,
   type SharingStatus,
   type SharingReview,
   type SharingDelivery,
@@ -62,6 +63,7 @@ type Report = {
   publish: (next: Snapshot) => void;
   enter: () => void;
   stage: (stage: PrepareStage | null) => void;
+  progress: (progress: PrepareFileProgress | null) => void;
   acknowledged: () => void;
   signal: AbortSignal;
 };
@@ -223,6 +225,7 @@ function UnlockedDocumentReview({
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [activity, setActivity] = useState<Activity>("loading");
   const [stage, setStage] = useState<PrepareStage | null>(null);
+  const [fileProgress, setFileProgress] = useState<PrepareFileProgress | null>(null);
   const [findingSince, setFindingSince] = useState<number | null>(null);
   const [stalled, setStalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -301,7 +304,11 @@ function UnlockedDocumentReview({
           token,
           requestId,
           guard,
-          { onStage: report.stage, signal: report.signal },
+          {
+            onStage: report.stage,
+            onProgress: report.progress,
+            signal: report.signal,
+          },
         );
         answered = outcome !== "interrupted";
       } catch (cause) {
@@ -377,11 +384,18 @@ function UnlockedDocumentReview({
           busy.current = "load";
           quiet.current = false;
           setStage(null);
+          setFileProgress(null);
           setActivity("finding_files");
           setFindingSince((previous) => previous ?? Date.now());
         },
         stage: (next) => {
-          if (current()) setStage(next);
+          if (current()) {
+            setStage(next);
+            setFileProgress(null);
+          }
+        },
+        progress: (next) => {
+          if (current()) setFileProgress(next);
         },
         // Accepted work is announced now, not after a search that may follow.
         acknowledged: () => {
@@ -417,6 +431,7 @@ function UnlockedDocumentReview({
             if (!current()) apply(null);
             setActivity("idle");
             setStage(null);
+            setFileProgress(null);
             if (
               focusStatus &&
               current() &&
@@ -572,7 +587,9 @@ function UnlockedDocumentReview({
     activity === "loading"
       ? ACTIVITY_LABELS.loading
       : activity === "finding_files"
-        ? STAGE_LABELS[stage ?? "starting"]
+        ? stage === "checking" && fileProgress
+          ? `Checked ${fileProgress.completed} of ${fileProgress.total} ${fileProgress.total === 1 ? "file" : "files"}…`
+          : STAGE_LABELS[stage ?? "starting"]
         : activity !== "idle"
           ? ACTIVITY_LABELS[activity]
           : !snapshot

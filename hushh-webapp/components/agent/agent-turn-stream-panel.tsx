@@ -23,6 +23,8 @@ export type AgentVisibleStreamEvent = {
   createdAtMs: number;
 };
 
+export const PRIVATE_MEMORY_PREPARATION_EVENT_ID = "private-memory-preparation";
+
 export type AgentTurnStreamPanelProps = {
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
@@ -157,6 +159,11 @@ export function AgentTurnStreamPanel({
     [streamEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const preparingPrivateMemory = streamEvents.some(
+    (event) =>
+      event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID &&
+      event.status === "running",
+  );
   const experienceItems = useMemo(
     () =>
       structuredExperiences.length > 0
@@ -186,7 +193,9 @@ export function AgentTurnStreamPanel({
           </div>
         ) : null
       }
-      responsePendingLabel="One is preparing your response."
+      responsePendingLabel={
+        preparingPrivateMemory ? undefined : "One is preparing your response."
+      }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}

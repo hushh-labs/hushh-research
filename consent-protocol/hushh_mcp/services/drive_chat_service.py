@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_live_reader import MAX_READS, DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import (
     interpret_live_search,
     plan_live_search,
+    simple_file_activity_plan,
 )
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -381,19 +382,21 @@ class DriveChatService:
                 if live:
                     stage = "search_plan"
                     await require_access()
-                    plan = await plan_live_search(
-                        self.search_planner,
-                        prompt=json.dumps(
-                            {
-                                "document_request": {"purpose": message},
-                                "previous_answer": previous_answer[:2000],
-                                "current_time_utc": now_utc.isoformat(),
-                                "user_timezone": owner_timezone,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        user_id=user_id,
-                    )
+                    plan = simple_file_activity_plan(message)
+                    if plan is None:
+                        plan = await plan_live_search(
+                            self.search_planner,
+                            prompt=json.dumps(
+                                {
+                                    "document_request": {"purpose": message},
+                                    "previous_answer": previous_answer[:2000],
+                                    "current_time_utc": now_utc.isoformat(),
+                                    "user_timezone": owner_timezone,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            user_id=user_id,
+                        )
                     query = plan.terms
                     if _EXPLICIT_FILE_REFERENCE.search(message) and (
                         not plan.exact_title
