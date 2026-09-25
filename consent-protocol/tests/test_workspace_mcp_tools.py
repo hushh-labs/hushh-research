@@ -167,6 +167,49 @@ async def test_mismatched_owner_never_reaches_provider(admission):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("disabled_feature", ["google_drive_live"])
+async def test_drive_discovery_does_not_offer_unavailable_sign_in(
+    admission, monkeypatch, disabled_feature
+):
+    monkeypatch.setattr(
+        tools,
+        "connector_feature_enabled",
+        lambda feature, _owner: feature != disabled_feature,
+    )
+    result = await tools.discover_workspace_tools("drive", context())
+    assert result["status"] == "blocked"
+    assert result.get("provider") is None
+    admission.discover_for_owner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_existing_drive_read_survives_new_connection_rollout_off(admission, monkeypatch):
+    monkeypatch.setattr(
+        tools,
+        "connector_feature_enabled",
+        lambda feature, _owner: feature != "google_drive_connection",
+    )
+    result = await tools.read_workspace_tool("drive", "search_files", {}, context())
+    assert result["status"] == "ok"
+    admission.read_tool.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_drive_missing_grant_does_not_offer_disabled_sign_in(admission, monkeypatch):
+    monkeypatch.setattr(
+        tools,
+        "connector_feature_enabled",
+        lambda feature, _owner: feature != "google_drive_connection",
+    )
+    admission.discover_for_owner.side_effect = tools.DriveOAuthError(
+        "reconnect_required", status_code=401
+    )
+    result = await tools.discover_workspace_tools("drive", context())
+    assert result["status"] == "unavailable"
+    assert "provider" not in result
+
+
+@pytest.mark.asyncio
 async def test_revoked_grant_discards_completed_private_result(admission, monkeypatch):
     monkeypatch.setattr(tools, "_grant_binding", AsyncMock(return_value=None))
     result = await tools.read_workspace_tool("calendar", "list_events", {}, context())
