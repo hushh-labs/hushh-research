@@ -162,6 +162,9 @@ class SpecialistReadResult(BaseModel):
     sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
     truncated: bool = False
     metadata_only: bool = False
+    # Owner-only UI affordance. It never grants a read or a share; the separate
+    # compilation route rechecks the owner and discovers the files again.
+    owner_compile_available: bool = False
 
 
 @dataclass(frozen=True)

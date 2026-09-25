@@ -136,13 +136,17 @@ class GoogleDriveRestTransport:
                 file_id=file_id, mime_type=metadata.mime_type, access_token=token
             )
             try:
-                text = "\n\n".join(page for page in parse_document(content, mime_type).pages)
+                parsed = parse_document(content, mime_type)
+                text = "\n\n".join(parsed.pages)
             except ParseError as error:
                 code = str(error)
                 if code in PARSE_REASONS:
                     return {"textFormattingNotSupported": True, "reason": code}
                 return {"textFormattingNotSupported": True}
-            return {"fileContent": text}
+            return {
+                "fileContent": text,
+                **({"contentTruncated": True} if parsed.truncated else {}),
+            }
         page_size = arguments.get("pageSize", 8)
         page_token = arguments.get("pageToken")
         if (

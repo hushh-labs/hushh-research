@@ -18,6 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.drive_content_compilation import (
+    CompilationInputError,
+    DriveContentCompilationService,
+)
 from hushh_mcp.services.drive_live_query_service import DriveLiveQueryService
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
@@ -25,6 +30,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     recipient_from_verified_firebase_claims,
 )
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
@@ -515,6 +521,172 @@ async def prepare_request_stream(
         raise _error(DriveSharingError("sharing_unavailable"))
     return StreamingResponse(
         _prepare_stream(request=request, owner=owner, request_id=str(request_id)),
+        media_type="text/event-stream",
+        headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+class OwnerCompilationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    message: str = Field(min_length=1, max_length=2048)
+    timezone: str = Field(default="UTC", max_length=64)
+
+
+COMPILE_STREAM_HEARTBEAT_SECONDS = 15.0
+COMPILE_STREAM_DEADLINE_SECONDS = 330.0
+COMPILE_STREAM_CHUNK_CHARS = 2048
+COMPILE_STREAM_MAX_ACTIVE = 4
+_COMPILE_STREAM_ACTIVE = 0
+_COMPILE_STREAM_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _compilation_error(error: Exception) -> tuple[str, str]:
+    if isinstance(error, CompilationInputError):
+        return "input_required", str(error)
+    if isinstance(error, (DriveReadError, DriveOAuthError)):
+        code = str(error)
+        if code in {"connect_required", "not_connected"}:
+            return "connect_required", "Connect live Drive access to compile these notes."
+        if code in {"reconnect_required", "needs_reauth", "grant_rejected"}:
+            return "reconnect_required", "Reconnect Drive to compile these notes."
+        if code in {"connection_changed", "source_changed"}:
+            return "connection_changed", "A Drive file or connection changed. Try again."
+        if code == "response_too_large":
+            return "response_too_large", "These notes exceed the download limit. Narrow the period."
+    return "unavailable", "Drive could not complete the compilation right now."
+
+
+async def _compile_stream(
+    *, request: Request, owner: Owner, body: OwnerCompilationRequest
+) -> AsyncGenerator[bytes, None]:
+    """Count-only progress, then full owner text only after every source fence."""
+    global _COMPILE_STREAM_ACTIVE
+    events: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+    async def require_compilation_access() -> None:
+        await owner.require_current()
+        if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
+            raise PermissionError("Drive chat reads are unavailable")
+
+    def on_stage(phase: str) -> None:
+        if phase in {"searching", "fetching", "finalizing"}:
+            events.put_nowait(("stage", {"phase": phase}))
+
+    def on_progress(completed: int, total: int, failed: int) -> None:
+        if 1 <= completed <= total <= 40 and 0 <= failed <= completed:
+            events.put_nowait(
+                (
+                    "file",
+                    {"phase": "fetching", "completed": completed, "total": total, "failed": failed},
+                )
+            )
+
+    async def run() -> None:
+        try:
+            result = await DriveContentCompilationService().compile(
+                user_id=owner.user_id,
+                message=body.message,
+                timezone=body.timezone,
+                require_access=require_compilation_access,
+                on_stage=on_stage,
+                on_progress=on_progress,
+            )
+            await require_compilation_access()
+            for index, offset in enumerate(
+                range(0, len(result.markdown), COMPILE_STREAM_CHUNK_CHARS)
+            ):
+                await events.put(
+                    (
+                        "markdown",
+                        {
+                            "index": index,
+                            "text": result.markdown[offset : offset + COMPILE_STREAM_CHUNK_CHARS],
+                        },
+                    )
+                )
+            events.put_nowait(
+                (
+                    "complete",
+                    {
+                        "status": result.status,
+                        "matched": result.matched,
+                        "included": result.included,
+                        "failed": result.failed,
+                        "truncated": result.truncated,
+                    },
+                )
+            )
+        except (HTTPException, PermissionError):
+            # A stream cannot switch its HTTP status after the first 200.
+            # End without a terminal result; the client treats it as interrupted.
+            events.put_nowait(None)
+        except Exception as error:  # noqa: BLE001 - sanitized stream boundary
+            code, message = _compilation_error(error)
+            logger.warning("drive_compilation.failed code=%s type=%s", code, type(error).__name__)
+            events.put_nowait(("error", {"code": code, "message": message}))
+
+    task = asyncio.create_task(run())
+    _COMPILE_STREAM_TASKS.add(task)
+    task.add_done_callback(_COMPILE_STREAM_TASKS.discard)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + COMPILE_STREAM_DEADLINE_SECONDS
+    try:
+        yield _sse_frame("stage", {"phase": "starting"})
+        while True:
+            if await request.is_disconnected():
+                return
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            try:
+                item = await asyncio.wait_for(
+                    events.get(), timeout=min(COMPILE_STREAM_HEARTBEAT_SECONDS, remaining)
+                )
+            except TimeoutError:
+                yield _sse_frame("heartbeat", {})
+                continue
+            if item is None:
+                return
+            event, payload = item
+            if event in {"markdown", "complete"}:
+                # The producer can queue a large result ahead of a slow client.
+                # Check at actual publication, not only while it is queued.
+                try:
+                    await require_compilation_access()
+                except (HTTPException, PermissionError):
+                    return
+            yield _sse_frame(event, payload)
+            if event in {"complete", "error"}:
+                return
+    finally:
+        # This is a read-only compilation with no durable lease or mutation.
+        # A disconnected caller should release its Google and CPU work.
+        try:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        finally:
+            _COMPILE_STREAM_ACTIVE -= 1
+
+
+@router.post("/owner/compile/stream")
+async def compile_owner_notes_stream(
+    request: Request,
+    body: OwnerCompilationRequest,
+    owner: Owner = Depends(_owner),
+):
+    global _COMPILE_STREAM_ACTIVE
+    await owner.require_current()
+    if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
+        raise HTTPException(403, "Drive chat reads are unavailable", headers=NO_STORE)
+    if _COMPILE_STREAM_ACTIVE >= COMPILE_STREAM_MAX_ACTIVE:
+        raise HTTPException(503, "Drive compilation is busy", headers=NO_STORE)
+    # No await separates admission and reservation, so concurrent HTTP calls
+    # cannot all enter before their streaming generators start.
+    _COMPILE_STREAM_ACTIVE += 1
+    return StreamingResponse(
+        _compile_stream(request=request, owner=owner, body=body),
         media_type="text/event-stream",
         headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )

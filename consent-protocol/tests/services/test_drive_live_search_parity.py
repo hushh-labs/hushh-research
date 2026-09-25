@@ -754,6 +754,7 @@ async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
     )
     assert response["structured"]["status"] == "ok"
     assert response["structured"]["metadata_only"] is True
+    assert response["structured"]["owner_compile_available"] is True
     assert "I found 30 candidate files" in response["response"]
     assert "30. Team Standup Sync Notes" in response["response"]
     assert f"{older_day:%Y/%m/%d}" not in response["response"]

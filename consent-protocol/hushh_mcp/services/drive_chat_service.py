@@ -76,7 +76,16 @@ async def interpret(*, prompt, user_id, consent_token):
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
-def result(conversation_id, answer, status, *, sources=(), truncated=False, metadata_only=False):
+def result(
+    conversation_id,
+    answer,
+    status,
+    *,
+    sources=(),
+    truncated=False,
+    metadata_only=False,
+    owner_compile_available=False,
+):
     return {
         "conversationId": conversation_id,
         "response": answer,
@@ -88,6 +97,7 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False, meta
             "sources": list(sources),
             "truncated": truncated,
             "metadata_only": metadata_only,
+            "owner_compile_available": owner_compile_available,
         },
     }
 
@@ -370,6 +380,10 @@ class DriveChatService:
             sources=outcome["sources"],
             truncated=outcome["truncated"],
             metadata_only=outcome["metadata_only"],
+            owner_compile_available=(
+                outcome["status"] == "ok"
+                and (outcome.get("selection") or {}).get("stage") == "owner_title_date_listing"
+            ),
         )
 
     async def run_live_query(

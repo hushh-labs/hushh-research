@@ -67,6 +67,51 @@ async def test_live_search_reads_without_indexing_and_fences_source():
 
 
 @pytest.mark.asyncio
+async def test_compilation_read_retains_full_text_and_rechecks_exact_source():
+    reader, adapter, mcp, fence = fixture()
+    long_body = "the whole original note\n" * 1500
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, {"fileContent": long_body}, False)
+    metadata, body, source_truncated = await reader.read_compilation_match(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert body == long_body
+    assert source_truncated is False
+    assert metadata.version == "11"
+    await reader.require_compilation_source_current(metadata=metadata)
+    assert adapter.get_metadata.await_count == 3
+    assert fence.await_count >= 5
+
+
+@pytest.mark.asyncio
+async def test_compilation_does_not_release_changed_or_renamed_source():
+    reader, adapter, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.read_compilation_match(
+            match={"file_id": "file-1", "name": "Different title", "mime_type": "application/pdf"}
+        )
+    mcp.read_tool.assert_not_awaited()
+
+    reader, adapter, _, _ = fixture()
+    old = adapter.get_metadata.return_value
+    metadata, _, _ = await reader.read_compilation_match(
+        match={"file_id": "file-1", "name": old.name, "mime_type": "application/pdf"}
+    )
+    adapter.get_metadata.return_value = DriveMetadata(
+        old.file_id,
+        old.name,
+        old.mime_type,
+        "12",
+        old.modified_time,
+        old.size,
+        old.checksum,
+        old.created_time,
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_compilation_source_current(metadata=metadata)
+
+
+@pytest.mark.asyncio
 async def test_changed_source_fails_before_review_publication():
     reader, adapter, _, _ = fixture()
     await reader.search(query=["statement"])
