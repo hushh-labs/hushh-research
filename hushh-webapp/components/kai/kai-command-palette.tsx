@@ -1,8 +1,13 @@
 "use client";
 
-import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
-
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   Activity,
   Compass,
@@ -22,7 +27,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command";
 import {
   Dialog,
@@ -31,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
@@ -43,7 +48,7 @@ import {
   getKaiActionById,
   listKaiActionsForSurface,
   searchKaiActions,
-  searchKaiActionsAsync,
+  searchKaiActionsSemantic,
   type KaiActionAvailability,
   type KaiActionDefinition,
 } from "@/lib/voice/kai-action-gateway";
@@ -57,8 +62,7 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
-import { Icon } from "@/lib/morphy-ux/ui";
-import { cn } from "@/lib/utils";
+import { Icon, type IconProps } from "@/lib/morphy-ux/ui";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   RECENT_ACTION_LIMIT,
@@ -73,6 +77,14 @@ export type KaiCommandPaletteSelection = {
   slots?: Record<string, unknown>;
 };
 
+/** A holding the person can analyze. Eligibility is decided by the caller. */
+export type KaiPortfolioTicker = {
+  symbol: string;
+  name?: string;
+  sector?: string;
+  asset_type?: string;
+};
+
 interface KaiCommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,15 +97,7 @@ interface KaiCommandPaletteProps {
   surfaceMetadata?: VoiceSurfaceMetadata | null;
   /** Scopes usage memory per account; a shared device must not blend habits. */
   userId?: string | null;
-  disabled?: boolean;
-  portfolioTickers?: Array<{
-    symbol: string;
-    name?: string;
-    sector?: string;
-    asset_type?: string;
-    is_investable?: boolean;
-    analyze_eligible?: boolean;
-  }>;
+  portfolioTickers?: KaiPortfolioTicker[];
 }
 
 const ANALYZE_PREFIX = "Analyze ";
@@ -117,6 +121,14 @@ export function deriveFinanceTickerQuery(
  * what is reachable -- anything cut here is still one typed word away.
  */
 const GROUP_LIMIT = 6;
+
+/**
+ * Typing pauses this long before a backend is asked. Local results render on
+ * every keystroke; these only add to them.
+ */
+const SEMANTIC_SEARCH_DELAY_MS = 180;
+const TICKER_SEARCH_DELAY_MS = 160;
+const TICKER_RESULT_LIMIT = 20;
 
 /**
  * Control ids currently present and enabled in the document.
@@ -212,23 +224,24 @@ export function actionTargetsCurrentSurface(
   return Boolean(targetSubview) && targetSubview === subview;
 }
 
-function isPortfolioAnalyzeEligible(row: {
-  is_investable?: boolean;
-  analyze_eligible?: boolean;
-  asset_type?: string;
-}): boolean {
-  if (typeof row.analyze_eligible === "boolean") return row.analyze_eligible;
-  if (row.is_investable !== true) return false;
-  const assetType = String(row.asset_type || "").toLowerCase();
-  if (
-    assetType.includes("cash") ||
-    assetType.includes("sweep") ||
-    assetType.includes("bond") ||
-    assetType.includes("fixed income")
-  ) {
-    return false;
-  }
-  return true;
+/** Whether choosing an action with this availability does anything. */
+function isRunnable(availability: KaiActionAvailability): boolean {
+  return (
+    availability.status !== "dead" &&
+    availability.status !== "unwired" &&
+    availability.status !== "manual_only" &&
+    availability.status !== "blocked"
+  );
+}
+
+/** Finance owns ticker rows; searching on Location must not answer with equities. */
+function isFinancePath(pathname: string): boolean {
+  return (
+    pathname === KAI_MARKET_PATH ||
+    pathname.startsWith(`${KAI_MARKET_PATH}/`) ||
+    pathname === ROUTES.LEGACY_KAI_HOME ||
+    pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`)
+  );
 }
 
 function isLikelySecCommonEquityRow(row: TickerUniverseRow): boolean {
@@ -293,6 +306,7 @@ function pickPreferredLabel(values: Array<unknown>): string | undefined {
   return fallback;
 }
 
+/** How well a row describes its ticker; picks between duplicates of one symbol. */
 function rankTickerRow(row: TickerUniverseRow, qUpper: string): number {
   const prefixBoost = String(row.ticker || "")
     .toUpperCase()
@@ -311,6 +325,172 @@ function rankTickerRow(row: TickerUniverseRow, qUpper: string): number {
   return prefixBoost + confidence + sectorBoost + exchangeBoost;
 }
 
+/** One tradable row per ticker, keeping the best-described duplicate. */
+function dedupeTickerRows(
+  rows: TickerUniverseRow[],
+  qUpper: string,
+): TickerUniverseRow[] {
+  const byTicker = new Map<string, TickerUniverseRow>();
+  for (const row of rows) {
+    const ticker = String(row.ticker || "")
+      .trim()
+      .toUpperCase();
+    if (!ticker || row.tradable === false) continue;
+    const normalized: TickerUniverseRow = {
+      ...row,
+      ticker,
+      sector: pickPreferredLabel([row.sector, row.sector_primary]),
+      sector_primary: pickPreferredLabel([row.sector_primary, row.sector]),
+    };
+    const existing = byTicker.get(ticker);
+    if (
+      !existing ||
+      rankTickerRow(normalized, qUpper) > rankTickerRow(existing, qUpper)
+    ) {
+      byTicker.set(ticker, normalized);
+    }
+  }
+  return Array.from(byTicker.values());
+}
+
+/**
+ * Typed: symbols that start with the query first. Untyped: the person's own
+ * holdings first. Then metadata confidence, then alphabetical.
+ */
+function compareTickerRows(
+  a: TickerUniverseRow,
+  b: TickerUniverseRow,
+  qUpper: string,
+  portfolio: ReadonlySet<string>,
+): number {
+  if (qUpper) {
+    const aPrefix = a.ticker.startsWith(qUpper) ? 1 : 0;
+    const bPrefix = b.ticker.startsWith(qUpper) ? 1 : 0;
+    if (aPrefix !== bPrefix) return bPrefix - aPrefix;
+  } else {
+    const aPortfolio = portfolio.has(a.ticker) ? 1 : 0;
+    const bPortfolio = portfolio.has(b.ticker) ? 1 : 0;
+    if (aPortfolio !== bPortfolio) return bPortfolio - aPortfolio;
+  }
+  const aScore = Number(a.metadata_confidence || 0);
+  const bScore = Number(b.metadata_confidence || 0);
+  if (aScore !== bScore) return bScore - aScore;
+  return a.ticker.localeCompare(b.ticker);
+}
+
+type RowIcon = IconProps["icon"];
+
+/** A few destinations have a recognisable icon; every other command shares one. */
+const COMMAND_ICONS: Partial<Record<string, RowIcon>> = {
+  "route.profile": UserRound,
+  "route.consents": ShieldCheck,
+  "route.analysis_history": History,
+  "route.kai_home": Compass,
+};
+
+/**
+ * One result, rendered by both layouts: a cmdk item on desktop, a plain
+ * button on phones. Building rows once is what keeps the two from drifting.
+ */
+type PaletteRow = {
+  /** Unique across the palette: the React key and cmdk's selection value. */
+  value: string;
+  label: string;
+  /** A ticker's company, or why a surface is suggesting this action. */
+  detail?: string | null;
+  icon: RowIcon;
+  accent?: boolean;
+  /** Ticker rows lead with the symbol in bold. */
+  ticker?: boolean;
+  disabled: boolean;
+  run: () => void;
+};
+
+type PaletteSection = {
+  heading: string;
+  rows: PaletteRow[];
+  /** Shown instead of rows when there are none, e.g. why the market is empty. */
+  emptyNote?: string;
+};
+
+function PaletteRowContent({ row }: { row: PaletteRow }) {
+  return (
+    <>
+      <Icon
+        icon={row.icon}
+        size="sm"
+        className={row.accent ? "text-accent-strong" : "text-muted-foreground"}
+      />
+      {row.ticker ? (
+        <>
+          <span className="font-semibold">{row.label}</span>
+          {row.detail ? (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {row.detail}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <span className="flex min-w-0 flex-col">
+          <span className="min-w-0 truncate font-medium">{row.label}</span>
+          {row.detail ? (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {row.detail}
+            </span>
+          ) : null}
+        </span>
+      )}
+    </>
+  );
+}
+
+const fieldButtonClass =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground";
+
+function SearchFieldButtons({
+  showClear,
+  clearTestId,
+  onClear,
+  onClose,
+}: {
+  showClear: boolean;
+  clearTestId: string;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {showClear ? (
+        <button
+          type="button"
+          aria-label="Clear search input"
+          data-testid={clearTestId}
+          onClick={onClear}
+          className={fieldButtonClass}
+        >
+          <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        aria-label="Close search"
+        onClick={onClose}
+        className={fieldButtonClass}
+      >
+        <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+      </button>
+    </>
+  );
+}
+
+const commandItemClass =
+  "gap-4 rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+
+const mobileResultRowClass =
+  "flex min-h-11 w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[15px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:scale-[0.99] disabled:opacity-45";
+
+const noteClass = "px-3 py-6 text-center text-sm text-muted-foreground";
+
 export function KaiCommandPalette({
   open,
   onOpenChange,
@@ -322,7 +502,6 @@ export function KaiCommandPalette({
   capabilityState,
   surfaceMetadata,
   userId = null,
-  disabled = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
   // The semantic action search is a VAULT_OWNER-authenticated endpoint; the
@@ -331,218 +510,173 @@ export function KaiCommandPalette({
   const { vaultOwnerToken } = useVault();
   const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
-  const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
-    getTickerUniverseSnapshot(),
-  );
-  const [loadingUniverse, setLoadingUniverse] = useState<boolean>(!universe);
-  const [remoteMatches, setRemoteMatches] = useState<TickerUniverseRow[]>([]);
-  const [universeError, setUniverseError] = useState<string | null>(null);
-  const [remoteSearchError, setRemoteSearchError] = useState<string | null>(
-    null,
-  );
-  // Carries `availability`: the gateway re-checks it locally for every semantic
-  // hit (evaluateKaiActionAvailability), and every consumer below reads it to
-  // decide whether a row is disabled. Dropping it here discarded that work.
-  const [semanticMatches, setSemanticMatches] = useState<
-    Array<{
-      action: KaiActionDefinition;
-      availability: KaiActionAvailability;
-      score: number;
-      semantic?: true;
-    }>
-  >([]);
+  // cmdk's highlighted row. Tracked so Enter can tell "the top row, untouched"
+  // apart from a row the person arrowed to.
+  const [highlighted, setHighlighted] = useState("");
+  const trimmedQuery = query.trim();
+  const isFiltering = trimmedQuery.length > 0;
 
-  /**
-   * Ticker rows belong to Finance, not to every screen in the app.
-   *
-   * The palette began life on the Kai home and kept offering SEC ticker
-   * matches after it became global chrome, so searching on Location answered
-   * with equities. Keyed on the route rather than a hand-listed set of screen
-   * ids so it cannot drift.
-   */
-  const currentScreen = useMemo(
-    () => String(appRuntimeState?.route.screen || "").trim() || null,
-    [appRuntimeState],
-  );
+  const currentScreen =
+    String(appRuntimeState?.route.screen || "").trim() || null;
+  // `route.pathname` carries the query string as well -- the runtime state
+  // builder feeds it `pathnameWithQuery` -- so the path has to be split back
+  // out before it can be compared with a contract's route target.
+  const currentPath =
+    String(appRuntimeState?.route.pathname || "")
+      .trim()
+      .split("?")[0] || "";
+  const currentSubview =
+    String(appRuntimeState?.route.subview || "").trim() || null;
 
-  const financeSectionActive = useMemo(() => {
-    const pathname = String(appRuntimeState?.route.pathname || "").trim();
-    return (
-      pathname === KAI_MARKET_PATH ||
-      pathname.startsWith(`${KAI_MARKET_PATH}/`) ||
-      pathname.startsWith(`${KAI_MARKET_PATH}?`) ||
-      pathname === ROUTES.LEGACY_KAI_HOME ||
-      pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`)
-    );
-  }, [appRuntimeState]);
   // The authored Analysis action is the sole authority for this workflow.
   // Global query text must not act as a parallel semantic router.
   const financeAnalysisIntent = intent === "finance_stock_analysis";
-  const financeTickerQuery = useMemo(
-    () => deriveFinanceTickerQuery(query, intent),
-    [intent, query],
+  const showMarket = financeAnalysisIntent || isFinancePath(currentPath);
+  const tickerQuery = deriveFinanceTickerQuery(query, intent);
+
+  const isDiscoverable = useCallback(
+    (actionId: string) =>
+      !capabilityState ||
+      isDiscoverableCapability(
+        projectKaiActionCapability({
+          actionId,
+          state: capabilityState,
+          surfaceMetadata,
+        }),
+      ),
+    [capabilityState, surfaceMetadata],
   );
 
-  useEffect(() => {
-    if (!open) {
-      setSemanticMatches([]);
-      return;
-    }
-    let cancelled = false;
-    const trimmed = query.trim();
-
-    if (!trimmed) {
-      setSemanticMatches([]);
-      return;
-    }
-
-    let controller: AbortController | undefined;
-
-    void (async () => {
-      controller = new AbortController();
-      try {
-        const results = await searchKaiActionsAsync({
-          query: trimmed,
-          appRuntimeState,
-          surfaceMetadata,
-          limit: 10,
-          debounceMs: 180,
-          signal: controller.signal,
-          // The semantic endpoint authenticates with a VAULT_OWNER token. A
-          // locked vault means no token, which falls back to local search
-          // rather than failing the palette.
-          vaultOwnerToken,
-        });
-        if (!cancelled) {
-          setSemanticMatches(results);
-        }
-      } catch {
-        if (!cancelled) setSemanticMatches([]);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      controller?.abort();
-    };
-    // vaultOwnerToken is a real dependency, not decoration: the effect returns
-    // local-only results while the vault is locked, so unlocking must re-run it
-    // or the palette stays lexical for the rest of the session.
-  }, [open, query, appRuntimeState, surfaceMetadata, vaultOwnerToken]);
-
+  /**
+   * Captured when the palette opens, because they describe the page underneath
+   * and that page can change between openings. A dialog leaves the rest of the
+   * document mounted, so the control query still sees it.
+   */
+  const [tappableControlIds, setTappableControlIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set<string>());
+  const [usage, setUsage] = useState<readonly ActionUsageEntry[]>([]);
   useEffect(() => {
     if (!open) return;
-    setQuery(
-      initialQuery ??
-        (intent === "finance_stock_analysis" ? ANALYZE_PREFIX : ""),
-    );
-  }, [initialQuery, intent, open]);
+    setQuery(initialQuery ?? (financeAnalysisIntent ? ANALYZE_PREFIX : ""));
+    // A highlight left over from the last opening would stop cmdk from
+    // highlighting the top row of this one.
+    setHighlighted("");
+    setTappableControlIds(readTappableControlIds());
+    setUsage(readActionUsage(userId));
+  }, [financeAnalysisIntent, initialQuery, open, userId]);
 
+  // Results are tagged with the query they answer, so a slow response for an
+  // earlier query can never be shown against the current one.
+  const [semantic, setSemantic] = useState<{
+    query: string;
+    results: Awaited<ReturnType<typeof searchKaiActionsSemantic>>;
+  }>({ query: "", results: [] });
   useEffect(() => {
-    // The ticker universe is Finance's data. The palette began life on the Kai
-    // home and kept fetching it after it became global chrome, so opening
-    // search on Location paid for an equities index it would never show -- and
-    // surfaced "Ticker universe unavailable" on screens that have no tickers.
-    if (!open || (!financeSectionActive && !financeAnalysisIntent)) {
-      setLoadingUniverse(false);
-      return;
-    }
+    if (!open || !trimmedQuery || financeAnalysisIntent) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void searchKaiActionsSemantic({
+        query: trimmedQuery,
+        appRuntimeState,
+        surfaceMetadata,
+        limit: 10,
+        signal: controller.signal,
+        // A locked vault means no token, and the search stays local.
+        vaultOwnerToken,
+      }).then((results) => {
+        if (!controller.signal.aborted) {
+          setSemantic({ query: trimmedQuery, results });
+        }
+      });
+    }, SEMANTIC_SEARCH_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+    // vaultOwnerToken is a real dependency, not decoration: unlocking the vault
+    // must re-run the search or the palette stays lexical for the session.
+  }, [
+    appRuntimeState,
+    financeAnalysisIntent,
+    open,
+    surfaceMetadata,
+    trimmedQuery,
+    vaultOwnerToken,
+  ]);
 
+  // The ticker universe is Finance's data. Opening search anywhere else must
+  // not pay for an equities index it would never show.
+  const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
+    getTickerUniverseSnapshot,
+  );
+  const [loadingUniverse, setLoadingUniverse] = useState(false);
+  const [universeFailed, setUniverseFailed] = useState(false);
+  useEffect(() => {
+    if (!open || !showMarket) return;
     let cancelled = false;
-
-    void (async () => {
-      try {
-        setLoadingUniverse(true);
-        setUniverseError(null);
-        const rows = await preloadTickerUniverse();
-        if (!cancelled) {
-          setUniverse(rows);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setUniverse((prev) => prev ?? []);
-          setUniverseError(
-            error instanceof Error
-              ? error.message
-              : "Failed to load ticker universe",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingUniverse(false);
-        }
-      }
-    })();
-
+    setLoadingUniverse(true);
+    setUniverseFailed(false);
+    preloadTickerUniverse()
+      .then((rows) => {
+        if (!cancelled) setUniverse(rows);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setUniverse((prev) => prev ?? []);
+        setUniverseFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingUniverse(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [open, financeAnalysisIntent, financeSectionActive]);
+  }, [open, showMarket]);
 
+  const [remoteTickers, setRemoteTickers] = useState<{
+    query: string;
+    rows: TickerUniverseRow[];
+    failed: boolean;
+  }>({ query: "", rows: [], failed: false });
   useEffect(() => {
-    if (!open || (!financeSectionActive && !financeAnalysisIntent)) {
-      setRemoteMatches([]);
-      setRemoteSearchError(null);
-      return;
-    }
-
+    if (!open || !showMarket || tickerQuery.length < 2) return;
     let cancelled = false;
-    const q = financeTickerQuery;
-    if (q.length < 2) {
-      setRemoteMatches([]);
-      setRemoteSearchError(null);
-      return () => {
-        cancelled = true;
-      };
-    }
     const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const rows = await searchTickerUniverseRemote(q, 20);
+      searchTickerUniverseRemote(tickerQuery, TICKER_RESULT_LIMIT)
+        .then((rows) => {
           if (!cancelled) {
-            setRemoteMatches(rows);
-            setRemoteSearchError(null);
+            setRemoteTickers({ query: tickerQuery, rows, failed: false });
           }
-        } catch (error) {
+        })
+        .catch(() => {
           if (!cancelled) {
-            setRemoteMatches([]);
-            setRemoteSearchError(
-              error instanceof Error ? error.message : "Ticker search failed",
-            );
+            setRemoteTickers({ query: tickerQuery, rows: [], failed: true });
           }
-        }
-      })();
-    }, 160);
-
+        });
+    }, TICKER_SEARCH_DELAY_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, financeAnalysisIntent, financeTickerQuery, financeSectionActive]);
+  }, [open, showMarket, tickerQuery]);
+  const remote = remoteTickers.query === tickerQuery ? remoteTickers : null;
 
-  const universeByTicker = useMemo(() => {
-    const map = new Map<string, TickerUniverseRow>();
-    const rows = universe ?? [];
-    for (const row of rows) {
+  const portfolioRows = useMemo<TickerUniverseRow[]>(() => {
+    const enrichment = new Map<string, TickerUniverseRow>();
+    for (const row of universe ?? []) {
       const ticker = String(row.ticker || "")
         .trim()
         .toUpperCase();
-      if (!ticker) continue;
-      map.set(ticker, row);
+      if (ticker) enrichment.set(ticker, row);
     }
-    return map;
-  }, [universe]);
-
-  const portfolioRows = useMemo<TickerUniverseRow[]>(() => {
     const deduped = new Map<string, TickerUniverseRow>();
     for (const row of portfolioTickers) {
       const symbol = String(row.symbol || "")
         .trim()
         .toUpperCase();
-      if (!symbol) continue;
-      if (!isPortfolioAnalyzeEligible(row)) continue;
-      if (deduped.has(symbol)) continue;
-      const enriched = universeByTicker.get(symbol);
+      if (!symbol || deduped.has(symbol)) continue;
+      const enriched = enrichment.get(symbol);
       const preferredSector = pickPreferredLabel([
         enriched?.sector,
         enriched?.sector_primary,
@@ -569,196 +703,121 @@ export function KaiCommandPalette({
       });
     }
     return Array.from(deduped.values());
-  }, [portfolioTickers, universeByTicker]);
-
-  const portfolioTickerSet = useMemo(() => {
-    return new Set(portfolioRows.map((row) => row.ticker));
-  }, [portfolioRows]);
+  }, [portfolioTickers, universe]);
 
   const tickerMatches = useMemo(() => {
+    if (!showMarket) return [];
     const rows = universe ?? [];
-    const search = financeTickerQuery;
-    const mergeAndNormalizeRows = (
-      candidates: TickerUniverseRow[],
-      qUpper: string,
-    ): TickerUniverseRow[] => {
-      const byTicker = new Map<string, TickerUniverseRow>();
-      for (const row of candidates) {
-        const ticker = String(row.ticker || "")
-          .trim()
-          .toUpperCase();
-        if (!ticker) continue;
-        const normalized: TickerUniverseRow = {
-          ...row,
-          ticker,
-          sector: pickPreferredLabel([row.sector, row.sector_primary]),
-          sector_primary: pickPreferredLabel([row.sector_primary, row.sector]),
-        };
-        const existing = byTicker.get(ticker);
-        if (
-          !existing ||
-          rankTickerRow(normalized, qUpper) > rankTickerRow(existing, qUpper)
-        ) {
-          byTicker.set(ticker, normalized);
-        }
-      }
-      return Array.from(byTicker.values()).filter(
-        (row) => row.tradable !== false,
-      );
-    };
-
-    if (!search) {
-      const mergedDefaultRows = mergeAndNormalizeRows(
-        [
-          ...portfolioRows,
-          ...rows.filter((row) => isLikelySecCommonEquityRow(row)),
-        ],
-        "",
-      );
-      return mergedDefaultRows
-        .sort((a, b) => {
-          const aPortfolio = portfolioTickerSet.has(a.ticker) ? 1 : 0;
-          const bPortfolio = portfolioTickerSet.has(b.ticker) ? 1 : 0;
-          if (aPortfolio !== bPortfolio) return bPortfolio - aPortfolio;
-          const aScore = Number(a.metadata_confidence || 0);
-          const bScore = Number(b.metadata_confidence || 0);
-          if (aScore !== bScore) return bScore - aScore;
-          return a.ticker.localeCompare(b.ticker);
-        })
-        .slice(0, 20);
+    const qUpper = tickerQuery.toUpperCase();
+    let candidates: TickerUniverseRow[];
+    if (!tickerQuery) {
+      candidates = [
+        ...portfolioRows,
+        ...rows.filter(isLikelySecCommonEquityRow),
+      ];
+    } else {
+      const qLower = tickerQuery.toLowerCase();
+      candidates = [
+        ...portfolioRows.filter(
+          (row) =>
+            row.ticker.includes(qUpper) ||
+            String(row.title || "")
+              .toLowerCase()
+              .includes(qLower),
+        ),
+        ...searchTickerUniverse(rows, tickerQuery, TICKER_RESULT_LIMIT).filter(
+          isLikelySecCommonEquityRow,
+        ),
+        ...(remote?.rows ?? []).filter(isLikelySecCommonEquityRow),
+      ];
     }
+    const portfolio = new Set(portfolioRows.map((row) => row.ticker));
+    return dedupeTickerRows(candidates, qUpper)
+      .sort((a, b) => compareTickerRows(a, b, qUpper, portfolio))
+      .slice(0, TICKER_RESULT_LIMIT);
+  }, [portfolioRows, remote, showMarket, tickerQuery, universe]);
 
-    const searchUpper = search.toUpperCase();
-    const portfolioMatches = portfolioRows.filter((row) => {
-      const title = String(row.title || "").toLowerCase();
-      return (
-        row.ticker.includes(searchUpper) || title.includes(search.toLowerCase())
-      );
-    });
-    const local = searchTickerUniverse(rows, search, 20).filter((row) =>
-      isLikelySecCommonEquityRow(row),
-    );
-    const merged = [...portfolioMatches, ...local];
-    for (const row of remoteMatches) {
-      if (!isLikelySecCommonEquityRow(row)) continue;
-      merged.push(row);
-    }
-    return mergeAndNormalizeRows(merged, searchUpper)
-      .sort((a, b) => {
-        const aPrefix = a.ticker.startsWith(searchUpper) ? 1 : 0;
-        const bPrefix = b.ticker.startsWith(searchUpper) ? 1 : 0;
-        if (aPrefix !== bPrefix) return bPrefix - aPrefix;
-        const aScore = Number(a.metadata_confidence || 0);
-        const bScore = Number(b.metadata_confidence || 0);
-        if (aScore !== bScore) return bScore - aScore;
-        return a.ticker.localeCompare(b.ticker);
-      })
-      .slice(0, 20);
-  }, [
-    financeTickerQuery,
-    portfolioRows,
-    portfolioTickerSet,
-    universe,
-    remoteMatches,
-  ]);
-
-  const isFiltering = query.trim().length > 0;
-  // Only Finance loads the ticker universe, so only Finance can report it as
-  // slow or unavailable. Elsewhere those messages described a subsystem the
-  // screen never asked for.
-  const commandEmptyMessage =
-    (financeSectionActive || financeAnalysisIntent) && loadingUniverse
-      ? "Loading commands..."
-      : (financeSectionActive || financeAnalysisIntent) && universeError
-        ? "Ticker universe unavailable. Check backend connectivity."
-        : "No matching commands.";
-
+  /**
+   * Actions matching what was typed.
+   *
+   * Wording matches come first, ranked by the gateway with this person's
+   * habits folded into the score -- enough to separate near-equal matches,
+   * never enough to outrank a better one: typing "circle" must find Create a
+   * circle whether or not you have ever created one. Related-by-meaning
+   * results from the backend follow them. They arrive later, so they add rows
+   * instead of reordering what is already on screen.
+   */
   const actionMatches = useMemo(() => {
+    if (!isFiltering || financeAnalysisIntent) return [];
     const local = searchKaiActions({
-      query,
+      query: trimmedQuery,
       appRuntimeState,
       surfaceMetadata,
       limit: 24,
+      boost: (actionId) => usageBoostFor(usage, actionId),
     });
-    const localIds = new Set(local.map((e) => e.action.action_id));
-    // `semantic: boolean`, not `true as const` / `false as const`: the literal
-    // types will not unify across concat, so TypeScript widens the element to
-    // their union and drops `availability`, which every consumer below reads.
-    const combined: Array<
-      (typeof local)[number] & { semantic: boolean }
-    > = [
-      ...semanticMatches
-        .filter((e) => !localIds.has(e.action.action_id))
-        .map((e) => ({ ...e, semantic: true })),
-      ...local.map((e) => ({ ...e, semantic: false })),
-    ];
-    return combined.filter((entry) => {
+    const localIds = new Set(local.map(({ action }) => action.action_id));
+    const related =
+      semantic.query === trimmedQuery ? semantic.results : [];
+    return [
+      ...local,
+      ...related.filter(({ action }) => !localIds.has(action.action_id)),
+    ].filter(({ action }) => {
       if (
-        isLocalHandlerAwayFromItsScreen(entry.action, currentScreen) &&
-        !navigationActionForAction(entry.action)
+        isLocalHandlerAwayFromItsScreen(action, currentScreen) &&
+        !navigationActionForAction(action)
       ) {
         return false;
       }
-      if (!capabilityState) return true;
-      return isDiscoverableCapability(
-        projectKaiActionCapability({
-          actionId: entry.action.action_id,
-          state: capabilityState,
-          surfaceMetadata,
-        }),
-      );
+      return isDiscoverable(action.action_id);
     });
   }, [
     appRuntimeState,
-    capabilityState,
     currentScreen,
-    query,
-    semanticMatches,
+    financeAnalysisIntent,
+    isDiscoverable,
+    isFiltering,
+    semantic,
     surfaceMetadata,
+    trimmedQuery,
+    usage,
   ]);
+
+  const exactActionMatch = useMemo(() => {
+    const normalized = trimmedQuery.toLowerCase();
+    if (!normalized) return null;
+    return (
+      actionMatches.find(
+        ({ action, availability }) =>
+          isRunnable(availability) &&
+          [
+            action.action_id,
+            action.label,
+            mailDisplayLabel(action.label),
+            ...action.aliases,
+          ].some((value) => value.trim().toLowerCase() === normalized),
+      ) ?? null
+    );
+  }, [actionMatches, trimmedQuery]);
 
   /**
    * What the screen the person is looking at can actually do, read straight
-   * from the action gateway.
+   * from the action gateway -- so a surface that authors a new action in its
+   * voice contract shows up here with no change to this file.
    *
-   * The unfiltered palette used to offer nothing but `buildInitialCommand-
-   * Recommendations` -- an authored four-item Kai list -- so opening search
-   * anywhere in the app suggested stock analysis and Memory however far those
-   * were from the surface in view. This group answers "what can I do here"
-   * instead, and stays current for free: a surface that authors a new action
-   * in its voice contract shows up here with no change to this file.
+   * Unlike typed results, which show a blocked action together with the reason
+   * it is blocked, these are a menu of what is possible right now: an entry
+   * that cannot run does not belong.
    */
-  /**
-   * Control ids the person can literally tap right now, read off the DOM.
-   *
-   * Captured when the palette opens, because it describes the page underneath
-   * and that page can change between openings. A dialog leaves the rest of the
-   * document mounted, so the query still sees it.
-   */
-  const [tappableControlIds, setTappableControlIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set<string>());
-  const [usage, setUsage] = useState<readonly ActionUsageEntry[]>([]);
-  useEffect(() => {
-    if (!open || typeof document === "undefined") return;
-    setTappableControlIds(readTappableControlIds());
-    setUsage(readActionUsage(userId));
-  }, [open, userId]);
-
   const surfaceActions = useMemo(() => {
-    const screen = String(appRuntimeState?.route.screen || "").trim();
-    // `route.pathname` carries the query string as well -- the runtime state
-    // builder feeds it `pathnameWithQuery` -- so the path has to be split back
-    // out before it can be compared with a contract's route target.
-    const pathname =
-      String(appRuntimeState?.route.pathname || "")
-        .trim()
-        .split("?")[0] || "";
-    const subview = String(appRuntimeState?.route.subview || "").trim() || null;
-    if (!screen && !pathname) return [];
-    return listKaiActionsForSurface({ screen, pathname })
+    if (isFiltering || (!currentScreen && !currentPath)) return [];
+    return listKaiActionsForSurface({
+      screen: currentScreen,
+      pathname: currentPath,
+    })
       .filter(
-        (action) => !actionTargetsCurrentSurface(action, pathname, subview),
+        (action) =>
+          !actionTargetsCurrentSurface(action, currentPath, currentSubview),
       )
       .map((action) => ({
         action,
@@ -772,64 +831,35 @@ export function KaiCommandPalette({
         // groups: what you cannot reach from here, and what you can.
         tappable: action.control_ids.some((id) => tappableControlIds.has(id)),
       }))
-      .filter(({ action, availability }) => {
-        // Unlike the typed-query list, which shows a blocked action together
-        // with the reason it is blocked, these groups are a menu of what is
-        // possible right now -- an entry that cannot run does not belong.
-        if (availability.status !== "available") return false;
-        if (!capabilityState) return true;
-        return isDiscoverableCapability(
-          projectKaiActionCapability({
-            actionId: action.action_id,
-            state: capabilityState,
-            surfaceMetadata,
-          }),
-        );
-      });
-  }, [appRuntimeState, capabilityState, surfaceMetadata, tappableControlIds]);
-
-  /**
-   * What this screen can do that the person cannot already see.
-   *
-   * The other tabs, the deeper flows, the things behind a tab switch. Anything
-   * with a button in front of them belongs in the suggestions below, not here
-   * -- offering "Share my location" while a Share location row is on screen is
-   * a wasted slot.
-   */
-  const offScreenActions = useMemo(
-    () =>
-      surfaceActions.filter((entry) => !entry.tappable).slice(0, GROUP_LIMIT),
-    [surfaceActions],
-  );
-
-  /**
-   * The same matches, with what this person actually uses breaking ties.
-   *
-   * `searchKaiActions` has already ranked by how well each action answers the
-   * query; this only separates entries that answered it equally well. The
-   * boost is capped so a familiar action can never displace a better answer --
-   * typing "circle" must find Create a circle whether or not you have ever
-   * created one.
-   */
-  const rankedActionMatches = useMemo(() => {
-    if (usage.length === 0) return actionMatches;
-    return [...actionMatches].sort(
-      (left, right) =>
-        usageBoostFor(usage, right.action.action_id) -
-        usageBoostFor(usage, left.action.action_id),
-    );
-  }, [actionMatches, usage]);
+      .filter(
+        ({ action, availability }) =>
+          availability.status === "available" &&
+          isDiscoverable(action.action_id),
+      );
+  }, [
+    appRuntimeState,
+    currentPath,
+    currentScreen,
+    currentSubview,
+    isDiscoverable,
+    isFiltering,
+    surfaceMetadata,
+    tappableControlIds,
+  ]);
 
   /**
    * What this person reaches for, offered before anything the app guessed.
    *
-   * Filtered through the same availability and capability rules as every other
-   * group -- a habit is not a reason to offer something that cannot run -- and
-   * excludes whatever is already a button in front of them.
+   * Held to the same availability and capability rules as every other group --
+   * a habit is not a reason to offer something that cannot run -- and minus
+   * whatever is already a button in front of them.
    */
   const recentActions = useMemo(() => {
-    if (usage.length === 0) return [];
-    const rows: KaiActionDefinition[] = [];
+    if (isFiltering) return [];
+    const rows: Array<{
+      action: KaiActionDefinition;
+      availability: KaiActionAvailability;
+    }> = [];
     for (const entry of usage) {
       if (rows.length >= RECENT_ACTION_LIMIT) break;
       const action = getKaiActionById(entry.actionId);
@@ -842,25 +872,15 @@ export function KaiCommandPalette({
         surfaceMetadata,
       });
       if (availability.status !== "available") continue;
-      if (
-        capabilityState &&
-        !isDiscoverableCapability(
-          projectKaiActionCapability({
-            actionId: action.action_id,
-            state: capabilityState,
-            surfaceMetadata,
-          }),
-        )
-      ) {
-        continue;
-      }
-      rows.push(action);
+      if (!isDiscoverable(action.action_id)) continue;
+      rows.push({ action, availability });
     }
     return rows;
   }, [
     appRuntimeState,
-    capabilityState,
     currentScreen,
+    isDiscoverable,
+    isFiltering,
     surfaceMetadata,
     tappableControlIds,
     usage,
@@ -872,84 +892,94 @@ export function KaiCommandPalette({
    * The insight comes first: a surface that has published a dead end is
    * telling us it cannot proceed without something done elsewhere, and the
    * remedy it names is the single most useful row the palette can offer. Then
-   * anything blocked with authored guidance, then the section's own basics --
-   * which are exactly the controls visible on this screen.
-   *
-   * This replaced a hardcoded four (analyze a stock, Memory, consent, profile)
-   * that were shown on every screen in the app regardless of context.
+   * anything with authored guidance, then the section's own basics -- which
+   * are exactly the controls visible on this screen.
    */
   const suggestedActions = useMemo(() => {
+    if (isFiltering) return [];
     const suggestions: Array<{
       action: KaiActionDefinition;
+      availability: KaiActionAvailability;
       note: string | null;
     }> = [];
     const seen = new Set<string>();
-    const push = (action: KaiActionDefinition | null, note: string | null) => {
-      if (!action || seen.has(action.action_id)) return;
+    const push = (
+      action: KaiActionDefinition,
+      availability: KaiActionAvailability,
+      note: string | null,
+    ) => {
+      if (seen.has(action.action_id)) return;
       seen.add(action.action_id);
-      suggestions.push({ action, note });
+      suggestions.push({ action, availability, note });
     };
 
     const deadEnd = surfaceMetadata?.deadEnd;
-    if (deadEnd?.remedyActionId && deadEnd.reason) {
-      push(getKaiActionById(deadEnd.remedyActionId), deadEnd.reason);
+    const remedy = deadEnd?.remedyActionId
+      ? getKaiActionById(deadEnd.remedyActionId)
+      : null;
+    if (remedy && deadEnd?.reason) {
+      push(
+        remedy,
+        evaluateKaiActionAvailability({
+          action: remedy,
+          appRuntimeState,
+          surfaceMetadata,
+        }),
+        deadEnd.reason,
+      );
     }
     surfaceActions.forEach(({ action, availability }) => {
       if (availability.blocked_guidance) {
-        push(action, availability.blocked_guidance);
+        push(action, availability, availability.blocked_guidance);
       }
     });
-    surfaceActions.forEach(({ action, tappable }) => {
-      if (tappable) push(action, null);
+    surfaceActions.forEach(({ action, availability, tappable }) => {
+      if (tappable) push(action, availability, null);
     });
     return suggestions.slice(0, GROUP_LIMIT);
-  }, [surfaceActions, surfaceMetadata]);
+  }, [appRuntimeState, isFiltering, surfaceActions, surfaceMetadata]);
 
-  const exactActionMatch = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return null;
-    return actionMatches.find(({ action }) =>
-      [action.action_id, action.label, mailDisplayLabel(action.label), ...action.aliases].some(
-        (value) => value.trim().toLowerCase() === normalized,
-      ),
-    );
-  }, [actionMatches, query]);
+  function close() {
+    onOpenChange(false);
+    setQuery("");
+  }
 
   function runAction(actionId: string, slots?: Record<string, unknown>) {
-    if (disabled) return;
     // The id only, and only what the person actually chose -- not what was
     // merely offered, and never the slots that would turn a habit into a
     // holding.
     recordActionUse(userId, actionId);
-    onOpenChange(false);
-    setQuery("");
+    close();
     // A local handler belonging to another screen cannot run from here: the
-    // runtime finds nothing mounted and reports `blocked`, which the palette
-    // never surfaced, so the row simply did nothing. Search covers the whole
-    // app, so the honest answer is to take the person to the screen that owns
-    // it rather than to hide the row or fail silently.
+    // runtime finds nothing mounted and reports `blocked`. Search covers the
+    // whole app, so the honest answer is to take the person to the screen that
+    // owns it rather than to hide the row or fail silently.
     const action = getKaiActionById(actionId);
-    if (action && isLocalHandlerAwayFromItsScreen(action, currentScreen)) {
-      const navigationActionId = navigationActionForAction(action);
-      if (navigationActionId) {
-        onSelectAction({ actionId: navigationActionId });
-        return;
-      }
-    }
-    onSelectAction({
-      actionId,
-      slots,
-    });
+    const navigationActionId =
+      action && isLocalHandlerAwayFromItsScreen(action, currentScreen)
+        ? navigationActionForAction(action)
+        : null;
+    onSelectAction(
+      navigationActionId ? { actionId: navigationActionId } : { actionId, slots },
+    );
   }
 
-  function submitCurrentQuery() {
-    if (disabled) return;
-    const value = query.trim();
-    if (!value) return;
+  function askOne() {
+    if (!isFiltering) return;
+    close();
+    onSubmitPrompt(trimmedQuery);
+  }
+
+  /**
+   * Enter with the top row untouched: an exact action name runs that action,
+   * a lone ticker is analyzed, and anything else goes to One as a question.
+   */
+  function submitQuery() {
+    if (!isFiltering) return;
     if (financeAnalysisIntent) {
       const soleMatch = tickerMatches.length === 1 ? tickerMatches[0] : null;
       if (soleMatch) {
-        runAction("analysis.start", { symbol: soleMatch.ticker.toUpperCase() });
+        runAction("analysis.start", { symbol: soleMatch.ticker });
       }
       return;
     }
@@ -957,148 +987,138 @@ export function KaiCommandPalette({
       runAction(exactActionMatch.action.action_id);
       return;
     }
-    onOpenChange(false);
-    setQuery("");
-    onSubmitPrompt(value);
+    askOne();
   }
 
-  function submitSearchOrPrompt(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    submitCurrentQuery();
-  }
+  const actionRow = (
+    action: KaiActionDefinition,
+    availability: KaiActionAvailability,
+    icon: RowIcon,
+    note: string | null = null,
+  ): PaletteRow => ({
+    value: `action:${action.action_id}`,
+    label: mailDisplayLabel(action.label),
+    detail: note,
+    icon,
+    accent: Boolean(note),
+    disabled: !isRunnable(availability),
+    run: () => runAction(action.action_id),
+  });
 
-  function submitPromptSuggestion() {
-    if (disabled) return;
-    const value = query.trim();
-    if (!value) return;
-    onOpenChange(false);
-    setQuery("");
-    onSubmitPrompt(value);
-  }
-
-  const commandItemClass =
-    "rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
-
-  // On small phones search is an input surface, not a command palette. Keep
-  // the same gateway-ranked actions, but render them as ordinary buttons so
-  // the keyboard can sit above a native-looking bottom search field.
-  const mobileActionRows = useMemo(() => {
-    if (isFiltering) {
-      return rankedActionMatches.map(({ action, availability }) => ({
-        action,
-        availability,
-      }));
-    }
-    const rows: Array<{
-      action: KaiActionDefinition;
-      availability: KaiActionAvailability;
-    }> = [];
-    const seen = new Set<string>();
-    const add = (action: KaiActionDefinition) => {
-      if (seen.has(action.action_id)) return;
-      seen.add(action.action_id);
-      rows.push({
-        action,
-        availability: evaluateKaiActionAvailability({
-          action,
-          appRuntimeState,
-          surfaceMetadata,
-        }),
-      });
+  const sections: PaletteSection[] = [];
+  if (!isFiltering) {
+    // One row per action across the unfiltered groups: a recent action can
+    // also be off-screen here, and cmdk needs every value to be unique.
+    const shown = new Set<string>();
+    const firstTime = ({ action }: { action: KaiActionDefinition }) => {
+      if (shown.has(action.action_id)) return false;
+      shown.add(action.action_id);
+      return true;
     };
-    recentActions.forEach(add);
-    offScreenActions.forEach(({ action }) => add(action));
-    suggestedActions.forEach(({ action }) => add(action));
-    return rows;
-  }, [
-    appRuntimeState,
-    isFiltering,
-    offScreenActions,
-    rankedActionMatches,
-    recentActions,
-    suggestedActions,
-    surfaceMetadata,
-  ]);
-
-  const mobileResultRowClass =
-    "flex min-h-11 w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[15px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:scale-[0.99]";
-
-  const mobileSearchResults = (
-    <div
-      className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
-      data-testid="kai-mobile-search-results"
-    >
-      {!isFiltering && mobileActionRows.length === 0 ? (
-        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-          No suggestions yet.
-        </p>
-      ) : null}
-      {isFiltering && !financeAnalysisIntent ? (
-        <button
-          type="button"
-          className={mobileResultRowClass}
-          onClick={submitPromptSuggestion}
-          disabled={disabled}
-        >
-          <Icon icon={Search} size="sm" className="text-accent-strong" />
-          <span className="min-w-0 truncate font-medium">
-            Ask One: {query.trim()}
-          </span>
-        </button>
-      ) : null}
-      {mobileActionRows.map(({ action, availability }) => {
-        const actionDisabled =
-          disabled ||
-          availability.status === "dead" ||
-          availability.status === "unwired" ||
-          availability.status === "manual_only" ||
-          availability.status === "blocked";
-        return (
-          <button
-            type="button"
-            key={`mobile-${action.action_id}`}
-            className={mobileResultRowClass}
-            onClick={() => runAction(action.action_id)}
-            disabled={actionDisabled}
-          >
-            <Icon icon={Activity} size="sm" className="text-muted-foreground" />
-            <span className="min-w-0 truncate font-medium">{mailDisplayLabel(action.label)}</span>
-          </button>
-        );
-      })}
-      {isFiltering && (financeSectionActive || financeAnalysisIntent) ? (
-        <>
-          {tickerMatches.map((row) => {
-            const ticker = row.ticker.toUpperCase();
-            const title = row.title || "Unknown company";
-            return (
-              <button
-                type="button"
-                key={`mobile-ticker-${ticker}:${title}`}
-                className={mobileResultRowClass}
-                onClick={() => runAction("analysis.start", { symbol: ticker })}
-                disabled={disabled}
-              >
-                <Icon icon={TrendingUp} size="sm" className="text-muted-foreground" />
-                <span className="font-semibold">{ticker}</span>
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {title}
-                </span>
-              </button>
-            );
-          })}
-          {!loadingUniverse && tickerMatches.length === 0 ? (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-              {universeError || remoteSearchError || "No matching market results."}
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </div>
+    sections.push({
+      heading: "You usually",
+      rows: recentActions
+        .filter(firstTime)
+        .map(({ action, availability }) =>
+          actionRow(action, availability, History),
+        ),
+    });
+    sections.push({
+      heading: "Elsewhere on this screen",
+      rows: surfaceActions
+        .filter(({ tappable }) => !tappable)
+        .slice(0, GROUP_LIMIT)
+        .filter(firstTime)
+        .map(({ action, availability }) =>
+          actionRow(action, availability, Compass),
+        ),
+    });
+    sections.push({
+      heading: "Suggested actions",
+      rows: suggestedActions
+        .filter(firstTime)
+        .map(({ action, availability, note }) =>
+          actionRow(action, availability, note ? Lightbulb : Compass, note),
+        ),
+    });
+  } else {
+    if (!financeAnalysisIntent) {
+      sections.push({
+        heading: "Ask One",
+        rows: [
+          {
+            value: "ask-one",
+            label: `Ask One: ${trimmedQuery}`,
+            icon: Search,
+            accent: true,
+            disabled: false,
+            run: askOne,
+          },
+        ],
+      });
+      sections.push({
+        heading: "Commands",
+        rows: actionMatches.map(({ action, availability }) =>
+          actionRow(
+            action,
+            availability,
+            COMMAND_ICONS[action.action_id] ?? Activity,
+          ),
+        ),
+      });
+    }
+    if (showMarket) {
+      sections.push({
+        heading: "Market results",
+        rows: tickerMatches.map((row) => {
+          const sector = row.sector || row.sector_primary;
+          return {
+            value: `ticker:${row.ticker}`,
+            label: row.ticker,
+            detail: [row.title || "Unknown company", sector]
+              .filter(Boolean)
+              .join(" • "),
+            icon: TrendingUp,
+            ticker: true,
+            disabled: false,
+            run: () => runAction("analysis.start", { symbol: row.ticker }),
+          };
+        }),
+        emptyNote: loadingUniverse
+          ? "Loading…"
+          : universeFailed
+            ? "Tickers unavailable."
+            : remote?.failed
+              ? "Ticker search failed."
+              : "No matching tickers.",
+      });
+    }
+  }
+  const visibleSections = sections.filter(
+    (section) => section.rows.length > 0 || section.emptyNote,
   );
+  const topRowValue = visibleSections
+    .flatMap((section) => section.rows)
+    .find((row) => !row.disabled)?.value;
+
+  const placeholder = financeAnalysisIntent
+    ? "Analyze a stock"
+    : "Ask One or search";
+
+  function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    // With nothing typed, or with the highlight moved off the top row, Enter
+    // runs the highlighted row -- cmdk's job. Taking every Enter here is what
+    // once made arrow-key selection unreachable.
+    if (!isFiltering || (highlighted && highlighted !== topRowValue)) return;
+    event.preventDefault();
+    submitQuery();
+  }
 
   if (isMobile) {
+    // On phones search is an input surface, not a command palette: the same
+    // rows as plain buttons, so the keyboard can sit above a native-looking
+    // bottom search field.
     return (
       <Dialog open={open} onOpenChange={onOpenChange} modal>
         <DialogContent
@@ -1111,52 +1131,59 @@ export function KaiCommandPalette({
           <DialogHeader className="sr-only">
             <DialogTitle>Search or ask One</DialogTitle>
           </DialogHeader>
-          {mobileSearchResults}
+          <div
+            className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
+            data-testid="kai-mobile-search-results"
+          >
+            {visibleSections.length === 0 ? (
+              <p className={noteClass}>No suggestions yet.</p>
+            ) : null}
+            {visibleSections.map((section) => (
+              <Fragment key={section.heading}>
+                {section.rows.map((row) => (
+                  <button
+                    type="button"
+                    key={row.value}
+                    className={mobileResultRowClass}
+                    onClick={row.run}
+                    disabled={row.disabled}
+                  >
+                    <PaletteRowContent row={row} />
+                  </button>
+                ))}
+                {section.rows.length === 0 && section.emptyNote ? (
+                  <p className={noteClass}>{section.emptyNote}</p>
+                ) : null}
+              </Fragment>
+            ))}
+          </div>
           <form
             className="relative flex h-12 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
             onSubmit={(event) => {
               event.preventDefault();
-              submitCurrentQuery();
+              submitQuery();
             }}
           >
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Search
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && event.nativeEvent.isComposing) return;
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitCurrentQuery();
-                }
-              }}
               type="search"
               autoFocus
               enterKeyHint="send"
-              disabled={disabled}
-              placeholder={financeAnalysisIntent ? "Analyze a stock" : "Ask One or search"}
+              placeholder={placeholder}
               aria-label="Search or ask One"
               className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground"
             />
-            {query.length > 0 ? (
-              <button
-                type="button"
-                aria-label="Clear search input"
-                data-testid="kai-mobile-search-clear"
-                onClick={() => setQuery("")}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
-              >
-                <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label="Close search"
-              onClick={() => onOpenChange(false)}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
-            >
-              <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-            </button>
+            <SearchFieldButtons
+              showClear={query.length > 0}
+              clearTestId="kai-mobile-search-clear"
+              onClear={() => setQuery("")}
+              onClose={() => onOpenChange(false)}
+            />
           </form>
         </DialogContent>
       </Dialog>
@@ -1169,272 +1196,59 @@ export function KaiCommandPalette({
       onOpenChange={onOpenChange}
       showCloseButton={false}
       title="Search or ask One"
-      data-keyboard-anchor="bottom"
-      data-search-surface="command"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!left-2 max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:rounded-[26px] max-sm:border-black/[0.08] max-sm:bg-background/96 max-sm:p-1.5 max-sm:shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)] sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      // The palette ranks its own results. cmdk's fuzzy filter would re-rank
+      // them, and drop related-by-meaning matches that share no letters with
+      // the query.
+      commandProps={{
+        shouldFilter: false,
+        value: highlighted,
+        onValueChange: setHighlighted,
+      }}
     >
-      <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
-        <CommandEmpty className={isFiltering ? undefined : "hidden"}>
-          {commandEmptyMessage}
-        </CommandEmpty>
-
-        {/* Both unfiltered groups are RENDERED conditionally rather than
-            passed `hidden`. cmdk owns filtering, so it re-scores every mounted
-            item against the query and decides each group's visibility from
-            whether any child still matches -- which overrode `hidden` and left
-            this group on screen, full of fuzzy matches, pushing the real
-            results below the fold. A group that is not in the tree cannot be
-            resurrected. */}
-        {!isFiltering && recentActions.length > 0 ? (
-          <CommandGroup heading="You usually">
-            {recentActions.map((action) => (
+      <CommandList>
+        <CommandEmpty>No suggestions yet.</CommandEmpty>
+        {visibleSections.map((section) => (
+          <CommandGroup key={section.heading} heading={section.heading}>
+            {section.rows.map((row) => (
               <CommandItem
                 className={commandItemClass}
-                key={`recent-${action.action_id}`}
-                disabled={disabled}
-                value={action.action_id}
-                onSelect={() => runAction(action.action_id)}
+                key={row.value}
+                value={row.value}
+                disabled={row.disabled}
+                onSelect={row.run}
               >
-                <Icon
-                  icon={History}
-                  size="sm"
-                  className="mr-2 text-muted-foreground"
-                />
-                <span className="min-w-0 truncate font-medium">
-                  {mailDisplayLabel(action.label)}
-                </span>
+                <PaletteRowContent row={row} />
               </CommandItem>
             ))}
-          </CommandGroup>
-        ) : null}
-
-        {!isFiltering && offScreenActions.length > 0 ? (
-          <CommandGroup heading="Elsewhere on this screen">
-            {offScreenActions.map(({ action }) => (
+            {section.rows.length === 0 && section.emptyNote ? (
               <CommandItem
                 className={commandItemClass}
-                key={action.action_id}
-                disabled={disabled}
-                value={action.action_id}
-                onSelect={() => runAction(action.action_id)}
+                value={`note:${section.heading}`}
+                disabled
               >
-                <Icon
-                  icon={Compass}
-                  size="sm"
-                  className="mr-2 text-muted-foreground"
-                />
-                <span className="min-w-0 truncate font-medium">
-                  {mailDisplayLabel(action.label)}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ) : null}
-
-        {!isFiltering && suggestedActions.length > 0 ? (
-          <CommandGroup heading="Suggested actions">
-            {suggestedActions.map(({ action, note }) => (
-              <CommandItem
-                className={commandItemClass}
-                key={action.action_id}
-                disabled={disabled}
-                value={action.action_id}
-                onSelect={() => runAction(action.action_id)}
-              >
-                <Icon
-                  icon={note ? Lightbulb : Compass}
-                  size="sm"
-                  className={cn(
-                    "mr-2",
-                    note ? "text-accent-strong" : "text-muted-foreground",
-                  )}
-                />
-                <span className="flex min-w-0 flex-col">
-                  <span className="min-w-0 truncate font-medium">
-                    {mailDisplayLabel(action.label)}
-                  </span>
-                  {/* The reason a surface published a dead end, said back to
-                      the person. Without it the remedy is a bare link and they
-                      have to guess why it is being offered. */}
-                  {note ? (
-                    <span className="min-w-0 truncate text-xs text-muted-foreground">
-                      {note}
-                    </span>
-                  ) : null}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ) : null}
-
-        {isFiltering && !financeAnalysisIntent ? (
-          <CommandGroup heading="Ask One">
-            <CommandItem
-              className={commandItemClass}
-              value={`Ask One ${query}`}
-              disabled={disabled}
-              onSelect={submitPromptSuggestion}
-            >
-              <Icon
-                icon={Search}
-                size="sm"
-                className="mr-2 text-accent-strong"
-              />
-              <span className="min-w-0 truncate font-medium">
-                Ask One: {query.trim()}
-              </span>
-            </CommandItem>
-          </CommandGroup>
-        ) : null}
-
-        {isFiltering && !financeAnalysisIntent ? <CommandSeparator /> : null}
-
-        {isFiltering && !financeAnalysisIntent ? (
-          <CommandGroup heading="Commands">
-            {rankedActionMatches.length === 0 ? (
-              <CommandItem className={commandItemClass} disabled>
-                <Icon
-                  icon={Compass}
-                  size="sm"
-                  className="mr-2 text-muted-foreground"
-                />
-                No matching Kai actions.
+                {section.emptyNote}
               </CommandItem>
             ) : null}
-            {rankedActionMatches.map(({ action, availability }) => {
-              const actionDisabled =
-                disabled ||
-                availability.status === "dead" ||
-                availability.status === "unwired" ||
-                availability.status === "manual_only" ||
-                availability.status === "blocked";
-              const icon =
-                action.action_id === "route.profile"
-                  ? UserRound
-                  : action.action_id === "route.consents"
-                    ? ShieldCheck
-                    : action.action_id === "route.analysis_history"
-                      ? History
-                      : action.action_id === "route.kai_home"
-                        ? Compass
-                        : Activity;
-              return (
-                <CommandItem
-                  className={commandItemClass}
-                  key={action.action_id}
-                  disabled={actionDisabled}
-                  value={[
-                    action.label,
-                    mailDisplayLabel(action.label),
-                    action.action_id,
-                    action.aliases.join(" "),
-                    action.search_keywords.join(" "),
-                  ].join(" ")}
-                  onSelect={() => runAction(action.action_id)}
-                >
-                  <Icon
-                    icon={icon}
-                    size="sm"
-                    className="mr-2 text-muted-foreground"
-                  />
-                  <span className="font-medium">{mailDisplayLabel(action.label)}</span>
-                </CommandItem>
-              );
-            })}
           </CommandGroup>
-        ) : null}
-
-        {/* Ticker rows are Finance's, not every screen's. Searching on
-            Location used to answer with SEC equities. Rendered conditionally
-            rather than hidden, because cmdk owns group visibility once a
-            query is typed and would happily bring it back. */}
-        {isFiltering && (financeSectionActive || financeAnalysisIntent) ? (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Market results">
-              {universeError ? (
-                <CommandItem className={commandItemClass} disabled>
-                  Ticker universe unavailable.
-                </CommandItem>
-              ) : null}
-              {remoteSearchError && isFiltering ? (
-                <CommandItem className={commandItemClass} disabled>
-                  Live ticker search failed.
-                </CommandItem>
-              ) : null}
-              {!loadingUniverse && tickerMatches.length === 0 && (
-                <CommandItem className={commandItemClass} disabled>
-                  No matching SEC common equity tickers.
-                </CommandItem>
-              )}
-              {tickerMatches.map((row) => {
-                const ticker = row.ticker.toUpperCase();
-                const title = row.title || "Unknown company";
-                return (
-                  <CommandItem
-                    className={commandItemClass}
-                    key={`${ticker}:${title}`}
-                    disabled={disabled}
-                    value={`${ANALYZE_PREFIX}${ticker} ${title} ${row.sector || row.sector_primary || ""} ${row.exchange || ""}`}
-                    onSelect={() =>
-                      runAction("analysis.start", {
-                        symbol: ticker,
-                      })
-                    }
-                  >
-                    <Icon
-                      icon={TrendingUp}
-                      size="sm"
-                      className="mr-2 text-muted-foreground"
-                    />
-                    <span className="font-semibold">{ticker}</span>
-                    <span className="ml-2 text-xs text-muted-foreground truncate">
-                      {title}
-                      {row.sector || row.sector_primary
-                        ? ` • ${row.sector || row.sector_primary}`
-                        : ""}
-                    </span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </>
-        ) : null}
+        ))}
       </CommandList>
-      <div className="relative border-t border-border/70 max-sm:border-0 max-sm:px-0.5 max-sm:pb-0.5">
+      <div className="relative border-t border-border/70">
         <CommandInput
           value={query}
           onValueChange={setQuery}
-          onKeyDown={submitSearchOrPrompt}
-          disabled={disabled}
-          placeholder={
-            financeAnalysisIntent ? "Analyze a stock" : "Ask One or search"
-          }
-          className="pr-28 max-sm:h-12 max-sm:rounded-[20px] max-sm:bg-foreground/[0.045] max-sm:px-3 max-sm:text-[16px]"
-          wrapperClassName="max-sm:h-12 max-sm:rounded-[20px] max-sm:border-0 max-sm:bg-foreground/[0.045]"
+          onKeyDown={onInputKeyDown}
+          placeholder={placeholder}
+          className="pr-28"
           enterKeyHint="send"
           autoFocus
         />
         <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-          {query.length > 0 ? (
-            <button
-              type="button"
-              aria-label="Clear search input"
-              data-testid="kai-search-clear"
-              onClick={() => setQuery("")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
-            >
-              <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            aria-label="Close search"
-            onClick={() => onOpenChange(false)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
-          >
-            <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-          </button>
+          <SearchFieldButtons
+            showClear={query.length > 0}
+            clearTestId="kai-search-clear"
+            onClear={() => setQuery("")}
+            onClose={() => onOpenChange(false)}
+          />
         </div>
       </div>
     </CommandDialog>

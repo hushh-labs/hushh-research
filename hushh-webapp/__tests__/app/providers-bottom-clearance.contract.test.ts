@@ -88,8 +88,6 @@ describe("app shell bottom-clearance contract", () => {
 
   it("keeps typed search available while focused Location navigation is hidden", () => {
     expect(commandBarSource).not.toContain("focusedLocationSmsFlow");
-    expect(commandBarSource).toContain(
-      "if (chromeState.hideCommandBar)",
-    );
+    expect(commandBarSource).toContain("!chromeState.hideCommandBar");
   });
 });

@@ -1179,6 +1179,12 @@ export function searchKaiActions(input: {
   appRuntimeState?: AppRuntimeState;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
   limit?: number;
+  /**
+   * Added to an action's match score, e.g. how often this person uses it.
+   * Applied only to actions that already match, so it separates near-equal
+   * matches and never lets an unmatched action in.
+   */
+  boost?: (actionId: string) => number;
 }): Array<{
   action: KaiActionDefinition;
   availability: KaiActionAvailability;
@@ -1186,16 +1192,22 @@ export function searchKaiActions(input: {
 }> {
   const screen = cleanString(input.appRuntimeState?.route.screen) || null;
   const limit = Math.max(1, Math.min(input.limit ?? 12, 40));
-  return KAI_ACTION_GATEWAY_ACTIONS.map((action) => ({
-    action,
-    availability: evaluateKaiActionAvailability({
-      action,
-      appRuntimeState: input.appRuntimeState,
-      surfaceMetadata: input.surfaceMetadata,
-    }),
-    score: scoreSearchMatch(action, input.query, screen),
-  }))
-    .filter((entry) => entry.score > 0)
+  // Score first: availability is only worth evaluating for actions that match.
+  return KAI_ACTION_GATEWAY_ACTIONS.flatMap((action) => {
+    const score = scoreSearchMatch(action, input.query, screen);
+    if (score <= 0) return [];
+    return [
+      {
+        action,
+        availability: evaluateKaiActionAvailability({
+          action,
+          appRuntimeState: input.appRuntimeState,
+          surfaceMetadata: input.surfaceMetadata,
+        }),
+        score: input.boost ? score + input.boost(action.action_id) : score,
+      },
+    ];
+  })
     .sort((a, b) => {
       const availabilityRank =
         availabilitySearchRank(a.availability) -
@@ -1208,164 +1220,87 @@ export function searchKaiActions(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Backend semantic search (falls back to local scoring when unavailable)
+// Backend semantic search (additive to searchKaiActions, never a replacement)
 // ---------------------------------------------------------------------------
 
+/** The part of a /api/one/actions/search result this client reads. */
 type SemanticSearchCandidate = {
   action_id: string;
-  label: string;
-  meaning: string;
-  policy: string;
-  availability: string;
-  ranking: string;
-  use_tool?: string;
-  semantic_boundaries?: string;
 };
 
-let _semanticSearchDebounce: ReturnType<typeof setTimeout> | null = null;
-let _pendingSemanticAbort: AbortController | null = null;
-
-async function searchKaiActionsSemantic(
-  input: {
-    query: string;
-    appRuntimeState?: AppRuntimeState;
-    surfaceMetadata?: VoiceSurfaceMetadata | null;
-    limit?: number;
-    vaultOwnerToken?: string | null;
-  },
-  signal?: AbortSignal,
-): Promise<
-  Array<{
-    action: KaiActionDefinition;
-    availability: KaiActionAvailability;
-    score: number;
-    semantic?: true;
-  }>
+/**
+ * Actions the backend relates to `query` by meaning rather than wording.
+ *
+ * Returns [] whenever it cannot answer -- no vault token, a failed or
+ * cancelled request -- so callers add these to `searchKaiActions` results
+ * instead of depending on them. Results keep the backend's best-first order
+ * and carry availability evaluated against this client's state, which the
+ * server cannot see. Debouncing and cancellation belong to the caller: pass
+ * `signal` and abort it when the query moves on.
+ */
+export async function searchKaiActionsSemantic(input: {
+  query: string;
+  appRuntimeState?: AppRuntimeState;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+  limit?: number;
+  /** The endpoint authenticates with a VAULT_OWNER token. */
+  vaultOwnerToken?: string | null;
+  signal?: AbortSignal;
+}): Promise<
+  Array<{ action: KaiActionDefinition; availability: KaiActionAvailability }>
 > {
+  const query = input.query.trim();
+  // Without a token every call is a 401, so a locked vault skips the request
+  // rather than paying for one that can only fail.
+  if (!query || !input.vaultOwnerToken) return [];
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
-  // The endpoint is authenticated with a VAULT_OWNER token, so without one
-  // every call is a 401 that the catch below turns into an empty result set.
-  // Returning early keeps "the vault is locked" distinguishable from "nothing
-  // matched", which is the distinction this whole path lost.
-  if (!input.vaultOwnerToken) return [];
-  const url = "/api/one/actions/search";
-
-  const controller = _pendingSemanticAbort;
-  if (controller) controller.abort();
-  const abort = new AbortController();
-  if (signal) {
-    signal.addEventListener("abort", () => abort.abort(), { once: true });
-  }
-  _pendingSemanticAbort = abort;
 
   try {
     // ApiService.apiFetch, not fetch: on iOS/Android there is no Next.js
     // server to serve a relative /api path, so a direct fetch resolves to
     // nothing on device -- which is exactly where the Siri handoff runs.
     // apiFetch routes to the real backend base URL on native platforms.
-    const res = await ApiService.apiFetch(url, {
+    const res = await ApiService.apiFetch("/api/one/actions/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Hushh-Consent": `Bearer ${input.vaultOwnerToken}`,
       },
       body: JSON.stringify({
-        query: input.query.trim(),
+        query,
         limit,
         context: {
           screen: input.appRuntimeState?.route.screen || null,
         },
       }),
-      signal: signal ?? abort.signal,
+      signal: input.signal,
       credentials: "include",
     });
     if (!res.ok) {
-      if (res.status === 429 || res.status >= 500) {
-        logger.warn(`semantic_search_failed status=${res.status}`);
-        return [];
-      }
-      throw new Error(`semantic_search status ${res.status}`);
+      logger.warn(`semantic_search_failed status=${res.status}`);
+      return [];
     }
     const payload = (await res.json()) as {
       results?: SemanticSearchCandidate[];
-      ranking?: string;
     };
-    const candidates = payload.results ?? [];
-    const results: Array<{
-      action: KaiActionDefinition;
-      availability: KaiActionAvailability;
-      score: number;
-      semantic?: true;
-    }> = [];
-    for (const c of candidates) {
-      const action = getKaiActionById(c.action_id);
-      if (!action) continue;
-      const availability = evaluateKaiActionAvailability({
-        action,
-        appRuntimeState: input.appRuntimeState,
-        surfaceMetadata: input.surfaceMetadata,
-      });
-      results.push({
-        action,
-        availability,
-        score: 0.01 + results.length * 0.001,
-        semantic: true,
-      });
-    }
-    return results;
+    return (payload.results ?? []).flatMap((candidate) => {
+      const action = getKaiActionById(candidate.action_id);
+      if (!action) return [];
+      return [
+        {
+          action,
+          availability: evaluateKaiActionAvailability({
+            action,
+            appRuntimeState: input.appRuntimeState,
+            surfaceMetadata: input.surfaceMetadata,
+          }),
+        },
+      ];
+    });
   } catch (error) {
-    if ((error as Error)?.name === "AbortError") return [];
-    logger.warn("semantic_search_error", { error });
-    return [];
-  } finally {
-    if (_pendingSemanticAbort === abort) {
-      _pendingSemanticAbort = null;
+    if ((error as Error)?.name !== "AbortError") {
+      logger.warn("semantic_search_error", { error });
     }
+    return [];
   }
-}
-
-export async function searchKaiActionsAsync(input: {
-  query: string;
-  appRuntimeState?: AppRuntimeState;
-  surfaceMetadata?: VoiceSurfaceMetadata | null;
-  limit?: number;
-  debounceMs?: number;
-  signal?: AbortSignal;
-  /** Required for the semantic pass; without it only local search runs. */
-  vaultOwnerToken?: string | null;
-}): Promise<
-  Array<{
-    action: KaiActionDefinition;
-    availability: KaiActionAvailability;
-    score: number;
-    semantic?: true;
-  }>
-> {
-  const trimmed = input.query.trim();
-  const debounceMs = input.debounceMs ?? 180;
-  const { signal: outerSignal } = input;
-
-  if (!trimmed) {
-    return searchKaiActions(input);
-  }
-
-  await new Promise<void>((resolve) => {
-    if (_semanticSearchDebounce) clearTimeout(_semanticSearchDebounce);
-    _semanticSearchDebounce = setTimeout(resolve, debounceMs);
-  });
-
-  if (outerSignal?.aborted) return [];
-
-  const semantic = await searchKaiActionsSemantic(input, input.signal);
-  if (semantic.length > 0) {
-    const actionIds = new Set(semantic.map((r) => r.action.action_id));
-    // No `semantic: false` tag: the declared return type marks semantic hits
-    // with `semantic?: true`, so absence already means a local hit. Tagging it
-    // widens the union and breaks every consumer that reads `availability`.
-    const local = searchKaiActions(input).filter(
-      (r) => !actionIds.has(r.action.action_id),
-    );
-    return [...semantic, ...local];
-  }
-  return searchKaiActions(input);
 }

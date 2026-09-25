@@ -396,7 +396,7 @@ Use the shared command/search surface for app-wide agent search and route action
 
 Rules:
 
-1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal` / `KaiSearchBar`, not route-local floating search bars.
+1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal`, not route-local floating search bars.
 2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
 3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
 4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
