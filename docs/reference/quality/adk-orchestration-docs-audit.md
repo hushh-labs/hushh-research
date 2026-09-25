@@ -662,10 +662,54 @@ Freshness check after dev deployment found a migration-number collision:
 release lane used replay mode, which executed the branch SQL without release
 ledger rows; its separate parked 900-series migrations have ledger rows. The
 branch migrations were then moved to 245–247, preserving their SQL bodies, so
-`main` retains 244. This resolves the source numbering conflict; the combined
-revision still needs its migration, generated-contract and CI checks and a new
-dev deployment before its newer Drive behavior can be called live. Confirm UAT
+`main` retains 244. The combined revision passed release-migration and
+generated-contract checks, full local `./bin/hushh ci`, and [exact-SHA PR
+Validation run 36150445456](https://github.com/hushh-labs/hushh-research/actions/runs/36150445456).
+The manual CI run did not exercise the PR-only main-freshness gate. Confirm UAT
 and production baselines separately before either environment is promoted.
+
+### Refreshed branch dev release — 2026-09-25
+
+The branch `claude/hushh-infrastructure-analysis-7o991c` supplied application
+revision `52d80f53ca0be9cebccc5ea50422b6697f8d7c65` directly to the governed
+dev workflow. The workflow definition ran from `main`; the application branch
+was not merged into `main`. The first [dev run
+36152661214](https://github.com/hushh-labs/hushh-research/actions/runs/36152661214)
+passed migrations, candidate health, schema, provenance and runtime parity, but
+both semantic attempts received HTTP 503 from Gmail status after a ten-second
+database-pool acquisition timeout. It classified `runtime_behavior_failed` and
+rolled backend traffic back to revision `consent-protocol-00094-hsk`; the new
+frontend remained serving. The failure is real evidence of release-time pool
+pressure, even though it did not reproduce on retry.
+
+The same SHA passed [dev retry
+36164501207](https://github.com/hushh-labs/hushh-research/actions/runs/36164501207)
+with status `healthy`. At readback, backend `consent-protocol-00096-lkw` and
+frontend `hushh-webapp-00067-d96` each served 100% traffic. Both revision
+labels bind dev, `deploy-dev`, run `36164501207` and the application SHA.
+Backend image digest is
+`sha256:a101963e67e5cecb13cad5ac1a405e4e5ab3978915378478d12a12021e1de671`;
+frontend image digest is
+`sha256:3a79a98f3ae95772766f591850eb0de9c35fb92a9d6c91c088baf2d03d08e844`.
+Backend `/health` and the dev `/login` page returned HTTP 200. The release
+artifact records successful semantic, provenance, parity and post-deploy schema
+checks. RIA Stage 1 remained a degraded, nonblocking provider capability.
+
+The dev hub advertises release `2026.09-dev.1+52d80f53ca0b.f2e30aa4` for pod
+image `sha256:f2e30aa434e3e1af9560458c0ba894f6d7bcebc67b40356136f9e896f23db85a`,
+bound to the same source SHA and workflow run. Its reviewed predecessor list
+remains empty. No existing owner pod installation, recovery rehearsal or direct
+ingress admission is claimed. The named test pod remains on its older image;
+Puppy and browser access from separate networks remain unverified.
+
+Source inspection found that market refresh holds a pooled database connection
+through provider calls while its advisory lock is held in
+`MarketCacheStoreService.try_with_advisory_lock`. The first failed run's logs
+also show pool-acquisition timeouts with `DB_POOL_MAX_SIZE=4`. This is a
+capacity and reliability follow-up for the backend owner; the passing retry
+does not prove that contention is gone. A later `main` added its own migration
+245 after this candidate froze its 245–247 sequence, so branch-to-main
+freshness and migration numbering must be reconciled before PR promotion.
 
 ## Follow-up ownership
 
