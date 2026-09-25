@@ -487,6 +487,10 @@ substitutions:
   # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the
   # proven default; set only after the lane's Vertex allowed-models policy admits the id.
   _HUSSH_GEMINI_TEXT_MODEL: ""
+  # Optional owner-pod Puppy transport. Empty preserves the existing runtime default.
+  _PUPPY_INFERENCE_RELAY_URL: ""
+  _PUPPY_INFERENCE_MODEL: ""
+  _PUPPY_INFERENCE_TIMEOUT_SECONDS: ""
   # One Live Voice (Gemini Live on Vertex ADC). Dark by default: the flag is the
   # kill switch, the model id is an exact pin (no aliases), and the location is
   # one regional Vertex endpoint. Set all three only after the lane's
