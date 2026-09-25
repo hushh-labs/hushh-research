@@ -1,13 +1,28 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
   startConnect: vi.fn(),
+  startNativeConnect: vi.fn(),
+  completeNativeConnect: vi.fn(),
   disconnect: vi.fn(),
   getIdToken: vi.fn(),
   navigateToAgentChat: vi.fn(),
+  trackEvent: vi.fn(),
+  connectCalendar: vi.fn(),
+  native: false,
+  popup: null as Window | null,
+  popupAttempt: "",
 }));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => mocks.native },
+}));
+vi.mock("@/lib/capacitor", () => ({
+  HushhAuth: { connectCalendar: mocks.connectCalendar },
+}));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: mocks.trackEvent }));
 
 vi.mock("@/lib/navigation/agent-navigation", () => ({
   navigateToAgentChat: mocks.navigateToAgentChat,
@@ -24,6 +39,8 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: {
     status: mocks.status,
     startConnect: mocks.startConnect,
+    startNativeConnect: mocks.startNativeConnect,
+    completeNativeConnect: mocks.completeNativeConnect,
     disconnect: mocks.disconnect,
   },
 }));
@@ -36,16 +53,23 @@ describe("CalendarAgentPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    mocks.native = false;
+    mocks.popupAttempt = "";
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(
       () =>
-        ({
+        (mocks.popup = ({
           close: vi.fn(),
           document: { title: "" },
           focus: vi.fn(),
           location: { replace: vi.fn() },
-          sessionStorage: { setItem: vi.fn() },
-        }) as unknown as Window,
+          sessionStorage: {
+            setItem: vi.fn((_key: string, value: string) => {
+              mocks.popupAttempt = value;
+            }),
+            getItem: vi.fn(() => mocks.popupAttempt || null),
+          },
+        }) as unknown as Window),
     );
   });
 
@@ -144,5 +168,56 @@ describe("CalendarAgentPage", () => {
     expect(await screen.findByText("Connect Google Calendar")).toBeTruthy();
     expect(screen.queryByText("Try asking One")).toBeNull();
     expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
+  });
+
+  it("keeps a verified popup success authoritative without a second status read", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        source: mocks.popup,
+        data: {
+          schemaVersion: 1, type: "google_oauth_settlement",
+          attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded",
+        },
+      }));
+    });
+    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    ));
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "expected_error" }),
+    );
+  });
+
+  it("counts a native Calendar consent dismissal as expected", async () => {
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client", access_level: "read", state: "state",
+    });
+    mocks.connectCalendar.mockRejectedValue(
+      Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }),
+    );
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "expected_error" },
+    ));
+    expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
   });
 });

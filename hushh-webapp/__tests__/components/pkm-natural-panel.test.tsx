@@ -449,6 +449,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       "one_memory_action",
       expect.objectContaining({ action: "detail_edited", result: "error" }),
     );
+    expect((await screen.findAllByText(/latest summary could not refresh/i)).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
   });
 
   it("requires confirmation before forgetting and deletes the exact path", async () => {

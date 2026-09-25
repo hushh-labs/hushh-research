@@ -132,16 +132,19 @@ export function CalendarAgentPage({
       }
       clearAttempt();
       if (outcome === "succeeded") {
-        const currentStatus = await refresh().catch(() => null);
-        if (currentStatus?.connected) {
-          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
-          morphyToast.success("Google Calendar connected.");
-        } else {
-          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
-          morphyToast.error(
-            "Google authorization finished, but Calendar is still connecting. Check again in a moment.",
-          );
-        }
+        // The owner-bound callback has already verified the completed
+        // connection. Keep that terminal result authoritative instead of
+        // downgrading it through a second, potentially stale status read.
+        setStatus((current) => ({
+          configured: current?.configured ?? true,
+          connected: true,
+          google_email: current?.google_email,
+          status: "connected",
+          access_level: current?.access_level ?? null,
+          scope_csv: current?.scope_csv ?? "",
+        }));
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+        morphyToast.success("Google Calendar connected.");
       } else if (outcome === "failed") {
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "error" });
         morphyToast.error(message || "Google Calendar could not be connected.");
@@ -281,7 +284,12 @@ export function CalendarAgentPage({
       popupStartedAtRef.current = Date.now();
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
-      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "error" });
+      const result =
+        error && typeof error === "object" && "code" in error &&
+        error.code === "USER_CANCELLED"
+          ? "expected_error"
+          : "error";
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result });
       popupRef.current?.close();
       expectedPopupAttempt.current = null;
       popupRef.current = null;

@@ -794,18 +794,20 @@ export function PkmNaturalPanel({
       // one confirmed write into contradictory success + error outcomes.
       trackEvent("one_memory_action", { route_id: "pkm", action: params.action === "edited" ? "detail_edited" : "detail_deleted", result: "success" });
       clearAgentPkmContext(user.uid);
+      let metadataRefreshFailed = false;
       try {
         setMetadata(
           await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
         );
       } catch {
+        metadataRefreshFailed = true;
         setMemoryActionError(
           "Memory was updated, but the latest summary could not refresh. Refresh the page to see it."
         );
       }
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
-      setSelectedCard(null);
+      if (!metadataRefreshFailed) setSelectedCard(null);
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
       trackEvent("one_memory_action", {
