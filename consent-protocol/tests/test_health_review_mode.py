@@ -60,6 +60,7 @@ def test_review_mode_session_requires_app_review_or_smoke_overlay(monkeypatch):
 
 
 def test_review_mode_session_uses_reviewer_uid_when_app_review_enabled(monkeypatch):
+    monkeypatch.setattr(health, "_review_mode_overlay_uid", lambda: "")
     monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
     monkeypatch.setenv("APP_REVIEW_MODE", "true")
     monkeypatch.setenv("REVIEWER_UID", "reviewer_uid_123")
@@ -217,6 +218,21 @@ _REVIEWER_ENV_KEYS = (
 )
 
 
+def test_local_reviewer_overlay_wins_over_stale_dotenv_uid(monkeypatch, tmp_path):
+    overlay = tmp_path / "consent-protocol" / ".env.local"
+    overlay.parent.mkdir()
+    overlay.write_text("APP_REVIEW_MODE=true\nREVIEWER_UID=canonical_reviewer\n")
+    monkeypatch.setattr(health, "__file__", str(overlay.parent / "api" / "routes" / "health.py"))
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "development")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("REVIEWER_UID", "stale_reviewer")
+    assert health._resolve_reviewer_uid() == "canonical_reviewer"
+
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "production")
+    assert health._resolve_reviewer_uid() == "stale_reviewer"
+
+
 def _clear_reviewer_env(monkeypatch) -> None:
     monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
     monkeypatch.delenv("APP_REVIEW_MODE", raising=False)
@@ -234,6 +250,7 @@ def _clear_reviewer_env(monkeypatch) -> None:
         return ""
 
     monkeypatch.setattr(health, "_first_env", _process_env_only)
+    monkeypatch.setattr(health, "_review_mode_overlay_uid", lambda: "")
 
 
 def _install_fake_minter(monkeypatch) -> dict[str, object]:
