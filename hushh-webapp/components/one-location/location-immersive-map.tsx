@@ -858,6 +858,7 @@ export function LocationImmersiveMap({
   const cameraSettleTimerRef = useRef<number | null>(null);
   const pendingCameraRef = useRef<MapNameLabelCamera | null>(null);
   const settledCameraRevisionRef = useRef(0);
+  const cameraCommandGenerationRef = useRef(0);
   const nativeMapPaddingRef = useRef({
     top: 0,
     right: 0,
@@ -972,6 +973,7 @@ export function LocationImmersiveMap({
     markerGenerationRef.current += 1;
     selfCircleGenerationRef.current += 1;
     nearbyCircleGenerationRef.current += 1;
+    cameraCommandGenerationRef.current += 1;
     markerCommandRef.current = Promise.resolve();
     selfCircleCommandRef.current = Promise.resolve();
     nearbyCircleCommandRef.current = Promise.resolve();
@@ -1282,6 +1284,7 @@ export function LocationImmersiveMap({
       },
     ) => {
       const cameraRevision = settledCameraRevisionRef.current;
+      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       await map.setCamera(camera);
       // Compatibility bridges can accept a camera command without ever
       // reporting idle. Publish that target only after acceptance, and never
@@ -1290,6 +1293,7 @@ export function LocationImmersiveMap({
       if (
         mapRef.current === map &&
         rendererReadyRef.current &&
+        cameraCommandGenerationRef.current === cameraCommandGeneration &&
         settledCameraRevisionRef.current === cameraRevision
       ) {
         setSettledCameraZoom(camera.zoom);
@@ -1875,6 +1879,7 @@ export function LocationImmersiveMap({
       }
       pendingCameraRef.current = null;
       settledCameraRevisionRef.current += 1;
+      cameraCommandGenerationRef.current += 1;
       nativeMapPaddingRef.current = { top: 0, right: 0, bottom: 0, left: 0 };
       nativeMapPaddingCommandRef.current = Promise.resolve();
       setMapCamera(null);
@@ -2294,19 +2299,24 @@ export function LocationImmersiveMap({
       // QA reported on uat.one.hushh.ai/one/location/map. The container itself
       // is correct and untouched (`h-[100dvh]`, map `absolute inset-0`).
       if (!isNative()) return;
-      nativeMapPaddingRef.current = padding;
-      nativeMapPaddingCommandRef.current = map.setPadding(padding).catch(() => {
-        // A rejected bridge write did not shrink the effective fit viewport.
-        if (mapRef.current === map) {
-          nativeMapPaddingRef.current = {
-            top: 0,
-            right: 0,
-            bottom: 0,
-            left: 0,
-          };
-          nativeMapPaddingCommandRef.current = Promise.resolve();
-        }
-      });
+      // Serialize native writes. A resize can publish new geometry while an
+      // older bridge call is pending; allowing them to overlap lets the older
+      // failure roll back a newer success. The ref records only padding the
+      // renderer actually accepted, and a failed write retains the last known
+      // applied value rather than guessing that the SDK reset itself to zero.
+      nativeMapPaddingCommandRef.current = nativeMapPaddingCommandRef.current
+        .then(async () => {
+          if (mapRef.current !== map) return;
+          await map.setPadding(padding);
+          if (mapRef.current === map) nativeMapPaddingRef.current = padding;
+        })
+        .catch(() => {
+          // Retry identical geometry on the next observed layout event. Until
+          // then, fits use the last padding the renderer confirmed.
+          if (mapRef.current === map && lastPaddingKey === key) {
+            lastPaddingKey = "";
+          }
+        });
     };
     const schedulePadding = () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);
@@ -2431,6 +2441,7 @@ export function LocationImmersiveMap({
       width: mapBox.width,
       height: mapBox.height,
     });
+    cameraCommandGenerationRef.current += 1;
     void map
       .setCamera({
         coordinate: worldView.center,
@@ -2602,11 +2613,13 @@ export function LocationImmersiveMap({
         );
       }
       const cameraRevision = settledCameraRevisionRef.current;
+      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       await map.fitBounds(bounds, fitPaddingPx);
       if (
         fittedZoom !== null &&
         generation === nearbyCircleGenerationRef.current &&
         mapRef.current === map &&
+        cameraCommandGenerationRef.current === cameraCommandGeneration &&
         settledCameraRevisionRef.current === cameraRevision
       ) {
         setSettledCameraZoom(fittedZoom);
@@ -2876,6 +2889,7 @@ export function LocationImmersiveMap({
           measuredBox && isNative()
             ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
             : measuredBox;
+        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         await frameMarkers(
           map,
           visibleMarkers,
@@ -2883,6 +2897,7 @@ export function LocationImmersiveMap({
             if (
               mapRef.current === map &&
               rendererReadyRef.current &&
+              cameraCommandGenerationRef.current === cameraCommandGeneration &&
               settledCameraRevisionRef.current === cameraRevision
             ) {
               setSettledCameraZoom(targetZoom);
@@ -3461,6 +3476,7 @@ export function LocationImmersiveMap({
           ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
           : measuredBox;
       try {
+        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         await frameMarkers(
           map,
           visibleMarkers,
@@ -3468,6 +3484,7 @@ export function LocationImmersiveMap({
             if (
               mapRef.current === map &&
               rendererReadyRef.current &&
+              cameraCommandGenerationRef.current === cameraCommandGeneration &&
               settledCameraRevisionRef.current === cameraRevision
             ) {
               setSettledCameraZoom(targetZoom);

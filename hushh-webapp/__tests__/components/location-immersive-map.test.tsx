@@ -3375,6 +3375,65 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
   });
 
+  it("ignores an older framing result after a newer camera command", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+
+    let resolveOlderFit!: () => void;
+    const olderFit = new Promise<void>((resolve) => {
+      resolveOlderFit = resolve;
+    });
+    mapHarness.map.fitBounds.mockReturnValueOnce(olderFit);
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolveOlderFit();
+      await olderFit;
+      await Promise.resolve();
+    });
+
+    const fallbackAfterLateFit = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .reverse()
+      .find((circle) => circle.title === "Your location");
+    expect(fallbackAfterLateFit).toBeDefined();
+    expect(Number(fallbackAfterLateFit?.radius)).toBeLessThan(100);
+  });
+
   it("does not resize the self dot when distant framing is rejected", async () => {
     stubPhoneGeometry();
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
@@ -4084,6 +4143,43 @@ describe("LocationImmersiveMap reported map defects", () => {
         .flatMap((call) => call[0] as Array<Record<string, unknown>>)
         .some((circle) => circle.title === "Your location"),
     ).toBe(true);
+  });
+
+  it("serializes native padding writes across an older rejection", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let rejectFirstPadding!: (reason: Error) => void;
+    const firstPadding = new Promise<void>((_resolve, reject) => {
+      rejectFirstPadding = reject;
+    });
+    mapHarness.map.setPadding
+      .mockReturnValueOnce(firstPadding)
+      .mockResolvedValue(undefined);
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 900,
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    // The changed geometry is queued behind the in-flight bridge write, so an
+    // older failure can never arrive after (and roll back) the newer success.
+    expect(mapHarness.map.setPadding).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rejectFirstPadding(new Error("older native padding write rejected"));
+      await firstPadding.catch(() => undefined);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mapHarness.map.setPadding.mock.calls.length).toBeGreaterThan(1);
+    });
   });
 
   it("keeps native HTML overlays disabled when move-start cannot be observed", async () => {
