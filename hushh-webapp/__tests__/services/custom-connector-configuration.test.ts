@@ -26,6 +26,22 @@ describe("vault-backed custom connector configuration", () => {
     expect(storage.loadDomainSnapshot).toHaveBeenCalledWith({ ...access, domain: "runtime_secrets", force: true });
     expect(storage.loadDomainData).not.toHaveBeenCalled();
   });
+  it.each([null, {}, { connectors: {} }])("allows a fresh Chat catalog when settings are absent: %j", async data => {
+    storage.loadDomainSnapshot.mockResolvedValue({ data });
+    const configurations = await loadCustomConnectorConfigurations(access, true);
+    expect(projectCustomConnectorTurnConfigurations(configurations)).toEqual([]);
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("does not cache a failed forced read or fall back to warm credentials", async () => {
+    storage.loadDomainData.mockResolvedValue({ connectors: { [record.connectorId]: JSON.stringify(record) } });
+    storage.loadDomainSnapshot.mockRejectedValueOnce(new Error("synthetic-unavailable"))
+      .mockResolvedValueOnce({ data: { connectors: { [record.connectorId]: JSON.stringify(record) } } });
+    await expect(loadCustomConnectorConfigurations(access, true)).rejects.toThrow("synthetic-unavailable");
+    expect(await loadCustomConnectorConfigurations(access, true)).toEqual([record]);
+    expect(storage.loadDomainSnapshot).toHaveBeenCalledTimes(2);
+    expect(storage.loadDomainData).not.toHaveBeenCalled();
+  });
   it("projects only transient access credentials without mutating vault configuration", () => {
     const oauth = { ...record, enabled: true, authentication: { kind: "oauth" as const,
       accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };
