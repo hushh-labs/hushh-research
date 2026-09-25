@@ -51,6 +51,10 @@ This projection alone does not certify assistant-text or other persistence paths
 those require separate custody verification. Explicit PKM capture remains separate.
 The current browser tool-status projection stays metadata-only; richer connector
 presentation must use an owner content surface, not diagnostic event payloads.
+For failed AG-UI turns, timing logs and reviewer rehearsals retain only an
+allowlisted error category (`connector`, `database`, `runtime`, `model`,
+`other`, or `untyped`). Never retain the raw `RUN_ERROR` message or code as a
+diagnostic; either may contain provider or owner information.
 For resumed snapshots, collect private call identities before projecting messages;
 a result may precede its call and no start event may have been observed. The live
 model-turn object remains unchanged. This redaction does not authorize a tool,

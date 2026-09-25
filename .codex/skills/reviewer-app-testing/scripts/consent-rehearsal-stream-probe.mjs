@@ -6,7 +6,7 @@ export function installConsentStreamProbe() {
     const input = args[0];
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (new URL(url, window.location.href).pathname !== "/api/one/agent-chat") return originalFetch(...args);
-    const proof = { httpOk: false, finished: false, runError: false, malformed: false,
+    const proof = { httpOk: false, finished: false, runError: false, runErrorClass: null, malformed: false,
       aborted: false, settled: false, parkedActions: [] };
     window.__consentRehearsalStreams.push(proof);
     let response;
@@ -28,7 +28,15 @@ export function installConsentStreamProbe() {
       if (!data || data === "[DONE]") return;
       let item;
       try { item = JSON.parse(data); } catch { proof.malformed = true; return; }
-      if (item.type === "RUN_ERROR") proof.runError = true;
+      if (item.type === "RUN_ERROR") {
+        proof.runError = true;
+        const code = item.code;
+        proof.runErrorClass = typeof code !== "string" ? "untyped"
+          : code.startsWith("MCP_") ? "connector"
+          : code.startsWith("DATABASE_") ? "database"
+          : code.startsWith("AGENT_RUNTIME_") ? "runtime"
+          : ["MODEL_ERROR", "RESOURCE_EXHAUSTED"].includes(code) ? "model" : "other";
+      }
       if (item.type === "RUN_FINISHED") proof.finished = true;
       if (item.type === "TOOL_CALL_RESULT") {
         let result = parse(item.content);

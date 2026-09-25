@@ -276,6 +276,7 @@ async def test_run_error_event_marks_outcome_error(monkeypatch, caplog):
     fields = _fields(_timing_lines(caplog)[0])
     assert fields["head"] == HEAD_INTRO
     assert fields["outcome"] == OUTCOME_ERROR
+    assert fields["error_class"] == "model"
     assert fields["first_visible_ms"] == "None"
     assert fields["events"] == "2"
 
@@ -293,6 +294,22 @@ async def test_escaped_exception_marks_outcome_error_and_reraises(monkeypatch, c
         await _drain(_agent())
 
     assert _fields(_timing_lines(caplog)[0])["outcome"] == OUTCOME_ERROR
+    assert _fields(_timing_lines(caplog)[0])["error_class"] == "escaped_exception"
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("MCP_CATALOG_UNAVAILABLE", "connector"),
+        ("DATABASE_UNAVAILABLE", "database"),
+        ("AGENT_RUNTIME_MODEL_UNAVAILABLE", "runtime"),
+        ("MODEL_ERROR", "model"),
+        ("PRIVATE_OWNER_VALUE", "other"),
+        (None, "untyped"),
+    ],
+)
+def test_error_class_discards_untrusted_code_and_message(code, expected):
+    assert agui_turn_timing._error_class(code) == expected
 
 
 @pytest.mark.asyncio

@@ -81,6 +81,21 @@ def _ms_since(started_at: float, at: float | None) -> int | None:
     return round((at - started_at) * 1000)
 
 
+def _error_class(code: Any) -> str:
+    """Classify a protocol error without retaining its untrusted message/code."""
+    if not isinstance(code, str):
+        return "untyped"
+    if code.startswith("MCP_"):
+        return "connector"
+    if code.startswith("DATABASE_"):
+        return "database"
+    if code.startswith("AGENT_RUNTIME_"):
+        return "runtime"
+    if code in {"MODEL_ERROR", "RESOURCE_EXHAUSTED"}:
+        return "model"
+    return "other"
+
+
 @dataclass
 class TurnTiming:
     """Counters for one AG-UI run. Holds no identifying records by construction."""
@@ -105,6 +120,7 @@ class TurnTiming:
     tool_schema_chars_peak: int | None = None
     history_items_peak: int | None = None
     outcome: str = OUTCOME_FINISHED
+    error_class: str = "none"
     terminal_observed: bool = False
 
     def begin_model_call(self, request: Any) -> None:
@@ -167,6 +183,7 @@ class TurnTiming:
         if event_type == EventType.RUN_ERROR:
             self.terminal_observed = True
             self.outcome = OUTCOME_ERROR
+            self.error_class = _error_class(getattr(event, "code", None))
         elif event_type == EventType.RUN_FINISHED:
             self.terminal_observed = True
         if event_type != EventType.TOOL_CALL_START:
@@ -185,7 +202,7 @@ class TurnTiming:
             "first_model_call_ms=%s model_calls=%s model_call_total_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
-            "events=%s tool_calls=%s specialist_calls=%s outcome=%s",
+            "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
@@ -205,6 +222,7 @@ class TurnTiming:
             self.tool_calls,
             self.specialist_calls,
             self.outcome,
+            self.error_class,
         )
 
 
@@ -277,6 +295,7 @@ class TimedADKAgent(ADKAgent):
             raise
         except BaseException:
             timing.outcome = OUTCOME_ERROR
+            timing.error_class = "escaped_exception"
             raise
         finally:
             if interrupted or timing.outcome in (OUTCOME_ERROR, OUTCOME_CLIENT_DISCONNECT):
