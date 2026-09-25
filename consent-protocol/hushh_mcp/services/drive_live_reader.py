@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
+from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
     LIVE_PARTIAL_EXPORTS,
@@ -350,6 +351,30 @@ class DriveLiveReader:
         seen: set[str] = set()
         truncated = False
         pages = 0
+        transient_retry_available = True
+
+        async def read_search_page(tool_name: str, arguments: dict) -> ExternalMcpToolResult:
+            """Retry one transient metadata GET within this bounded owner read."""
+            nonlocal transient_retry_available
+            try:
+                return await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name=tool_name, arguments=arguments
+                )
+            except DriveReadError as error:
+                if (
+                    not transient_retry_available
+                    or str(error) != "provider_unavailable"
+                    or not error.retryable
+                ):
+                    raise
+                transient_retry_available = False
+                await asyncio.sleep(0.5)
+                # A reconnect during backoff must not retry against a new grant.
+                await self._credential()
+                return await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name=tool_name, arguments=arguments
+                )
+
         for tool_name, request in requests:
             page_token = None
             while pages < MAX_SEARCH_PAGES and len(matches) < max_results:
@@ -361,9 +386,7 @@ class DriveLiveReader:
                 }
                 if page_token:
                     arguments["pageToken"] = page_token
-                result = await self.mcp.read_tool(
-                    user_id=self.user_id, tool_name=tool_name, arguments=arguments
-                )
+                result = await read_search_page(tool_name, arguments)
                 if (
                     result.is_error
                     or result.truncated
@@ -419,9 +442,7 @@ class DriveLiveReader:
                 }
                 if page_token:
                     arguments["pageToken"] = page_token
-                result = await self.mcp.read_tool(
-                    user_id=self.user_id, tool_name="search_files", arguments=arguments
-                )
+                result = await read_search_page("search_files", arguments)
                 if (
                     result.is_error
                     or result.truncated
