@@ -72,9 +72,13 @@ export type CustomConnectorSnapshot = {
   invalid: InvalidCustomConnector[];
 };
 
+export function isVaultOwnerCredential(value: string): boolean {
+  return /^(?:Bearer\s+)?HCT:/i.test(value.trim());
+}
+
 function containsVaultOwnerCredential(record: CustomConnectorConfiguration): boolean {
   return record.authentication.kind === "api_key" &&
-    /^(?:Bearer\s+)?HCT:/i.test(record.authentication.value.trim());
+    isVaultOwnerCredential(record.authentication.value);
 }
 
 /** Memory-only request projection. Never serialize vault keys or refresh tokens

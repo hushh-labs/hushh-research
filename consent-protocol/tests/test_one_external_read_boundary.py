@@ -165,9 +165,15 @@ async def test_actual_one_runner_allows_only_reviewable_draft_after_read():
             next(r for r in responses if r.name == "open_gmail_email_draft").response["status"]
             == "draft_opened"
         )
-        assert next(r for r in responses if r.name == "forbidden_action").response["reason"] == (
-            "connector_read_complete"
-        )
+        assert next(r for r in responses if r.name == "forbidden_action").response == {
+            "status": "blocked",
+            "reason": "connector_read_complete",
+            "message": (
+                "A connector read already ran in this chat turn. Answer from that result, "
+                "or ask the owner for a new message if another read is needed. "
+                "This blocked call did not reach the provider."
+            ),
+        }
     finally:
         await runner.close()
 

@@ -89,7 +89,7 @@ describe("tabbed ambient chrome contract", () => {
     );
   });
 
-  it("uses the shared dissolve curve and bounded readability blur at both edges", () => {
+  it("keeps the top dissolve while leaving the bottom navigation unmasked", () => {
     const styles = read("app/globals.css");
     const mask = read("components/app-ui/ambient-chrome-mask.tsx");
 
@@ -100,16 +100,15 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain(
       "backdrop-filter: var(--ambient-chrome-backdrop-filter)",
     );
-    expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain("--ambient-chrome-fade-solid: 100%");
     expect(styles).toContain("--ambient-chrome-fade-dense: 91%");
     expect(styles).toContain("--ambient-chrome-fade-mid: 72%");
     expect(styles).toContain("--ambient-chrome-fade-soft: 38%");
     expect(styles).toContain("--ambient-chrome-fade-trace: 12%");
-    expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain("var(--ambient-chrome-fade-mask-mid)");
     expect(styles).toContain("var(--ambient-chrome-fade-mask-soft)");
     expect(styles).toContain("var(--ambient-chrome-fade-mask-trace)");
+    expect(read("components/app-ui/app-bottom-shell.tsx")).not.toContain("<AmbientChromeMask");
   });
 
   it("drives top-shell collapse directly from the shared scroll progress", () => {
@@ -148,11 +147,11 @@ describe("tabbed ambient chrome contract", () => {
     expect(ambient).toContain('foreground: "--ambient-chrome-bottom-fg"');
   });
 
-  it("contracts the bottom mask with the scroll-hidden navigation slot", () => {
+  it("contracts the bottom navigation with the scroll-hidden slot", () => {
     const bottomShell = read("components/app-ui/app-bottom-shell.tsx");
 
     expect(bottomShell).toContain("var(--bottom-chrome-progress, 0)");
     expect(bottomShell).toContain("var(--bottom-nav-travel, 0px)");
-    expect(bottomShell).not.toContain("var(--bottom-chrome-fade-tail)");
+    expect(bottomShell).not.toContain("<AmbientChromeMask");
   });
 });

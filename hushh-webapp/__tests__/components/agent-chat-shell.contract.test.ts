@@ -151,12 +151,10 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('data-testid="agent-chat-self-avatar"');
     expect(workspace).toContain("<AvatarBubble");
     expect(workspace).not.toContain('return "Ready";');
-    // The slot is a reserved fixed-width span now, rendered unconditionally so
-    // the right-hand cluster cannot jump sideways when the status appears and
-    // disappears. The old `{statusText ? (` assertion outlived that change and
-    // had been failing ever since.
-    expect(workspace).toContain('role="status"');
-    expect(workspace).toContain("{statusText}");
+    // Status belongs below One, not beside the profile avatar. The subtitle
+    // crossfades without moving the right-hand controls.
+    expect(workspace).toContain('statusText || "Your private agent"');
+    expect(workspace).not.toContain('title={statusText || undefined}');
   });
 
   it("keeps One's cloud model picker out of the Puppy One surface", () => {

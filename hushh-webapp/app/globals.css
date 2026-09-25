@@ -6307,7 +6307,8 @@ html[data-accent="gold"].dark {
  * filters are recomputed during every frame of page and overlay motion. Keep
  * both persistent chrome and modal scrims blur-free on native Android; the
  * shared scrim color still dims and isolates blocking surfaces without the
- * physical-device frame-time regression. */
+ * physical-device frame-time regression. The measured Galaxy S24 Ultra
+ * sheet trace improved from 7 uneven frames to 23 evenly spaced frames. */
 html.native-android *,
 html.native-android *::before,
 html.native-android *::after {

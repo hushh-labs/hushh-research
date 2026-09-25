@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
-import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, isVaultOwnerCredential, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -20,6 +20,7 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
   hasOAuthRegistration: boolean;
 };
 type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" };
+class ConnectorSetupError extends Error {}
 
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
   return {
@@ -83,6 +84,8 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const operation = (async () => {
+      if (credential && isVaultOwnerCredential(credential))
+        throw new ConnectorSetupError("Vault tokens cannot connect other servers. Use this connector’s sign-in.");
       const configuration: CustomConnectorConfiguration = {
         version: 1, connectorId: `custom_${crypto.randomUUID().replaceAll("-", "")}`,
         revision: crypto.randomUUID(), displayName: name.trim(), endpoint: endpoint.trim(), enabled: true,
@@ -121,8 +124,15 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false);
     })();
     morphyToast.promise(operation, {
-      loading: "Checking connector…", success: "Connector settings saved.",
-      error: "Could not add connector. Check its MCP address and server-specific credential.",
+      loading: "Checking connector…", success: "Connector added.",
+      error: (error) => {
+        if (error instanceof ConnectorSetupError) return error.message;
+        try {
+          if (/\/auth\/?$/i.test(new URL(endpoint.trim()).pathname))
+            return "That looks like a sign-in URL. Use the server’s MCP endpoint.";
+        } catch { /* URL validation and server checks report the generic failure. */ }
+        return "Couldn’t connect. Check the server URL and its access token.";
+      },
     });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
@@ -296,10 +306,10 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     </li>)}</ul>
     {editing ? <form className="space-y-3" onSubmit={event => { event.preventDefault(); void save(); }}>
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>
-      <label className="block space-y-1 text-sm">Server address<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
-      <label className="block space-y-1 text-sm">Authorization header (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} onChange={event => setCredential(event.target.value)} /></label>
-      <p className="text-xs text-muted-foreground">Use this server's credential, never your Hushh vault token. Enter its MCP endpoint, not its sign-in page.</p>
-      <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">OAuth client settings (if provided by your server)</summary>
+      <label className="block space-y-1 text-sm">Server URL<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
+      <label className="block space-y-1 text-sm">Access token (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} onChange={event => setCredential(event.target.value)} /></label>
+      <p className="text-xs text-muted-foreground">Use the server endpoint, not its sign-in page. Never use your vault token.</p>
+      <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">OAuth settings</summary>
         <div className="space-y-3 pb-3">
           <label className="block space-y-1">Authorization server issuer<Input type="url" placeholder="https://accounts.example.com" maxLength={2048} value={oauthIssuer} onChange={event => setOauthIssuer(event.target.value)} /></label>
           <label className="block space-y-1">Client ID<Input maxLength={8192} autoComplete="off" value={oauthClientId} onChange={event => setOauthClientId(event.target.value)} /></label>
@@ -307,12 +317,12 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
           {oauthAuthMethod !== "none" ? <label className="block space-y-1">Client secret<Input type="password" autoComplete="off" maxLength={8192} value={oauthClientSecret} onChange={event => setOauthClientSecret(event.target.value)} /></label> : null}
         </div>
       </details>
-      <p className="text-xs text-muted-foreground">Use a trusted server. Settings are encrypted in your vault. Each tool call requires review; saving does not sign you in.</p>
+      <p className="text-xs text-muted-foreground">Only add servers you trust. Tools ask before use.</p>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="standard" effect="fade" disabled={busy}>Save connector</Button>
-        <Button type="button" size="standard" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); }}>Cancel</Button>
+        <Button type="submit" size="compact" effect="fade" disabled={busy}>Add</Button>
+        <Button type="button" size="compact" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); }}>Cancel</Button>
       </div>
-    </form> : <Button size="standard" variant="none" effect="fade" disabled={status !== "ready"} onClick={() => setEditing(true)}>Add connector</Button>}
+    </form> : <Button size="compact" variant="none" effect="fade" disabled={status !== "ready"} onClick={() => setEditing(true)}>Add connector</Button>}
     <AlertDialog open={Boolean(removing)} onOpenChange={open => { if (!open && !busy) setRemoving(null); }}>
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>Remove {removing?.displayName}?</AlertDialogTitle>

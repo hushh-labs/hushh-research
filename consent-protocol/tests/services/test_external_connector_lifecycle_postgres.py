@@ -954,10 +954,11 @@ async def test_native_handoff_contains_only_reference_and_requires_original_owne
 
 
 @pytest.mark.asyncio
-async def test_owner_connection_remains_available_when_rollout_flag_is_off(drive, monkeypatch):
+async def test_connection_rollout_flag_does_not_block_start_or_disconnect(drive, monkeypatch):
     await drive_connect(drive)
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    await drive_start(drive)
+    started, _ = await drive_start(drive)
+    assert started["attemptId"]
     drive._post.side_effect = DriveOAuthError("provider_unavailable", status_code=503)
     result = await drive.disconnect(user_id="owner")
     assert result["status"] == "revoked" and result["revocationOutcome"] == "failed"

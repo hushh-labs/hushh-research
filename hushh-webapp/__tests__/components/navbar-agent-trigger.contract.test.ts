@@ -83,9 +83,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).not.toContain("<AgentBar />");
     expect(bottomShell).toContain("export const AppBottomShell = memo(function AppBottomShell");
     expect(bottomShell).not.toContain("AmbientChromeController");
-    expect(bottomShell).toContain(
-      '<AmbientChromeMask\n          edge="bottom"',
-    );
+    expect(bottomShell).not.toContain('edge="bottom"');
     expect(bottomShell).not.toContain("useKaiBottomChromeElementTranslation");
     expect(bottomShell).toContain("snapKaiBottomChromeVisible");
     expect(bottomShell).toContain("onPointerDownCapture");
@@ -111,7 +109,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(dockClass).not.toContain("backdrop-blur");
     expect(agentBar).not.toContain('? "h-11 rounded-[22px] px-2.5"');
     expect(agentBar).toContain("var(--app-agent-bar-max-width)");
-    expect(bottomShell).toContain("var(--bottom-chrome-full-height)");
+    expect(bottomShell).not.toContain("<AmbientChromeMask");
     expect(bottomShell).toContain("--app-bottom-shell-height");
     expect(bottomShell).not.toContain("xl:hidden");
     expect(navbar).toContain("shellNavigationHidden = false");

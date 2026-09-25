@@ -3704,7 +3704,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         );
         return;
       }
-      const stored = selectedId === snapshot.latestConversationId
+      const stored = selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
         ? snapshot.latestMessages
         : await loadAgentChatConversationHistory({
             userId: user.uid, conversationId: selectedId, vaultOwnerToken,
@@ -4072,43 +4072,40 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       if (conversationId === targetConversationId) {
-        abortAgentTurnWork();
+        handleHistoryDrawerOpenChange(false);
+        handleCreateNewChat();
       }
       setHistoryActionPendingId(targetConversationId);
+      const deletion = deleteAgentChatConversation({
+        conversationId: targetConversationId,
+        vaultOwnerToken: token,
+      });
+      toast.promise(deletion, {
+        loading: "Deleting chat…",
+        success: "Chat deleted.",
+        error: "Could not delete chat.",
+      });
       try {
-        await deleteAgentChatConversation({
-          conversationId: targetConversationId,
-          vaultOwnerToken: token,
-        });
-        const refreshed = await warmAgentChatHistoryCache({
+        await deletion;
+        if (getVaultOwnerToken() !== token) return;
+        setConversations((current) => current.filter((item) => item.id !== targetConversationId));
+        void warmAgentChatHistoryCache({
           userId: user.uid,
           vaultOwnerToken: token,
           force: true,
-        });
-        const nextConversations = refreshed.conversations;
-        setConversations(nextConversations);
-        if (conversationId === targetConversationId) {
-          const nextConversation = nextConversations[0];
-          if (nextConversation) {
-            await restoreConversationMessages(nextConversation.id, token);
-          } else {
-            handleCreateNewChat();
-          }
-        }
-        toast.success("Agent chat deleted.");
+        }).catch(() => undefined);
       } catch {
-        toast.error("Could not delete Agent chat.");
+        // The promise toast reports the failed server operation. Keep the row.
       } finally {
-        setHistoryActionPendingId(null);
+        if (getVaultOwnerToken() === token) setHistoryActionPendingId(null);
       }
     },
     [
       conversationId,
-      abortAgentTurnWork,
       getVaultOwnerToken,
       handleCreateNewChat,
+      handleHistoryDrawerOpenChange,
       historyInteractionDisabled,
-      restoreConversationMessages,
       user?.uid,
     ],
   );
@@ -6337,9 +6334,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
                 <ChatAgentSubtitle text={isPuppySurface ? "Separate conversation" :
-                  isStreaming && activeToolCalls.length > 0
+                  activeToolCalls.length > 0
                     ? activeToolStatus(activeToolCalls.at(-1)!.label)
-                    : "Your private agent"} />
+                    : statusText || "Your private agent"} />
               </div>
             </div>
 
@@ -6459,19 +6456,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
               </span>
               ) : null}
-              {/* A fixed slot, always present. This used to mount and unmount
-                  with the status, and because the cluster is shrink-0 the whole
-                  right side, One/Puppy toggle included, jumped sideways every
-                  time One started or stopped thinking. The width is reserved so
-                  nothing moves, and the text truncates instead of pushing. */}
-              <span
-                className="hidden w-28 shrink-0 truncate text-right text-xs font-medium text-muted-foreground sm:inline-block"
-                role="status"
-                aria-live="polite"
-                title={statusText || undefined}
-              >
-                {statusText}
-              </span>
               <ShellActionSurface
                 variant="icon"
                 data-testid="profile-open-button"
@@ -6562,11 +6546,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     transcriptUserScrollRef.current = false;
                   }
 
-                  // Any unclassified scroll event after the programmatic guard
-                  // is a real reader movement (wheel, keyboard, or touch). Once
-                  // that happens, message updates must respect the reader's
-                  // position instead of repeatedly snapping to the end.
-                  transcriptUserScrollRef.current = true;
+                  // Stay in follow mode when the reader returns to the end;
+                  // setting this to true unconditionally made subsequent
+                  // streamed updates stop following after any scroll event.
                   // Chat owns an inner transcript scroller inside the shared
                   // route shell. Feed its committed movement into the same
                   // bottom-chrome visibility state used by every other route so

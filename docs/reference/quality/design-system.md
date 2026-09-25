@@ -258,15 +258,11 @@ are query-selected content inside `/one/kai`; they do not get a wider dashboard
 canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
-Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
-feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
-filter; the top mask keeps the shell legible through its visible tab stack and
-uses only a short, eased tail below the underline. The bottom mask uses the
-same short, eased edge treatment and contracts with the scroll-hidden
-navigation slot while retaining the Agent Bar tail. Those edges must remain
-present on mobile and desktop wherever the signed-in top/bottom shell is
-present.
+Persistent top chrome uses the neutral theme feather in
+`components/app-ui/ambient-chrome-mask.tsx`, with a short tail below the tab
+underline. Bottom navigation and the Agent Bar remain separate floating
+controls; no full-width bottom mask fades the page behind them. This applies
+on mobile and desktop.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or

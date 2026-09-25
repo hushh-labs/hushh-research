@@ -9,7 +9,6 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -161,15 +160,10 @@ class GoogleDriveMcpService:
             or outcome.truncated
             or not isinstance(outcome.payload.get("files"), list)
         ):
-            # The probe is an owner-only metadata search with snippets excluded,
-            # so a provider error here is Google's own message, not file content.
-            detail = outcome.payload.get("text") if outcome.is_error else None
             logger.warning(
-                "drive_mcp.probe_failed is_error=%s truncated=%s keys=%s detail=%s",
+                "drive_mcp.probe_failed is_error=%s truncated=%s",
                 outcome.is_error,
                 outcome.truncated,
-                sorted(outcome.payload)[:6],
-                re.sub(r"[^\w .,:;'()/-]", "", detail)[:200] if isinstance(detail, str) else None,
             )
             raise DriveOAuthError("connector_unavailable", status_code=502)
 

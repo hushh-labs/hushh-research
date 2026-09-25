@@ -171,6 +171,8 @@ export async function proxyExternalConnectorRequest(
           "X-Accel-Buffering": "no",
           "x-request-id": requestId,
         },
+      });
+    }
     if (response.status === 204) {
       return new Response(null, {
         status: 204,

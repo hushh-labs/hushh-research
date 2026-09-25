@@ -397,10 +397,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   // chrome (navbar, agent bar, masks) on every tab switch.
   const bottomShellModel = useMemo(
     () => ({
-      ambientEnabled:
-        ambientChromeEnabled &&
-        !isFullscreenTopFlow &&
-        !bottomChromeHidden,
       navigationHidden: hideBottomNavigation,
       // The canonical Chat route already exposes its text composer. Keep the
       // idle voice launcher out of that route's visual hierarchy while allowing
@@ -410,8 +406,6 @@ function AppShellFrame({ children }: ProvidersProps) {
       hidden: bottomChromeHidden,
     }),
     [
-      ambientChromeEnabled,
-      isFullscreenTopFlow,
       bottomChromeHidden,
       hideBottomNavigation,
       isAuthenticated,
@@ -428,10 +422,8 @@ function AppShellFrame({ children }: ProvidersProps) {
   // Pinned routes disable the shared hide driver (the hook's disabled branch
   // writes --bottom-chrome-progress:0). This shell renders above
   // PersonaProvider, so route state is the stable source of truth here.
-  // Motion authority follows the bottom navigation, not the optional
-  // decorative bottom glass. Hidden-shell and flow routes can retain the nav
-  // while omitting that glass, and the persistent Agent Bar must still travel
-  // with it. This matches Navbar's non-onboarding scroll-hide policy.
+  // Motion authority follows the bottom navigation. The persistent Agent Bar
+  // travels with it; neither needs a full-width background fade.
   useKaiBottomChromeProgressCssVar(
     !chromeState.useOnboardingChrome &&
       !pinnedBottomChrome &&
