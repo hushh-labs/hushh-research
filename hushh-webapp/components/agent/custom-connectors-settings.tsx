@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
-import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, isVaultOwnerCredential, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -20,6 +20,7 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
   hasOAuthRegistration: boolean;
 };
 type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" };
+class ConnectorSetupError extends Error {}
 
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
   return {
@@ -82,6 +83,8 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const operation = (async () => {
+      if (credential && isVaultOwnerCredential(credential))
+        throw new ConnectorSetupError("Vault tokens cannot connect other servers. Use this connector’s sign-in.");
       const configuration: CustomConnectorConfiguration = {
         version: 1, connectorId: `custom_${crypto.randomUUID().replaceAll("-", "")}`,
         revision: crypto.randomUUID(), displayName: name.trim(), endpoint: endpoint.trim(), enabled: true,
@@ -121,7 +124,14 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     })();
     morphyToast.promise(operation, {
       loading: "Checking connector…", success: "Connector added.",
-      error: "Couldn’t connect. Check the server URL and its access token.",
+      error: (error) => {
+        if (error instanceof ConnectorSetupError) return error.message;
+        try {
+          if (/\/auth\/?$/i.test(new URL(endpoint.trim()).pathname))
+            return "That looks like a sign-in URL. Use the server’s MCP endpoint.";
+        } catch { /* URL validation and server checks report the generic failure. */ }
+        return "Couldn’t connect. Check the server URL and its access token.";
+      },
     });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
     finally { if (current()) { inFlight.current = false; setBusy(false); } }

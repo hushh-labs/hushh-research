@@ -9,6 +9,7 @@ import { Capacitor } from "@capacitor/core";
 import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
   McpCatalogAuthenticationError: class extends Error {},
@@ -18,7 +19,11 @@ vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   HushhOAuthReturn: { openAuthorization: vi.fn() },
 }));
 
-vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), loadCustomConnectorSnapshot: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
+vi.mock("@/lib/connections/custom-connector-configuration", () => ({
+  loadCustomConnectorConfigurations: vi.fn(), loadCustomConnectorSnapshot: vi.fn(),
+  saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn(),
+  isVaultOwnerCredential: (value: string) => /^(?:Bearer\s+)?HCT:/i.test(value.trim()),
+}));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size, variant: _v, effect: _e, ...props }: any) => <button data-size={size} {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
@@ -96,6 +101,37 @@ it("keeps a failed connection draft and does not save it", async () => {
   await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Name")).toHaveValue("Unreachable");
+});
+
+it("rejects a vault-owner token locally with a specific safe error", async () => {
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Synthetic" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "HCT:synthetic.signature" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledOnce());
+  const [operation, options] = vi.mocked(morphyToast.promise).mock.calls[0];
+  let failure: unknown;
+  try { await operation; } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Error);
+  expect((options.error as (error: unknown) => string)(failure)).toContain("Vault tokens cannot connect other servers");
+  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
+  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+});
+
+it("points an auth-page URL failure to the server endpoint", async () => {
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new Error("synthetic failure"));
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Synthetic" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp/auth" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledOnce());
+  const [operation, options] = vi.mocked(morphyToast.promise).mock.calls[0];
+  await expect(operation).rejects.toThrow("synthetic failure");
+  expect((options.error as (error: unknown) => string)(new Error("synthetic"))).toContain("sign-in URL");
+  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
 });
 
 it("saves an OAuth challenge only as sign-in pending, never as connected", async () => {
