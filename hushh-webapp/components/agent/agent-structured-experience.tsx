@@ -44,12 +44,15 @@ import type {
   DocumentRequestReviewExperience,
   KycReadinessExperience,
   MemoryImportReviewExperience,
+  PersonSelectionSourceTool,
   ScopeDiscoveryExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 
-export const AgentPersonSelectionContext = createContext<((handle: string, name: string) => void) | null>(null);
+export const AgentPersonSelectionContext = createContext<
+  ((handle: string, name: string, sourceTool: PersonSelectionSourceTool) => void) | null
+>(null);
 
 export type InformationRequestSubmissionReceipt = {
   bundleId: string;
@@ -74,12 +77,12 @@ export function AgentStructuredExperienceView({
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
-        summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
+        summary="Choose the right person to continue." icon={<UserRound className="size-5" />}>
         <div className="flex flex-col gap-2">
           {experience.candidates.map((candidate) => <div key={candidate.selectionHandle} className="flex items-center gap-2">
             <button type="button" disabled={!selectPerson}
             className="min-h-11 cursor-pointer rounded-xl px-3 py-2 text-left hover:bg-accent disabled:cursor-default disabled:opacity-50"
-            onClick={() => selectPerson?.(candidate.selectionHandle, candidate.displayName)}>
+            onClick={() => selectPerson?.(candidate.selectionHandle, candidate.displayName, experience.sourceTool)}>
             <span className="block font-medium">{candidate.displayName}</span>
             {candidate.detail ? <span className="block text-sm text-muted-foreground">{candidate.detail}</span> : null}
           </button>

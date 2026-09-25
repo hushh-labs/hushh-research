@@ -8,8 +8,15 @@ import {
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
+export type PersonSelectionSourceTool =
+  | "discover_person_information"
+  | "propose_information_request"
+  | "propose_document_request"
+  | "list_information_shared_with_me";
 export type PersonSelectionExperience = {
   type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
+  /** The structured tool that asked for the choice; the prompt follows it. */
+  sourceTool: PersonSelectionSourceTool;
   candidates: Array<{ selectionHandle: string; personRef: string; displayName: string; profilePath: string; detail: string | null }>;
   candidatesIncomplete?: boolean;
 };
@@ -18,6 +25,18 @@ export const DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.document_request_rev
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
+
+/**
+ * The follow-up sent after a person is picked. It is chosen from the tool that
+ * produced the picker, never from conversation words: discovery keeps its
+ * catalog prompt, and every other tool gets a neutral choice so the private
+ * agent carries on with the request it was making.
+ */
+export function personSelectionPrompt(sourceTool: PersonSelectionSourceTool, name: string): string {
+  return sourceTool === "discover_person_information"
+    ? `Check what I can ask ${name} for.`
+    : `I mean ${name}.`;
+}
 
 const MAX_SCOPES = 250;
 const PROFILE_PATH_PATTERN = /^\/people\/[A-Za-z0-9_-]{16,128}$/;
@@ -562,6 +581,7 @@ export function parseAgentToolResultExperience(
     toolName === "propose_document_request" ||
     toolName === "list_information_shared_with_me";
   if (!supportsPersonSelection) return null;
+  const sourceTool: PersonSelectionSourceTool = toolName;
   const result = unwrapToolResult(content);
   if (result?.status === "needs_clarification" && Array.isArray(result.candidates)) {
     const candidates = result.candidates.slice(0, 20).flatMap((value) => {
@@ -579,6 +599,7 @@ export function parseAgentToolResultExperience(
     return candidates.length
       ? {
           type: PERSON_SELECTION_EXPERIENCE_TYPE,
+          sourceTool,
           candidates,
           ...(result.candidatesIncomplete === true ? { candidatesIncomplete: true } : {}),
         }

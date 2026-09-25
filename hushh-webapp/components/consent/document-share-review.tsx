@@ -392,7 +392,14 @@ function UnlockedDocumentReview({
               ) : null}
             </div>
           ) : (
-            <HelperText>Suggestions are not ready yet.</HelperText>
+            <HelperText>
+              {review.status === "review_ready" &&
+              review.preparationError === "no_relevant_files"
+                ? "Your private agent didn't find files that look like what they asked for. You can decline, or refresh after adding the files."
+                : review.preparationError === "no_ready_files"
+                  ? "Matching files couldn't be read, for example password-protected or scanned PDFs."
+                  : "Suggestions are not ready yet."}
+            </HelperText>
           )}
           <HelperText>
             Original files stay in Google Drive. Later edits remain visible to
@@ -403,7 +410,12 @@ function UnlockedDocumentReview({
             value={selectedIds.length}
             detail="Viewer access"
           />
-          {!canApprove ? (
+          {!canApprove &&
+          !(
+            review.coverage == null &&
+            review.status === "review_ready" &&
+            review.preparationError === "no_relevant_files"
+          ) ? (
             <HelperText>Refresh suggestions before sharing.</HelperText>
           ) : null}
           {review.canTrustFutureRequests ? (

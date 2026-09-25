@@ -190,6 +190,16 @@ authority-ingress-only. Connections is reached through Nav; its separate legacy
 mutation adapter retains its full information/action authority gate. There is no
 separate Gmail specialist roster entry.
 
+Live Drive relevance is a declared semantic stage under
+`consent-protocol/docs/reference/backend-semantic-boundary.md`. The
+`agent_documents_live_select` gene in the documents manifest selects up to eight
+opaque candidate references from file metadata. The host validates references,
+rejects invented or excessive selections, and fails closed when selection is
+unavailable. An empty selection is a no-match; unreadable files carry allowlisted
+reasons to the owner, while the interpreter sees counts. The opt-in live evaluation
+is `consent-protocol/scripts/eval_drive_candidate_selection.py`. Promotion still
+requires that live evaluation and selected-file acceptance.
+
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
 The external scope map and in-process dispatch registry intentionally contain

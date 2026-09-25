@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 244,
+  "expected_migration_version": 245,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",

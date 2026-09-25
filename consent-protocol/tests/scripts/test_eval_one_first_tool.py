@@ -149,6 +149,24 @@ def test_selected_drive_share_status_has_its_own_first_tool_fixture(roster_names
     assert not harness.is_hit("open_gmail_email_draft", cases[0].expected)
 
 
+def test_live_drive_listing_has_its_own_first_tool_fixture(roster_names):
+    path = (
+        harness.CONSENT_PROTOCOL_ROOT
+        / "scripts/eval_cases/one_drive_live_listing_first_tool.v1.json"
+    )
+    cases = harness.load_cases(path)
+    assert len(cases) == 3
+    assert {case.family for case in cases} == {"drive"}
+    assert {case.id for case in cases} == {
+        "drive.date_only_modified_listing",
+        "drive.date_only_created_listing",
+        "drive.recent_files_listing",
+    }
+    assert {case.expected for case in cases} == {("ask_documents_agent",)}
+    assert "ask_documents_agent" in roster_names
+    assert not harness.is_hit("inspect_selected_drive_files", cases[0].expected)
+
+
 def test_generic_drive_case_is_admitted_by_actual_one_head_and_tool_schema(monkeypatch):
     from hushh_mcp.one_adk import agent_tree
 

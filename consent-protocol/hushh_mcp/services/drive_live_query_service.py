@@ -1,17 +1,25 @@
 """A connection asks; the owner allows or denies; Allow runs one live Drive turn.
 
-Create and Deny never read Drive and wake no worker. Allow claims the exact
+Create, Deny and Cancel never read Drive and wake no worker. Allow claims the exact
 stored question once and runs the owner's own bounded chat turn
 (``DriveChatService.run_live_query``), fenced on every step by the owner's
 current authority and the claim. The requester receives answer text and file
 titles only: no Drive links, file ids, dates or owner-directed instructions.
+
+When the question has search words and no exact title, a tool-less selector
+gene judges the keyword-found files before any title is released. The requester
+gets only the titles it chose, worded as what they are (judged from names,
+types and dates, not opened), or the no-clear-match text when it chose none.
+A date-only listing (no search words) and an exact-title match skip the
+selector, record the skip (``metadata_listing`` / ``exact_title``)
+and release the found titles worded as found, not judged.
 """
 
 from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_chat_service import DriveChatService
-from hushh_mcp.services.drive_live_query_store import DriveLiveQueryStore
+from hushh_mcp.services.drive_live_query_store import MAX_OWNER_FILES, DriveLiveQueryStore
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRequestPurpose
 
@@ -25,17 +33,34 @@ def requester_answer(outcome: dict) -> dict:
     if outcome["status"] != "ok":
         return {"text": NO_CLEAR_MATCH, "titles": [], "truncated": False}
     if outcome["files"] is not None:
-        text = "These Drive files match your question."
+        # Older outcomes carry no selection trace.
+        stage = (outcome.get("selection") or {}).get("stage")
         if outcome["unreadable"]:
-            text += " Their contents couldn't be read."
-        if outcome["found_truncated"] or len(outcome["files"]) > 10:
+            text = "These files look like a match, but their contents couldn't be read."
+        elif stage in {"completed", "completed_over_limit"}:
+            text = (
+                "These files in their Drive look like a match, going by file names, types "
+                "and dates. Their private agent didn't open them."
+            )
+        else:
+            text = "These files were found in their Drive for this question."
+        # B never sees more titles than A can share (f1..f8).
+        more = outcome["found_truncated"] or len(outcome["files"]) > MAX_OWNER_FILES
+        if more:
             text += " More matches may exist."
-        return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
-    return {
-        "text": outcome["answer"],
-        "titles": outcome["titles"],
-        "truncated": outcome["truncated"],
-    }
+        return {
+            "text": text,
+            "titles": outcome["titles"][:MAX_OWNER_FILES],
+            "truncated": outcome["truncated"] or more,
+        }
+    text = outcome["answer"]
+    # A count only: which files and why stay with the owner.
+    unread = len(outcome.get("not_read") or [])
+    if unread == 1:
+        text += " 1 matching file couldn't be read."
+    elif unread > 1:
+        text += f" {unread} matching files couldn't be read."
+    return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
 
 
 class DriveLiveQueryService:
@@ -79,6 +104,11 @@ class DriveLiveQueryService:
     async def deny(self, *, user_id, request_id, revision):
         await self._require_owner()
         return await self.store.deny(user_id=user_id, request_id=request_id, revision=revision)
+
+    async def cancel(self, *, user_id, request_id, revision):
+        """The asker withdraws their question; never touches the chat turn."""
+        await self._require_owner()
+        return await self.store.cancel(user_id=user_id, request_id=request_id, revision=revision)
 
     async def allow(self, *, user_id, request_id, revision, consent_token, timezone="UTC"):
         await self._require_owner()

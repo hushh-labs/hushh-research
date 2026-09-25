@@ -53,7 +53,24 @@ export type SharingReview = {
   expiresAt: string | null;
   canApprove: boolean;
   canTrustFutureRequests: boolean;
+  preparationError: SharingPreparationError | null;
 };
+const SHARING_PREPARATION_ERRORS = [
+  "no_relevant_files",
+  "no_ready_files",
+  "narrow_selection_required",
+  "source_changed",
+  "preparation_unavailable",
+  "trust_revoked",
+] as const;
+/** Why preparation ended without suggestions. Unknown codes are dropped. */
+export type SharingPreparationError =
+  (typeof SHARING_PREPARATION_ERRORS)[number];
+function preparationError(value: unknown): SharingPreparationError | null {
+  return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
+    ? (value as SharingPreparationError)
+    : null;
+}
 export type SharingDelivery = {
   status: string;
   files: {
@@ -89,6 +106,7 @@ export type DriveQueryStatus =
   | "running"
   | "answered"
   | "denied"
+  | "cancelled"
   | "expired";
 /** One connection's question about the owner's Drive. No file ids or links. */
 export type DriveQueryView = {
@@ -193,6 +211,7 @@ const QUERY_STATUSES = new Set<DriveQueryStatus>([
   "running",
   "answered",
   "denied",
+  "cancelled",
   "expired",
 ]);
 
@@ -525,6 +544,7 @@ export class DriveSharingService {
         !!expiresAt &&
         !!reviewDigest,
       canTrustFutureRequests: result.canTrustFutureRequests === true,
+      preparationError: preparationError(result.preparationError),
     };
   }
 
@@ -761,6 +781,18 @@ export class DriveSharingService {
     });
   }
 
+  /** The asker withdraws their own question; never reads Drive. */
+  static cancelQuery(
+    token: string,
+    requestId: string,
+    revisionValue: number,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    return this.queryView(token, requestId, guard, "/cancel", {
+      revision: revisionValue,
+    });
+  }
+
   /** The owner shares chosen files from an answered question, as Viewer. */
   static shareQueryFiles(
     token: string,
@@ -782,7 +814,7 @@ export class DriveSharingService {
     token: string,
     requestId: string,
     guard: SharingSessionGuard,
-    action: "" | "/allow" | "/deny" | "/share",
+    action: "" | "/allow" | "/deny" | "/cancel" | "/share",
     body?: { revision: number; timeZone?: string } | { fileRefs: string[] },
   ): Promise<DriveQueryView> {
     if (

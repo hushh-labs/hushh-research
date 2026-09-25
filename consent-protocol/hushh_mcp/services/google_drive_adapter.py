@@ -59,8 +59,9 @@ SHARE_METADATA_FIELDS = (
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
 # Drive sorts each key ascending unless told "desc"; live results are newest
-# first. modifiedTime is the time sort Drive optimizes on large collections.
-LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc"})
+# first by the file time the owner asked about. modifiedTime is the default and
+# the time sort Drive optimizes on large collections.
+LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc", "createdTime desc"})
 LIST_FIXED = {
     "fields": LIST_FIELDS,
     "supportsAllDrives": "true",
@@ -71,6 +72,10 @@ EXPORTS = {
     "application/vnd.google-apps.document": "text/plain",
     "application/vnd.google-apps.presentation": "text/plain",
 }
+# Live lane only. A Sheets CSV export holds the first sheet only, so every
+# Sheets read is partial; the selected lane still refuses Sheets.
+LIVE_EXPORTS = {**EXPORTS, "application/vnd.google-apps.spreadsheet": "text/csv"}
+LIVE_PARTIAL_EXPORTS = frozenset({"application/vnd.google-apps.spreadsheet"})
 BINARY_TYPES = frozenset(
     {
         "text/plain",
@@ -84,6 +89,7 @@ SUPPORTED_TYPES = frozenset(EXPORTS) | BINARY_TYPES
 LIVE_SUPPORTED_TYPES = SUPPORTED_TYPES | frozenset(
     {
         "application/vnd.google-apps.spreadsheet",
+        "text/csv",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -189,7 +195,7 @@ class GoogleDriveAdapter:
             ) or (
                 path.endswith("/export")
                 and len(params) == 1
-                and params.get("mimeType") in EXPORTS.values()
+                and params.get("mimeType") in LIVE_EXPORTS.values()
             )
         else:
             allowed = False
@@ -395,8 +401,8 @@ class GoogleDriveAdapter:
     async def read_live_bytes(
         self, *, file_id: str, mime_type: str, access_token: str
     ) -> tuple[str, bytes]:
-        """Content of a file the owner's live grant can read (export for Docs/Slides)."""
-        export_mime = EXPORTS.get(mime_type)
+        """Content of a file the owner's live grant can read (export for Docs/Slides/Sheets)."""
+        export_mime = LIVE_EXPORTS.get(mime_type)
         content = await self._get(
             _file_path(file_id) + ("/export" if export_mime else ""),
             access_token=access_token,

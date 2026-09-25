@@ -214,8 +214,9 @@
     "239_drop_server_plaid_custody.sql",
     "241_drive_live_sharing.sql",
     "242_drive_live_query_requests.sql",
-    "243_private_mcp_registration.sql",
-    "244_adk_chat_action_authority.sql"
+    "243_drive_live_query_cancel.sql",
+    "244_private_mcp_registration.sql",
+    "245_adk_chat_action_authority.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -444,7 +445,8 @@
     "239_drop_server_plaid_custody.sql": "rollback/239_drop_server_plaid_custody.rollback.sql",
     "241_drive_live_sharing.sql": "rollback/241_drive_live_sharing.rollback.sql",
     "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
-    "243_private_mcp_registration.sql": "rollback/243_private_mcp_registration.rollback.sql",
-    "244_adk_chat_action_authority.sql": "rollback/244_adk_chat_action_authority.rollback.sql"
+    "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql",
+    "244_private_mcp_registration.sql": "rollback/244_private_mcp_registration.rollback.sql",
+    "245_adk_chat_action_authority.sql": "rollback/245_adk_chat_action_authority.rollback.sql"
   }
 }

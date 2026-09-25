@@ -436,6 +436,7 @@ def test_catalog_is_curated_but_connection_status_and_legacy_key_lookup_are_owne
             },
         ),
         ("/api/connectors/oauth/native/finalize", {"attemptId": "synthetic-attempt"}),
+        ("/api/connectors/google_drive/live/background", {"enabled": True, "confirmed": True}),
         (
             "/api/connectors/oauth/complete",
             {"state": "signed-synthetic-state", "code": "synthetic-code"},
@@ -446,6 +447,47 @@ def test_owner_routes_stay_owner_protected(route_client, path, body):
     client, _, drive = route_client
     assert client.post(path, json=body).status_code == 401
     drive.complete.assert_not_called()
+
+
+def test_live_background_toggle_is_owner_bound_confirmed_and_uncached(route_client, monkeypatch):
+    from hushh_mcp.services import drive_live_preferences
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    client, app, _ = route_client
+    preferences = SimpleNamespace(
+        get_background=AsyncMock(return_value={"enabled": False}),
+        set_background=AsyncMock(return_value={"enabled": True}),
+    )
+    # The routes import the class at call time, so patch it where it is defined.
+    monkeypatch.setattr(drive_live_preferences, "DriveLivePreferences", lambda: preferences)
+    path = "/api/connectors/google_drive/live/background"
+    assert client.post(path, json={"enabled": True, "confirmed": True}).status_code == 401
+    assert client.get(path).status_code == 401
+    preferences.get_background.assert_not_called()
+    preferences.set_background.assert_not_called()
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    response = client.post(path, json={"enabled": True, "confirmed": True})
+    assert response.status_code == 200
+    assert response.json() == {"enabled": True}
+    assert response.headers["Cache-Control"] == "no-store"
+    preferences.set_background.assert_awaited_once_with(
+        user_id="verified-owner", enabled=True, confirmed=True
+    )
+    for body in ({"enabled": True}, {"enabled": True, "confirmed": True, "userId": "x"}):
+        assert client.post(path, json=body).status_code == 422
+    preferences.set_background.assert_awaited_once()
+
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.json() == {"enabled": False}
+    assert response.headers["Cache-Control"] == "no-store"
+    preferences.get_background.assert_awaited_once_with(user_id="verified-owner")
+
+    for code, status in (("connection_changed", 409), ("connector_unavailable", 503)):
+        preferences.set_background.side_effect = DriveReadError(code)
+        response = client.post(path, json={"enabled": True, "confirmed": True})
+        assert (response.status_code, response.json()["detail"]) == (status, code)
 
 
 def test_selection_routes_derive_owner_reject_unknown_fields_and_do_not_cache_tokens(

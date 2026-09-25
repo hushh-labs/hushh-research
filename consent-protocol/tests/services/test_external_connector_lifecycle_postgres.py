@@ -205,7 +205,7 @@ def sql(store, statement, params=None):
 
 
 def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle):
-    migration = (MIGRATIONS / "243_private_mcp_registration.sql").read_text()
+    migration = (MIGRATIONS / "244_private_mcp_registration.sql").read_text()
     with lifecycle.db.engine.connect() as connection:
         connection.exec_driver_sql(migration)
         connection.exec_driver_sql(migration)
@@ -230,7 +230,7 @@ def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle
     )
     with lifecycle.db.engine.connect() as connection:
         connection.exec_driver_sql(
-            (MIGRATIONS / "rollback/243_private_mcp_registration.rollback.sql").read_text()
+            (MIGRATIONS / "rollback/244_private_mcp_registration.rollback.sql").read_text()
         )
     assert sql(
         lifecycle,
@@ -245,7 +245,7 @@ def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle
 @pytest.mark.asyncio
 async def test_private_registration_is_idempotent_owner_bound_and_non_authorizing(lifecycle):
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "244_private_mcp_registration.sql").read_text())
     service = ExternalConnectorRegistryService(db=lifecycle.db)
     draft = dict(
         registration_id=uuid.uuid4(),
@@ -302,7 +302,7 @@ async def test_private_registration_missing_migration_is_explicitly_unavailable(
 @pytest.mark.asyncio
 async def test_private_registration_limit_is_atomic(lifecycle, monkeypatch):
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "244_private_mcp_registration.sql").read_text())
     monkeypatch.setattr(
         "hushh_mcp.services.external_connector_registry_service._MAX_PRIVATE_CONNECTORS", 1
     )
@@ -371,7 +371,7 @@ def test_private_registry_erasure_preserves_other_owner_and_curated(lifecycle, p
     from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "244_private_mcp_registration.sql").read_text())
     for user in ("owner", "other"):
         sql(
             lifecycle,

@@ -76,6 +76,8 @@ fi
 
 echo "Running gitleaks with log opts: ${LOG_OPTS}"
 
+python3 "$REPO_ROOT/scripts/ci/test_secret_scan_ranges.py"
+
 if [ -n "$RANGE_COMMITS" ]; then
   echo "Secret scan range covers ${RANGE_COMMITS} commit(s)."
 
