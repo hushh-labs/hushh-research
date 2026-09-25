@@ -102,6 +102,20 @@ const PILL_CHROME_WIDTH_PX = 34;
 /** Web Mercator stops at the poles; past this the projection has no y. */
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 
+/**
+ * Whether the WebView can safely reproduce the renderer's projection.
+ *
+ * `projectToMapBox` intentionally implements the north-up, untilted Mercator
+ * case only. A bearing or tilt changes the screen-space transform in ways the
+ * renderer does not expose through its bounds callback, so drawing an HTML
+ * marker in that state would put it somewhere the coordinate is not.
+ */
+export function isMapCameraProjectionSafe(camera: MapNameLabelCamera): boolean {
+  const bearing = ((camera.bearing % 360) + 360) % 360;
+  const rotated = bearing > 0.5 && bearing < 359.5;
+  return !rotated && Math.abs(camera.tilt) <= 0.5;
+}
+
 function mercatorY(latitude: number): number {
   const clamped = Math.min(
     MAX_MERCATOR_LATITUDE,
@@ -134,6 +148,7 @@ export function projectToMapBox(
   camera: MapNameLabelCamera,
   viewport: MapNameLabelViewport,
 ): { x: number; y: number } | null {
+  if (!isMapCameraProjectionSafe(camera)) return null;
   if (!(viewport.width > 0) || !(viewport.height > 0)) return null;
   if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) {
     return null;
@@ -151,7 +166,8 @@ export function projectToMapBox(
   const x =
     (eastwardDegrees(camera.west, point.longitude) / longitudeSpan) *
     viewport.width;
-  const y = ((top - mercatorY(point.latitude)) / latitudeSpan) * viewport.height;
+  const y =
+    ((top - mercatorY(point.latitude)) / latitudeSpan) * viewport.height;
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   return { x, y };
 }
@@ -281,9 +297,7 @@ export function layoutMapNameLabels(
 
   if (labels.length === 0) return [];
 
-  const bearing = ((camera.bearing % 360) + 360) % 360;
-  const rotated = bearing > 0.5 && bearing < 359.5;
-  if (rotated || Math.abs(camera.tilt) > 0.5) return [];
+  if (!isMapCameraProjectionSafe(camera)) return [];
 
   const insetTop = Math.max(0, viewport.insetTop ?? 0);
   const insetBottom = Math.max(0, viewport.insetBottom ?? 0);

@@ -15,7 +15,9 @@ import {
 } from "@/lib/one-location/map-name-labels";
 
 /** A north-up camera over one degree of the world in each direction. */
-function camera(overrides: Partial<MapNameLabelCamera> = {}): MapNameLabelCamera {
+function camera(
+  overrides: Partial<MapNameLabelCamera> = {},
+): MapNameLabelCamera {
   return {
     north: 1,
     south: -1,
@@ -102,7 +104,8 @@ describe("projectToMapBox", () => {
       projectToMapBox({ latitude: 0, longitude: 175 }, straddling, VIEWPORT)?.x,
     ).toBeCloseTo(100, 5);
     expect(
-      projectToMapBox({ latitude: 0, longitude: -175 }, straddling, VIEWPORT)?.x,
+      projectToMapBox({ latitude: 0, longitude: -175 }, straddling, VIEWPORT)
+        ?.x,
     ).toBeCloseTo(300, 5);
   });
 
@@ -119,6 +122,23 @@ describe("projectToMapBox", () => {
         width: 0,
         height: 0,
       }),
+    ).toBeNull();
+  });
+
+  it("refuses to guess a screen point for a rotated or tilted camera", () => {
+    expect(
+      projectToMapBox(
+        { latitude: 0, longitude: 0 },
+        camera({ bearing: 42 }),
+        VIEWPORT,
+      ),
+    ).toBeNull();
+    expect(
+      projectToMapBox(
+        { latitude: 0, longitude: 0 },
+        camera({ tilt: 30 }),
+        VIEWPORT,
+      ),
     ).toBeNull();
   });
 });
@@ -247,7 +267,10 @@ describe("layoutMapNameLabels", () => {
   it("spreads names further apart while the renderer is clustering", () => {
     // A clustered pin is not drawn at its own coordinate, so a name placed
     // there would label a bubble that stands for four people.
-    const pair = [person("maya", 0, 0, "Maya"), person("jordan", -0.28, 0, "Jordan")];
+    const pair = [
+      person("maya", 0, 0, "Maya"),
+      person("jordan", -0.28, 0, "Jordan"),
+    ];
     const options = { labels: pair, camera: camera(), viewport: VIEWPORT };
     expect(layoutMapNameLabels(options)).toHaveLength(2);
     expect(

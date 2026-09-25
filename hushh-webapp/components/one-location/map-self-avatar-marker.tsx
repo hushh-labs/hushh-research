@@ -41,9 +41,11 @@ import {
  *   avatar is rendered by the WebView from a URL the app already holds for the
  *   top bar and the profile screen.
  *
- * Renders nothing when the camera has not reported yet, or when the coordinate
- * falls outside the map box -- a marker half off the edge is worse than none,
- * and clamping it would put the person somewhere they are not.
+ * The semantic button stays mounted while the map owns a self location. When
+ * the camera is moving, unsafe to project, or the coordinate is off-screen,
+ * only its visual avatar is hidden. This preserves keyboard focus across the
+ * handoff to the renderer-owned geographic fallback without clamping the owner
+ * somewhere they are not.
  */
 
 /** Diameter of the photo itself. */
@@ -67,11 +69,8 @@ export interface MapSelfAvatarMarkerProps {
   accessibleLabel?: string;
   /** Position is older than the server's freshness window. */
   stale?: boolean;
-  /**
-   * The camera is mid-gesture and the coordinates below describe where it WAS.
-   * Only iOS and Android set this, for the same reason the name pills do.
-   */
-  stalePositions?: boolean;
+  /** The settled camera can safely own the visible HTML avatar. */
+  showAvatar?: boolean;
   onSelect?: () => void;
 }
 
@@ -153,20 +152,19 @@ function MapSelfAvatarMarkerImpl({
   displayName,
   accessibleLabel = "Your location",
   stale,
-  stalePositions,
+  showAvatar = true,
   onSelect,
 }: MapSelfAvatarMarkerProps) {
-  if (!camera) return null;
-  const anchor = projectToMapBox(point, camera, viewport);
-  if (!anchor) return null;
-  if (
-    anchor.x < 0 ||
-    anchor.y < 0 ||
-    anchor.x > viewport.width ||
-    anchor.y > viewport.height
-  ) {
-    return null;
-  }
+  const anchor = camera ? projectToMapBox(point, camera, viewport) : null;
+  const visibleAnchor =
+    showAvatar &&
+    anchor &&
+    anchor.x >= 0 &&
+    anchor.y >= 0 &&
+    anchor.x <= viewport.width &&
+    anchor.y <= viewport.height
+      ? anchor
+      : null;
 
   const initials = initialsOf(displayName);
 
@@ -180,66 +178,76 @@ function MapSelfAvatarMarkerImpl({
       // where the owner intentionally chose to appear.
       aria-label={accessibleLabel}
       onClick={onSelect}
-      // z-10 puts it in the same band as the name pills and keeps it under the
-      // people tray (z-20) and the top controls (z-30), which are things you
-      // press. Later in the DOM than the pills, so it paints over a name that
-      // lands on top of it rather than under one.
-      className={`absolute left-0 top-0 z-10 flex touch-manipulation items-center justify-center rounded-full p-0 transition-opacity duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 motion-reduce:transition-none ${
-        stalePositions ? "pointer-events-none opacity-0" : "opacity-100"
-      }`}
-      style={{
-        width: SELF_AVATAR_MARKER_SIZE_PX,
-        height: SELF_AVATAR_MARKER_SIZE_PX,
-        // A transform, not left/top: web reports the camera every frame of a
-        // pan, and a compositor-only property is what keeps this tracking the
-        // map without a layout pass per frame. Centred on the coordinate --
-        // this is a "you are here" puck, not a pin whose tip marks the spot.
-        transform: `translate3d(${anchor.x}px, ${anchor.y}px, 0) translate(-50%, -50%)`,
-      }}
+      // z-10 puts the visible avatar in the same band as the name pills and
+      // under the people tray/top controls. During the renderer handoff this
+      // exact button becomes a keyboard-focus-revealed chip, so focus is never
+      // discarded by unmounting and remounting two different controls. Pointer
+      // focus stays visually hidden while the renderer owns camera motion.
+      className={
+        visibleAnchor
+          ? "absolute left-0 top-0 z-10 flex touch-manipulation items-center justify-center rounded-full p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+          : "sr-only focus-visible:not-sr-only focus-visible:pointer-events-auto focus-visible:absolute focus-visible:left-4 focus-visible:top-24 focus-visible:z-40 focus-visible:rounded-full focus-visible:bg-background focus-visible:px-3 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:shadow-lg"
+      }
+      style={
+        visibleAnchor
+          ? {
+              width: SELF_AVATAR_MARKER_SIZE_PX,
+              height: SELF_AVATAR_MARKER_SIZE_PX,
+              // A transform, not left/top: camera updates do not need layout.
+              // Centred on the coordinate -- this is a puck, not a pin whose
+              // tip marks the spot.
+              transform: `translate3d(${visibleAnchor.x}px, ${visibleAnchor.y}px, 0) translate(-50%, -50%)`,
+            }
+          : undefined
+      }
     >
-      {/*
-        The ring. Drawn as its own inset ring rather than a border on the photo
-        so the photo keeps its full diameter at every zoom, and so staleness can
-        change one colour without touching the image.
-      */}
-      <span
-        aria-hidden="true"
-        className={`absolute inset-0 rounded-full ${
-          stale
-            ? "bg-[color:var(--muted-foreground)]/35"
-            : "bg-[color:var(--app-accent)]/30"
-        }`}
-      />
-      <span
-        aria-hidden="true"
-        className="absolute inset-[3px] rounded-full bg-white shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:bg-background"
-      />
-      <Avatar
-        className="relative"
-        style={{
-          width: SELF_AVATAR_PHOTO_SIZE_PX,
-          height: SELF_AVATAR_PHOTO_SIZE_PX,
-        }}
-      >
-        {avatarUrl ? (
-          <AvatarImage
-            src={avatarUrl}
-            alt=""
-            data-testid="one-location-map-self-avatar-photo"
+      {visibleAnchor ? (
+        <>
+          {/*
+            The ring. Drawn as its own inset ring rather than a border on the
+            photo so staleness can change one colour without touching the face.
+          */}
+          <span
+            aria-hidden="true"
+            className={`absolute inset-0 rounded-full ${
+              stale
+                ? "bg-[color:var(--muted-foreground)]/35"
+                : "bg-[color:var(--app-accent)]/30"
+            }`}
           />
-        ) : null}
-        {/*
-          The app's existing fallback, same order as the top bar: initials when
-          there is a name to take them from, the profile glyph when there is
-          not. No third placeholder system.
-        */}
-        <AvatarFallback
-          data-testid="one-location-map-self-avatar-fallback"
-          className="bg-[color:var(--app-accent)] text-[13px] font-semibold leading-none text-[color:var(--app-accent-fg)]"
-        >
-          {initials || <UserRound className="h-4 w-4" aria-hidden />}
-        </AvatarFallback>
-      </Avatar>
+          <span
+            aria-hidden="true"
+            className="absolute inset-[3px] rounded-full bg-white shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:bg-background"
+          />
+          <Avatar
+            className="relative"
+            style={{
+              width: SELF_AVATAR_PHOTO_SIZE_PX,
+              height: SELF_AVATAR_PHOTO_SIZE_PX,
+            }}
+          >
+            {avatarUrl ? (
+              <AvatarImage
+                src={avatarUrl}
+                alt=""
+                data-testid="one-location-map-self-avatar-photo"
+              />
+            ) : null}
+            {/*
+              The app's existing fallback, same order as the top bar: initials
+              when there is a name, the profile glyph when there is not.
+            */}
+            <AvatarFallback
+              data-testid="one-location-map-self-avatar-fallback"
+              className="bg-[color:var(--app-accent)] text-[13px] font-semibold leading-none text-[color:var(--app-accent-fg)]"
+            >
+              {initials || <UserRound className="h-4 w-4" aria-hidden />}
+            </AvatarFallback>
+          </Avatar>
+        </>
+      ) : (
+        accessibleLabel
+      )}
     </button>
   );
 }
