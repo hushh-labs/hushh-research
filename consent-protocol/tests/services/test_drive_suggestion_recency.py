@@ -131,7 +131,13 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
         require_owner=AsyncMock(),
     )
 
-    assert await service.run_one(user_id="owner", request_id=request_id) == "review_ready"
+    stages: list[str] = []
+    assert (
+        await service.run_one(user_id="owner", request_id=request_id, on_stage=stages.append)
+        == "review_ready"
+    )
+    # Metadata-only recency skips the selector and the interpreter.
+    assert stages == ["searching"]
     reader.find.assert_awaited_once()
     assert reader.find.await_args.kwargs["query"] == []
     assert reader.find.await_args.kwargs["time_field"] == time_field
@@ -395,7 +401,12 @@ async def test_file_request_reads_the_selected_statements_not_the_first_eight(mo
         require_owner=AsyncMock(),
         candidate_selector=selector,
     )
-    assert await service.run_one(user_id="owner", request_id=job["request_id"]) == "review_ready"
+    stages: list[str] = []
+    assert (
+        await service.run_one(user_id="owner", request_id=job["request_id"], on_stage=stages.append)
+        == "review_ready"
+    )
+    assert stages == ["searching", "choosing", "checking", "checking"]
     reader.read_matches.assert_awaited_once_with(matches=matches[6:], truncated=False)
     prompt = json.loads(selector.await_args.kwargs["prompt"])
     assert prompt["document_request"] == job["purpose"]
@@ -471,7 +482,8 @@ async def test_the_owner_private_suggestions_prompt_names_unreadable_files(monke
 
 
 @pytest.mark.asyncio
-async def test_file_request_with_no_relevant_match_fails_honestly(caplog):
+@pytest.mark.parametrize("callback_fails", [False, True])
+async def test_file_request_with_no_relevant_match_fails_honestly(caplog, callback_fails):
     job = content_job()
     reader = create_autospec(DriveLiveReader, instance=True)
     reader.find.return_value = {"matches": twelve_matches()[:6], "truncated": False}
@@ -486,7 +498,19 @@ async def test_file_request_with_no_relevant_match_fails_honestly(caplog):
         require_owner=AsyncMock(),
         candidate_selector=AsyncMock(return_value={"selected": []}),
     )
-    assert await service.run_one(user_id="owner", request_id=job["request_id"]) == "no_ready_files"
+    stages: list[str] = []
+
+    def on_stage(stage):
+        stages.append(stage)
+        if callback_fails:
+            raise RuntimeError("display failed")
+
+    assert (
+        await service.run_one(user_id="owner", request_id=job["request_id"], on_stage=on_stage)
+        == "no_ready_files"
+    )
+    # A failing progress callback never changes the preparation outcome.
+    assert stages == ["searching", "choosing"]
     store.fail_preparation.assert_awaited_once_with(job, code="no_relevant_files", retryable=False)
     reader.read_matches.assert_not_awaited()
     assert interpreter.called is False
@@ -528,3 +552,30 @@ async def test_an_invalid_plan_is_asked_once_more_then_stands():
     planner = AsyncMock(return_value={"terms": ["statement"]})
     await plan_live_search(planner, prompt="{}", user_id="owner")
     assert planner.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_worker_held_lease_reports_no_stage():
+    store = content_store(content_job())
+    store.claim_preparation = AsyncMock(return_value=None)
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        search_planner=AsyncMock(side_effect=AssertionError("planner reached")),
+        reader_factory=lambda **_: None,
+        require_owner=AsyncMock(),
+    )
+    stages: list[str] = []
+    assert (
+        await service.run_one(user_id="owner", request_id=str(uuid4()), on_stage=stages.append)
+        == "not_claimed"
+    )
+    assert stages == []
+
+
+def test_stage_reporting_never_raises():
+    def broken(_stage):
+        raise RuntimeError("display failed")
+
+    module._emit(broken, "searching")
+    module._emit(None, "checking")
