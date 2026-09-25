@@ -13,6 +13,8 @@ export type ConnectorReadExperience = {
   truncated: boolean;
   metadataOnly: boolean;
   sourcePages?: (number | null)[];
+  /** The owner may explicitly compile this bounded title/date result in chat. */
+  ownerCompileAvailable?: boolean;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -24,13 +26,18 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   const input = record(value);
   if (!input || Object.keys(input).some((key) => ![
     "schema_version", "connector", "status", "sources", "truncated", "metadata_only",
+    "owner_compile_available",
   ].includes(key))) return null;
   if (input.schema_version !== "specialist_read.v1" || !["mail", "drive"].includes(input.connector as string) ||
     !STATUSES.includes(input.status as ConnectorReadExperience["status"]) ||
     typeof input.metadata_only !== "boolean" ||
     (input.connector === "mail" && input.metadata_only !== true) ||
     typeof input.truncated !== "boolean" ||
-    !Array.isArray(input.sources) || input.sources.length > 25) return null;
+    !Array.isArray(input.sources) || input.sources.length > 60 ||
+    (input.owner_compile_available !== undefined &&
+      typeof input.owner_compile_available !== "boolean") ||
+    (input.owner_compile_available === true &&
+      (input.connector !== "drive" || input.status !== "ok" || input.metadata_only !== true))) return null;
   const refs: string[] = [];
   const pages: (number | null)[] = [];
   for (const value of input.sources) {
@@ -54,5 +61,6 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
+    ...(input.owner_compile_available === true ? { ownerCompileAvailable: true } : {}),
   };
 }

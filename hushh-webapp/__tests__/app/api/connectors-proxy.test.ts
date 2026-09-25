@@ -190,4 +190,27 @@ describe("connector proxy privacy", () => {
       expect(await response.json()).toEqual({ detail: "Owner authorization required" });
     });
   });
+
+  it("passes owner compilation frames through without retaining work after cancellation", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, {
+      headers: { "content-type": "text/event-stream" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "owner", "compile", "stream"];
+    const request = new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+      method: "POST",
+      headers: { authorization: "Bearer synthetic-owner", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Compile my notes" }),
+    });
+    const response = await proxyExternalConnectorRequest(request, path);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.get("accept")).toBe("text/event-stream");
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, no-cache, no-transform");
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    await response.body!.cancel();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });

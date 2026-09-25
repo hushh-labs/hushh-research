@@ -2,6 +2,7 @@
 
 import { Button } from "@/lib/morphy-ux/button";
 import type { ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
+import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 
 const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
   ok: "Mail metadata checked",
@@ -27,10 +28,22 @@ const DRIVE_STATUS: Record<ConnectorReadExperience["status"], string> = {
   invalid_argument: "Ask a brief question about your Drive files",
   unavailable: "Drive is temporarily unavailable",
 };
+const COMPILATION_ERROR_TEXT: Record<NonNullable<DriveCompilationUiState["errorReason"]>, string> = {
+  connect_required: "Connect Drive, then try again.",
+  reconnect_required: "Reconnect Drive, then try again.",
+  input_required: "Ask for a specific note title and date range, then try again.",
+  source_changed: "Drive changed during compilation. Try again.",
+  interrupted: "Compilation stopped before it finished. Try again.",
+  unavailable: "Drive could not finish the compilation. Try again.",
+};
 
-export function ConnectorReadReceipt({ experience, onOpenConnections }: {
+export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileDriveNotes,
+  onDownloadDriveNotes, driveCompilation }: {
   experience: ConnectorReadExperience;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onCompileDriveNotes?: () => void;
+  onDownloadDriveNotes?: () => void;
+  driveCompilation?: DriveCompilationUiState;
 }) {
   const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
   const drive = experience.connector === "drive";
@@ -52,6 +65,31 @@ export function ConnectorReadReceipt({ experience, onOpenConnections }: {
         <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(event.currentTarget)}>
           Open Connectors
         </Button>
+      ) : null}
+      {drive && experience.ownerCompileAvailable && onCompileDriveNotes ? (
+        <div className="space-y-2">
+          {driveCompilation?.status === "ready" || driveCompilation?.status === "partial" ? (
+            <p role="status">
+              Compiled {driveCompilation.included} of {driveCompilation.matched} matching files.
+              {driveCompilation.status === "partial" ? " Some notes were unavailable or omitted." : ""}
+            </p>
+          ) : null}
+          {driveCompilation?.status === "error" ? (
+            <p role="status">{COMPILATION_ERROR_TEXT[driveCompilation.errorReason ?? "unavailable"]}</p>
+          ) : null}
+          {driveCompilation?.status === "ready" || driveCompilation?.status === "partial" ? (
+            <Button type="button" variant="muted" size="compact" disabled={!onDownloadDriveNotes}
+              onClick={onDownloadDriveNotes}>
+              Download Markdown notes
+            </Button>
+          ) : (
+            <Button type="button" variant="muted" size="compact"
+              disabled={driveCompilation?.status === "running"} onClick={onCompileDriveNotes}>
+              {driveCompilation?.status === "running" ? "Compiling original notes…" :
+                driveCompilation?.status === "error" ? "Try compiling again" : "Compile original notes"}
+            </Button>
+          )}
+        </div>
       ) : null}
     </section>
   );

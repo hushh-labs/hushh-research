@@ -48,4 +48,20 @@ describe("connector read receipts", () => {
     expect(parseConnectorReadReceipt({ ...receipt, sources: [], status: "reconnect_required" }))
       .toMatchObject({ status: "reconnect_required", sourceRefs: [] });
   });
+
+  it("admits an owner compilation action only on a successful Drive metadata listing", () => {
+    const sources = Array.from({ length: 30 }, (_, index) => ({
+      source_ref: `document:${index.toString(16).padStart(32, "0")}`,
+      kind: "metadata", label: "Document", page: null,
+    }));
+    const listing = { ...receipt, connector: "drive", sources,
+      owner_compile_available: true };
+    expect(parseConnectorReadReceipt(listing)).toMatchObject({
+      ownerCompileAvailable: true, sourceRefs: expect.any(Array),
+    });
+    expect(parseConnectorReadReceipt({ ...listing, connector: "mail" })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, status: "unavailable" })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, metadata_only: false })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, sources: [...sources, ...sources, ...sources] })).toBeNull();
+  });
 });
