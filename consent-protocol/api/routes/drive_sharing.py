@@ -162,6 +162,14 @@ class QueryAllowRequest(DecisionRequest):
     timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
 
 
+class OwnerShareCreateRequest(StrictRequest):
+    recipientPersonRef: UUID
+    clientRequestId: UUID
+    query: str = Field(min_length=1, max_length=2000)
+    # The owner's IANA zone, so "yesterday" means the owner's day.
+    timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+
 class QueryShareRequest(StrictRequest):
     fileRefs: list[str] = Field(min_length=1, max_length=8)
 
@@ -236,6 +244,7 @@ def _error(error):
         "rule_changed": (409, "This document trust rule changed. Refresh it."),
         "connector_unavailable": (503, "Document sharing is not available yet."),
         "request_expired": (409, "This question expired."),
+        "owner_share_expired": (409, "This search expired. Search your Drive again."),
         "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
         "recipient_google_identity_required": (
             409,
@@ -290,6 +299,27 @@ async def _owner_target(owner: Owner, body: CreateRequest | QueryCreateRequest) 
     # The domain store separately rechecks the active A/B relationship
     # under locks. A public profile reference is never sharing authority.
     return str(owner_user_id)
+
+
+async def _person_target(owner: Owner, person_ref: UUID) -> str:
+    """A connected person's user id from their public profile reference.
+
+    The domain store separately rechecks the active A/B relationship under
+    locks; a public profile reference is never sharing authority.
+    """
+    await owner.require_current()
+    try:
+        async with asyncio.timeout(6):
+            target_user_id, _ = await asyncio.to_thread(
+                PersonProfileService().get_relationship_target,
+                viewer_user_id=owner.user_id,
+                public_person_ref=str(person_ref),
+            )
+    except PersonProfileNotFoundError:
+        raise _error(DriveSharingError("request_unavailable")) from None
+    except Exception:
+        raise _error(DriveSharingError("identity_verification_unavailable")) from None
+    return str(target_user_id)
 
 
 @router.post("/requests", status_code=202)
@@ -505,6 +535,36 @@ async def share_query_files(
     """A shares chosen files from an answered question with the asker, as Viewer."""
     return await _call(
         "share",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
+    )
+
+
+@router.post("/owner-shares")
+async def prepare_owner_share(body: OwnerShareCreateRequest, owner: Owner = Depends(_owner)):
+    """A searches A's own Drive to share with a connection. Nothing is shared yet."""
+    recipient_user_id = await _person_target(owner, body.recipientPersonRef)
+    return await _call(
+        "prepare_owner_share",
+        owner=owner,
+        factory=_query_service,
+        recipient_user_id=recipient_user_id,
+        client_request_id=str(body.clientRequestId),
+        query=body.query,
+        consent_token=owner.token,
+        timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/owner-shares/{request_id}/share", status_code=202)
+async def share_owner_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+):
+    """A shares chosen files from A's own search with the connection, as Viewer."""
+    return await _call(
+        "share_owner_files",
         owner=owner,
         factory=_query_service,
         request_id=str(request_id),

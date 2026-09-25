@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 244,
+  "expected_migration_version": 245,
   "migration_version_policy": "minimum",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -437,6 +437,19 @@
       "cancelled_at",
       "invalidated_at",
       "created_at",
+      "expires_at"
+    ],
+    "drive_owner_shares": [
+      "request_id",
+      "user_id",
+      "recipient_user_id",
+      "client_request_id",
+      "query_digest",
+      "files_envelope",
+      "status",
+      "share_request_id",
+      "created_at",
+      "updated_at",
       "expires_at"
     ],
     "drive_picker_sessions": [

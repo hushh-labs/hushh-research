@@ -21,7 +21,12 @@ from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_chat_service import DriveChatService
-from hushh_mcp.services.drive_live_query_store import MAX_OWNER_FILES, DriveLiveQueryStore
+from hushh_mcp.services.drive_live_query_store import (
+    FOLDER_MIME,
+    MAX_OWNER_FILES,
+    DriveLiveQueryStore,
+)
+from hushh_mcp.services.drive_owner_share_store import DriveOwnerShareStore
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRequestPurpose
 
@@ -75,8 +80,10 @@ class DriveLiveQueryService:
         sharing=None,
         suggestions=None,
         recipient_identity=None,
+        owner_shares=None,
     ):
         self.store = store or DriveLiveQueryStore()
+        self.owner_shares = owner_shares or DriveOwnerShareStore()
         self.chat = chat or DriveChatService()
         self.require_owner = require_owner
         # Factories, so each share uses this request's owner authority.
@@ -175,7 +182,103 @@ class DriveLiveQueryService:
         )
         if selection["shareRequestId"]:
             raise DriveSharingError("request_already_decided")
-        recipient = await self.recipient_identity(selection["requesterUserId"])
+        share_id = await self._share_files(
+            user_id=user_id,
+            recipient_user_id=selection["requesterUserId"],
+            purpose=selection["query"],
+            files=selection["files"],
+        )
+        return await self.store.record_share(
+            user_id=user_id, request_id=request_id, share_request_id=share_id
+        )
+
+    async def prepare_owner_share(
+        self,
+        *,
+        user_id,
+        recipient_user_id,
+        client_request_id,
+        query,
+        consent_token,
+        timezone="UTC",
+    ):
+        """A searches A's own Drive to share with connection B, from chat.
+
+        One live turn under A's own authority, the same as A's chat; nothing
+        is shared and B learns nothing here. The found files (at most 8, no
+        folders) are sealed so the share binds exactly what A saw. A retried
+        tap returns the first search instead of searching again.
+        """
+        await self._require_owner()
+        if not connector_feature_enabled("google_drive_chat_reads", user_id):
+            raise DriveSharingError("sharing_unavailable")
+        existing = await self.owner_shares.existing(
+            user_id=user_id,
+            recipient_user_id=recipient_user_id,
+            client_request_id=client_request_id,
+        )
+        if existing is not None:
+            return existing
+
+        async def require_access():
+            await self._require_owner()
+            if not connector_feature_enabled("google_drive_chat_reads", user_id):
+                raise PermissionError("Document reads are unavailable")
+
+        outcome = await self.chat.run_live_query(
+            user_id=user_id,
+            consent_token=consent_token,
+            query=query,
+            require_access=require_access,
+            timezone=timezone,
+            require_live=True,
+        )
+        if outcome["status"] in {"connect_required", "reconnect_required"}:
+            raise DriveSharingError("reconnect_required")
+        files = (outcome.get("share_files") or []) if outcome["status"] == "ok" else []
+        if not any(item.get("mime_type") != FOLDER_MIME for item in files):
+            # A's own words from A's own search (e.g. "Which file do you mean?").
+            message = outcome.get("answer") if outcome["status"] == "input_required" else None
+            return {
+                "requestId": None,
+                "status": "no_match",
+                "files": [],
+                "message": str(message)[:600] if message else None,
+            }
+        await self._require_owner()
+        return await self.owner_shares.create(
+            user_id=user_id,
+            recipient_user_id=recipient_user_id,
+            client_request_id=client_request_id,
+            query=query,
+            owner_files=files,
+        )
+
+    async def share_owner_files(self, *, user_id, request_id, file_refs):
+        """A shares chosen files from A's own search with B, as Viewer."""
+        await self._require_owner()
+        selection = await self.owner_shares.owner_selection(
+            user_id=user_id, request_id=request_id, refs=file_refs
+        )
+        share_id = await self._share_files(
+            user_id=user_id,
+            recipient_user_id=selection["recipientUserId"],
+            purpose=selection["query"],
+            files=selection["files"],
+        )
+        return await self.owner_shares.record_share(
+            user_id=user_id, request_id=request_id, share_request_id=share_id
+        )
+
+    async def _share_files(self, *, user_id, recipient_user_id, purpose, files):
+        """The one owner-initiated share: A's exact files to B, approved by A.
+
+        A request bound to B's verified Google identity, a review of exactly
+        these files (no planner, model or content read), and A's explicit
+        approval on the ledger. Grants are queued for the permission worker;
+        B sees each link once Google confirms it. Returns the share request id.
+        """
+        recipient = await self.recipient_identity(recipient_user_id)
         await self._require_owner()
         sharing = self.sharing(self.require_owner)
         # A fresh request per attempt, so one failed attempt never blocks a retry.
@@ -183,13 +286,13 @@ class DriveLiveQueryService:
             recipient=recipient,
             owner_user_id=user_id,
             client_request_id=str(uuid4()),
-            purpose=ShareRequestPurpose(purpose=selection["query"][:2000]),
+            purpose=ShareRequestPurpose(purpose=purpose[:2000]),
             owner_initiated=True,
         )
         share_id = created["requestId"]
         try:
             prepared = await self.suggestions(self.require_owner).run_one(
-                user_id=user_id, request_id=share_id, owner_selected=selection["files"]
+                user_id=user_id, request_id=share_id, owner_selected=files
             )
             if prepared != "review_ready":
                 raise DriveSharingError("drive_share_unavailable", retryable=True)
@@ -208,9 +311,7 @@ class DriveLiveQueryService:
         except BaseException:
             await self._abandon(sharing, user_id=user_id, request_id=share_id)
             raise
-        return await self.store.record_share(
-            user_id=user_id, request_id=request_id, share_request_id=share_id
-        )
+        return share_id
 
     async def _abandon(self, sharing, *, user_id, request_id):
         """Close a failed attempt's request so nothing can prepare or share it later."""

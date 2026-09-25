@@ -524,6 +524,81 @@ describe("drive question transport", () => {
     expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
   });
 
+  it("searches the owner's own Drive by person reference and shares only found references", async () => {
+    const personRef = "33333333-3333-4333-8333-333333333333";
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        requestId,
+        status: "ready",
+        recipientName: "Bo",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: "2026-09-24T18:00:00Z" }],
+        shareRequestId: null,
+        expiresAt: "2026-09-25T20:00:00Z",
+      }),
+    );
+    const view = await DriveSharingService.prepareOwnerShare(
+      "vault",
+      { recipientPersonRef: personRef, clientRequestId, query: "Chris recordings", timeZone: "Asia/Kolkata" },
+      guard,
+    );
+    expect(view).toMatchObject({ status: "ready", recipientName: "Bo", files: [{ ref: "f1" }] });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/owner-shares");
+    expect(JSON.parse(options.body)).toEqual({
+      recipientPersonRef: personRef,
+      clientRequestId,
+      query: "Chris recordings",
+      timeZone: "Asia/Kolkata",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "shared", recipientName: "Bo", shareRequestId: documentId,
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.shareOwnerFiles("vault", requestId, ["f1"], guard),
+    ).resolves.toMatchObject({ status: "shared", shareRequestId: documentId });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      `/api/connectors/google_drive/sharing/owner-shares/${requestId}/share`,
+    );
+    for (const refs of [[], ["f9"], ["f1", "f1"], ["1AbCdEfGhIjKlMnOpQrStUvWxYz012345"]]) {
+      await expect(
+        DriveSharingService.shareOwnerFiles("vault", requestId, refs, guard),
+      ).rejects.toThrow(DriveSharingError);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a no-match search empty and refuses a found file carrying a Drive id", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId: null, status: "no_match", files: [], message: "Which file do you mean?" }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).resolves.toEqual({
+      requestId: null,
+      status: "no_match",
+      recipientName: null,
+      files: [],
+      shareRequestId: null,
+      message: "Which file do you mean?",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "ready", files: [{ ref: "fileid", name: "x", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
   it("never grants decisions or owner errors to the person who asked", async () => {
     fetcher.mockResolvedValueOnce(
       reply(rawView({ canDecide: true, lastError: "reconnect_required" })),

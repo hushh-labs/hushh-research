@@ -16,6 +16,7 @@ import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } 
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { DriveOwnerShareCard } from "@/components/consent/drive-owner-share-card";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
   domainLabelFor,
@@ -87,6 +88,13 @@ export function AgentStructuredExperienceView({
       return <InformationRequestReviewView experience={experience} />;
     case "one.document_request_review.v1":
       return <DocumentRequestReviewView experience={experience} />;
+    case "one.drive_share_review.v1":
+      return <ExperienceShell experienceType={experience.type} label="Drive sharing"
+        title={`Share Drive files with ${experience.personName}`}
+        summary="Find the files, choose, then share." icon={<FileCheck2 className="size-5" />}>
+        <DriveOwnerShareCard personRef={experience.personRef} personName={experience.personName}
+          clientRequestId={experience.clientRequestId} filesRequest={experience.filesRequest} />
+      </ExperienceShell>;
     case "one.kyc_readiness.v1":
       return <KycReadinessView experience={experience} />;
     case "one.memory_import_review.v1":

@@ -1085,3 +1085,77 @@ async def test_document_request_keeps_its_purpose_after_choosing_between_two_rah
     assert ready["purpose"]["purpose"] == "bank statements"
     assert "Ask as a question" in ready["nextStep"]
     assert "Only Request files needs a Google sign-in check" in ready["nextStep"]
+
+
+@pytest.mark.asyncio
+async def test_drive_share_proposal_names_one_connected_person_and_grants_nothing():
+    """The owner stages a share from chat; the card searches and shares only on taps."""
+    context = _ctx(_state())
+    connected = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        connected,
+    ):
+        ready = await action_tools.propose_drive_share(
+            "Rahul", "the Chris onboarding recordings", context
+        )
+        empty = await action_tools.propose_drive_share("Rahul", "   ", context)
+    assert ready["status"] == "proposal_ready"
+    assert ready["person"] == {"personRef": PERSON_REF, "displayName": "Rahul Sharma"}
+    assert ready["filesRequest"] == "the Chris onboarding recordings"
+    assert "Nothing is shared until" in ready["nextStep"]
+    assert set(ready) == {"status", "person", "filesRequest", "clientRequestId", "nextStep"}
+    assert empty["status"] == "needs_clarification"
+
+
+@pytest.mark.asyncio
+async def test_drive_share_proposal_refuses_someone_not_connected():
+    context = _ctx(_state())
+    stranger = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "none"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        stranger,
+    ):
+        result = await action_tools.propose_drive_share("Rahul", "recordings", context)
+    assert result["status"] == "connection_required"
+
+
+def test_the_drive_share_card_survives_a_chat_reload_without_file_ids():
+    from api.routes.one.agent_chat import _safe_agent_history_metadata
+
+    def event(response):
+        part = SimpleNamespace(
+            function_response=SimpleNamespace(name="propose_drive_share", response=response)
+        )
+        return SimpleNamespace(id="event-share-1", content=SimpleNamespace(parts=[part]))
+
+    client_id = "33333333-3333-4333-8333-333333333333"
+    metadata = _safe_agent_history_metadata(
+        event(
+            {
+                "status": "proposal_ready",
+                "person": {"personRef": PERSON_REF, "displayName": "Rahul Sharma"},
+                "filesRequest": "the Chris onboarding recordings",
+                "clientRequestId": client_id,
+                "fileId": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+            }
+        )
+    )
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.drive_share_review.v1",
+        "content": {
+            "personRef": PERSON_REF,
+            "personName": "Rahul Sharma",
+            "clientRequestId": client_id,
+            "filesRequest": "the Chris onboarding recordings",
+        },
+    }
+    assert _safe_agent_history_metadata(event({"status": "connection_required"})) is None

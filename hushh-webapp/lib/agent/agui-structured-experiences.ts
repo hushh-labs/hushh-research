@@ -7,6 +7,7 @@ export type PersonSelectionSourceTool =
   | "discover_person_information"
   | "propose_information_request"
   | "propose_document_request"
+  | "propose_drive_share"
   | "list_information_shared_with_me";
 export type PersonSelectionExperience = {
   type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
@@ -17,6 +18,7 @@ export type PersonSelectionExperience = {
 };
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
 export const DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.document_request_review.v1" as const;
+export const DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE = "one.drive_share_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
@@ -112,6 +114,15 @@ export type DocumentRequestReviewExperience = {
   periodEnd: string | null;
 };
 
+/** The owner stages sharing their own Drive files with one connected person. */
+export type DriveShareReviewExperience = {
+  type: typeof DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE;
+  personRef: string;
+  personName: string;
+  clientRequestId: string;
+  filesRequest: string;
+};
+
 export type KycReadinessExperience = {
   type: typeof KYC_READINESS_EXPERIENCE_TYPE;
   subjectName: string;
@@ -154,6 +165,7 @@ export type AgentStructuredExperience =
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | DocumentRequestReviewExperience
+  | DriveShareReviewExperience
   | KycReadinessExperience
   | MemoryImportReviewExperience
   | EvidenceBriefExperience;
@@ -365,6 +377,20 @@ function parseDocumentRequestReview(content: unknown): DocumentRequestReviewExpe
     clientRequestId, purpose, periodStart, periodEnd };
 }
 
+function parseDriveShareReview(content: unknown): DriveShareReviewExperience | null {
+  const record = unwrapToolResult(content);
+  if (!record) return null;
+  const person = asRecord(record.person);
+  const personRef = boundedString(record.personRef ?? person?.personRef, 36);
+  const personName = boundedString(record.personName ?? person?.displayName, 120);
+  const clientRequestId = boundedString(record.clientRequestId, 36);
+  const filesRequest = boundedString(record.filesRequest, 2000);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!personRef || !uuid.test(personRef) || !clientRequestId || !uuid.test(clientRequestId) ||
+      !personName || !filesRequest?.trim()) return null;
+  return { type: DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE, personRef, personName, clientRequestId, filesRequest };
+}
+
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {
   const record = unwrapToolResult(content);
   if (!record) return null;
@@ -538,6 +564,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
   [DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseDocumentRequestReview,
+  [DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE]: parseDriveShareReview,
   [KYC_READINESS_EXPERIENCE_TYPE]: parseKycReadiness,
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
@@ -566,6 +593,7 @@ export function parseAgentToolResultExperience(
     toolName === "discover_person_information" ||
     toolName === "propose_information_request" ||
     toolName === "propose_document_request" ||
+    toolName === "propose_drive_share" ||
     toolName === "list_information_shared_with_me";
   if (!supportsPersonSelection) return null;
   const sourceTool: PersonSelectionSourceTool = toolName;
@@ -598,6 +626,10 @@ export function parseAgentToolResultExperience(
   if (toolName === "propose_document_request") {
     const result = unwrapToolResult(content);
     return result?.status === "proposal_ready" ? parseDocumentRequestReview(content) : null;
+  }
+  if (toolName === "propose_drive_share") {
+    const result = unwrapToolResult(content);
+    return result?.status === "proposal_ready" ? parseDriveShareReview(content) : null;
   }
   const experience = parseScopeDiscovery(content);
   const presentation = experience ? parsePresentation(content) : null;
