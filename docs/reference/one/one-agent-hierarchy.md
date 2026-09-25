@@ -179,10 +179,12 @@ The default shared-runtime `adk_bridge/__init__.py` registration includes `agent
 Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
 product surfaces. Email's `ask_email_agent` path admits only owner-authorized
 typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
-them. It preserves One's conversation, permits only `list_needs_reply` /
-`search_inbox`, and closes further tool execution for that invocation before
-exposing external content. Its interpreter has no tools; durable tool history
-contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync
+them. It preserves One's conversation and permits only `list_needs_reply` /
+`search_inbox`. After a read, only exact-call-reviewed MCP tools and One's
+client-only editable Gmail draft remain callable in the same invocation; the
+draft cannot run in the original parallel read batch and cannot send. Its
+interpreter has no tools; durable tool history contains a redacted receipt,
+not mailbox metadata or draft fields. Reviewed sending and receipt/sync
 tools are not admitted through this lane. Connected Systems remains
 authority-ingress-only. Connections is reached through Nav; its separate legacy
 mutation adapter retains its full information/action authority gate. There is no

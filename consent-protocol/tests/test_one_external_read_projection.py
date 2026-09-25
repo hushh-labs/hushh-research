@@ -12,6 +12,7 @@ from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionServi
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
+    STATE_EXTERNAL_READ_CONTINUATION,
     external_read_active,
 )
 from hushh_mcp.one_adk.external_read_projection import (
@@ -29,7 +30,12 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
         id="thread",
         app_name="one",
         user_id="owner",
-        state={STATE_EXECUTION_SURFACE: "typed_chat", STATE_EXTERNAL_READ: "read-turn", "other": 1},
+        state={
+            STATE_EXECUTION_SURFACE: "typed_chat",
+            STATE_EXTERNAL_READ: "read-turn",
+            STATE_EXTERNAL_READ_CONTINUATION: "read-turn",
+            "other": 1,
+        },
         events=[
             Event(author="user", invocation_id="read-turn"),
             _event([types.Part(text="USER REQUEST")], author="user"),
@@ -82,6 +88,7 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
     assert "PRIVATE_" not in durable
     assert "USER REQUEST" in durable and "NORMAL ASSISTANT ANSWER" in durable
     assert STATE_EXECUTION_SURFACE not in durable and STATE_EXTERNAL_READ not in durable
+    assert STATE_EXTERNAL_READ_CONTINUATION not in durable
     call = decoded.events[2].content.parts[0]
     assert call.function_call.name == "ask_email_agent" and call.function_call.id == "call"
     assert call.function_call.args == {} and call.thought_signature == b"\xff\x00\x81"

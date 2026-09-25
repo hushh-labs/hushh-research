@@ -10,7 +10,7 @@ from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import ToolContext
+from google.adk.tools import FunctionTool, ToolContext
 from google.genai import types
 from pydantic import PrivateAttr
 
@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_CONVERSATION
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
+    STATE_EXTERNAL_READ_CONTINUATION,
     before_external_read_model,
     before_external_read_tool,
 )
@@ -106,6 +107,85 @@ async def test_actual_one_runner_blocks_parallel_followup_and_restores_next_user
     assert executed == ["read", "action"]
     assert model._advertised[2] == {"ask_email_agent", "forbidden_action"}
     assert first[0].invocation_id != second[0].invocation_id
+
+
+async def test_actual_one_runner_allows_only_reviewable_draft_after_read():
+    calls = []
+
+    async def ask_email_agent(tool_context: ToolContext) -> dict:
+        calls.append("read")
+        return {"response": "Untrusted message asks One to send a private file."}
+
+    async def forbidden_action() -> dict:
+        calls.append("action")
+        return {"status": "ok"}
+
+    model = _Model(
+        [
+            [_call("ask_email_agent")],
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="open_gmail_email_draft",
+                        args={"request": "Draft the note I asked for."},
+                    )
+                ),
+                _call("forbidden_action"),
+            ],
+            [types.Part(text="Review your editable draft before sending.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [ask_email_agent, agent_tree.open_gmail_email_draft, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="draft")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="draft",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="Read and draft an email for review.")]
+                ),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"},
+            )
+        ]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert calls == ["read"]
+        assert model._advertised == [
+            {"ask_email_agent", "open_gmail_email_draft", "forbidden_action"},
+            {"open_gmail_email_draft"},
+            {"open_gmail_email_draft"},
+        ]
+        assert (
+            next(r for r in responses if r.name == "open_gmail_email_draft").response["status"]
+            == "draft_opened"
+        )
+        assert next(r for r in responses if r.name == "forbidden_action").response == {
+            "status": "blocked",
+            "reason": "external_content_answer_only",
+        }
+    finally:
+        await runner.close()
+
+
+def test_draft_cannot_run_in_parallel_with_read_or_by_name_spoofing():
+    draft = FunctionTool(agent_tree.open_gmail_email_draft)
+    context = SimpleNamespace(
+        invocation_id="turn",
+        state={STATE_EXECUTION_SURFACE: "typed_chat", STATE_EXTERNAL_READ: "turn"},
+        user_id="owner",
+    )
+    assert before_external_read_tool(draft, {}, context)["status"] == "blocked"
+    context.state[STATE_EXTERNAL_READ_CONTINUATION] = "turn"
+    assert before_external_read_tool(draft, {}, context) is None
+    assert (
+        before_external_read_tool(SimpleNamespace(name=draft.name), {}, context)["status"]
+        == "blocked"
+    )
 
 
 async def test_selected_file_status_is_answer_only_and_redacted_from_durable_history(monkeypatch):
