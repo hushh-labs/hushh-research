@@ -23,6 +23,7 @@ import {
   GoogleConnectionService,
   type GoogleConnectionCompletion,
 } from "@/lib/services/google-connection-service";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
 const COMPLETION_TIMEOUT_MS = 35_000;
 class CompletionUnknownError extends Error {}
@@ -165,6 +166,25 @@ function GoogleOAuthReturnContent() {
       };
     }
     const active = flow.current;
+    const settleSuccess = () => {
+      if (!current || authority.current.generation !== active.generation)
+        return;
+      if (terminalOutcomeRecorded.current) return;
+      terminalOutcomeRecorded.current = true;
+      if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+      trackEvent("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "success",
+      });
+      if (attempt && !isSameWindowCalendar) {
+        settleGoogleOAuthPopup(attempt, "succeeded");
+      } else {
+        router.replace(
+          active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
+        );
+      }
+    };
     void active.result
       .then((completed) => {
         if (!current || authority.current.generation !== active.generation)
@@ -180,26 +200,29 @@ function GoogleOAuthReturnContent() {
           );
           return;
         }
-        if (terminalOutcomeRecorded.current) return;
-        terminalOutcomeRecorded.current = true;
-        if (isSameWindowCalendar) clearGoogleOAuthAttempt();
-        trackEvent("one_calendar_action", {
-          route_id: "one_calendar",
-          action: "connected",
-          result: "success",
-        });
-        if (attempt && !isSameWindowCalendar) {
-          settleGoogleOAuthPopup(attempt, "succeeded");
-        } else {
-          // Same-window OAuth (for example, a blocked popup on mobile web)
-          // has no Calendar page settlement listener. Count it here only
-          // after the owner-bound completion confirms the connection.
-          router.replace(
-            active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
-          );
-        }
+        settleSuccess();
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        if (error instanceof CompletionUnknownError) {
+          const remainsCurrent = () =>
+            current &&
+            authority.current.mounted &&
+            authority.current.generation === active.generation &&
+            authority.current.ownerId === active.ownerId;
+          if (!remainsCurrent()) return;
+          const status = await user
+            .getIdToken()
+            .then((idToken) => {
+              if (!remainsCurrent()) return null;
+              return GoogleCalendarService.status(idToken, active.ownerId);
+            })
+            .catch(() => null);
+          if (!remainsCurrent()) return;
+          if (status?.connected && status.status === "connected") {
+            settleSuccess();
+            return;
+          }
+        }
         fail(
           error instanceof CompletionUnknownError
             ? "Google may still be saving this connection. Check connections before starting again."

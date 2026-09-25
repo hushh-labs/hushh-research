@@ -195,7 +195,7 @@ describe("GoogleOAuthReturnPage", () => {
     );
     expect(mocks.completeConnect).toHaveBeenCalledTimes(1);
   });
-  it("never infers timeout success from an existing connection", async () => {
+  it("confirms a timed-out Calendar completion from owner-authenticated status", async () => {
     vi.useFakeTimers();
     mocks.status.mockResolvedValue(connected());
     mocks.completeConnect.mockReturnValue(new Promise(() => {}));
@@ -203,9 +203,18 @@ describe("GoogleOAuthReturnPage", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(35_001);
     });
-    expect(screen.getByText(/may still be saving/)).toBeTruthy();
-    expect(mocks.replace).not.toHaveBeenCalled();
-    expect(mocks.status).not.toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.status).toHaveBeenCalledWith(
+      "synthetic-token",
+      "synthetic-owner",
+    );
+    expect(mocks.replace).toHaveBeenCalledWith("/one/calendar");
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    );
   });
   it("does not exchange the code after account change while awaiting identity", async () => {
     const token = pending<string>();

@@ -25,4 +25,10 @@ describe("One KYC observability outcome ordering", () => {
     expect(source).toContain("if (requestIds.length === 0)");
     expect(source).toContain("No access request is ready for this request yet.");
   });
+
+  it("routes every KYC terminal outcome through the initiating-owner guard", () => {
+    expect(source).toContain("activeOwnerIdRef.current !== ownerId");
+    expect(source.match(/trackEvent\("one_kyc_action"/g)).toHaveLength(1);
+    expect(source.match(/trackKycOutcome\(operationOwnerId,/g)?.length).toBeGreaterThanOrEqual(10);
+  });
 });
