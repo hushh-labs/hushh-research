@@ -12,6 +12,43 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - fixed Git operations in a synthetic repo.
+            ["git", *args], cwd=repository, text=True
+        ).strip()
+
+    git("init", "--quiet", "--initial-branch=main")
+    git("config", "user.name", "Synthetic Fixture")
+    git("config", "user.email", "fixture@example.invalid")
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "main advanced")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "--quiet", "--detach", base)
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "candidate")
+    candidate = git("rev-parse", "HEAD")
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["secret-scan"]["steps"] if step.get("id") == "scan-range"
+    )
+    function = step["run"].split('if [ "${{ github.event_name }}"', 1)[0]
+    function = function.replace("${{ github.event.repository.default_branch }}", "main")
+    function = function.replace("${{ github.sha }}", candidate)
+    result = subprocess.run(  # noqa: S603 - executes the repository-owned workflow in a fixture.
+        ["bash", "-eu", "-c", function + "\nresolve_from_default_branch"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    scan_args = result.stdout.strip().split()
+    assert git("rev-list", *scan_args).splitlines() == [candidate]
+
+
 @pytest.mark.parametrize("code,expected", [("200", 0), ("302", 1), ("503", 1)])
 def test_candidate_http_gate_does_not_accept_redirects(tmp_path, code, expected):
     commands = tmp_path / "commands"
