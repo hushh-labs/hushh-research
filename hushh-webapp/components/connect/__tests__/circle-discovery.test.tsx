@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextType } from "react";
 import type {
   OneLocationCircleDetail,
+  OneLocationCircleMember,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
 import { LivingConnections } from "../living-connections";
@@ -24,6 +25,7 @@ import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   sms: vi.fn(),
+  listMembers: vi.fn(),
   push: vi.fn(),
   publish: vi.fn(),
   toast: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     createNamedCircle: mocks.create,
     ensureSmsSystemCircle: mocks.sms,
+    listCircleMembersPage: mocks.listMembers,
   },
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({
@@ -66,6 +69,18 @@ const ready: ConnectCirclesSnapshot = {
   available: true,
   circles: [],
 };
+const member = (
+  userId: string,
+  displayName: string,
+  photoUrl: string | null = null,
+): OneLocationCircleMember => ({
+  userId,
+  displayName,
+  photoUrl,
+  role: userId === "owner" ? "owner" : "member",
+  phoneVerified: true,
+  secureLocationReady: true,
+});
 const callbacks = {
   onFindPeople: vi.fn(),
   onCreateCircle: vi.fn(),
@@ -100,6 +115,7 @@ beforeEach(() => {
       isSystem: true,
     }),
   );
+  mocks.listMembers.mockResolvedValue({ items: [], page: 1, hasMore: false, totalCount: 0 });
 });
 
 afterEach(() => {
@@ -209,7 +225,7 @@ describe("circle discovery actions", () => {
     );
     expect(screen.getByText(starter.description)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: `Create ${starter.name}` }),
+      screen.getByRole("button", { name: `Create a Circle — ${starter.name}` }),
     ).toBeEnabled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.sms).not.toHaveBeenCalled();
@@ -219,11 +235,11 @@ describe("circle discovery actions", () => {
     render(ui());
     const expected = {
       family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
+      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
       investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
-      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
       location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
+      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.marketplace,
     };
     for (const [id, style] of Object.entries(expected)) {
       const node = screen.getByTestId(`circle-starter-${id}`);
@@ -231,6 +247,10 @@ describe("circle discovery actions", () => {
         expect(node.style.getPropertyValue(property)).toBe(value);
       }
       fireEvent.click(node);
+      expect(node.querySelector("[data-circle-icon-fill]")).toBeTruthy();
+      if (["finance", "location", "sms"].includes(id)) {
+        expect(node.querySelector("[data-icon-source='figma']")).toBeTruthy();
+      }
       expect(node).toHaveAttribute("aria-pressed", "true");
       expect(
         screen
@@ -246,6 +266,13 @@ describe("circle discovery actions", () => {
     }
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.sms).not.toHaveBeenCalled();
+  });
+
+  it("removes the privacy banner and the extra primary-action arrow", () => {
+    render(ui());
+    expect(screen.queryByText("Nothing is shared automatically.")).toBeNull();
+    expect(screen.queryByText("You can change access anytime.")).toBeNull();
+    expect(screen.getByTestId("circle-discovery-primary").querySelector("svg")).toBeNull();
   });
 
   it("explores without writes, guides zero connections and creates the selected starter once", async () => {
@@ -265,7 +292,7 @@ describe("circle discovery actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));
     expect(callbacks.onFindPeople).toHaveBeenCalledOnce();
     const create = screen.getByRole("button", {
-      name: "Create Finance Circle",
+      name: "Create a Circle — Finance Circle",
     });
     fireEvent.click(create);
     fireEvent.click(create);
@@ -292,7 +319,7 @@ describe("circle discovery actions", () => {
   it("uses the real SMS system roster, never an ordinary circle named SMS", async () => {
     render(ui({ ...ready, circles: [circle({ name: "SMS Circle" })] }));
     fireEvent.click(screen.getByRole("button", { name: "Explore SMS Circle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create SMS Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create a Circle — SMS Circle" }));
     await waitFor(() =>
       expect(mocks.sms).toHaveBeenCalledExactlyOnceWith({
         vaultOwnerToken: "test-token",
@@ -327,24 +354,84 @@ describe("circle discovery actions", () => {
     expect(screen.getByText("5 people in your circle")).toBeTruthy();
     view.rerender(ui());
     expect(
-      screen.getByRole("button", { name: "Create Finance Circle" }),
+      screen.getByRole("button", { name: "Create a Circle — Finance Circle" }),
     ).toBeTruthy();
+  });
+
+  it("shows only actual circle members around the owner and keeps missing slots as placeholders", async () => {
+    mocks.listMembers.mockResolvedValueOnce({
+      items: [
+        member("owner", "Test Owner"),
+        member("alex", "Alex Chen", "https://example.test/alex.png"),
+        member("jordan", "Jordan Lee", "https://example.test/jordan.png"),
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: 3,
+    });
+    const view = render(ui({ ...ready, circles: [circle({ memberCount: 3 })] }));
+    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
+    await waitFor(() => expect(screen.getAllByTestId("circle-discovery-member-avatar")).toHaveLength(2));
+    const avatars = screen.getAllByTestId("circle-discovery-member-avatar");
+    expect(avatars.map((node) => node.getAttribute("title"))).toEqual(["Alex Chen", "Jordan Lee"]);
+    expect(mocks.listMembers).toHaveBeenCalledExactlyOnceWith({
+      vaultOwnerToken: "test-token",
+      circleId: "finance-id",
+      page: 1,
+      limit: 3,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Explore Family Circle" }));
+    expect(screen.queryAllByTestId("circle-discovery-member-avatar")).toHaveLength(0);
+    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+    view.rerender(ui({ ...ready, circles: [circle({ memberCount: 1 })] }));
+    fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
+    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+  });
+
+  it("uses one real member and one placeholder when a circle has two people", async () => {
+    mocks.listMembers.mockResolvedValueOnce({
+      items: [member("owner", "Test Owner"), member("alex", "Alex Chen")],
+      page: 1,
+      hasMore: false,
+      totalCount: 2,
+    });
+    render(ui({ ...ready, circles: [circle({ memberCount: 2 })] }));
+    fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
+    await waitFor(() => expect(screen.getAllByTestId("circle-discovery-member-avatar")).toHaveLength(1));
+    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(1);
+  });
+
+  it("refreshes the member preview with the circle list and ignores an older roster response", async () => {
+    let finishOld!: (value: { items: OneLocationCircleMember[] }) => void;
+    mocks.listMembers.mockReturnValueOnce(new Promise((resolve) => { finishOld = resolve; }));
+    mocks.listMembers.mockResolvedValueOnce({
+      items: [member("owner", "Test Owner"), member("new", "New Member")],
+    });
+    const view = render(ui({ ...ready, circles: [circle({ memberCount: 2 })] }));
+    fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
+    await waitFor(() => expect(mocks.listMembers).toHaveBeenCalledTimes(1));
+    view.rerender(ui({ ...ready, circles: [circle({ memberCount: 2, updatedAt: "later" })] }));
+    await waitFor(() => expect(screen.getByTitle("New Member")).toBeTruthy());
+    await act(async () => finishOld({ items: [member("owner", "Test Owner"), member("old", "Old Member")] }));
+    expect(screen.getByTitle("New Member")).toBeTruthy();
+    expect(screen.queryByTitle("Old Member")).toBeNull();
   });
 
   it("keeps a failed creation retryable", async () => {
     mocks.create.mockRejectedValueOnce(new Error("offline"));
     render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Create Family Circle" }),
+        screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
       ).toBeEnabled(),
     );
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getByRole("button", { name: "Create Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
     );
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
   });
@@ -369,7 +456,7 @@ describe("circle discovery actions", () => {
     );
     const view = render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
     );
     view.rerender(ui(ready, null));
     await act(async () => {
@@ -401,7 +488,7 @@ describe("circle discovery actions", () => {
     });
     render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
     );
     await waitFor(() =>
       expect(mocks.push).toHaveBeenCalledWith(

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronRight, KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
+import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, MessageCircle, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -227,6 +227,20 @@ function systemKindOf(circle: OneLocationCircleSummary): string | null {
   // A build talking to a server that predates `systemKind` still knows the SMS
   // Circle by its flag. Trusted has no fallback because it cannot exist there.
   return circle.isSystem ? "sms" : null;
+}
+
+/** Decorative category cues only; an arbitrary user-named circle stays generic. */
+function circleVisual(circle: OneLocationCircleSummary) {
+  const kind = systemKindOf(circle);
+  if (kind === "trusted") return { Icon: ShieldCheck, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
+  if (kind === "sms") return { Icon: MessageCircle, tone: "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40" };
+  const name = circle.name.trim().toLowerCase();
+  if (name === "family" || name === "family circle") return { Icon: Heart, tone: "text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40" };
+  if (name === "finance" || name === "finance circle") return { Icon: Wallet, tone: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" };
+  if (name === "investor" || name === "investor circle") return { Icon: TrendingUp, tone: "text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40" };
+  if (name === "business" || name === "business circle") return { Icon: Briefcase, tone: "text-orange-700 bg-orange-50 dark:text-orange-300 dark:bg-orange-950/40" };
+  if (name === "location" || name === "location circle") return { Icon: MapPin, tone: "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40" };
+  return { Icon: UsersRound, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
 }
 
 /**
@@ -793,6 +807,7 @@ export function ConnectCirclesTab({
 
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
     const kind = systemKindOf(circle);
+    const { Icon, tone } = circleVisual(circle);
     const testId = kind
       ? `connect-circle-${kind}`
       : circle.role === "owner"
@@ -814,11 +829,16 @@ export function ConnectCirclesTab({
         data-testid={testId}
         aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
       >
-        <span className="flex w-full min-w-0 items-start justify-between gap-3">
-          <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
-          <ChevronRight aria-hidden="true" className="mt-2 size-5 shrink-0 text-[color:var(--app-secondary-label)] transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+        <span className="flex w-full min-w-0 items-center justify-between gap-2">
+          <span aria-hidden="true" className={`flex size-10 shrink-0 items-center justify-center rounded-full ${tone}`}>
+            <Icon className="size-5" />
+          </span>
+          <span className="ml-auto min-w-0 scale-90 origin-right sm:scale-100">
+            <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
+          </span>
+          <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
         </span>
-        <span className="ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
+        <span className="ui-text-card-title mt-3 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
           {title}
         </span>
         <span className="ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]">
@@ -873,15 +893,15 @@ export function ConnectCirclesTab({
           {showingStarter ? (
             <section
               data-testid="connect-circle-starter"
-              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-7 text-center sm:px-8"
+              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-6 text-center sm:px-8"
             >
-              <span aria-hidden="true" className="relative mx-auto flex size-28 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)]">
-                <span className="flex size-14 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)]">
+              <span aria-hidden="true" className="relative mx-auto flex size-28 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)]">
+                <span className="flex size-14 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[color:var(--app-accent)]">
                   <UsersRound className="size-7" />
                 </span>
-                <span className="absolute -left-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
-                <span className="absolute -right-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
-                <span className="absolute bottom-0 left-1/2 size-5 -translate-x-1/2 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
+                <span className="absolute -left-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-rose-100 dark:bg-rose-950/50" />
+                <span className="absolute -right-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-blue-100 dark:bg-blue-950/50" />
+                <span className="absolute bottom-0 left-1/2 size-5 -translate-x-1/2 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-amber-100 dark:bg-amber-950/50" />
               </span>
               <h2 className="ui-text-major-section-title mt-5 text-[color:var(--app-primary-label)]">
                 A circle starts with your people
@@ -890,11 +910,11 @@ export function ConnectCirclesTab({
                 Make a space for family, friends, or any group you choose. Invite people when you're ready.
               </p>
               <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
-                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
                   <Plus aria-hidden="true" className="mr-1.5 size-4" />
                   New circle
                 </Button>
-                <Button type="button" variant="none" effect="fade" size="standard" showRipple={false} onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
+                <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
                   Find people
                 </Button>
               </div>
