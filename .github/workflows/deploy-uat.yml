@@ -960,7 +960,7 @@ jobs:
           gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --set-tags="analytics-candidate=${revision}"
+            --update-tags="analytics-candidate=${revision}"
           candidate_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \

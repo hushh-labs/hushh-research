@@ -61,6 +61,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     require(
         ".github/workflows/deploy-uat.yml",
         "id: frontend-analytics-candidate",
+        '--update-tags="analytics-candidate=${revision}"',
         "id: verify-analytics-uat",
         "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
         "npm run smoke:analytics:uat",
@@ -69,6 +70,8 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         'append_unique(blocking, ["analytics_transport_failed"])',
         '"analytics_smoke": {',
     )
+    content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    assert '--set-tags="analytics-candidate=${revision}"' not in content
 
 
 def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
