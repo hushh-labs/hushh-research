@@ -4,7 +4,7 @@
 
 The [quality index](./README.md) links this revision-bound review and the per-figure ledger; the [architecture view catalog](../architecture/architecture-view-catalog.md) points to the canonical system figures.
 
-This review is bound to the integration candidate with parents `fb9614f34871e11a3702c80c8879dc2b0f8051cd` (existing pod branch), `a7d64647722e678f7c4e1a1a0d65350edc827818` (refreshed main), and `3e248fc4bf04df28bf677bcc6402b64d9015098f` (frozen local ADK commit). The integration merge is `8abb5d2c72fdd5ba2b8f0116dcd7f79558b90324`; subsequent corrections and structural extractions are part of the same candidate. This is source evidence, not proof that the candidate serves in dev, UAT, or production.
+This review is bound to the integration candidate from `fb9614f34871e11a3702c80c8879dc2b0f8051cd` (existing pod branch), `3e248fc4bf04df28bf677bcc6402b64d9015098f` (frozen local ADK commit), and refreshed main through `b95ace9a0cc3624c243b56117af05d60582ccb14`. The ADK integration merge is `8abb5d2c72fdd5ba2b8f0116dcd7f79558b90324`; the later main refresh merge is `a2f75ffb2a2e9645ff274f4feb1a3a8ec607242f`. Corrections and structural extractions are part of this candidate. This is source evidence, not proof that the candidate serves in dev, UAT, or production.
 
 ## Figure disposition
 
@@ -19,6 +19,7 @@ Three generic duplicate diagrams were deleted from dated history and planning ma
 - The container view places the Next.js API proxy within the frontend deployment. The backend remains Consent Protocol. The deployment view labels the pod paths by source and rollout status; it no longer asserts that this integrated revision serves in dev without a dated live readback.
 - One delegation distinguishes in-process AgentTool/dispatch from scoped cross-process A2A. Conditional specialist and pod paths have visible status labels. Portfolio Import depicts client review, unlock, encryption, and PKM write before an authorized Kai snapshot.
 - Main's Drive migrations 245/246 retain their deployed numbers. Pod/private-MCP, ADK chat authority, and public-profile migrations were renumbered 247–249 with rollbacks and manifest references; generated schema and runtime projections were regenerated from their owners. Database ledger and environment deployment remain separate release evidence.
+- The final main refresh brought in the bounded Drive live-metadata retry and its parity tests. The architecture-fitness baseline was remeasured after this import, so the ratchet blocks changes beyond this combined source state.
 - The merged shared chat ingress preserves the selected Gmail workflow-ID context lookup after owner authorization. The frontend proxy preserves the `email/draft/save` timeout. Focused ingress and frontend checks cover these merge regressions.
 - The location page now delegates pure spoken-name and error mapping, share-recipient state, and small controls to existing feature owners. OneLocationAgentService keeps its facade while pure recommendation and share-lifecycle decisions move behind it. RIAIAMService keeps its facade while pick-package projections move to a pure helper. These are bounded compatibility changes; no route, schema, or product API is intentionally changed by the extraction.
 
