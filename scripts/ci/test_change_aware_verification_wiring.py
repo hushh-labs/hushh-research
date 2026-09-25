@@ -92,10 +92,11 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
     require(
         path,
         '"page_view"',
-        'payload.route_id === "kai_dashboard"',
+        '"/one/kai?tab=portfolio"',
+        'payload.route_id === "kai_home"',
         'process.argv.includes("--full")',
         'params: { journey: "investor", step: "entered" }',
-        'params: { route_id: "kai_dashboard" }',
+        'params: { route_id: "kai_home" }',
         'entry_surface: activationEvent.payload.entry_surface',
     )
     package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")

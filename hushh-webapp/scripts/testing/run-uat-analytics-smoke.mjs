@@ -493,11 +493,11 @@ try {
     (payload) => payload.journey === "investor" && payload.step === "entered",
   );
 
-  await navigateInApp(page, "/kai/portfolio");
+  await navigateInApp(page, "/one/kai?tab=portfolio");
   const routeViewEvent = await waitForAnalyticsEvent(
     page,
     "page_view",
-    (payload) => payload.route_id === "kai_dashboard",
+    (payload) => payload.route_id === "kai_home",
   );
 
   const requiredCollectEvents = [
@@ -505,7 +505,7 @@ try {
       eventName: "growth_funnel_step_completed",
       params: { journey: "investor", step: "entered" },
     },
-    { eventName: "page_view", params: { route_id: "kai_dashboard" } },
+    { eventName: "page_view", params: { route_id: "kai_home" } },
   ];
   const outputEvents = {
     growth_funnel_step_completed: growthEvent.payload,
