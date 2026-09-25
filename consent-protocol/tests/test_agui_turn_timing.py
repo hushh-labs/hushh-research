@@ -282,7 +282,7 @@ async def test_run_error_event_marks_outcome_error(monkeypatch, caplog):
 
 
 @pytest.mark.asyncio
-async def test_escaped_exception_marks_outcome_error_and_reraises(monkeypatch, caplog):
+async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(monkeypatch, caplog):
     async def failing_run(self: ADKAgent, input: RunAgentInput):
         yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
         raise RuntimeError("runner exploded")
@@ -290,11 +290,12 @@ async def test_escaped_exception_marks_outcome_error_and_reraises(monkeypatch, c
     monkeypatch.setattr(ADKAgent, "run", failing_run)
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
 
-    with pytest.raises(RuntimeError):
-        await _drain(_agent())
+    events = await _drain(_agent())
 
     assert _fields(_timing_lines(caplog)[0])["outcome"] == OUTCOME_ERROR
     assert _fields(_timing_lines(caplog)[0])["error_class"] == "escaped_exception"
+    assert events[-1].type == "RUN_ERROR"
+    assert "runner exploded" not in events[-1].model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -329,9 +330,74 @@ def test_bridge_logger_discards_provider_exception_and_traceback():
         exception,
     )
     agui_turn_timing._NoModelTextPreview().filter(record)
-    assert record.getMessage() == "[ADK_BRIDGE] details=[redacted]"
+    assert record.getMessage() == "[ADK_BRIDGE] phase=background kind=other details=[redacted]"
     assert record.exc_info is None
     assert "private provider response" not in logging.Formatter().format(record)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (TimeoutError("secret"), "timeout"),
+        (ConnectionError("secret"), "connection"),
+        (PermissionError("secret"), "permission"),
+        (ValueError("secret"), "validation"),
+        (KeyError("secret"), "missing_key"),
+    ],
+)
+def test_bridge_logger_keeps_only_safe_failure_category(error, expected):
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "Error in new execution: secret",
+        (),
+        (type(error), error, None),
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == f"[ADK_BRIDGE] phase=execution kind={expected} details=[redacted]"
+    assert "secret" not in logging.Formatter().format(record)
+
+
+def test_bridge_logger_does_not_log_untrusted_exception_class_or_log_prefix():
+    class PrivateCustomerEmailError(Exception):
+        pass
+
+    error = PrivateCustomerEmailError("secret")
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "PrivateCustomerEmailError: secret",
+        (),
+        (type(error), error, None),
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == "[ADK_BRIDGE] phase=other kind=other details=[redacted]"
+    assert "PrivateCustomerEmailError" not in logging.Formatter().format(record)
+
+
+def test_endpoint_logger_drops_serialized_events_and_sanitizes_errors():
+    debug_record = logging.LogRecord(
+        "ag_ui_adk.endpoint", logging.DEBUG, __file__, 1, "HTTP Response: private", (), None
+    )
+    assert agui_turn_timing._NoEndpointPayload().filter(debug_record) is False
+    error_record = logging.LogRecord(
+        "ag_ui_adk.endpoint",
+        logging.ERROR,
+        __file__,
+        1,
+        "ADKAgent error: private",
+        (),
+        (ValueError, ValueError("private"), None),
+    )
+    assert agui_turn_timing._NoEndpointPayload().filter(error_record) is True
+    assert (
+        error_record.getMessage() == "[ADK_BRIDGE] phase=other kind=validation details=[redacted]"
+    )
+    assert error_record.exc_info is None
 
 
 @pytest.mark.asyncio
@@ -369,7 +435,13 @@ async def test_terminal_event_preserves_outcome_when_consumer_closes(
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
     agent = _agent_with_registry()
     stream = agent.run(_input())
-    assert await anext(stream) is terminal
+    observed = await anext(stream)
+    if terminal_error:
+        assert observed.type == terminal.type
+        assert observed.code == "AGENT_ERROR"
+        assert observed.message != terminal.message
+    else:
+        assert observed is terminal
     if close_kind == "close":
         await stream.aclose()
     else:
