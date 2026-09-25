@@ -213,7 +213,7 @@ export class ExternalConnectorService {
   static async refreshMcpCatalog(input: {
     vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
     signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
-  }): Promise<Array<{ id: string; name: string; revision: string }>> {
+  }): Promise<Array<{ id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" }>> {
     const current = () => !input.signal.aborted && input.isEffectCurrent();
     if (!current()) throw new Error("Your vault session changed.");
     const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
@@ -242,8 +242,11 @@ export class ExternalConnectorService {
     return value.tools.map((tool: Record<string, unknown>) => {
       if (!tool || typeof tool.id !== "string" || !/^mcp_[a-f0-9]{40}$/.test(tool.id) ||
           typeof tool.name !== "string" || tool.name.length > 256 || typeof tool.revision !== "string" ||
-          tool.revision.length > 256 || tool.permission !== "ask_first") throw new Error("Invalid connector tools.");
-      return { id: tool.id, name: tool.name, revision: tool.revision };
+          tool.revision.length > 256 || typeof tool.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(tool.fingerprint) ||
+          !["ask_first", "blocked"].includes(String(tool.permission))) throw new Error("Invalid connector tools.");
+      return { id: tool.id, name: tool.name, revision: tool.revision,
+        fingerprint: tool.fingerprint as string, permission: tool.permission as "ask_first" | "blocked" };
     });
   }
 

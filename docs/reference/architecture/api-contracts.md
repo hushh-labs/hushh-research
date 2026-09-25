@@ -1247,8 +1247,9 @@ refresh credentials remain vault-only; turn projections contain only the access
 token and expiry. Missing/expired token lifetimes reject rather than inventing
 one. A tool refresh follows save, with a distinct recoverable refresh-failure
 message. This is covered by synthetic component/service tests, not live OAuth or
-physical-device proof. Native custom OAuth and refresh-token renewal remain
-unfinished; standard OAuth support is not proof of Workspace server compatibility.
+physical-device proof. The native app-owned HTTPS return is implemented, but
+live physical-device proof and refresh-token renewal remain open; standard
+OAuth support is not proof of Workspace server compatibility.
 
 The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
@@ -1262,12 +1263,16 @@ OAuth support. See the [MCP authorization specification](https://modelcontextpro
 `connectorConfiguration` under Vault Owner authority. Settings' explicit Refresh
 tools action reloads the encrypted record and calls the same governed toolset as
 Chat with execution disabled. The no-store response contains connector/configuration
-revision and namespaced tool IDs, names, revisions and `ask_first` permission.
+revision and namespaced tool IDs, names, revisions, exact descriptor fingerprints,
+and `ask_first` or `blocked` permission. Per-tool Block is an encrypted vault
+preference bound to the exact discovered descriptor; Chat and call review filter
+blocked tools before admission, while Settings still lists them for re-enablement.
+Changed tool descriptors return to Ask first. Connector-wide Block remains separate.
 It contains no tool results or credentials and issues no action approval.
 Settings rejects mismatched or late responses and bounds the visible tool list.
 Discovery uses the shared toolset's bounded pagination and timeout; an empty
-catalog is distinct from failure. Provider notifications and persistent per-tool
-permission controls remain unimplemented.
+catalog is distinct from failure. Provider notifications and persistent
+allow-without-review remain unimplemented.
 
 Protocol proof: `test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_tools`
 in `tests/test_governed_mcp_toolset.py` uses a real MCP Server/ClientSession over

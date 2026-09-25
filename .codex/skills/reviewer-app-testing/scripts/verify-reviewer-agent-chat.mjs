@@ -13,12 +13,14 @@ const appOrigin = String(
 ).replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
 const scenario = process.env.REVIEWER_AGENT_CHAT_SCENARIO || "baseline";
-if (!["baseline", "private_connector_setup"].includes(scenario)) {
+if (!["baseline", "private_connector_setup", "drive_connector_setup"].includes(scenario)) {
   throw new Error("Unsupported reviewer Agent Chat scenario.");
 }
 const prompt = scenario === "private_connector_setup"
   ? "I want to connect a private app to One. Show me how to open my connectors."
-  : "In one sentence, explain the consent lifecycle.";
+  : scenario === "drive_connector_setup"
+    ? "Connect Google Drive to One so I can search my files."
+    : "In one sentence, explain the consent lifecycle.";
 const forbiddenText = [
   "one_adk_sessions",
   "DB operation failed",
@@ -53,10 +55,44 @@ async function conversationIds(token) {
   return new Set((payload.conversations || []).map((item) => String(item.id)));
 }
 
+async function driveAdmission(token) {
+  const response = await fetch(`${appOrigin}/api/connectors`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Connector admission check failed with HTTP ${response.status}.`);
+  const payload = await response.json();
+  const features = payload?.features;
+  if (!features || typeof features !== "object") {
+    throw new Error("Connector admission response is missing feature state.");
+  }
+  return {
+    connection: features.google_drive_connection === true,
+    live: features.google_drive_live === true,
+  };
+}
+
 try {
   session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
+  if (scenario === "drive_connector_setup") {
+    const admission = await driveAdmission(ownerToken);
+    if (!admission.connection || !admission.live) {
+      throw new Error(
+        `DRIVE_CONNECTOR_NOT_ADMITTED connection=${Number(admission.connection)} live=${Number(admission.live)}`,
+      );
+    }
+  }
+  // The app may restore the reviewer's last conversation on entry. Start a
+  // fresh thread through its own control before asserting a new request ID.
+  const newChat = page.getByRole("button", { name: "Create new chat" });
+  if (await newChat.count() === 0) {
+    await page.getByRole("button", { name: "Open chat history" }).click();
+  }
+  await newChat.first().click();
+  await page.waitForFunction(() =>
+    document.querySelectorAll('[data-message-role="user"]').length === 0,
+  );
   baselineConversationIds = await conversationIds(ownerToken);
   await page.getByTestId("agent-chat-composer-textarea").waitFor({ state: "visible" });
   const baselineAssistantTurns = await page.locator('[data-message-role="assistant"]').count();
@@ -79,6 +115,11 @@ try {
     { expectedPrompt: prompt, forbidden: forbiddenText, baselineCount: baselineAssistantTurns },
     { timeout: timeoutMs },
   );
+  const finalStatus = await page.locator('[data-message-role="assistant"]').last()
+    .getAttribute("data-message-status");
+  if (finalStatus !== "done") {
+    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"}`);
+  }
 
   const result = await page.evaluate((forbidden) => {
     const body = document.body.innerText;
@@ -110,13 +151,36 @@ try {
   if (!result.composerControlGeometry) {
     throw new Error("Agent Chat composer controls are not geometrically symmetric.");
   }
-  if (scenario === "private_connector_setup") {
+  if (scenario === "private_connector_setup" || scenario === "drive_connector_setup") {
     const setup = page.getByTestId("workspace-connector-setup").last();
-    await setup.waitFor({ state: "visible", timeout: timeoutMs });
-    await setup.getByRole("button", { name: "Open connectors" }).click();
+    try {
+      // The assistant turn is already settled. A missing structured card is
+      // a product failure, not a reason to wait through another provider-sized
+      // timeout or retain assistant text as diagnostic evidence.
+      await setup.waitFor({ state: "visible", timeout: 15_000 });
+    } catch {
+      throw new Error("CONNECTOR_SETUP_CARD_MISSING_AFTER_SETTLED_TURN");
+    }
+    if (scenario === "drive_connector_setup" && await setup.getAttribute("aria-label") !== "Drive connection needed") {
+      throw new Error("DRIVE_CONNECTOR_CARD_PROVIDER_MISMATCH");
+    }
+    await setup.getByRole("button", {
+      name: scenario === "drive_connector_setup" ? "Connect Drive" : "Open connectors",
+    }).click();
     await page.getByRole("dialog", { name: "Connectors" }).waitFor({
       state: "visible", timeout: timeoutMs,
     });
+    if (scenario === "private_connector_setup") {
+      const custom = page.getByRole("region", { name: "Custom connectors" });
+      await custom.waitFor({ state: "visible", timeout: 15_000 });
+      const add = custom.getByRole("button", { name: "Add connector" });
+      await add.waitFor({ state: "visible", timeout: 15_000 });
+      if (!await add.isEnabled()) throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
+      await add.click();
+      await custom.getByRole("textbox", { name: "Server address" }).waitFor({
+        state: "visible", timeout: 15_000,
+      });
+    }
   }
   const createdIds = [...await conversationIds(ownerToken)]
     .filter((id) => !baselineConversationIds.has(id));

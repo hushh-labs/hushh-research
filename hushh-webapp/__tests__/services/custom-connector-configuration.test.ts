@@ -81,6 +81,13 @@ describe("vault-backed custom connector configuration", () => {
     expect(() => projectCustomConnectorTurnConfigurations([record, record])).toThrow();
     expect(() => projectCustomConnectorTurnConfigurations(Array(33).fill(record))).toThrow();
   });
+  it("keeps exact blocked-tool fingerprints in the encrypted record and turn projection", () => {
+    const blockedTool = { id: `mcp_${"b".repeat(40)}`, fingerprint: "c".repeat(64) };
+    const configured = parseCustomConnectorConfiguration({ ...record, blockedTools: [blockedTool] });
+    expect(projectCustomConnectorTurnConfigurations([configured])[0]?.blockedTools).toEqual([blockedTool]);
+    expect(() => parseCustomConnectorConfiguration({ ...record, blockedTools: [blockedTool, blockedTool] })).toThrow();
+    expect(() => parseCustomConnectorConfiguration({ ...record, blockedTools: [{ id: blockedTool.id, fingerprint: "changed" }] })).toThrow();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     storage.loadDomainData.mockResolvedValue(null);

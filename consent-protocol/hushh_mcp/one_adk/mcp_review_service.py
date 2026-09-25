@@ -14,6 +14,7 @@ from google.adk.sessions import InMemorySessionService, Session
 
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.governed_mcp_toolset import (
+    mcp_tool_fingerprint,
     native_registration_admitted,
     validated_mcp_arguments,
 )
@@ -64,7 +65,11 @@ async def discover_catalog(
             ),
         )
     )
-    async with mcp_turn_scope(thread, owner_id=owner, configurations=[record]) as scope:
+    # Settings must keep blocked tools visible for an explicit unblock. The
+    # discovery-only scope cannot execute, while Chat/review use the saved rule.
+    visible_record = {**record, "blockedTools": []}
+    blocked = {(entry["id"], entry["fingerprint"]) for entry in record.get("blockedTools", [])}
+    async with mcp_turn_scope(thread, owner_id=owner, configurations=[visible_record]) as scope:
         toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
         tools = await toolset.get_tools(context)
         # Server-provided names are untrusted display text, not permission or
@@ -78,7 +83,10 @@ async def discover_catalog(
                     "id": tool.name,
                     "name": tool.descriptor["name"],
                     "revision": tool.revision,
-                    "permission": "ask_first",
+                    "fingerprint": mcp_tool_fingerprint(tool.descriptor),
+                    "permission": "blocked"
+                    if (tool.name, mcp_tool_fingerprint(tool.descriptor)) in blocked
+                    else "ask_first",
                 }
                 for tool in tools
             ],

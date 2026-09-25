@@ -1,6 +1,6 @@
 import type { CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 
-type CatalogTool = { id: string; name: string; revision: string };
+type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" };
 type CatalogHandoff = {
   ownerUserId: string;
   vaultEpoch: number;

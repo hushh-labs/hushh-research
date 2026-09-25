@@ -218,6 +218,11 @@ def mcp_tool_name(connector_id: str, wire_name: str) -> str:
     return "mcp_" + _digest([connector_id, wire_name])[:40]
 
 
+def mcp_tool_fingerprint(descriptor: dict[str, Any]) -> str:
+    """Bind owner preferences to one exact discovered tool contract."""
+    return _digest(descriptor)
+
+
 class GovernedMcpToolset(McpToolset):
     """Use ADK's native session/tool machinery without ambient owner authority.
 

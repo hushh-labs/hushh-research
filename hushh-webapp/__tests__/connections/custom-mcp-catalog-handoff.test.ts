@@ -7,7 +7,7 @@ const connector: CustomConnectorConfiguration = {
   revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic",
   endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" },
 };
-const tools = [{ id: `mcp_${"b".repeat(40)}`, name: "search_files", revision: "rev1" }];
+const tools = [{ id: `mcp_${"b".repeat(40)}`, name: "search_files", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" as const }];
 const input = { ownerUserId: "owner-a", vaultEpoch: 4, connectorId: connector.connectorId,
   configurationRevision: connector.revision, tools };
 

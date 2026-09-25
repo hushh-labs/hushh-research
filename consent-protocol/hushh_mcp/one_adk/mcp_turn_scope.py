@@ -28,6 +28,8 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    mcp_tool_fingerprint,
+    mcp_tool_name,
     resolve_registered_connection,
 )
 from hushh_mcp.one_adk.request_secrets import (
@@ -93,15 +95,27 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
             raise ValueError
         records = {}
         for raw in value:
-            if not isinstance(raw, dict) or set(raw) != {
-                "version",
-                "connectorId",
-                "revision",
-                "displayName",
-                "endpoint",
-                "enabled",
-                "authentication",
-            }:
+            if not isinstance(raw, dict) or set(raw) not in (
+                {
+                    "version",
+                    "connectorId",
+                    "revision",
+                    "displayName",
+                    "endpoint",
+                    "enabled",
+                    "authentication",
+                },
+                {
+                    "version",
+                    "connectorId",
+                    "revision",
+                    "displayName",
+                    "endpoint",
+                    "enabled",
+                    "authentication",
+                    "blockedTools",
+                },
+            ):
                 raise ValueError
             if (
                 type(raw["version"]) is not int
@@ -155,6 +169,23 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
                 or any(ord(c) < 32 or ord(c) == 127 for c in secret)
             ):
                 raise ValueError
+            blocked_tools = raw.get("blockedTools", [])
+            if not isinstance(blocked_tools, list) or len(blocked_tools) > 200:
+                raise ValueError
+            blocked_ids = set()
+            for entry in blocked_tools:
+                if not isinstance(entry, dict) or set(entry) != {"id", "fingerprint"}:
+                    raise ValueError
+                tool_id, fingerprint = entry["id"], entry["fingerprint"]
+                if (
+                    not isinstance(tool_id, str)
+                    or not re.fullmatch(r"mcp_[a-f0-9]{40}", tool_id)
+                    or tool_id in blocked_ids
+                    or not isinstance(fingerprint, str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", fingerprint)
+                ):
+                    raise ValueError
+                blocked_ids.add(tool_id)
             records[identifier] = deepcopy(raw)
         return records
     except Exception:
@@ -242,6 +273,16 @@ class McpTurnResources:
         digest = hashlib.sha256(
             json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        blocked = {(item["id"], item["fingerprint"]) for item in record.get("blockedTools", [])}
+
+        def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [
+                item
+                for item in catalog
+                if (mcp_tool_name(connector_id, item["name"]), mcp_tool_fingerprint(item))
+                not in blocked
+            ]
+
         return ResolvedMcpConnection(
             McpConnectionBinding(
                 self._owner,
@@ -252,6 +293,7 @@ class McpTurnResources:
                 ("vault", record["revision"], digest),
             ),
             headers,
+            catalog_policy=admitted,
         )
 
     def track_catalog_view(self, view: Any) -> None:
