@@ -31,7 +31,7 @@ RESPONSE_LIMIT = 256 * 1024
 PAGE_LIMIT = 3
 PERMISSION_LIMIT = 200
 FILE_FIELDS = (
-    "id,version,mimeType,modifiedTime,createdTime,trashed,isAppAuthorized,"
+    "id,name,version,mimeType,modifiedTime,createdTime,trashed,isAppAuthorized,"
     "capabilities(canShare,canDownload,canAccessViaGenAi),"
     "clientEncryptionDetails(encryptionState)"
 )
@@ -260,6 +260,7 @@ class GoogleDrivePermissionAdapter:
         require_app_authorized: bool = True,
         require_genai_eligibility: bool = True,
         metadata_only: bool = False,
+        expected_name: str | None = None,
         time_field: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
@@ -302,8 +303,12 @@ class GoogleDrivePermissionAdapter:
             raise DrivePermissionError("source_not_shareable")
         # Metadata-only shares bind identity (id, name, time window), not bytes.
         # An earlier grant of the same file bumps its version, so an exact
-        # version fence here silently cancelled every later recipient.
-        if not metadata_only and result.get("version") != expected_version:
+        # version fence here silently cancelled every later recipient. The
+        # reviewed name is re-checked instead; a missing one fails closed.
+        if metadata_only:
+            if not expected_name or result.get("name") != expected_name:
+                raise DrivePermissionError("source_changed")
+        elif result.get("version") != expected_version:
             raise DrivePermissionError("source_changed")
         if metadata_only:
             if time_field not in {"modifiedTime", "createdTime"} or not all(

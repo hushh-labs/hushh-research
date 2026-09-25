@@ -1095,7 +1095,11 @@ async def test_a_failed_share_is_declined_and_a_retry_starts_fresh(store, monkey
         await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
     # The failed attempt's request is closed, so nothing can prepare or share it later.
     sharing.store.decline_or_cancel.assert_awaited_once_with(
-        user_id="owner", request_id=SHARE_ID, revision=1, decision="declined"
+        user_id="owner",
+        request_id=SHARE_ID,
+        revision=1,
+        decision="declined",
+        notify_recipient=False,
     )
     sharing.approve.assert_not_awaited()
     shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])

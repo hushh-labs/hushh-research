@@ -198,6 +198,26 @@ async def test_suggestions_cannot_adopt_a_newer_index_after_interpretation(shari
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("notify", [True, False])
+async def test_a_silent_decline_is_not_news_to_the_recipient(sharing, notify):
+    """An owner's own failed share was never announced, so closing it is not either."""
+    created = await request(sharing)
+    await sharing.decline_or_cancel(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        decision="declined",
+        notify_recipient=notify,
+    )
+    decided = [
+        event
+        for event in rows(sharing, "drive_share_events")
+        if event["event_type"] == "document_share_decided"
+    ]
+    assert [event["user_id"] for event in decided] == (["recipient"] if notify else [])
+
+
+@pytest.mark.asyncio
 async def test_recipient_sees_status_not_private_suggestions(sharing):
     prepared, _ = await review(sharing)
     status = await sharing.request_status(user_id="recipient", request_id=prepared["requestId"])

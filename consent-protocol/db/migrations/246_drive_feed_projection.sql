@@ -76,9 +76,11 @@ BEGIN
       INTO label, handle
       FROM actor_identity_cache a WHERE a.user_id = counterpart_id;
     -- Same rule as requester_identity.looks_technical_label: a raw uid, a
-    -- UUID or an opaque token is an identifier, not a name.
+    -- UUID or an opaque token is an identifier, not a name. A full email is
+    -- narrowed to its handle; the Feed never shows an address.
     IF label IS NOT NULL AND (
-      label = counterpart_id
+      strpos(label, '@') > 0
+      OR label = counterpart_id
       OR lower(label) LIKE 'ria:%'
       OR label ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
       OR (strpos(label, '@') = 0 AND strpos(label, ' ') = 0 AND length(label) >= 20)
@@ -143,15 +145,31 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS drive_share_events_feed_projection ON drive_share_events;
-CREATE TRIGGER drive_share_events_feed_projection
-  AFTER INSERT ON drive_share_events
-  FOR EACH ROW EXECUTE FUNCTION feed_events_from_drive_events();
-
-DROP TRIGGER IF EXISTS drive_query_events_feed_projection ON drive_query_events;
-CREATE TRIGGER drive_query_events_feed_projection
-  AFTER INSERT ON drive_query_events
-  FOR EACH ROW EXECUTE FUNCTION feed_events_from_drive_events();
+-- Create each trigger only once. Replay runs on every deploy, and dropping a
+-- trigger takes ACCESS EXCLUSIVE on its table; CREATE OR REPLACE FUNCTION
+-- above already updates the body in place.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'drive_share_events_feed_projection'
+      AND tgrelid = 'drive_share_events'::regclass
+  ) THEN
+    CREATE TRIGGER drive_share_events_feed_projection
+      AFTER INSERT ON drive_share_events
+      FOR EACH ROW EXECUTE FUNCTION feed_events_from_drive_events();
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'drive_query_events_feed_projection'
+      AND tgrelid = 'drive_query_events'::regclass
+  ) THEN
+    CREATE TRIGGER drive_query_events_feed_projection
+      AFTER INSERT ON drive_query_events
+      FOR EACH ROW EXECUTE FUNCTION feed_events_from_drive_events();
+  END IF;
+END
+$$;
 
 -- Recent history, so events from before this migration are not silent either.
 -- Idempotent on replay: each event is one Feed row keyed by its event id.

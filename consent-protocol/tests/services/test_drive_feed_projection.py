@@ -132,6 +132,15 @@ async def test_technical_display_name_falls_back_to_email_handle(feed, sharing):
     [row] = feed_rows(feed.db, "owner")
     assert row["actor_label"] == "bo.smith"
 
+    # A full email set as the display name is narrowed to its handle.
+    with feed.db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE actor_identity_cache SET display_name='bo.smith@example.invalid' "
+            "WHERE user_id='recipient'"
+        )
+    await ask(feed)
+    assert feed_rows(feed.db, "owner")[-1]["actor_label"] == "bo.smith"
+
     with feed.db.engine.begin() as connection:
         connection.exec_driver_sql(
             "UPDATE actor_identity_cache SET email=NULL WHERE user_id='recipient'"

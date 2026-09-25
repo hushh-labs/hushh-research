@@ -1212,7 +1212,13 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     async def decline_or_cancel(
-        self, *, user_id: str, request_id: str, revision: int, decision: str
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        revision: int,
+        decision: str,
+        notify_recipient: bool = True,
     ) -> dict:
         if decision not in {"declined", "cancelled"}:
             raise DriveSharingError("decision_not_allowed")
@@ -1255,12 +1261,15 @@ class DriveSharingStore(DriveDocumentStore):
             """,
                 {"id": request_id, "status": decision},
             )
-            self._event(
-                connection,
-                updated,
-                row["recipient_user_id"] if decision == "declined" else row["user_id"],
-                "document_share_decided",
-            )
+            # An owner's own share that failed was never announced to the
+            # recipient, so its closing is not news to them either.
+            if decision == "cancelled" or notify_recipient:
+                self._event(
+                    connection,
+                    updated,
+                    row["recipient_user_id"] if decision == "declined" else row["user_id"],
+                    "document_share_decided",
+                )
             return self._summary(updated, recipient=decision == "cancelled")
 
         return cast(dict, await self._transaction(operation))
