@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.external_mcp_client import ExternalMcpError, ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.google_drive_mcp_service import (
     GOOGLE_DRIVE_READ_TOOLS,
@@ -326,3 +326,42 @@ async def test_recent_listing_uses_the_same_bounded_projection(monkeypatch):
         user_id="owner", tool_name="list_recent_files", arguments={"orderBy": "recency"}
     )
     assert transport.await_args.kwargs["project"] is _search_metadata
+
+
+PROBE_GRANT = "synthetic-probe-grant"
+
+
+@pytest.mark.parametrize("empty", [{}, {"content": []}, {"nextPageToken": None}])
+def test_an_empty_listing_is_zero_files_not_a_broken_provider(empty):
+    """Drive MCP answers a search with no matches as `{}` (seen 2026-09-24).
+
+    Treating that as an invalid response failed every no-match chat search and
+    the connect probe (`owner = 'me'`) for an account that owns no files, which
+    left the live grant unverified ("Authorized · choose files to verify").
+    """
+    assert _search_metadata(empty) == {"files": [], "nextPageToken": None, "overLimit": False}
+
+
+@pytest.mark.parametrize("unexpected", [{"error": "x"}, {"files": "nope"}, {"text": "hi"}])
+def test_an_unexpected_listing_shape_stays_invalid(unexpected):
+    with pytest.raises(ExternalMcpError):
+        _search_metadata(unexpected)
+
+
+@pytest.mark.asyncio
+async def test_live_probe_passes_for_an_account_with_no_owned_files(monkeypatch):
+    service = GoogleDriveMcpService(oauth=oauth())
+    catalog = [
+        {"name": name, "inputSchema": {"type": "object"}}
+        for name in ("search_files", "read_file_content")
+    ]
+    service.discover_read_tools = AsyncMock(return_value=catalog)
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_drive_mcp_service.call_tool",
+        AsyncMock(
+            return_value=ExternalMcpToolResult(
+                is_error=False, payload=_search_metadata({}), truncated=False
+            )
+        ),
+    )
+    await service.probe_live_search(access_token=PROBE_GRANT)

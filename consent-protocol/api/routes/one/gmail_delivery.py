@@ -14,7 +14,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_gmail_delivery_service
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailDeliveryError,
+    get_gmail_delivery_service,
+    normalize_draft,
+)
+from hushh_mcp.services.gmail_personal_information_request_service import (
+    get_personal_gmail_information_request_service,
+)
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.google_gmail_mcp_service import GoogleGmailMcpService
 
@@ -53,6 +60,12 @@ class EmailPrepareRequest(EmailEnvelope):
 
     idempotency_key: str = Field(min_length=16, max_length=256)
     drive_attachment: DriveAttachmentRef | None = None
+    source_workflow_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9-]+$",
+    )
 
 
 class EmailSaveDraftRequest(EmailEnvelope):
@@ -64,6 +77,12 @@ class EmailSendRequest(EmailEnvelope):
 
     action_id: str = Field(min_length=1, max_length=128)
     attachment_token: str | None = Field(default=None, min_length=32, max_length=2048)
+    source_workflow_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9-]+$",
+    )
 
 
 def _owner_user_id(*, firebase_uid: str, token_data: dict[str, Any]) -> str:
@@ -96,6 +115,38 @@ def _as_http_error(exc: Exception) -> HTTPException:
             "code": "GMAIL_DELIVERY_UNAVAILABLE",
             "message": "Gmail delivery is temporarily unavailable. Please try again.",
         },
+    )
+
+
+async def _resolve_delivery_payload(
+    *,
+    user_id: str,
+    payload: EmailEnvelope,
+    source_workflow_id: str | None,
+) -> tuple[dict[str, Any], Any | None]:
+    """Use the normal delivery boundary while preserving a Gmail source binding."""
+
+    if not source_workflow_id:
+        excluded = (
+            {"idempotency_key", "source_workflow_id"}
+            if isinstance(payload, EmailPrepareRequest)
+            else {"action_id", "source_workflow_id"}
+        )
+        return payload.model_dump(exclude=excluded, exclude_none=True), None
+    if isinstance(payload, EmailPrepareRequest) and payload.drive_attachment is not None:
+        raise GmailDeliveryError(
+            "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED",
+            "A reply to a Gmail information request cannot include a Drive attachment.",
+            status_code=422,
+        )
+    return cast(
+        tuple[dict[str, Any], Any | None],
+        await get_personal_gmail_information_request_service().resolve_reply_delivery(
+            user_id=user_id,
+            workflow_id=source_workflow_id,
+            body=payload.body,
+            html_body=payload.html_body,
+        ),
     )
 
 
@@ -134,14 +185,33 @@ async def gmail_email_prepare(
         token_data=token_data,
     )
     try:
-        return cast(
+        draft_payload, reply_context = await _resolve_delivery_payload(
+            user_id=user_id,
+            payload=payload,
+            source_workflow_id=payload.source_workflow_id,
+        )
+        prepared = cast(
             dict[str, Any],
             await get_gmail_delivery_service().prepare(
                 user_id=user_id,
-                draft_payload=payload.model_dump(exclude={"idempotency_key"}, exclude_none=True),
+                draft_payload=draft_payload,
                 idempotency_key=payload.idempotency_key,
+                reply_context=reply_context,
             ),
         )
+        if reply_context is None:
+            return prepared
+        normalized = normalize_draft(draft_payload)
+        return {
+            **prepared,
+            "preview": {
+                "to": list(normalized.to),
+                "cc": list(normalized.cc),
+                "bcc": list(normalized.bcc),
+                "subject": normalized.subject,
+                "gmail_thread_id": reply_context.thread_id,
+            },
+        }
     except Exception as exc:
         logger.warning("one.gmail_delivery.prepare_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
@@ -183,14 +253,30 @@ async def gmail_email_send(
         token_data=token_data,
     )
     try:
-        return cast(
+        draft_payload, reply_context = await _resolve_delivery_payload(
+            user_id=user_id,
+            payload=payload,
+            source_workflow_id=payload.source_workflow_id,
+        )
+        result = cast(
             dict[str, Any],
             await get_gmail_delivery_service().execute(
                 user_id=user_id,
                 action_id=payload.action_id,
-                draft_payload=payload.model_dump(exclude={"action_id"}, exclude_none=True),
+                draft_payload=draft_payload,
+                reply_context=reply_context,
             ),
         )
+        if payload.source_workflow_id:
+            return cast(
+                dict[str, Any],
+                await get_personal_gmail_information_request_service().record_reply_delivery(
+                    user_id=user_id,
+                    workflow_id=payload.source_workflow_id,
+                    result=result,
+                ),
+            )
+        return result
     except Exception as exc:
         logger.warning("one.gmail_delivery.send_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc

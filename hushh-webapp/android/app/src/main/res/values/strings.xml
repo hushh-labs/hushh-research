@@ -6,5 +6,9 @@
     <string name="custom_url_scheme">com.hussh.app</string>
     <string name="sms_emergency_channel_name">Emergency SMS alerts</string>
     <string name="sms_emergency_channel_description">Urgent Save My Soul alerts from your selected contacts</string>
+    <string name="contacts_disclosure_title">Find people you know on One</string>
+    <string name="contacts_disclosure_message">One reads the phone numbers in your contacts to find people who are already on One.\n\nPhone numbers are standardized on your device and turned into one-way codes. Only those codes and the last four digits are checked for matches. One never stores your contacts\' names or numbers, and nobody is contacted for you.</string>
+    <string name="contacts_disclosure_continue">Continue</string>
+    <string name="contacts_disclosure_decline">Not now</string>
     <string name="asset_statements" translatable="false">[{\"include\":\"https://one.hushh.ai/.well-known/assetlinks.json\"}]</string>
 </resources>

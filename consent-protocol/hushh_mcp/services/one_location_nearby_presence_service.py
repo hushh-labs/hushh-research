@@ -49,6 +49,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _CheckoutResult(dict):
+    """Keep persisted receipt equality while marking an in-process replay."""
+
+    replayed = False
+
+
 @contextmanager
 def _optional_rating_write(connection: Any):
     """Optional rating work must not hold up a visibility change.
@@ -667,7 +673,11 @@ class PostgresNearbyPresenceStore:
                 )
                 prior = receipt.claim()
                 if prior:
-                    return prior
+                    # The receipt proves the original command completed; this
+                    # retry did not perform a second state transition.
+                    replayed = _CheckoutResult(prior)
+                    replayed.replayed = True
+                    return replayed
             row = (
                 connection.execute(
                     text("""SELECT id,version,status,rating_visit_id,expires_at>clock_timestamp() AS active
@@ -732,6 +742,8 @@ class PostgresNearbyPresenceStore:
                 if row
                 else 0,
                 "checked_out": True,
+                # Idempotent success does not mean an active presence ended.
+                "checkout_transitioned": active,
             }
             if visit_id:
                 result["rating_visit_id"] = visit_id
@@ -1571,11 +1583,17 @@ class OneLocationNearbyPresenceService:
             if command_operation_id
             else {"presence": None, "attendees": []}
         )
+        checkout_transitioned = (
+            bool(result.get("checkout_transitioned")) and not getattr(result, "replayed", False)
+            if isinstance(result, dict)
+            else False
+        )
         return {
             **current,
             "checkedOut": bool(result.get("checked_out"))
             if isinstance(result, dict)
             else bool(result),
+            "checkoutTransitioned": checkout_transitioned,
             "reviewPrompt": review_prompt,
             **({"checkoutReceipt": result} if command_operation_id else {}),
         }

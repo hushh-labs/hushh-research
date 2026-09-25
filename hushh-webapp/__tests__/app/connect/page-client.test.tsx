@@ -221,7 +221,10 @@ import ConnectPageClient from "@/app/connect/page-client";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ShareUnavailableError } from "@/lib/share/share-link";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
-import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
+import {
+  resolveLocalOnboardingHandler,
+  prepareLocalOnboardingAction,
+} from "@/lib/agent/local-onboarding-actions";
 import {
   parseVoiceCard,
   parseVoiceConfirm,
@@ -262,90 +265,172 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
   person(`u${index}`, `Person ${index}`),
 );
 
-describe("Location command connection prerequisite",()=>{
-  it("discards the previous person's review and pending catalog when the requested person changes",async()=>{
-    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
-    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","First target"),request:null})
-      .mockResolvedValue({person:{...person("u10","Already connected"),relationship:"connected"},request:null});
-    const catalog=deferred<any>();
+describe("Location command connection prerequisite", () => {
+  it("discards the previous person's review and pending catalog when the requested person changes", async () => {
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext
+      .mockResolvedValueOnce({
+        person: person("u9", "First target"),
+        request: null,
+      })
+      .mockResolvedValue({
+        person: {
+          ...person("u10", "Already connected"),
+          relationship: "connected",
+        },
+        request: null,
+      });
+    const catalog = deferred<any>();
     mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
-    const view=render(<ConnectPageClient/>);
-    await screen.findByRole("dialog",{name:"Send connection requests"});
-    mocks.searchParams=new URLSearchParams("reviewPerson=u10");
-    view.rerender(<ConnectPageClient/>);
-    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
-    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
-    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    const view = render(<ConnectPageClient />);
+    await screen.findByRole("dialog", { name: "Send connection requests" });
+    mocks.searchParams = new URLSearchParams("reviewPerson=u10");
+    view.rerender(<ConnectPageClient />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Send connection requests" }),
+      ).toBeNull(),
+    );
+    await act(async () =>
+      catalog.resolve({
+        counterpartUserId: "u9",
+        items: [],
+        offerableItems: [],
+      }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Send connection requests" }),
+    ).toBeNull();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
-  it("correlates a freshly discovered incoming request redirect to its exact person review",async()=>{
-    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
-    mocks.getPersonContext.mockResolvedValue({person:{...person("u9","Incoming"),relationship:"pending_incoming"},request:{id:"request-9",direction:"incoming",status:"pending"}});
-    render(<ConnectPageClient/>);
-    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalled());
-    const destination=new URL(mocks.routerPush.mock.calls[0]![0],"https://app.invalid");
-    expect(destination.searchParams.get("from")).toBe("/one/connect?reviewPerson=u9");
+  it("correlates a freshly discovered incoming request redirect to its exact person review", async () => {
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({
+      person: { ...person("u9", "Incoming"), relationship: "pending_incoming" },
+      request: { id: "request-9", direction: "incoming", status: "pending" },
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const destination = new URL(
+      mocks.routerPush.mock.calls[0]![0],
+      "https://app.invalid",
+    );
+    expect(destination.searchParams.get("from")).toBe(
+      "/one/connect?reviewPerson=u9",
+    );
     expect(destination.searchParams.get("requestId")).toBe("request-9");
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
-  it("opens the actual scope review without sending and can reopen after cancellation",async()=>{
+  it("opens the actual scope review without sending and can reopen after cancellation", async () => {
     mocks.searchParams = new URLSearchParams("reviewPerson=u9");
-    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
-    const view = render(<ConnectPageClient/>);
-    const dialog = await screen.findByRole("dialog",{name:"Send connection requests"});
-    await within(dialog).findByRole("button",{name:"Send requests"});
+    mocks.getPersonContext.mockResolvedValue({
+      person: person("u9", "Command Person"),
+      request: null,
+    });
+    const view = render(<ConnectPageClient />);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Send connection requests",
+    });
+    await within(dialog).findByRole("button", { name: "Send requests" });
     expect(mocks.sendRequest).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button",{name:"Cancel"}));
-    view.rerender(<ConnectPageClient/>);
-    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    view.rerender(<ConnectPageClient />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Send connection requests" }),
+      ).toBeNull(),
+    );
     expect(mocks.routerReplace).toHaveBeenCalledWith("/one/connect");
-    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
-    view.rerender(<ConnectPageClient/>);
-    await screen.findByRole("dialog",{name:"Send connection requests"});
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    view.rerender(<ConnectPageClient />);
+    await screen.findByRole("dialog", { name: "Send connection requests" });
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("discards the old owner's pending catalog even after A to B to A",async()=>{
-    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
-    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","Owner A target"),request:null})
-      .mockResolvedValue({person:{...person("u9","Pending"),relationship:"pending_outgoing"},request:{id:"r",direction:"outgoing",status:"pending"}});
+  it("discards the old owner's pending catalog even after A to B to A", async () => {
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext
+      .mockResolvedValueOnce({
+        person: person("u9", "Owner A target"),
+        request: null,
+      })
+      .mockResolvedValue({
+        person: {
+          ...person("u9", "Pending"),
+          relationship: "pending_outgoing",
+        },
+        request: { id: "r", direction: "outgoing", status: "pending" },
+      });
     const catalog = deferred<any>();
     mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
-    const view=render(<ConnectPageClient/>);
-    await screen.findByRole("dialog",{name:"Send connection requests"});
-    const ownerA=mocks.user;
-    mocks.user={uid:"owner-b",getIdToken:async()=>"token-b"};
-    view.rerender(<ConnectPageClient/>);
-    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
-    mocks.user=ownerA;
-    view.rerender(<ConnectPageClient/>);
-    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
-    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    const view = render(<ConnectPageClient />);
+    await screen.findByRole("dialog", { name: "Send connection requests" });
+    const ownerA = mocks.user;
+    mocks.user = { uid: "owner-b", getIdToken: async () => "token-b" };
+    view.rerender(<ConnectPageClient />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Send connection requests" }),
+      ).toBeNull(),
+    );
+    mocks.user = ownerA;
+    view.rerender(<ConnectPageClient />);
+    await act(async () =>
+      catalog.resolve({
+        counterpartUserId: "u9",
+        items: [],
+        offerableItems: [],
+      }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Send connection requests" }),
+    ).toBeNull();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("treats a raced reverse request as incoming review, never as a sent or accepted connection",async()=>{
-    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
-    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
-    mocks.sendRequest.mockResolvedValue({id:"incoming-request",status:"pending",requesterUserId:"u9",addresseeUserId:"me"});
-    render(<ConnectPageClient/>);
-    const dialog=await screen.findByRole("dialog",{name:"Send connection requests"});
-    const send=await within(dialog).findByRole("button",{name:"Send requests"});
-    await waitFor(()=>expect(send).not.toBeDisabled());
+  it("treats a raced reverse request as incoming review, never as a sent or accepted connection", async () => {
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({
+      person: person("u9", "Command Person"),
+      request: null,
+    });
+    mocks.sendRequest.mockResolvedValue({
+      id: "incoming-request",
+      status: "pending",
+      requesterUserId: "u9",
+      addresseeUserId: "me",
+    });
+    render(<ConnectPageClient />);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Send connection requests",
+    });
+    const send = await within(dialog).findByRole("button", {
+      name: "Send requests",
+    });
+    await waitFor(() => expect(send).not.toBeDisabled());
     fireEvent.click(send);
-    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalledWith(expect.stringContaining("incoming-request")));
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("1 incoming request needs your review.");
+    await waitFor(() =>
+      expect(mocks.routerPush).toHaveBeenCalledWith(
+        expect.stringContaining("incoming-request"),
+      ),
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "1 incoming request needs your review.",
+    );
     expect(mocks.sendRequest).toHaveBeenCalledOnce();
   });
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.user = {uid:"me",getIdToken:async()=>"id-token"};
+  mocks.searchDirectory.mockReset();
+  mocks.user = { uid: "me", getIdToken: async () => "id-token" };
   mocks.getPersonContext.mockReset();
-  mocks.routerReplace.mockImplementation((href:string)=>{mocks.searchParams=new URLSearchParams(href.split("?")[1] || "");});
+  mocks.routerReplace.mockImplementation((href: string) => {
+    mocks.searchParams = new URLSearchParams(href.split("?")[1] || "");
+  });
   mocks.requestContactCheck.mockReturnValue(true);
   mocks.authPhoneNumber = "+919000000001";
   mocks.resolveVerifiedPhoneNumber.mockImplementation(
@@ -415,7 +500,9 @@ describe("P0 connection reconciliation", () => {
 
     act(() => dispatchConnectionGraphChanged("me"));
 
-    await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(mocks.listConnectionsPage).toHaveBeenCalledOnce(),
+    );
     await waitFor(() => expect(mocks.listRequests).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
   });
@@ -478,14 +565,23 @@ describe("Connect — People", () => {
   it("welcomes a new member without hiding the real people directory", async () => {
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Your life, in circles")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Circles" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add connection" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
-    expect(await screen.findByText(/Send a request, then add people after they accept/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create your own circle" }));
-    expect(mocks.routerPush).toHaveBeenCalledWith("/one/connect?tab=circles&action=create-circle", {
-      scroll: false,
-    });
+    expect(
+      await screen.findByText(
+        /Send a request, then add people after they accept/,
+      ),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create your own circle" }),
+    );
+    expect(mocks.routerPush).toHaveBeenCalledWith(
+      "/one/connect?tab=circles&action=create-circle",
+      {
+        scroll: false,
+      },
+    );
   });
 
   it("places one directory selector below connections and keeps every directory reachable", async () => {
@@ -546,9 +642,7 @@ describe("Connect — People", () => {
       "aria-controls",
       "connect-my-connections-panel",
     );
-    const panel = document.getElementById(
-      "connect-my-connections-panel",
-    );
+    const panel = document.getElementById("connect-my-connections-panel");
     expect(panel).toBeTruthy();
     expect(
       panel?.closest('[data-slot="settings-group-shell"]'),
@@ -562,9 +656,9 @@ describe("Connect — People", () => {
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(
-      panel?.closest('[data-slot="settings-group-shell"]'),
-    ).toHaveClass("hidden");
+    expect(panel?.closest('[data-slot="settings-group-shell"]')).toHaveClass(
+      "hidden",
+    );
 
     fireEvent.click(toggle);
 
@@ -664,8 +758,19 @@ describe("Connect — People", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Asha Contact")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const name = await screen.findByText("Asha Contact");
+    const badge = screen.getByLabelText("Connected from your contacts");
+    const titleRow = name.parentElement;
+
+    expect(badge).toBeTruthy();
+    expect(titleRow).toBeTruthy();
+    expect(titleRow).toContainElement(badge);
+
+    const titleClasses = new Set(titleRow!.className.split(/\s+/));
+    expect(titleClasses.has("flex-col")).toBe(true);
+    expect(titleClasses.has("items-start")).toBe(true);
+    expect(titleClasses.has("sm:flex-row")).toBe(true);
+    expect(titleClasses.has("sm:items-center")).toBe(true);
   });
 
   it("opens a connection's person profile from My connections", async () => {
@@ -685,9 +790,7 @@ describe("Connect — People", () => {
     const myConnections = await screen.findByTestId(
       "connect-my-connections-group",
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "My connections (1)" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "My connections (1)" }));
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
     const connectionAction = connectionName.closest("button");
@@ -761,16 +864,42 @@ describe("Connect — People", () => {
   });
 
   it("keeps rows on refresh failure and offers a display-only retry", async () => {
-    const page = { items: [{ connectionId: "c-kept", userId: "u-kept", displayName: "Kept Friend", photoUrl: null }],
-      page: 1, hasMore: false, totalCount: 1, audience: "all" as const };
-    mocks.listConnectionsPage.mockResolvedValueOnce(page)
+    const page = {
+      items: [
+        {
+          connectionId: "c-kept",
+          userId: "u-kept",
+          displayName: "Kept Friend",
+          photoUrl: null,
+        },
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: 1,
+      audience: "all" as const,
+    };
+    mocks.listConnectionsPage
+      .mockResolvedValueOnce(page)
       .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValue({ ...page, items: [...page.items,
-        { connectionId: "c-restored", userId: "u-restored", displayName: "Restored Friend", photoUrl: null }], totalCount: 2 });
+      .mockResolvedValue({
+        ...page,
+        items: [
+          ...page.items,
+          {
+            connectionId: "c-restored",
+            userId: "u-restored",
+            displayName: "Restored Friend",
+            photoUrl: null,
+          },
+        ],
+        totalCount: 2,
+      });
     render(<ConnectPageClient />);
     expect(await screen.findByText("Kept Friend")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
-    expect(await screen.findByText("Could not refresh connections")).toBeTruthy();
+    expect(
+      await screen.findByText("Could not refresh connections"),
+    ).toBeTruthy();
     expect(screen.getByText("Kept Friend")).toBeTruthy();
     fireEvent.click(screen.getByText("Could not refresh connections"));
     expect(await screen.findByText("Restored Friend")).toBeTruthy();
@@ -832,9 +961,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "My connections (3)" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "My connections (3)" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -1061,9 +1188,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("First Person")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "My connections (2)" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "My connections (2)" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -1148,6 +1273,10 @@ describe("Connect — People", () => {
       name: "Current directory: People",
     });
     const field = screen.getByLabelText("Search people");
+    const searchRow = field.closest('[data-testid="connect-search-row"]');
+
+    expect(searchRow).toHaveClass("pt-0.5", "pb-2");
+    expect(searchRow).not.toHaveClass("py-2");
 
     // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
     expect(
@@ -1202,8 +1331,8 @@ describe("Connect — People", () => {
       .mockResolvedValueOnce({ items: EVERYONE.slice(19, 40), hasMore: false });
     render(<ConnectPageClient />);
     await screen.findByText("Person 0", {}, { timeout: 5_000 });
-    act(() => {
-      enter();
+    await waitFor(() => {
+      act(() => expect(enter()).toBe(true));
     });
     const retry = await screen.findByRole("button", {
       name: "Retry loading people",
@@ -1581,16 +1710,28 @@ describe("Connect — People", () => {
     });
   });
 
-  it.each(["missing-id", "u-other"])("does not downgrade selected user %s to the spoken name", async (userId) => {
-    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9"), person("u-other", "Different Person")], hasMore: false, page: 1 });
-    render(<ConnectPageClient />);
-    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
-    const handler = resolveLocalOnboardingHandler("connect.send_request")!;
-    let result;
-    await act(async () => { result = await handler({ person: "Person 9", userId }); });
-    expect(result).toMatchObject({ status: "blocked" });
-    expect(mocks.sendRequest).not.toHaveBeenCalled();
-  });
+  it.each(["missing-id", "u-other"])(
+    "does not downgrade selected user %s to the spoken name",
+    async (userId) => {
+      mocks.searchDirectory.mockResolvedValue({
+        items: [
+          person("u9", "Person 9"),
+          person("u-other", "Different Person"),
+        ],
+        hasMore: false,
+        page: 1,
+      });
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+      const handler = resolveLocalOnboardingHandler("connect.send_request")!;
+      let result;
+      await act(async () => {
+        result = await handler({ person: "Person 9", userId });
+      });
+      expect(result).toMatchObject({ status: "blocked" });
+      expect(mocks.sendRequest).not.toHaveBeenCalled();
+    },
+  );
 
   it("sends a confirmed request only to one exact spoken name", async () => {
     mocks.searchDirectory.mockResolvedValue({
@@ -1598,15 +1739,18 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
+    mocks.sendRequest.mockResolvedValue({
+      id: "request-9",
+      status: "pending",
+      requesterUserId: "me",
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
     let result:
-      | Awaited<ReturnType<NonNullable<typeof sendRequest>>>
-      | undefined;
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Person 9" });
     });
@@ -1633,36 +1777,77 @@ describe("Connect — People", () => {
   });
 
   it("prepares an exact send without effects and rejects stale preparation", async () => {
-    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9")], hasMore: false, page: 1 });
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     const slots = { person: "Person 9", userId: "u9" };
-    const prepared = await prepareLocalOnboardingAction("connect.send_request", slots);
+    const prepared = await prepareLocalOnboardingAction(
+      "connect.send_request",
+      slots,
+    );
     expect(prepared?.status).toBe("ready");
     if (prepared?.status !== "ready") throw new Error("Preparation failed");
-    expect(prepared.binding).toMatchObject({ person: "Person 9", userId: "u9" });
+    expect(prepared.binding).toMatchObject({
+      person: "Person 9",
+      userId: "u9",
+    });
     expect(mocks.sendRequest).not.toHaveBeenCalled();
-    mocks.searchDirectory.mockResolvedValue({ items: [person("other-owner-id", "Person 9")], hasMore: false, page: 1 });
-    const result = await resolveLocalOnboardingHandler("connect.send_request")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding });
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("other-owner-id", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    const result = await resolveLocalOnboardingHandler("connect.send_request")!(
+      slots,
+      { directiveId: "confirmed", preparedBinding: prepared.binding },
+    );
     expect(result.status).toBe("blocked");
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
   it("executes a send with the same owner-prepared binding", async () => {
-    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9")], hasMore: false, page: 1 });
-    mocks.sendRequest.mockResolvedValue({ id: "prepared-request", status: "pending", requesterUserId: "me" });
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({
+      id: "prepared-request",
+      status: "pending",
+      requesterUserId: "me",
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     const slots = { person: "Person 9", userId: "u9" };
-    const prepared = await prepareLocalOnboardingAction("connect.send_request", slots);
+    const prepared = await prepareLocalOnboardingAction(
+      "connect.send_request",
+      slots,
+    );
     if (prepared?.status !== "ready") throw new Error("Preparation failed");
     expect(mocks.sendRequest).not.toHaveBeenCalled();
-    expect((await resolveLocalOnboardingHandler("connect.send_request")!(slots, { preparedBinding: prepared.binding })).status).toBe("blocked");
+    expect(
+      (
+        await resolveLocalOnboardingHandler("connect.send_request")!(slots, {
+          preparedBinding: prepared.binding,
+        })
+      ).status,
+    ).toBe("blocked");
     expect(mocks.sendRequest).not.toHaveBeenCalled();
     let result;
-    await act(async () => { result = await resolveLocalOnboardingHandler("connect.send_request")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding }); });
+    await act(async () => {
+      result = await resolveLocalOnboardingHandler("connect.send_request")!(
+        slots,
+        { directiveId: "confirmed", preparedBinding: prepared.binding },
+      );
+    });
     expect(result).toMatchObject({ status: "succeeded" });
-    expect(mocks.sendRequest).toHaveBeenCalledWith(expect.objectContaining({ addresseeUserId: "u9" }));
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "u9" }),
+    );
   });
 
   it("refuses to guess between similar directory matches before sending", async () => {
@@ -1748,14 +1933,17 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-10", status: "pending", requesterUserId: "me" });
+    mocks.sendRequest.mockResolvedValue({
+      id: "request-10",
+      status: "pending",
+      requesterUserId: "me",
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
-      | Awaited<ReturnType<NonNullable<typeof sendRequest>>>
-      | undefined;
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({
         person: "Ankit Kumar Singh",
@@ -1785,14 +1973,17 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
+    mocks.sendRequest.mockResolvedValue({
+      id: "request-9",
+      status: "pending",
+      requesterUserId: "me",
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
-      | Awaited<ReturnType<NonNullable<typeof sendRequest>>>
-      | undefined;
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul Rashid" });
     });
@@ -1813,14 +2004,17 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
+    mocks.sendRequest.mockResolvedValue({
+      id: "request-9",
+      status: "pending",
+      requesterUserId: "me",
+    });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
-      | Awaited<ReturnType<NonNullable<typeof sendRequest>>>
-      | undefined;
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul Rashid" });
     });
@@ -1841,8 +2035,7 @@ describe("Connect — People", () => {
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
-      | Awaited<ReturnType<NonNullable<typeof sendRequest>>>
-      | undefined;
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul" });
     });
@@ -2077,7 +2270,10 @@ describe("Connect — removing a connection", () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     const handler = resolveLocalOnboardingHandler("connect.remove_connection")!;
-    const result = await handler({ person: "Someone Else", connectionId: "c-1" }, { directiveId: "confirmed" });
+    const result = await handler(
+      { person: "Someone Else", connectionId: "c-1" },
+      { directiveId: "confirmed" },
+    );
     expect(result.status).toBe("blocked");
     expect(mocks.removeConnection).not.toHaveBeenCalled();
   });
@@ -2087,14 +2283,22 @@ describe("Connect — removing a connection", () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     const slots = { person: "Rashid", connectionId: "c-1" };
-    const prepared = await prepareLocalOnboardingAction("connect.remove_connection", slots);
+    const prepared = await prepareLocalOnboardingAction(
+      "connect.remove_connection",
+      slots,
+    );
     expect(prepared?.status).toBe("ready");
     if (prepared?.status !== "ready") throw new Error("Preparation failed");
     expect(mocks.removeConnection).not.toHaveBeenCalled();
     await act(async () => {
-      await resolveLocalOnboardingHandler("connect.remove_connection")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding });
+      await resolveLocalOnboardingHandler("connect.remove_connection")!(slots, {
+        directiveId: "confirmed",
+        preparedBinding: prepared.binding,
+      });
     });
-    expect(mocks.removeConnection).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "c-1" }));
+    expect(mocks.removeConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: "c-1" }),
+    );
   });
 
   it("asks before removing, and does not remove on the asking turn", async () => {
@@ -2232,6 +2436,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     });
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
+    expect(remove.className).toContain("rounded-xl");
+    expect(remove.className).toContain("text-destructive");
+    expect(remove.className).not.toContain("h-9");
     expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
@@ -2247,6 +2454,17 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("w-full")).toBe(false);
     // And the one it keeps when it is not.
     expect(classes.has("justify-end")).toBe(true);
+
+    fireEvent.click(remove);
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(confirm.className).toContain("bg-destructive/10");
+    expect(new Set(confirm.className.split(/\s+/)).has("bg-destructive")).toBe(
+      false,
+    );
+    expect(confirm.className).toContain("h-11");
+    expect(cancel.className).toContain("h-11");
+    expect(confirm.parentElement).toBe(cancel.parentElement);
   });
 
   it("caps My connections on every viewport, phones included", async () => {
@@ -2332,6 +2550,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(cancel.textContent).toBe("Cancel");
     expect(cancel.className).toContain("h-11");
     expect(cancel.className).toContain("min-h-11");
+    expect(cancel.className).toContain("rounded-xl");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or
@@ -2695,9 +2914,7 @@ describe("Connect — Circles", () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
-    expect(
-      screen.queryByRole("button", { name: "Select people" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Select people" })).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
 
@@ -2779,7 +2996,7 @@ describe("Connect — contact sync", () => {
     ).toBeTruthy();
   });
 
-  it("preserves connection outcomes and partial warnings through the shared results retry", async () => {
+  it("preserves connection outcomes and lets the user proceed to the connections list", async () => {
     const matches = [
       {
         lookupId: "new",
@@ -2839,11 +3056,16 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    mocks.syncContactSignals.mockResolvedValueOnce(emptyContactSyncResult());
-    fireEvent.click(within(sheet).getByRole("button", { name: "Sync again" }));
-    await within(sheet).findByText(/No eligible contacts matched/);
-    expect(within(sheet).queryByText("Asha Rao")).toBeNull();
-    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(2);
+    const proceed = within(sheet).getByRole("link", {
+      name: "Proceed to connections",
+    });
+    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+    proceed.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(proceed);
+    await waitFor(() => expect(sheet).not.toBeInTheDocument());
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });
 
   it("uses the verified auth-context phone when Firebase has no phone", async () => {
@@ -2980,9 +3202,7 @@ describe("Connect — contact sync", () => {
     // deleting its mount breaks no test in this file.
     expect(await screen.findByText("Contact sync results")).toBeTruthy();
     expect(screen.getByText(/No eligible contacts matched/)).toBeTruthy();
-    expect(mocks.toastInfo.mock.calls[0][0]).toBe(
-      "No eligible contacts matched",
-    );
+    expect(mocks.toastInfo.mock.calls[0][0]).toBe("No contacts matched");
   });
 });
 
@@ -3002,7 +3222,13 @@ describe("My connections before the first page answers", () => {
     expect(screen.queryByText("No connections yet")).toBeNull();
 
     await act(async () =>
-      firstPage.resolve({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" }),
+      firstPage.resolve({
+        items: [],
+        page: 1,
+        hasMore: false,
+        totalCount: 0,
+        audience: "all",
+      }),
     );
     expect(await screen.findByText("No connections yet")).toBeTruthy();
     expect(screen.getByText("My connections (0)")).toBeTruthy();
@@ -3012,7 +3238,14 @@ describe("My connections before the first page answers", () => {
     CacheService.getInstance().set(
       CACHE_KEYS.CONNECTIONS_FIRST_PAGE("me", "all"),
       {
-        items: [{ connectionId: "c1", userId: "u1", displayName: "Cached Friend", photoUrl: null }],
+        items: [
+          {
+            connectionId: "c1",
+            userId: "u1",
+            displayName: "Cached Friend",
+            photoUrl: null,
+          },
+        ],
         page: 1,
         hasMore: false,
         totalCount: 1,

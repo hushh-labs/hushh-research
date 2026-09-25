@@ -495,7 +495,7 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
  * retryable API response rather than becoming a client-side abort.
  */
 const LONG_DRIVE_SHARING_PATH =
-  /^\/api\/connectors\/google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/allow)$/;
+  /^\/api\/connectors\/google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/(?:allow|share)|owner-shares(?:\/[0-9a-f-]{36}\/share)?)$/;
 
 /** Above the connector proxy's 170 s budget for synchronous Drive work. */
 function isLongDriveSharingPath(path: string): boolean {
@@ -885,8 +885,9 @@ async function apiFetch(
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
       // unbounded — keep legitimately-slow uploads/downloads working).
-      const readTimeoutMs =
-        isLongDriveSharingPath(path) && path.includes("/sharing/queries/")
+      // Synchronous Drive work, document preparation included, waits as long
+      // natively as on the web (webFetchTimeoutMsForPath).
+      const readTimeoutMs = isLongDriveSharingPath(path)
           ? 180_000
           : isLongRunningRoute
             ? 90_000

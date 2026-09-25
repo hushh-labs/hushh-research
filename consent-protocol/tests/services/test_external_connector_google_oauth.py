@@ -245,8 +245,10 @@ def test_live_consent_accepts_drive_with_optional_prior_selected_scope(service, 
 
 
 @pytest.mark.asyncio
-async def test_live_verification_requires_mcp_search_before_marking_connected(service, monkeypatch):
-    from hushh_mcp.services import google_drive_mcp_service as mcp
+async def test_live_verification_requires_a_drive_search_before_marking_connected(
+    service, monkeypatch
+):
+    from hushh_mcp.services import google_drive_rest_transport as rest
 
     monkeypatch.setattr(oauth, "connector_feature_enabled", lambda *_: True)
     service.current_credential = AsyncMock(
@@ -258,7 +260,7 @@ async def test_live_verification_requires_mcp_search_before_marking_connected(se
     account = AsyncMock()
     probe = AsyncMock(side_effect=oauth.DriveOAuthError("connector_unavailable", status_code=502))
     monkeypatch.setattr(oauth.GoogleDriveAdapter, "account", account)
-    monkeypatch.setattr(mcp.GoogleDriveMcpService, "probe_live_search", probe)
+    monkeypatch.setattr(rest.GoogleDriveRestTransport, "probe", probe)
     service.lifecycle.mark_verified = AsyncMock()
     with pytest.raises(oauth.DriveOAuthError, match="connector_unavailable"):
         await service.verify_live(user_id="owner")

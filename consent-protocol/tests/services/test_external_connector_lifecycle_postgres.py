@@ -205,7 +205,7 @@ def sql(store, statement, params=None):
 
 
 def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle):
-    migration = (MIGRATIONS / "243_private_mcp_registration.sql").read_text()
+    migration = (MIGRATIONS / "247_private_mcp_registration.sql").read_text()
     with lifecycle.db.engine.connect() as connection:
         connection.exec_driver_sql(migration)
         connection.exec_driver_sql(migration)
@@ -230,7 +230,7 @@ def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle
     )
     with lifecycle.db.engine.connect() as connection:
         connection.exec_driver_sql(
-            (MIGRATIONS / "rollback/243_private_mcp_registration.rollback.sql").read_text()
+            (MIGRATIONS / "rollback/247_private_mcp_registration.rollback.sql").read_text()
         )
     assert sql(
         lifecycle,
@@ -245,7 +245,7 @@ def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle
 @pytest.mark.asyncio
 async def test_private_registration_is_idempotent_owner_bound_and_non_authorizing(lifecycle):
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
     service = ExternalConnectorRegistryService(db=lifecycle.db)
     draft = dict(
         registration_id=uuid.uuid4(),
@@ -302,7 +302,7 @@ async def test_private_registration_missing_migration_is_explicitly_unavailable(
 @pytest.mark.asyncio
 async def test_private_registration_limit_is_atomic(lifecycle, monkeypatch):
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
     monkeypatch.setattr(
         "hushh_mcp.services.external_connector_registry_service._MAX_PRIVATE_CONNECTORS", 1
     )
@@ -371,7 +371,7 @@ def test_private_registry_erasure_preserves_other_owner_and_curated(lifecycle, p
     from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
     for user in ("owner", "other"):
         sql(
             lifecycle,
@@ -954,11 +954,11 @@ async def test_native_handoff_contains_only_reference_and_requires_original_owne
 
 
 @pytest.mark.asyncio
-async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, monkeypatch):
+async def test_connection_rollout_flag_does_not_block_start_or_disconnect(drive, monkeypatch):
     await drive_connect(drive)
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    with pytest.raises(DriveOAuthError, match="connector_unavailable"):
-        await drive_start(drive)
+    started, _ = await drive_start(drive)
+    assert started["attemptId"]
     drive._post.side_effect = DriveOAuthError("provider_unavailable", status_code=503)
     result = await drive.disconnect(user_id="owner")
     assert result["status"] == "revoked" and result["revocationOutcome"] == "failed"
@@ -968,7 +968,7 @@ async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["client", "registry", "flag", "cohort", "redirect"])
+@pytest.mark.parametrize("change", ["client", "registry", "redirect"])
 async def test_staged_native_credentials_cannot_activate_after_configuration_or_admission_changes(
     drive, monkeypatch, change
 ):
@@ -980,10 +980,6 @@ async def test_staged_native_credentials_cannot_activate_after_configuration_or_
         monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "rotated-client")
     elif change == "registry":
         drive.registry.get_connector.return_value = None
-    elif change == "flag":
-        monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    elif change == "cohort":
-        monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "different-owner")
     else:
         drive.registry.get_connector.return_value = replace(
             drive.registry.get_connector.return_value, registered_redirect_uris=()

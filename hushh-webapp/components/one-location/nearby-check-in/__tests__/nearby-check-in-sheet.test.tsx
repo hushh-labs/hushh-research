@@ -1058,6 +1058,42 @@ describe("NearbyCheckInSheet", () => {
     expect(service.checkoutNearby).toHaveBeenCalledWith({
       vaultOwnerToken: "owner-token",
     });
+    await screen.findByTestId("nearby-presence-completed");
+  });
+
+  it("does not report a checkout when the server does not confirm it", async () => {
+    service.getNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [],
+    });
+    service.checkoutNearby.mockResolvedValue({
+      presence: null,
+      attendees: [],
+      checkedOut: false,
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("nearby-presence-active");
+    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalledTimes(1));
   });
 
   it("does not restore a checked-out presence when an older poll resolves late", async () => {

@@ -6,12 +6,13 @@ import GmailInformationRequestsSection, {
   isExactDraftCandidate,
 } from "@/components/gmail/gmail-information-requests-section";
 import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
+import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
 
 const gmailServiceMocks = vi.hoisted(() => ({
   getPreference: vi.fn(),
   setPreference: vi.fn(),
   list: vi.fn(),
-  scan: vi.fn(),
+  scanStream: vi.fn(),
 }));
 const handoffMocks = vi.hoisted(() => ({
   createHandoff: vi.fn(),
@@ -56,7 +57,7 @@ describe("personal Gmail information-request scope boundary", () => {
     gmailServiceMocks.getPreference.mockReset();
     gmailServiceMocks.setPreference.mockReset();
     gmailServiceMocks.list.mockReset();
-    gmailServiceMocks.scan.mockReset();
+    gmailServiceMocks.scanStream.mockReset();
     handoffMocks.createHandoff.mockReset();
     handoffMocks.navigateToAgentChat.mockReset();
     handoffMocks.push.mockReset();
@@ -147,6 +148,38 @@ describe("personal Gmail information-request scope boundary", () => {
     expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the KYC workspace skeleton while monitoring state is still resolving", async () => {
+    let resolvePreference!: (preference: {
+      user_id: string;
+      monitoring_enabled: boolean;
+      retention: string;
+    }) => void;
+    gmailServiceMocks.getPreference.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePreference = resolve;
+      }),
+    );
+
+    renderSection();
+
+    expect(screen.getByText("KYC requests")).toBeVisible();
+    expect(screen.getByLabelText("Loading KYC workspace")).toBeVisible();
+    expect(screen.getByRole("status", { name: "Loading KYC requests" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Start monitoring" }),
+    ).not.toBeInTheDocument();
+
+    resolvePreference({
+      user_id: "owner",
+      monitoring_enabled: false,
+      retention: "metadata_only",
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Unlock to start" }),
+    ).toBeVisible();
+  });
+
   it("keeps the server's safe monitoring error visible after an enable attempt fails", async () => {
     gmailServiceMocks.setPreference.mockRejectedValue(
       new Error(
@@ -191,13 +224,13 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Unlock to start",
-      }),
-    );
+    const unlock = await screen.findByRole("button", {
+      name: "Unlock to start",
+    });
+    await waitFor(() => expect(unlock).not.toBeDisabled());
+    fireEvent.click(unlock);
 
-    expect(onRequestVaultUnlock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onRequestVaultUnlock).toHaveBeenCalledOnce());
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Open your private vault before changing KYC monitoring.",
@@ -210,14 +243,19 @@ describe("personal Gmail information-request scope boundary", () => {
       monitoring_enabled: true,
       retention: "metadata_only",
     });
-    gmailServiceMocks.scan.mockResolvedValue({
+    gmailServiceMocks.scanStream.mockImplementation(
+      ({ handlers }: { handlers: { onProgress: (count: number) => void } }) => {
+      handlers.onProgress(1);
+      return Promise.resolve({
       accepted: true,
       scanned_count: 1,
       unchanged_count: 0,
       matched_count: 1,
       failed_count: 0,
       workflow_ids: ["request-1"],
-    });
+      });
+      },
+    );
     gmailServiceMocks.list.mockResolvedValue({
       workflows: [],
       next_offset: null,
@@ -236,11 +274,11 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     await waitFor(() =>
-      expect(gmailServiceMocks.scan).toHaveBeenCalledWith({
+      expect(gmailServiceMocks.scanStream).toHaveBeenCalledWith(expect.objectContaining({
         firebaseIdToken: "firebase-token",
         vaultOwnerToken: "vault-owner-token",
         maxResults: 30,
-      }),
+      })),
     );
     expect(await screen.findByText("Emails checked")).toBeVisible();
     expect(screen.getByText("KYC requests found")).toBeVisible();
@@ -254,13 +292,78 @@ describe("personal Gmail information-request scope boundary", () => {
     ).toBeNull();
   });
 
-  it("shows partial scan progress and tells the owner that a retry is pending", async () => {
+  it("shows a completed email count and a new KYC request before the scan finishes", async () => {
     gmailServiceMocks.getPreference.mockResolvedValue({
       user_id: "owner",
       monitoring_enabled: true,
       retention: "metadata_only",
     });
-    gmailServiceMocks.scan.mockResolvedValue({
+    let finishScan: (() => void) | null = null;
+    gmailServiceMocks.scanStream.mockImplementation(
+      ({ handlers }: {
+        handlers: {
+          onProgress: (count: number) => void;
+          onRequest: (workflow: GmailInformationRequestWorkflow) => void;
+        };
+      }) =>
+        new Promise((resolve) => {
+          handlers.onProgress(2);
+          handlers.onRequest({
+            workflow_id: "request-2",
+            status: "detected",
+            gmail_thread_id: "thread-2",
+            received_at: "2026-09-24T12:00:00.000Z",
+            classification_confidence: 0.9,
+            requested_field_labels: ["Passport number"],
+            candidate_scopes: [],
+            attachment_review_required: false,
+          });
+          finishScan = () =>
+            resolve({
+              accepted: true,
+              scanned_count: 2,
+              unchanged_count: 0,
+              matched_count: 1,
+              failed_count: 0,
+              workflow_ids: ["request-2"],
+            });
+        }),
+    );
+    gmailServiceMocks.list.mockResolvedValue({
+      workflows: [],
+      next_offset: null,
+      total_count: 0,
+    });
+
+    render(
+      createElement(GmailInformationRequestsSection, {
+        userId: "owner",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock: vi.fn(),
+      }),
+    );
+
+    expect(await screen.findByText("Scanning emails: 2")).toBeVisible();
+    expect(await screen.findByText("Passport number")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Looking…" })).toBeDisabled();
+
+    finishScan?.();
+    expect(await screen.findByText("Emails checked")).toBeVisible();
+  });
+
+  it("keeps partial scan retries out of the owner-facing KYC screen", async () => {
+    gmailServiceMocks.getPreference.mockResolvedValue({
+      user_id: "owner",
+      monitoring_enabled: true,
+      retention: "metadata_only",
+    });
+    gmailServiceMocks.scanStream.mockImplementation(
+      ({ handlers }: { handlers: { onProgress: (count: number) => void } }) => {
+      handlers.onProgress(1);
+      return Promise.resolve({
       accepted: true,
       scanned_count: 1,
       unchanged_count: 1,
@@ -268,7 +371,9 @@ describe("personal Gmail information-request scope boundary", () => {
       failed_count: 1,
       retry_pending: true,
       workflow_ids: [],
-    });
+      });
+      },
+    );
     gmailServiceMocks.list.mockResolvedValue({
       workflows: [],
       next_offset: null,
@@ -288,11 +393,10 @@ describe("personal Gmail information-request scope boundary", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
+    await waitFor(() => expect(gmailServiceMocks.scanStream).toHaveBeenCalled());
     expect(
-      await screen.findByText(
-        "We couldn’t check 1 email. Try again in a moment.",
-      ),
-    ).toBeVisible();
+      screen.queryByText(/We couldn’t check \d+ emails?\. Try again/i),
+    ).toBeNull();
     expect(
       screen.getByText("Emails checked").nextElementSibling,
     ).toHaveTextContent("1");
@@ -307,7 +411,7 @@ describe("personal Gmail information-request scope boundary", () => {
       monitoring_enabled: true,
       retention: "metadata_only",
     });
-    gmailServiceMocks.scan.mockRejectedValue(
+    gmailServiceMocks.scanStream.mockRejectedValue(
       new Error("Personal Gmail monitoring is temporarily unavailable."),
     );
     gmailServiceMocks.list.mockResolvedValue({
@@ -365,6 +469,7 @@ describe("personal Gmail information-request scope boundary", () => {
     const turnOff = await screen.findByRole("button", {
       name: /^Turn off$/,
     });
+    await waitFor(() => expect(turnOff).toBeEnabled());
     fireEvent.click(turnOff);
 
     expect(await screen.findByText("Turn off monitoring?")).toBeVisible();

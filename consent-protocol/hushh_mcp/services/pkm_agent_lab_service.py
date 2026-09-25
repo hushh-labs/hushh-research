@@ -361,6 +361,7 @@ _SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
 )
+_RESTRICTED_KYC_IDENTIFIER_KIND = "government_id"
 
 _INTERNAL_METADATA_SCOPE_TOKENS = {
     "artifact",
@@ -1096,9 +1097,11 @@ class PKMAgentLabService:
         """Name the kind of secret a passage carries, or None.
 
         A card number, a CVV or PIN, a password or API key, a government id, or
-        a bank account never becomes a plain memory, whatever domain the model
-        proposes: the wallet and the vault's secret surfaces exist for those.
-        This runs before any agent so the passage is rejected, not redirected.
+        a bank account never becomes a general plain-memory proposal, whatever
+        domain the model proposes. The constrained, owner-confirmed KYC profile
+        has a fixed restricted-field path for supported government identifiers.
+        General dynamic-memory extraction rejects this before any agent runs;
+        the restricted KYC exception remains fixed-schema and owner-confirmed.
         """
         text = str(message or "")
         if not text.strip():
@@ -4696,13 +4699,18 @@ class PKMAgentLabService:
     @classmethod
     def _kyc_identity_prompt(cls, *, message: str, fields: dict[str, dict[str, Any]]) -> str:
         allowed = [
-            {"field_id": field_id, "aliases": list(field.get("aliases") or [])}
+            {
+                "field_id": field_id,
+                "aliases": list(field.get("aliases") or []),
+                "sensitivity": str(field.get("sensitivity") or ""),
+            }
             for field_id, field in fields.items()
         ]
         return (
             "Extract only explicit, durable KYC identity facts from the user's supplied text. "
-            "Return no inference, no summaries, no raw about-me blob, no government ID numbers, "
-            "no passwords, tokens, banking details, or unsupported fields. Each fact must use exactly "
+            "Return no inference, no summaries, no raw about-me blob, no passwords, tokens, banking "
+            "details, or unsupported fields. Fields marked restricted are government identifiers: extract "
+            "them only when explicitly supplied, using their exact allowed field_id. Each fact must use exactly "
             "one allowed field_id, preserve a direct source_text excerpt from the user, and use a value "
             "directly stated in that excerpt. If uncertain or conflicting, omit the fact.\n\n"
             "If an explicit durable fact does not fit an allowed KYC field, put it in "
@@ -4765,9 +4773,16 @@ class PKMAgentLabService:
         fields = self._kyc_identity_fields()
         started_at = time.perf_counter()
         secret_kind = self._contains_sensitive_secret(message)
+        # Government identifiers are still forbidden from the general dynamic
+        # memory path. This constrained KYC profile is the one exception: it
+        # only accepts explicitly listed, restricted fields and always makes
+        # them owner-confirmed before encrypted persistence.
+        blocking_secret_kind = (
+            secret_kind if secret_kind and secret_kind != _RESTRICTED_KYC_IDENTIFIER_KIND else None
+        )
         raw = (
             None
-            if secret_kind or not fields
+            if blocking_secret_kind or not fields
             else await self._run_agent_contract(
                 manifest=self.structure_manifest,
                 prompt=self._kyc_identity_prompt(message=message, fields=fields),
@@ -4811,16 +4826,21 @@ class PKMAgentLabService:
             confidence = self._clamp_confidence(fact.get("confidence"), default=0.0)
             domain = self._normalize_segment(str(field["domain"]))
             path = self._normalize_path(str(field["path"]))
+            is_restricted = str(field.get("sensitivity") or "").lower() == "restricted"
             candidate_payload: dict[str, Any] = {}
             self._set_nested_value(candidate_payload, path, value)
             intent_frame = {
                 "save_class": "durable",
                 "intent_class": "profile_fact",
                 "mutation_intent": "extend" if domain in current_domains else "create",
-                "requires_confirmation": confidence < _AUTO_SAVE_MIN_CONFIDENCE,
-                "confirmation_reason": "Review this low-confidence KYC extraction before saving."
-                if confidence < _AUTO_SAVE_MIN_CONFIDENCE
-                else "",
+                "requires_confirmation": is_restricted or confidence < _AUTO_SAVE_MIN_CONFIDENCE,
+                "confirmation_reason": (
+                    "Review this restricted KYC identifier before saving."
+                    if is_restricted
+                    else "Review this low-confidence KYC extraction before saving."
+                    if confidence < _AUTO_SAVE_MIN_CONFIDENCE
+                    else ""
+                ),
                 "candidate_domain_choices": [],
                 "confidence": confidence,
             }
@@ -4832,6 +4852,8 @@ class PKMAgentLabService:
                 candidate_payload=candidate_payload,
             )
             structure_decision["confidence"] = confidence
+            if is_restricted:
+                structure_decision.setdefault("sensitivity_labels", {})[path] = "restricted"
             manifest_draft = self._build_manifest_from_payload(
                 user_id=user_id,
                 domain=domain,
@@ -4849,12 +4871,16 @@ class PKMAgentLabService:
                 "candidate_payload": candidate_payload,
                 "structure_decision": structure_decision,
                 "manifest_draft": manifest_draft,
-                "write_mode": "can_save"
-                if confidence >= _AUTO_SAVE_MIN_CONFIDENCE
-                else "confirm_first",
+                "write_mode": "confirm_first"
+                if is_restricted or confidence < _AUTO_SAVE_MIN_CONFIDENCE
+                else "can_save",
                 "primary_json_path": path,
                 "target_entity_scope": path.rsplit(".", 1)[0] if "." in path else path,
-                "validation_hints": ["kyc_identity_v1", "explicit_user_statement"],
+                "validation_hints": [
+                    "kyc_identity_v1",
+                    "explicit_user_statement",
+                    *(["restricted_kyc_identifier"] if is_restricted else []),
+                ],
             }
             card = self._build_preview_card(
                 card_id=f"kyc_identity_{index:02d}",
@@ -5001,7 +5027,7 @@ class PKMAgentLabService:
             "merge_used_fallback": False,
             "structure_used_fallback": used_fallback,
             "error": "sensitive_input_rejected"
-            if secret_kind
+            if blocking_secret_kind
             else ("kyc_identity_extraction_unavailable" if used_fallback else None),
             "routing_decision": primary.get("routing_decision", "non_financial_or_ephemeral"),
             "intent_frame": primary.get("intent_frame", {}),
@@ -5015,7 +5041,7 @@ class PKMAgentLabService:
             "target_entity_scope": primary.get("target_entity_scope"),
             "validation_hints": [
                 "kyc_identity_v1",
-                *([f"sensitive_{secret_kind}_rejected"] if secret_kind else []),
+                *([f"sensitive_{blocking_secret_kind}_rejected"] if blocking_secret_kind else []),
             ],
             "manifest_draft": primary.get("manifest_draft", empty_manifest),
             "preview_cards": cards,
@@ -5024,7 +5050,7 @@ class PKMAgentLabService:
                 "total_latency_ms": elapsed_ms,
                 "stage_latencies_ms": {"kyc_identity_extraction": elapsed_ms},
                 "cards_returned": len(cards),
-                "extraction_call_count": 0 if secret_kind or not fields else 1,
+                "extraction_call_count": 0 if blocking_secret_kind or not fields else 1,
                 "strategy": "single_constrained_kyc_identity_extraction",
                 "context_domains_loaded": context_plan.get("candidate_domains") or [],
                 "context_segments_loaded": context_plan.get("candidate_segment_ids") or [],

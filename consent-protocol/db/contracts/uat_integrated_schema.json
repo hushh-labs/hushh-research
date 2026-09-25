@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 244,
+  "expected_migration_version": 248,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -638,6 +638,19 @@
       "created_at",
       "expires_at"
     ],
+    "drive_owner_shares": [
+      "request_id",
+      "user_id",
+      "recipient_user_id",
+      "client_request_id",
+      "query_digest",
+      "files_envelope",
+      "status",
+      "share_request_id",
+      "created_at",
+      "updated_at",
+      "expires_at"
+    ],
     "drive_picker_sessions": [
       "session_id",
       "user_id",
@@ -646,6 +659,23 @@
       "created_at",
       "expires_at",
       "consumed_at"
+    ],
+    "drive_query_events": [
+      "event_id",
+      "request_id",
+      "user_id",
+      "revision",
+      "event_type",
+      "created_at",
+      "delivered_at",
+      "notification_state",
+      "notification_lease_id",
+      "notification_lease_expires_at",
+      "notification_attempt_count",
+      "notification_next_attempt_at",
+      "notification_inspected_at",
+      "notification_error_code",
+      "notification_settled_at"
     ],
     "drive_share_events": [
       "event_id",

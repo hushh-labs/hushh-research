@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleDiscoveryCard } from "./circle-discovery-card";
 import {
@@ -12,6 +12,7 @@ import {
 } from "./circle-discovery";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import type { OneLocationCircleMember } from "@/lib/one-location/types";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
@@ -69,6 +70,20 @@ export function LivingConnections({
     token && currentUserId && circlesState.ownerId === currentUserId
       ? circlesState
       : { ...EMPTY_CIRCLES_SNAPSHOT, loading: Boolean(token) };
+  const loadCircleMembers = useCallback(
+    async (circleId: string): Promise<readonly OneLocationCircleMember[]> => {
+      if (!token) return [];
+      const page = await OneLocationService.listCircleMembersPage({
+        vaultOwnerToken: token,
+        circleId,
+        page: 1,
+        // The owner occupies at most one of the first three roster positions.
+        limit: 3,
+      });
+      return page.items;
+    },
+    [token],
+  );
   const openCircle = (id: string) =>
     router.push(
       `${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=circle-detail&${CONNECT_CIRCLE_ID_PARAM}=${encodeURIComponent(id)}`,
@@ -154,6 +169,7 @@ export function LivingConnections({
     <CircleDiscoveryCard
       {...props}
       snapshot={snapshot}
+      loadCircleMembers={loadCircleMembers}
       creating={creating}
       onUseStarter={(starter) => {
         void handleStarter(starter);

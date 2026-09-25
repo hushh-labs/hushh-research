@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  clearGoogleOAuthAttempt,
+  consumeStoredGoogleOAuthPopupSettlement,
   openGoogleOAuthPopup,
+  persistGoogleOAuthSameWindowAttempt,
   readGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
+  settleGoogleOAuthPopup,
 } from "@/lib/google/google-oauth-popup";
 
 describe("openGoogleOAuthPopup", () => {
@@ -13,6 +17,7 @@ describe("openGoogleOAuthPopup", () => {
       attemptId: "synthetic-calendar-attempt",
       service: "calendar",
       startedAt: Date.now(),
+      ownerId: "synthetic-owner",
     };
     window.sessionStorage.setItem(
       "one_google_oauth_popup_attempt_v1",
@@ -20,6 +25,18 @@ describe("openGoogleOAuthPopup", () => {
     );
     expect(readGoogleOAuthPopupAttempt()).toEqual(attempt);
     window.sessionStorage.removeItem("one_google_oauth_popup_attempt_v1");
+  });
+
+  it("persists and identifies the same-window Calendar fallback", () => {
+    const attempt = {
+      version: 1 as const, attemptId: "synthetic-same-window-attempt",
+      service: "calendar" as const, startedAt: Date.now(),
+      ownerId: "synthetic-owner",
+    };
+    expect(persistGoogleOAuthSameWindowAttempt(attempt)).toBe(true);
+    expect(readGoogleOAuthPopupAttempt()).toEqual({ ...attempt, returnMode: "same_window" });
+    clearGoogleOAuthAttempt();
+    expect(readGoogleOAuthPopupAttempt()).toBeNull();
   });
 
   it("accepts Calendar settlements and rejects retired Drive settlements", () => {
@@ -34,6 +51,23 @@ describe("openGoogleOAuthPopup", () => {
     expect(
       isGoogleOAuthPopupSettlement({ ...settlement, service: "drive" }),
     ).toBe(false);
+  });
+  it("persists and consumes one callback-owned terminal marker", () => {
+    const attempt = {
+      version: 1 as const,
+      attemptId: "synthetic-calendar-attempt",
+      service: "calendar" as const,
+      startedAt: Date.now(),
+    };
+    vi.spyOn(window, "close").mockImplementation(() => undefined);
+
+    settleGoogleOAuthPopup(attempt, "succeeded");
+
+    expect(consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId)).toMatchObject({
+      attemptId: attempt.attemptId,
+      outcome: "succeeded",
+    });
+    expect(consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId)).toBeNull();
   });
   it("falls back when a popup cannot persist its settlement attempt", () => {
     const close = vi.fn();

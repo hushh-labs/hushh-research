@@ -50,9 +50,11 @@ import { trackEvent } from "@/lib/observability/client";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
+  consumeStoredGoogleOAuthPopupSettlement,
   isGoogleOAuthPopupSettlement,
   navigateGoogleOAuthPopup,
   openGoogleOAuthPopup,
+  persistGoogleOAuthSameWindowAttempt,
   readGoogleOAuthPopupSettlement,
 } from "@/lib/google/google-oauth-popup";
 
@@ -84,19 +86,34 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
+  const renderedOwnerId = user?.uid ?? null;
+  const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
+  activeOwnerIdRef.current = renderedOwnerId;
+  useEffect(() => {
+    activeOwnerIdRef.current = renderedOwnerId;
+    return () => {
+      if (activeOwnerIdRef.current === renderedOwnerId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedOwnerId]);
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const expectedPopupAttempt = useRef<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const popupStartedAtRef = useRef<number | null>(null);
+  const popupAccessLevelRef = useRef<"read" | "manage" | null>(null);
+  const popupOwnerIdRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user || connectionPending) return null;
+    const operationOwnerId = user.uid;
     const next = await GoogleCalendarService.status(
       await user.getIdToken(),
-      user.uid,
+      operationOwnerId,
     );
+    if (activeOwnerIdRef.current !== operationOwnerId) return null;
     setStatus(next);
     return next;
   }, [connectionPending, user]);
@@ -113,10 +130,18 @@ export function CalendarAgentPage({
 
   useEffect(() => {
     const clearAttempt = () => {
+      const attemptOwnerId = popupOwnerIdRef.current;
       expectedPopupAttempt.current = null;
       popupRef.current = null;
       popupStartedAtRef.current = null;
-      setBusy(false);
+      popupAccessLevelRef.current = null;
+      popupOwnerIdRef.current = null;
+      if (
+        !attemptOwnerId ||
+        activeOwnerIdRef.current === attemptOwnerId
+      ) {
+        setBusy(false);
+      }
     };
     const settle = async (
       attemptId: string,
@@ -129,17 +154,24 @@ export function CalendarAgentPage({
       ) {
         return;
       }
+      consumeStoredGoogleOAuthPopupSettlement(attemptId);
+      const completedAccessLevel = popupAccessLevelRef.current;
+      const attemptOwnerId = popupOwnerIdRef.current;
       clearAttempt();
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
       if (outcome === "succeeded") {
-        const currentStatus = await refresh().catch(() => null);
-        if (currentStatus?.connected) {
-          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
-          morphyToast.success("Google Calendar connected.");
-        } else {
-          morphyToast.error(
-            "Google authorization finished, but Calendar is still connecting. Check again in a moment.",
-          );
-        }
+        // The owner-bound callback has already verified the completed
+        // connection. Keep that terminal result authoritative instead of
+        // downgrading it through a second, potentially stale status read.
+        setStatus((current) => ({
+          configured: current?.configured ?? true,
+          connected: true,
+          google_email: current?.google_email,
+          status: "connected",
+          access_level: completedAccessLevel ?? current?.access_level ?? null,
+          scope_csv: current?.scope_csv ?? "",
+        }));
+        morphyToast.success("Google Calendar connected.");
       } else if (outcome === "failed") {
         morphyToast.error(message || "Google Calendar could not be connected.");
       }
@@ -161,14 +193,33 @@ export function CalendarAgentPage({
         void settle(value.attemptId, value.outcome, value.message);
       }
     };
-    const recoverAbandonedPopup = async (message: string) => {
+    const recoverAbandonedPopup = async (
+      message: string,
+      failureResult: "expected_error" | "error",
+    ) => {
       if (!expectedPopupAttempt.current) return;
+      const callbackSettlement = consumeStoredGoogleOAuthPopupSettlement(
+        expectedPopupAttempt.current,
+      );
+      const requestedAccessLevel = popupAccessLevelRef.current;
+      const attemptOwnerId = popupOwnerIdRef.current;
       clearAttempt();
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
       const currentStatus = await refresh().catch(() => null);
-      if (currentStatus?.connected) {
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
+      if (
+        currentStatus?.connected &&
+        (requestedAccessLevel !== "manage" ||
+          currentStatus.access_level === "manage")
+      ) {
+        if (!callbackSettlement) {
+          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+        }
         morphyToast.success("Google Calendar connected.");
         return;
+      }
+      if (!callbackSettlement) {
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: failureResult });
       }
       morphyToast.error(message);
     };
@@ -179,6 +230,7 @@ export function CalendarAgentPage({
       if (popup.closed) {
         void recoverAbandonedPopup(
           "The Google Calendar window closed before the connection finished. You can try again.",
+          "expected_error",
         );
         return;
       }
@@ -186,6 +238,7 @@ export function CalendarAgentPage({
         popup.close();
         void recoverAbandonedPopup(
           "Calendar connection is taking too long. Check your connection and try again.",
+          "error",
         );
       }
     }, 500);
@@ -215,6 +268,7 @@ export function CalendarAgentPage({
 
   const connect = async (accessLevel: "read" | "manage" = "read") => {
     if (!user) return;
+    const operationOwnerId = user.uid;
     setBusy(true);
     try {
       if (journeyVariant === "onboarding") {
@@ -223,28 +277,37 @@ export function CalendarAgentPage({
         clearCalendarSetupOAuthReturn();
       }
       const idToken = await user.getIdToken();
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       if (Capacitor.isNativePlatform()) {
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
         });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
         const nativeResult = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
         });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
           idToken,
-          userId: user.uid,
+          userId: operationOwnerId,
           accessLevel,
           serverAuthCode: nativeResult.serverAuthCode,
           state: start.state,
         });
-        setStatus(completed);
-        if (!completed.connected) {
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (
+          !completed.connected ||
+          (accessLevel === "manage" && completed.access_level !== "manage")
+        ) {
           throw new Error(
-            "Calendar authorization did not create an active connection.",
+            accessLevel === "manage"
+              ? "Calendar authorization did not grant meeting management access."
+              : "Calendar authorization did not create an active connection.",
           );
         }
+        setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
@@ -254,26 +317,49 @@ export function CalendarAgentPage({
       // Create the blank window while this click still has browser gesture
       // authority. If storage or the popup is unavailable, continue with the
       // existing same-window callback contract instead of stranding the user.
-      const attempt = createGoogleOAuthPopupAttempt("calendar");
+      const attempt = createGoogleOAuthPopupAttempt("calendar", {
+        ownerId: operationOwnerId,
+        accessLevel,
+      });
       const popup = openGoogleOAuthPopup(attempt);
       const start = await GoogleCalendarService.startConnect({
         idToken,
-        userId: user.uid,
+        userId: operationOwnerId,
         accessLevel: accessLevel,
       });
+      if (activeOwnerIdRef.current !== operationOwnerId) {
+        popup?.close();
+        return;
+      }
       if (!popup) {
+        if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
+          throw new Error(
+            "Calendar sign-in could not be started safely. Please try again.",
+          );
+        }
         window.location.assign(start.authorize_url);
         return;
       }
       expectedPopupAttempt.current = attempt.attemptId;
       popupRef.current = popup;
       popupStartedAtRef.current = Date.now();
+      popupAccessLevelRef.current = accessLevel;
+      popupOwnerIdRef.current = operationOwnerId;
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      const result =
+        error && typeof error === "object" && "code" in error &&
+        error.code === "USER_CANCELLED"
+          ? "expected_error"
+          : "error";
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result });
       popupRef.current?.close();
       expectedPopupAttempt.current = null;
       popupRef.current = null;
       popupStartedAtRef.current = null;
+      popupAccessLevelRef.current = null;
+      popupOwnerIdRef.current = null;
       toast.error(
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );
@@ -283,10 +369,16 @@ export function CalendarAgentPage({
 
   const disconnect = async () => {
     if (!user) return;
+    const operationOwnerId = user.uid;
     setBusy(true);
     const operation = user
       .getIdToken()
-      .then((idToken) => GoogleCalendarService.disconnect(idToken, user.uid));
+      .then((idToken) => {
+        if (activeOwnerIdRef.current !== operationOwnerId) {
+          throw new Error("Calendar account changed.");
+        }
+        return GoogleCalendarService.disconnect(idToken, operationOwnerId);
+      });
     void morphyToast.promise(operation, {
       loading: "Disconnecting Google Calendar…",
       success: "Google Calendar disconnected.",
@@ -295,11 +387,16 @@ export function CalendarAgentPage({
     });
     try {
       const next = await operation;
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
+    } catch (error) {
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "error" });
+      throw error;
     } finally {
-      setBusy(false);
+      if (activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     }
   };
 

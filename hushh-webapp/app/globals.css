@@ -985,8 +985,9 @@ textarea {
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
-  /* Shared modal scrim. Native Android disables backdrop filtering globally
-   * below after the measured sheet-motion cost; other surfaces keep the blur. */
+  /* The modal scrim. Desktop keeps the full frosted blur; touch screens use a
+   * lighter blur (see the pointer: coarse block below) so the page still
+   * recedes without paying the full desktop filter cost during motion. */
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 
@@ -1343,7 +1344,10 @@ textarea {
 [data-profile-stack-screen="account"],
 [data-profile-stack-screen="panel:account"] {
   color-scheme: light dark;
-  background: var(--ios-account-screen-background);
+  /* The stack is a navigation mechanism, not a second page canvas. Painting
+   * this screen created a grey rectangle inside the shared white Profile page
+   * at every viewport width. Let the canonical shell canvas show through. */
+  background: transparent;
   color: var(--ios-account-label);
   font-optical-sizing: auto;
 }
@@ -1602,7 +1606,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-icon-tone] svg,
 [data-profile-stack-screen="panel:account"] [data-icon-tone] svg,
 .profile-account-content [data-icon-tone] svg,
-.profile-home-content [data-icon-tone] svg {
+.profile-home-content
+  [data-icon-tone]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  )
+  svg {
   color: #ffffff !important;
 }
 
@@ -1985,7 +1993,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   left: var(--ios-account-separator-leading);
 }
 
-.profile-home-content [data-slot="settings-row-icon"] {
+.profile-home-content
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  ) {
   background: var(--ios-account-utility-icon-tile-background) !important;
   border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
@@ -1993,56 +2004,108 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: 32px !important;
 }
 
-.profile-home-content [data-slot="settings-row-icon"] svg {
+.profile-home-content
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  )
+  svg {
   color: var(--ios-account-utility-icon-glyph) !important;
   height: 17px !important;
   stroke-width: 1.65 !important;
   width: 17px !important;
 }
 
-.profile-home-content [data-icon-tone="blue"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="blue"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-accent) !important;
 }
 
-.profile-home-content [data-icon-tone="green"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="green"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-success) !important;
 }
 
-.profile-home-content [data-icon-tone="orange"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="orange"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-warning) !important;
 }
 
-.profile-home-content [data-icon-tone="purple"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="indigo"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
+  background: var(--app-indigo) !important;
+}
+
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="purple"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-purple) !important;
 }
 
-.profile-home-content [data-icon-tone="red"] {
+.profile-home-content
+  [data-slot="settings-row-icon"][data-icon-tone="red"]:not(
+    [data-icon-tone="capability"]
+  ):not([data-icon-tone="transparent"]) {
   background: var(--app-destructive) !important;
 }
 
-.profile-home-content [data-icon-tone] svg {
+.profile-home-content
+  [data-icon-tone]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  )
+  svg {
   color: #ffffff !important;
+}
+
+/* Preserve a clean, unboxed treatment for any genuinely branded capability
+ * icon added to Profile later. The primary Profile menu intentionally uses
+ * semantic coloured tiles, matching its Account and Vault detail screens. */
+.profile-home-content [data-icon-tone="capability"],
+.profile-home-content [data-icon-tone="transparent"] {
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  height: 28px !important;
+  width: 28px !important;
+}
+
+.profile-home-content [data-icon-tone="capability"] svg,
+.profile-home-content [data-icon-tone="transparent"] svg {
+  height: 22px !important;
+  width: 22px !important;
 }
 
 .profile-home-content [data-slot="settings-row-title"] {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-body);
   font-size: var(--ios-account-row-title-size) !important;
-  font-weight: 400 !important;
-  letter-spacing: 0 !important;
+  font-weight: var(--ios-account-regular-weight) !important;
+  letter-spacing: var(--ios-account-row-title-tracking) !important;
   line-height: var(--ios-account-row-title-line) !important;
 }
 
 .profile-home-content
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"] {
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  ) {
   background: var(--ios-account-destructive) !important;
   color: var(--ios-account-on-accent) !important;
 }
 
 .profile-home-content
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"]
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not(
+    [data-icon-tone="transparent"]
+  )
   svg {
   color: var(--ios-account-on-accent) !important;
 }
@@ -6233,14 +6296,19 @@ html[data-accent="gold"].dark {
   animation-timing-function: var(--motion-sheet-exit-ease);
 }
 
-/* Android draws the WebView through its own Vulkan pass, and every backdrop
- * blur on screen is recomputed on every frame of any motion. Measured on the
- * Galaxy S24 Ultra (2026-09-22, DevTools trace of one sheet open): with the
- * six always-on chrome blurs the draw pass averaged 14.9 ms (worst 98 ms) and
- * the slide painted 7 frames with a 100 ms freeze; with them off, 5.3 ms
- * (worst 33 ms) and 23 evenly spaced frames at 120 Hz. So on Android nothing
- * blurs, and the glass fills turn nearly opaque to keep text legible. iOS
- * keeps the material (measured at no cost there). */
+@media (pointer: coarse) {
+  :root {
+    --app-scrim-color: rgb(0 0 0 / 0.4);
+    --app-scrim-filter: blur(4px);
+  }
+}
+
+/* Android draws the WebView through its own Vulkan pass, where backdrop
+ * filters are recomputed during every frame of page and overlay motion. Keep
+ * both persistent chrome and modal scrims blur-free on native Android; the
+ * shared scrim color still dims and isolates blocking surfaces without the
+ * physical-device frame-time regression. The measured Galaxy S24 Ultra
+ * sheet trace improved from 7 uneven frames to 23 evenly spaced frames. */
 html.native-android *,
 html.native-android *::before,
 html.native-android *::after {

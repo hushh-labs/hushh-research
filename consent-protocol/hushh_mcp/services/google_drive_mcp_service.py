@@ -8,6 +8,7 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -27,6 +28,8 @@ from hushh_mcp.services.mcp_capability_policy import (
     arguments_valid,
 )
 from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
 # Explicit reviewed capabilities, not server-supplied annotations, names with
@@ -49,6 +52,12 @@ _LISTING_TOOLS = frozenset({"search_files", "list_recent_files"})
 def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     """Drop snippets/descriptions before the shared MCP response-size cap."""
     files = payload.get("files")
+    if (
+        files is None
+        and set(payload) <= {"nextPageToken", "content"}
+        and not (payload.get("nextPageToken") or payload.get("content"))
+    ):
+        files = []
     if not isinstance(files, list) or any(not isinstance(item, dict) for item in files):
         raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
     next_page = payload.get("nextPageToken")
@@ -139,14 +148,21 @@ class GoogleDriveMcpService:
                 project=_search_metadata,
             )
         except ExternalMcpAuthError:
+            logger.warning("drive_mcp.probe_failed reason=auth")
             raise DriveOAuthError("reconnect_required", status_code=401) from None
-        except ExternalMcpError:
+        except ExternalMcpError as error:
+            logger.warning("drive_mcp.probe_failed reason=%s", type(error).__name__)
             raise DriveOAuthError("connector_unavailable", status_code=502) from None
         if (
             outcome.is_error
             or outcome.truncated
             or not isinstance(outcome.payload.get("files"), list)
         ):
+            logger.warning(
+                "drive_mcp.probe_failed is_error=%s truncated=%s",
+                outcome.is_error,
+                outcome.truncated,
+            )
             raise DriveOAuthError("connector_unavailable", status_code=502)
 
     async def read_tool(

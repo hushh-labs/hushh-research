@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
+  personSelectionPrompt,
 } from "@/lib/agent/agui-structured-experiences";
 
 const scopeResult = {
@@ -46,6 +47,54 @@ describe("AG-UI structured experience registry", () => {
       ...proposal, purpose: { ...proposal.purpose, periodEnd: "2026-02-28" },
     })).toBeNull();
   });
+  it("stages the owner's Drive share card from a proposal, never from other statuses", () => {
+    const proposal = {
+      status: "proposal_ready",
+      person: { personRef: "11111111-1111-4111-8111-111111111111", displayName: "Rahul Sharma" },
+      filesRequest: "the Chris onboarding recordings",
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+      fileId: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+    };
+    const expected = {
+      type: "one.drive_share_review.v1",
+      audience: "person",
+      personRef: proposal.person.personRef,
+      personName: "Rahul Sharma",
+      clientRequestId: proposal.clientRequestId,
+      filesRequest: "the Chris onboarding recordings",
+    };
+    expect(parseAgentToolResultExperience("propose_drive_share", proposal)).toEqual(expected);
+    expect(
+      parseAgentActivityExperience("one.drive_share_review.v1", {
+        personRef: proposal.person.personRef,
+        personName: "Rahul Sharma",
+        clientRequestId: proposal.clientRequestId,
+        filesRequest: "the Chris onboarding recordings",
+      }),
+    ).toEqual(expected);
+    expect(
+      parseAgentToolResultExperience("propose_drive_share", { ...proposal, status: "connection_required" }),
+    ).toBeNull();
+    expect(
+      parseAgentToolResultExperience("propose_drive_share", { ...proposal, filesRequest: "  " }),
+    ).toBeNull();
+  });
+  it("stages a Trusted circle share card with no person", () => {
+    const proposal = {
+      status: "proposal_ready",
+      audience: "trusted_circle",
+      filesRequest: "the Chris onboarding recordings",
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+    };
+    expect(parseAgentToolResultExperience("propose_drive_share", proposal)).toEqual({
+      type: "one.drive_share_review.v1",
+      audience: "trusted_circle",
+      personRef: null,
+      personName: null,
+      clientRequestId: proposal.clientRequestId,
+      filesRequest: "the Chris onboarding recordings",
+    });
+  });
   it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
     const result = parseAgentToolResultExperience("discover_person_information", {
       ...scopeResult,
@@ -69,7 +118,11 @@ describe("AG-UI structured experience registry", () => {
         { ...candidate, profilePath: "https://example.test" },
         { ...candidate, selectionHandle: "forged" }],
     });
-    expect(result).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+    expect(result).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
+      candidates: [candidate],
+    });
   });
   it("preserves an incomplete candidate signal for the picker", () => {
     const candidate = {
@@ -87,6 +140,7 @@ describe("AG-UI structured experience registry", () => {
       }),
     ).toEqual({
       type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
       candidates: [candidate],
       candidatesIncomplete: true,
     });
@@ -104,7 +158,39 @@ describe("AG-UI structured experience registry", () => {
         status: "needs_clarification",
         candidates: [candidate],
       }),
-    ).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "list_information_shared_with_me",
+      candidates: [candidate],
+    });
+  });
+  it("keeps the tool that asked for a person and continues that request after a choice", () => {
+    const candidate = {
+      selectionHandle: "d".repeat(32),
+      personRef: "1234567890abcdef",
+      displayName: "Rahul Sharma",
+      profilePath: "/people/1234567890abcdef",
+      detail: null,
+    };
+    expect(
+      parseAgentToolResultExperience("propose_document_request", {
+        status: "needs_clarification",
+        candidates: [candidate],
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "propose_document_request",
+      candidates: [candidate],
+    });
+    expect(personSelectionPrompt("propose_document_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("propose_information_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("discover_person_information", "Rahul Sharma")).toBe(
+      "Check what I can ask Rahul Sharma for.",
+    );
   });
   it("turns a consent proposal into the Profile-aligned review card", () => {
     expect(

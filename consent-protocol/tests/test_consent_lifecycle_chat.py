@@ -1053,3 +1053,157 @@ class TestPropose:
         assert "unlock their private agent" in result["nextStep"]
         assert "profilePath" not in result["nextStep"]
         assert f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request" not in state
+
+
+@pytest.mark.asyncio
+async def test_document_request_keeps_its_purpose_after_choosing_between_two_rahuls():
+    """T8: choosing between two people with the same name keeps the document request."""
+    second_ref = "22222222-2222-4222-8222-222222222222"
+    context = _ctx(_state())
+    relationship = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections(
+            {"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF},
+            {"displayName": "Rahul Verma", "publicPersonRef": second_ref},
+        ),
+        relationship,
+    ):
+        ambiguous = await action_tools.propose_document_request("Rahul", "bank statements", context)
+        assert ambiguous["status"] == "needs_clarification"
+        assert len(ambiguous["candidates"]) == 2
+        chosen = next(
+            item for item in ambiguous["candidates"] if item["displayName"] == "Rahul Verma"
+        )
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = chosen["selectionHandle"]
+        ready = await action_tools.propose_document_request("Rahul", "bank statements", context)
+    assert ready["status"] == "proposal_ready"
+    assert ready["person"] == {"personRef": second_ref, "displayName": "Rahul Verma"}
+    assert ready["purpose"]["purpose"] == "bank statements"
+    assert "Ask as a question" in ready["nextStep"]
+    assert "Only Request files needs a Google sign-in check" in ready["nextStep"]
+
+
+@pytest.mark.asyncio
+async def test_drive_share_proposal_names_one_connected_person_and_grants_nothing():
+    """The owner stages a share from chat; the card searches and shares only on taps."""
+    context = _ctx(_state())
+    connected = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        connected,
+    ):
+        ready = await action_tools.propose_drive_share(
+            "the Chris onboarding recordings", context, person="Rahul"
+        )
+        empty = await action_tools.propose_drive_share("   ", context, person="Rahul")
+    assert ready["status"] == "proposal_ready"
+    assert ready["person"] == {"personRef": PERSON_REF, "displayName": "Rahul Sharma"}
+    assert ready["filesRequest"] == "the Chris onboarding recordings"
+    assert "Nothing is shared until" in ready["nextStep"]
+    assert set(ready) == {"status", "person", "filesRequest", "clientRequestId", "nextStep"}
+    assert empty["status"] == "needs_clarification"
+
+
+@pytest.mark.asyncio
+async def test_drive_share_proposal_refuses_someone_not_connected():
+    context = _ctx(_state())
+    stranger = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "none"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        stranger,
+    ):
+        result = await action_tools.propose_drive_share("recordings", context, person="Rahul")
+    assert result["status"] == "connection_required"
+
+
+def test_the_drive_share_card_survives_a_chat_reload_without_file_ids():
+    from api.routes.one.agent_chat import _safe_agent_history_metadata
+
+    def event(response):
+        part = SimpleNamespace(
+            function_response=SimpleNamespace(name="propose_drive_share", response=response)
+        )
+        return SimpleNamespace(id="event-share-1", content=SimpleNamespace(parts=[part]))
+
+    client_id = "33333333-3333-4333-8333-333333333333"
+    metadata = _safe_agent_history_metadata(
+        event(
+            {
+                "status": "proposal_ready",
+                "person": {"personRef": PERSON_REF, "displayName": "Rahul Sharma"},
+                "filesRequest": "the Chris onboarding recordings",
+                "clientRequestId": client_id,
+                "fileId": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+            }
+        )
+    )
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.drive_share_review.v1",
+        "content": {
+            "personRef": PERSON_REF,
+            "personName": "Rahul Sharma",
+            "clientRequestId": client_id,
+            "filesRequest": "the Chris onboarding recordings",
+        },
+    }
+    assert _safe_agent_history_metadata(event({"status": "connection_required"})) is None
+
+
+@pytest.mark.asyncio
+async def test_a_trusted_circle_share_proposal_names_no_person():
+    context = _ctx(_state())
+    with _auth():
+        ready = await action_tools.propose_drive_share(
+            "the Chris onboarding recordings", context, trusted_circle=True
+        )
+    assert ready["status"] == "proposal_ready" and ready["audience"] == "trusted_circle"
+    assert "person" not in ready
+    assert "connected with by request" in ready["nextStep"]
+
+
+def test_the_trusted_circle_share_card_survives_a_chat_reload():
+    from api.routes.one.agent_chat import _safe_agent_history_metadata
+
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(
+            name="propose_drive_share",
+            response={
+                "status": "proposal_ready",
+                "audience": "trusted_circle",
+                "filesRequest": "the Chris onboarding recordings",
+                "clientRequestId": "33333333-3333-4333-8333-333333333333",
+            },
+        )
+    )
+    metadata = _safe_agent_history_metadata(
+        SimpleNamespace(id="event-circle-1", content=SimpleNamespace(parts=[part]))
+    )
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.drive_share_review.v1",
+        "content": {
+            "audience": "trusted_circle",
+            "clientRequestId": "33333333-3333-4333-8333-333333333333",
+            "filesRequest": "the Chris onboarding recordings",
+        },
+    }
+
+
+def test_the_drive_share_tool_needs_no_person_for_the_trusted_circle():
+    """ADK marks every parameter without a default as required."""
+    import inspect
+
+    parameters = inspect.signature(action_tools.propose_drive_share).parameters
+    assert parameters["person"].default == ""
+    assert parameters["trusted_circle"].default is False

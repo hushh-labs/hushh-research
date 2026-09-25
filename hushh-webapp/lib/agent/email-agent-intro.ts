@@ -3,9 +3,39 @@
  * It starts a real Agent Chat turn; the delivery card remains the only explicit
  * owner action that can send the generated email.
  */
+export const EMAIL_DRAFTING_FORMAT_RULES = [
+  "STRUCTURE (fixed order, always):",
+  '1. Greeting line: "Hi [Name]," if recipient name is known, else "Hi," — never use "Dear," "Hello," or any variant.',
+  "2. Blank line.",
+  "3. Opening sentence: state the purpose of the email in 1 sentence.",
+  "4. Blank line.",
+  "5. Body: 2–3 paragraphs max, each 2–4 sentences, each separated by a blank line. Never merge into a single block paragraph.",
+  "6. Blank line.",
+  "7. Closing sentence: a single clear next step, ask, or CTA.",
+  "8. Blank line.",
+  '9. Sign-off: always "Best," followed by the sender\'s name on the next line. Never use "Warm regards," "Thanks," "Sincerely," or any variant.',
+  "",
+  "LISTS:",
+  '- Use a Markdown bullet list ("- ") only when there are 3 or more discrete items.',
+  "- Under 3 items: write inline as part of a sentence, never as bullets.",
+  '- Never mix "-" and "*" bullet styles — always "-".',
+  "- Each bullet must be on its own line with a preceding blank line before the list starts.",
+  "",
+  "EMPHASIS:",
+  "- Bold (**text**) only around 1–2 key terms total (e.g. date, amount, deadline) — never bold full sentences.",
+  "- No ALL CAPS, no exclamation marks for emphasis.",
+  "",
+  "LENGTH:",
+  "- Target 100–160 words unless the instruction explicitly requires more detail.",
+  "",
+  "DO NOT:",
+  "- Do not vary greeting or sign-off wording between generations.",
+  '- Do not output raw literal Markdown symbols beyond "**" for bold and "- " for bullets.',
+].join("\n");
+
 export function buildEmailAgentIntroPrompt(recipient: string): string {
   const normalizedRecipient = recipient.trim();
-  return `Can you send a mail to '${normalizedRecipient}', In the mail explain features of the mail agent.`;
+  return `Can you send a mail to '${normalizedRecipient}', In the mail explain features of the mail agent.\n\nStrictly follow these email output formatting rules:\n${EMAIL_DRAFTING_FORMAT_RULES}`;
 }
 
 // ---------------------------------------------------------------------------

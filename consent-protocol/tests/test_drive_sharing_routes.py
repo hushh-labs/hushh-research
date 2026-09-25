@@ -61,6 +61,7 @@ def unlock(app, uid="recipient"):
         ("get", f"/{REQUEST_ID}/review", None),
         ("get", f"/{REQUEST_ID}/delivery", None),
         ("post", f"/{REQUEST_ID}/prepare", {}),
+        ("post", f"/{REQUEST_ID}/prepare/stream", {}),
         (
             "post",
             "",
@@ -397,3 +398,200 @@ def test_prepare_rechecks_owner_and_sanitizes_failure(setup, monkeypatch):
     assert "no-store" in response.headers["Cache-Control"]
     assert current.await_count >= 1
     assert callable(factory.call_args.kwargs["require_owner"])
+
+
+def sse_frames(text):
+    """Parse the stream body into (event, payload) pairs."""
+    import json
+
+    frames = []
+    for block in text.split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+        if "event" in lines:
+            frames.append((lines["event"], json.loads(lines["data"])))
+    return frames
+
+
+@pytest.fixture(autouse=True)
+def no_stream_tasks():
+    routes._PREPARE_STREAM_TASKS.clear()
+    yield
+    routes._PREPARE_STREAM_TASKS.clear()
+
+
+def stream_worker(monkeypatch, run_one):
+    from hushh_mcp.services import drive_suggestion_service
+
+    worker = SimpleNamespace(run_one=run_one)
+    factory = Mock(return_value=worker)
+    monkeypatch.setattr(drive_suggestion_service, "DriveSuggestionService", factory)
+    return factory
+
+
+def test_prepare_stream_rejects_client_claimed_foreground_authority(setup):
+    client, app, _, _ = setup
+    unlock(app)
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={"foreground": True})
+    assert response.status_code == 422
+
+
+def test_prepare_stream_emits_public_stages_then_status(setup, monkeypatch):
+    client, app, _, current = setup
+    unlock(app)
+
+    async def run_one(*, user_id, request_id, on_stage):
+        assert (user_id, request_id) == ("recipient", REQUEST_ID)
+        for stage in ("searching", "choosing", "checking", "checking"):
+            on_stage(stage)
+        return "review_ready"
+
+    factory = stream_worker(monkeypatch, run_one)
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["Cache-Control"] == "private, no-store, no-cache, no-transform"
+    assert sse_frames(response.text) == [
+        ("stage", {"event": "stage", "stage": "starting"}),
+        ("stage", {"event": "stage", "stage": "searching"}),
+        ("stage", {"event": "stage", "stage": "choosing"}),
+        ("stage", {"event": "stage", "stage": "checking"}),
+        ("complete", {"event": "complete", "status": "review_ready"}),
+    ]
+    # Before the 200 and again after the run, like POST /prepare.
+    assert current.await_count == 2
+    assert callable(factory.call_args.kwargs["require_owner"])
+
+
+def test_prepare_stream_reports_a_worker_held_lease(setup, monkeypatch):
+    client, app, _, _ = setup
+    unlock(app)
+    stream_worker(monkeypatch, AsyncMock(return_value="not_claimed"))
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    assert sse_frames(response.text) == [
+        ("stage", {"event": "stage", "stage": "starting"}),
+        ("complete", {"event": "complete", "status": "not_claimed"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "error", [RuntimeError("secret-provider-body"), DriveSharingError("secret-provider-body")]
+)
+def test_prepare_stream_failures_are_redacted(setup, monkeypatch, caplog, error):
+    client, app, _, _ = setup
+    unlock(app)
+    stream_worker(monkeypatch, AsyncMock(side_effect=error))
+    with caplog.at_level("DEBUG"):
+        response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    assert response.status_code == 200
+    assert sse_frames(response.text)[-1] == (
+        "error",
+        {
+            "event": "error",
+            "code": "sharing_unavailable",
+            "message": "Document sharing is not available yet.",
+        },
+    )
+    assert "secret-provider-body" not in response.text
+    assert "secret-provider-body" not in caplog.text
+
+
+def test_prepare_stream_stale_owner_is_a_real_http_error(setup, monkeypatch):
+    client, app, _, current = setup
+    unlock(app)
+    current.side_effect = HTTPException(401, "Owner revoked")
+    factory = stream_worker(monkeypatch, AsyncMock(return_value="review_ready"))
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    factory.assert_not_called()
+
+
+def test_prepare_stream_late_owner_revocation_ends_without_a_result(setup, monkeypatch):
+    client, app, _, current = setup
+    unlock(app)
+    current.side_effect = [{"user_id": "recipient"}, HTTPException(401, "Owner revoked")]
+    stream_worker(monkeypatch, AsyncMock(return_value="review_ready"))
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    # No terminal frame: the client's next status read surfaces the real 401.
+    assert sse_frames(response.text) == [("stage", {"event": "stage", "stage": "starting"})]
+    assert "review_ready" not in response.text
+
+
+def test_prepare_stream_refuses_work_past_the_pending_cap(setup, monkeypatch):
+    client, app, _, _ = setup
+    unlock(app)
+    monkeypatch.setattr(routes, "PREPARE_STREAM_MAX_PENDING", 0)
+    factory = stream_worker(monkeypatch, AsyncMock(return_value="review_ready"))
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare/stream", json={})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sharing_unavailable"
+    assert "no-store" in response.headers["Cache-Control"]
+    factory.assert_not_called()
+
+
+class _Disconnecting:
+    def __init__(self, after):
+        self.checks = 0
+        self.after = after
+
+    async def is_disconnected(self):
+        self.checks += 1
+        return self.checks > self.after
+
+
+async def test_prepare_stream_disconnect_never_cancels_the_preparation(monkeypatch):
+    import asyncio
+
+    release = asyncio.Event()
+    finished = []
+
+    async def run_one(*, user_id, request_id, on_stage):
+        await release.wait()
+        finished.append(request_id)
+        return "review_ready"
+
+    stream_worker(monkeypatch, run_one)
+    owner = routes.Owner("recipient", "synthetic-owner")
+    monkeypatch.setattr(owner.__class__, "require_current", AsyncMock())
+    stream = routes._prepare_stream(
+        request=_Disconnecting(after=0), owner=owner, request_id=REQUEST_ID
+    )
+    assert b"starting" in await anext(stream)
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    await stream.aclose()
+    pending = list(routes._PREPARE_STREAM_TASKS)
+    assert len(pending) == 1 and not pending[0].done()
+    release.set()
+    await asyncio.gather(*pending)
+    assert finished == [REQUEST_ID]
+    assert not routes._PREPARE_STREAM_TASKS
+
+
+async def test_prepare_stream_deadline_closes_without_a_terminal_frame(monkeypatch):
+    import asyncio
+
+    release = asyncio.Event()
+
+    async def run_one(*, user_id, request_id, on_stage):
+        await release.wait()
+        return "review_ready"
+
+    stream_worker(monkeypatch, run_one)
+    monkeypatch.setattr(routes, "PREPARE_STREAM_DEADLINE_SECONDS", 0.05)
+    monkeypatch.setattr(routes, "PREPARE_STREAM_HEARTBEAT_SECONDS", 0.01)
+    owner = routes.Owner("recipient", "synthetic-owner")
+    monkeypatch.setattr(owner.__class__, "require_current", AsyncMock())
+    chunks = [
+        chunk
+        async for chunk in routes._prepare_stream(
+            request=_Disconnecting(after=10_000), owner=owner, request_id=REQUEST_ID
+        )
+    ]
+    events = [frame[0] for frame in sse_frames(b"".join(chunks).decode())]
+    assert events[0] == "stage" and "heartbeat" in events
+    assert "complete" not in events and "error" not in events
+    pending = list(routes._PREPARE_STREAM_TASKS)
+    assert len(pending) == 1 and not pending[0].done()
+    release.set()
+    await asyncio.gather(*pending)

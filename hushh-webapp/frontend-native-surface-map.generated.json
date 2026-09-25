@@ -882,6 +882,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/delete-account",
+      "page_file": "app/delete-account/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public account-deletion request page (Google Play Delete account URL) intentionally bypasses the signed-in app shell so it works without signing in or installing the app.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.delete.account",
+          "purpose": "Help the person understand and use the delete account screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/delete-account",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/delete-account",
+        "classification": "excluded-web-only",
+        "reason": "Public account-deletion request page for people without the app (Google Play Delete account URL). In the native shell, deletion lives in Profile."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/developers",
       "page_file": "app/developers/page.tsx",
       "physical_page_exists": true,
@@ -9470,5 +9523,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "39f19d65fa6cfcaf670b7d4c7aa42bb8445d485bac3ae87ae2e5ddedd0de202c"
+  "content_sha256": "b1c6a7214be29922b912e18601c0ca60b309faf10aa07cace1927ea3922f44f8"
 }

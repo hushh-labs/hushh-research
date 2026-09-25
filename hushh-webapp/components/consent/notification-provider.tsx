@@ -53,6 +53,7 @@ import {
 } from "@/lib/consent/consent-events";
 import {
   documentShareNotificationRequestId,
+  documentShareNotificationSelection,
   isDocumentShareNotificationCandidate,
 } from "@/lib/consent/document-share-consent";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -1653,7 +1654,10 @@ export function ConsentNotificationProvider({
       const parsedConsent =
         msgType === "consent_request" ? consentFromFCMPayload(data) : null;
       if (msgType === "consent_request" && !parsedConsent) return;
-      if (user?.uid) detail.accepted = true;
+      // A reviewed Drive-sharing push stays unacknowledged on purpose: the
+      // web worker then shows the normal system notification (with its sound)
+      // even while One is open. The Consent Center still refreshes below.
+      if (user?.uid && !documentShareRequestId) detail.accepted = true;
 
       // Suppress only identifiable replays. A bare grant/request id is the
       // notification's subject, not a delivery identity, and reusing it here
@@ -1731,7 +1735,10 @@ export function ConsentNotificationProvider({
         }
         dispatchConsentStateChanged({
           source: "fcm_document_share",
-          requestId: `document_share_request:${documentShareRequestId}`,
+          // A Drive question opens its own card; a share opens the request.
+          requestId:
+            documentShareNotificationSelection(data) ??
+            `document_share_request:${documentShareRequestId}`,
           reconcile: true,
         });
         return;

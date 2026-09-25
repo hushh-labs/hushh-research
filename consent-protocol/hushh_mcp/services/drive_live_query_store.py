@@ -5,7 +5,7 @@ cannot cause a read. The question and the answer are sealed under
 DRIVE_SHARING_KEY_V1; only opaque ids, status and timestamps are plaintext.
 Only a single claim moves a question to ``running``, so one Allow runs at most
 one live turn. A claim abandoned by a crash can be reclaimed after
-STALE_CLAIM_SECONDS.
+STALE_CLAIM_SECONDS. The asker can cancel a pending or running question.
 """
 
 from __future__ import annotations
@@ -21,10 +21,15 @@ from hushh_mcp.services.connection_graph_service import lock_connection_graph_us
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.google_drive_adapter import FILE_ID
 
 MAX_QUERY_CHARS = 2000
 MAX_QUERY_BYTES = 2048
 MAX_ANSWER_TITLES = 10
+# The files A was shown, kept owner-only so A can share them with the asker.
+# The metadata binder handles at most 8 files (drive_live_reader.MAX_READS).
+MAX_OWNER_FILES = 8
+FOLDER_MIME = "application/vnd.google-apps.folder"
 STALE_CLAIM_SECONDS = 300
 FAILURE_CODES = frozenset({"reconnect_required", "drive_query_unavailable"})
 _PARTICIPANT_SQL = """
@@ -36,6 +41,41 @@ _PARTICIPANT_LOCK_SQL = """
       AND (user_id=:user OR requester_user_id=:user)
     FOR UPDATE
 """
+
+
+def _owner_files(files: object) -> list[dict]:
+    """Bounded, validated file identities for the owner's share action only."""
+    kept: list[dict] = []
+    for item in files if isinstance(files, list) else []:
+        if len(kept) >= MAX_OWNER_FILES or not isinstance(item, dict):
+            break
+        file_id, name = item.get("file_id"), item.get("name")
+        mime, modified = item.get("mime_type") or "", item.get("modified_time")
+        if (
+            not isinstance(file_id, str)
+            or not FILE_ID.fullmatch(file_id)
+            or not isinstance(name, str)
+            or not 1 <= len(name) <= 1024
+            or not isinstance(mime, str)
+            or len(mime) > 200
+            or modified is not None
+            and (not isinstance(modified, str) or len(modified) > 64)
+            # A folder is never shared: only files get Viewer links.
+            or mime == FOLDER_MIME
+        ):
+            continue
+        if any(existing["fileId"] == file_id for existing in kept):
+            continue
+        kept.append(
+            {
+                "ref": f"f{len(kept) + 1}",
+                "fileId": file_id,
+                "name": name,
+                "mimeType": mime,
+                "modifiedTime": modified,
+            }
+        )
+    return kept
 
 
 def valid_query(query: object) -> str:
@@ -72,6 +112,28 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         )
         if owner == requester or not row:
             raise DriveSharingError("connection_required")
+
+    @staticmethod
+    def _event(connection, row, user_id, event_type):
+        """Queue one opaque notification in the same transaction as the change.
+
+        Only ids, the revision and a closed type are stored (migration 244);
+        the notification worker never sees the question or the answer.
+        """
+        connection.execute(
+            text("""
+            INSERT INTO drive_query_events(event_id,request_id,user_id,revision,event_type)
+            VALUES (:id,:request,:user,:revision,:type)
+            ON CONFLICT (request_id,user_id,revision,event_type) DO NOTHING
+        """),
+            {
+                "id": str(uuid4()),
+                "request": str(row["request_id"]),
+                "user": user_id,
+                "revision": row["revision"],
+                "type": event_type,
+            },
+        )
 
     def _seal_query(self, owner, request_id, query):
         return self.cipher.seal(
@@ -113,12 +175,24 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         )["query"]
         answer = None
         if row["status"] == "answered":
-            answer = self.cipher.open(
+            sealed = self.cipher.open(
                 row["answer_envelope"],
                 user_id=row["user_id"],
                 resource_id=request_id,
                 purpose="live-answer",
             )
+            # B sees the answer text and titles only; file identities stay A's.
+            answer = {
+                "text": sealed["text"],
+                "titles": sealed["titles"],
+                "truncated": sealed["truncated"],
+                "shareRequestId": sealed.get("shareRequestId"),
+            }
+            if incoming:
+                answer["files"] = [
+                    {"ref": item["ref"], "name": item["name"], "modifiedTime": item["modifiedTime"]}
+                    for item in sealed.get("ownerFiles", [])
+                ]
         counterpart = row["requester_user_id"] if incoming else row["user_id"]
         return {
             "requestId": request_id,
@@ -157,6 +231,14 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         row = self._participant_row(connection, user_id, request_id)
         if row["user_id"] != user_id:
             raise DriveSharingError("request_unavailable")
+        lock_connection_graph_users(connection, user_ids=[row["user_id"], row["requester_user_id"]])
+        return self._participant_row(connection, user_id, request_id, lock=True)
+
+    def _requester_row(self, connection, user_id, request_id):
+        row = self._participant_row(connection, user_id, request_id)
+        if row["requester_user_id"] != user_id:
+            raise DriveSharingError("request_unavailable")
+        # Same lock order as claim and deny: graph users first, then the row.
         lock_connection_graph_users(connection, user_ids=[row["user_id"], row["requester_user_id"]])
         return self._participant_row(connection, user_id, request_id, lock=True)
 
@@ -206,6 +288,9 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
                 )
                 if not row or row["query_digest"] != digest or row["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
+            else:
+                # A new question tells the owner; a retried send does not repeat it.
+                self._event(connection, row, owner_user_id, "document_share_question")
             return self._render(connection, row, requester_user_id)
 
         return cast(dict, await self._transaction(operation))
@@ -307,12 +392,13 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
 
         await self._transaction(operation)
 
-    async def complete(self, *, user_id, request_id, revision, answer):
+    async def complete(self, *, user_id, request_id, revision, answer, owner_files=()):
         titles = [str(title)[:180] for title in answer.get("titles", [])][:MAX_ANSWER_TITLES]
         payload = {
             "text": str(answer["text"])[:6000],
             "titles": titles,
             "truncated": bool(answer.get("truncated")),
+            "ownerFiles": _owner_files(list(owner_files)),
         }
         envelope = self.cipher.seal(
             payload, user_id=user_id, resource_id=str(request_id), purpose="live-answer"
@@ -349,7 +435,89 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             )
             if not row:
                 raise DriveSharingError("request_changed")
+            self._event(connection, row, row["requester_user_id"], "document_share_answered")
             return self._render(connection, row, user_id)
+
+        return cast(dict, await self._transaction(operation))
+
+    def _answered_owner_row(self, connection, user_id, request_id):
+        row = self._owner_row(connection, user_id, request_id)
+        if row["status"] != "answered":
+            raise DriveSharingError("request_changed")
+        # Sharing reaches the asker only while they are still connected.
+        self._relationship(connection, row["user_id"], row["requester_user_id"])
+        return row
+
+    def _sealed_answer(self, row):
+        return self.cipher.open(
+            row["answer_envelope"],
+            user_id=row["user_id"],
+            resource_id=str(row["request_id"]),
+            purpose="live-answer",
+        )
+
+    async def owner_selection(self, *, user_id, request_id, refs):
+        """The owner's chosen files from an answered question, for sharing."""
+        if not isinstance(refs, list) or not refs or len(set(refs)) != len(refs):
+            raise DriveSharingError("invalid_argument")
+
+        def operation(connection):
+            row = self._answered_owner_row(connection, user_id, request_id)
+            sealed = self._sealed_answer(row)
+            files = {item["ref"]: item for item in sealed.get("ownerFiles", [])}
+            if any(ref not in files for ref in refs):
+                raise DriveSharingError("request_changed")
+            query = self.cipher.open(
+                row["query_envelope"],
+                user_id=row["user_id"],
+                resource_id=str(row["request_id"]),
+                purpose="live-query",
+            )["query"]
+            return {
+                "requesterUserId": row["requester_user_id"],
+                "query": query,
+                "shareRequestId": sealed.get("shareRequestId"),
+                "files": [
+                    {
+                        "file_id": files[ref]["fileId"],
+                        "name": files[ref]["name"],
+                        "mime_type": files[ref]["mimeType"],
+                        "modified_time": files[ref]["modifiedTime"],
+                    }
+                    for ref in refs
+                ],
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def record_share(self, *, user_id, request_id, share_request_id):
+        """Link the question to the file share, so both participants can follow it."""
+        share_request_id = str(UUID(str(share_request_id)))
+
+        def operation(connection):
+            row = self._answered_owner_row(connection, user_id, request_id)
+            sealed = self._sealed_answer(row)
+            if sealed.get("shareRequestId") not in {None, share_request_id}:
+                raise DriveSharingError("request_changed")
+            envelope = self.cipher.seal(
+                {**sealed, "shareRequestId": share_request_id},
+                user_id=row["user_id"],
+                resource_id=str(row["request_id"]),
+                purpose="live-answer",
+            )
+            updated = self._row(
+                connection,
+                """
+                UPDATE drive_live_query_requests
+                SET answer_envelope=CAST(:envelope AS jsonb), updated_at=clock_timestamp()
+                WHERE request_id=:id AND status='answered'
+                RETURNING *
+            """,
+                {"id": str(row["request_id"]), "envelope": json.dumps(envelope)},
+            )
+            if not updated:
+                raise DriveSharingError("request_changed")
+            return self._render(connection, updated, user_id)
 
         return cast(dict, await self._transaction(operation))
 
@@ -397,6 +565,47 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             )
             if not denied:
                 raise DriveSharingError("request_changed")
+            self._event(connection, denied, denied["requester_user_id"], "document_share_declined")
             return self._render(connection, denied, user_id)
+
+        return cast(dict, await self._transaction(operation))
+
+    async def cancel(self, *, user_id, request_id, revision):
+        """The asker withdraws a pending or running question. Never reads Drive.
+
+        Only the requester can cancel, and withdrawing needs no feature
+        admission or active connection. 'cancelled' is terminal and the
+        revision is bumped, which fences a running Allow: claim, require_claim,
+        complete and release all refuse or skip the row afterwards, so no
+        answer is stored. Expiry follows the view, including an abandoned
+        claim older than STALE_CLAIM_SECONDS past its deadline. A retried
+        cancel of a cancelled question returns it unchanged.
+        """
+
+        def operation(connection):
+            row = self._requester_row(connection, user_id, request_id)
+            if row["status"] == "cancelled":
+                return self._render(connection, row, user_id)
+            if row["status"] not in {"pending", "running"}:
+                raise DriveSharingError("request_already_decided")
+            if row["revision"] != revision:
+                raise DriveSharingError("request_changed")
+            now = datetime.now(UTC)
+            if row["expires_at"] <= now and (row["status"] == "pending" or self._stale(row, now)):
+                raise DriveSharingError("request_expired")
+            cancelled = self._row(
+                connection,
+                """
+                UPDATE drive_live_query_requests
+                SET status='cancelled', revision=revision+1, decided_at=clock_timestamp(),
+                  last_error_code=NULL, updated_at=clock_timestamp()
+                WHERE request_id=:id AND revision=:revision AND status IN ('pending','running')
+                RETURNING *
+            """,
+                {"id": str(row["request_id"]), "revision": revision},
+            )
+            if not cancelled:
+                raise DriveSharingError("request_changed")
+            return self._render(connection, cancelled, user_id)
 
         return cast(dict, await self._transaction(operation))

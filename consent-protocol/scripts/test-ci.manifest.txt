@@ -28,11 +28,15 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_drive_sharing_routes.py
 tests/services/test_drive_live_reader.py
+tests/services/test_drive_candidate_selection.py
+tests/services/test_google_drive_rest_transport.py
+tests/services/test_drive_live_formats.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py
 tests/services/test_drive_suggestions.py
 tests/services/test_drive_suggestion_coverage.py
+tests/services/test_drive_suggestion_recency.py
 tests/services/test_document_review_authority_postgres.py
 tests/services/test_drive_sharing_store.py
 tests/services/test_drive_permission_executor.py
@@ -40,6 +44,7 @@ tests/services/test_drive_revocation_executor.py
 tests/test_documents_agent_a2a.py
 tests/services/test_drive_live_query.py
 tests/test_drive_live_query_routes.py
+tests/services/test_drive_live_query_lifecycle.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
@@ -408,3 +413,7 @@ tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
 tests/test_plaid_server_custody_retire.py
+
+tests/test_dev_candidate_gate.py
+
+tests/test_cloudrun_revision_provenance.py

@@ -27,6 +27,13 @@ import { Label } from "@/components/ui/label";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
+  FILE_REQUEST_HELPER,
+  RequestFilesButton,
+  fileRequestLabel,
+  useFileRequest,
+  validFileRequest,
+} from "@/components/consent/document-file-request";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -42,7 +49,7 @@ type RequestDraft = {
 };
 
 const ASK_HELPER =
-  "They see your question and decide. Nothing in their Drive is read unless they allow it.";
+  "They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.";
 
 /** A chat draft becomes one plain question; its period travels as text. */
 function draftQuestion(draft: RequestDraft): string {
@@ -53,9 +60,10 @@ function draftQuestion(draft: RequestDraft): string {
 }
 
 /**
- * Asks a connection one question about their Drive. Sending creates a pending
- * question only; the asker needs no Google account. Drafts and retry keys never
- * leave memory.
+ * Two ways to ask a connection about their Drive. A question gets an answer
+ * with file titles and needs no Google account. A file request gets the
+ * original Drive links after they approve the exact files. Sending either
+ * creates a pending request only. Drafts and retry keys never leave memory.
  */
 export function DocumentRequestButton({
   personRef,
@@ -100,8 +108,19 @@ function UnlockedRequestButton({
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<DriveQueryView | null>(null);
-  // A chat card sent before questions existed keeps showing its document request.
-  const [legacyRequestId, setLegacyRequestId] = useState<string | null>(null);
+  // A chat card whose file request was sent keeps showing that request.
+  const [fileRequestId, setFileRequestId] = useState<string | null>(null);
+  const draftTerms = draft
+    ? { purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd }
+    : null;
+  const files = useFileRequest({
+    userId,
+    personRef,
+    getToken,
+    initial: draftTerms && draft
+      ? { terms: draftTerms, clientRequestId: draft.clientRequestId }
+      : undefined,
+  });
   const alive = useRef(false);
   const serial = useRef(0);
   const inFlight = useRef(false);
@@ -137,7 +156,7 @@ function UnlockedRequestButton({
           throw new DriveSharingError("session_changed");
       };
       void DriveSharingService.lookupClient(token, draftClientRequestId, guard)
-        .then((requestId) => { guard(); if (requestId) setLegacyRequestId(requestId); })
+        .then((requestId) => { guard(); if (requestId) setFileRequestId(requestId); })
         .catch(() => { /* Sending still requires an explicit tap and server idempotency. */ });
     }
     return () => {
@@ -159,7 +178,8 @@ function UnlockedRequestButton({
     setOpen(false);
   };
   const send = async () => {
-    if (inFlight.current || !valid || !alive.current) return;
+    // One draft sends one request: a question or a file request, never both at once.
+    if (inFlight.current || !valid || !alive.current || files.phase !== "idle") return;
     const token = getToken();
     if (!token) return;
     const epoch = snapshotVaultSessionEpoch();
@@ -220,11 +240,17 @@ function UnlockedRequestButton({
       }
     }
   };
+  const requestDraftFiles = async () => {
+    if (!draftTerms || phase !== "idle") return;
+    const requestId = await files.send(draftTerms);
+    if (requestId) setFileRequestId(requestId);
+  };
+  const busy = phase !== "idle" || files.phase !== "idle";
   const tooLong = question.length > 0 && !valid;
-  if (draft && legacyRequestId)
+  if (draft && fileRequestId)
     return (
       <DocumentShareReview
-        requestId={legacyRequestId}
+        requestId={fileRequestId}
         onChanged={() => CacheSyncService.onConsentMutated(userId)}
       />
     );
@@ -244,22 +270,44 @@ function UnlockedRequestButton({
         <BodyText className="whitespace-pre-wrap">
           Ask {personName}: “{question}”
         </BodyText>
-        <HelperText>{ASK_HELPER}</HelperText>
+        <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
+        <HelperText>Ask as a question: {ASK_HELPER}</HelperText>
         {tooLong ? (
           <HelperText role="status">This question is too long to send.</HelperText>
         ) : null}
+        {files.error ? <HelperText role="alert">{files.error}</HelperText> : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}
-        <Button
-          size="prominent"
-          disabled={!valid || phase !== "idle"}
-          onClick={() => void send()}
-        >
-          {phase === "sending" ? "Sending…" : "Send"}
-        </Button>
+        <FlowActionGroup
+          primary={
+            <Button
+              size="prominent"
+              disabled={!draftTerms || !validFileRequest(draftTerms) || busy}
+              onClick={() => void requestDraftFiles()}
+            >
+              {fileRequestLabel(files.phase, files.needsGoogle)}
+            </Button>
+          }
+          secondary={
+            <Button
+              size="standard"
+              variant="none"
+              disabled={!valid || busy}
+              onClick={() => void send()}
+            >
+              {phase === "sending" ? "Sending…" : "Ask as a question"}
+            </Button>
+          }
+        />
       </div>
     );
   return (
     <>
+      <RequestFilesButton
+        userId={userId}
+        personRef={personRef}
+        personName={personName}
+        getToken={getToken}
+      />
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>
         Ask about files
       </Button>

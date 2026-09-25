@@ -44,6 +44,17 @@ const WALLET_PAGE_SIZE = 10;
 
 export function WalletWorkspace() {
   const { user, loading: authLoading } = useAuth();
+  const renderedOwnerId = user?.uid ?? null;
+  const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
+  activeOwnerIdRef.current = renderedOwnerId;
+  useEffect(() => {
+    activeOwnerIdRef.current = renderedOwnerId;
+    return () => {
+      if (activeOwnerIdRef.current === renderedOwnerId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
@@ -143,13 +154,22 @@ export function WalletWorkspace() {
     if (!context) return;
     setBusyCardId(cardId);
     try {
-      await WalletService.deleteCard({
-        ...context,
-        cardId,
-        surface: "web",
-        source: "one_wallet_remove",
-      });
-      trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
+      try {
+        await WalletService.deleteCard({
+          ...context,
+          cardId,
+          surface: "web",
+          source: "one_wallet_remove",
+        });
+        if (activeOwnerIdRef.current === context.userId) {
+          trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
+        }
+      } catch (error) {
+        if (activeOwnerIdRef.current === context.userId) {
+          trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "error" });
+        }
+        throw error;
+      }
       await refresh();
     } finally {
       setBusyCardId(null);
@@ -302,13 +322,22 @@ export function WalletWorkspace() {
           onSubmit={async (card) => {
             const context = vaultContext();
             if (!context) throw new Error("Unlock your vault to save a card.");
-            await WalletService.addCard({
-              ...context,
-              card,
-              surface: "web",
-              source: "one_wallet_add",
-            });
-            trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+            try {
+              await WalletService.addCard({
+                ...context,
+                card,
+                surface: "web",
+                source: "one_wallet_add",
+              });
+              if (activeOwnerIdRef.current === context.userId) {
+                trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+              }
+            } catch (error) {
+              if (activeOwnerIdRef.current === context.userId) {
+                trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+              }
+              throw error;
+            }
             await refresh();
           }}
           onCancel={() => setView({ kind: "list" })}

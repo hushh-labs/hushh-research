@@ -8,7 +8,7 @@ recordings are `video/mp4` named "... - 2026/09/18 10:00 PDT - Recording", and
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -20,7 +20,7 @@ from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
-from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 
 NOW = datetime(2026, 9, 24, 17, 0, tzinfo=UTC)
@@ -100,6 +100,26 @@ async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
     assert [call[1] for call in calls] == [both, either]
 
 
+async def test_owner_title_only_search_excludes_full_text_from_both_query_passes():
+    both = "title contains 'standup' and title contains 'sync'"
+    either = "(title contains 'standup' or title contains 'sync')"
+    reader, calls = reader_with(
+        {("search_files", both): [], ("search_files", either): [file("f2", "Standup sync notes")]}
+    )
+    found = await reader.find(query=["standup", "sync"], title_only=True)
+    assert [item["name"] for item in found["matches"]] == ["Standup sync notes"]
+    assert [call[1] for call in calls] == [both, either]
+    assert all("fullText" not in call[1] for call in calls)
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true", []])
+async def test_title_only_requires_a_boolean_before_provider_call(value):
+    reader, calls = reader_with({})
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["standup"], title_only=value)
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "kind,clause",
     [
@@ -163,7 +183,7 @@ async def test_most_recent_files_use_the_recency_listing():
 
 
 async def test_latest_sorts_search_matches_newest_first():
-    reader, _ = reader_with(
+    reader, calls = reader_with(
         {
             ("search_files", TERM.format("statement")): [
                 file("a", "Jan statement.pdf", modified="2026-01-31T00:00:00Z"),
@@ -174,6 +194,7 @@ async def test_latest_sorts_search_matches_newest_first():
     )
     found = await reader.find(query=["statement"], recent=True)
     assert [item["name"] for item in found["matches"]][0] == "Aug statement.pdf"
+    assert calls[0][2]["orderBy"] == "modifiedTime desc"
 
 
 async def test_nothing_to_bound_a_search_never_reaches_the_provider():
@@ -231,7 +252,117 @@ def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
     LiveSearchPlan.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    "question, field",
+    [
+        ("Which files were modified in the last two days?", "modifiedTime"),
+        ("What Drive files were created within the past 2 days?", "createdTime"),
+    ],
+)
+async def test_simple_file_activity_listing_skips_model_and_content(monkeypatch, question, field):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
+    listed = {
+        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+        "name": "Recent budget.pdf",
+        "mime_type": "application/pdf",
+        "modified_time": "2026-09-24T10:00:00Z",
+        "created_time": "2026-09-24T09:00:00Z",
+        "source_ref": "document:" + "a" * 32,
+        "open_url": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view",
+    }
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [listed], "truncated": False}),
+        read_matches=AsyncMock(side_effect=AssertionError("content read")),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(side_effect=AssertionError("model planner reached"))
+    selector = AsyncMock(side_effect=AssertionError("candidate selector reached"))
+    interpreter = AsyncMock(side_effect=AssertionError("content interpreter reached"))
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+        interpreter=interpreter,
+    )
+
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query=question,
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+
+    assert reader.find.await_args.kwargs == {
+        "query": [],
+        "file_kind": "any",
+        "shared_with_me": False,
+        "recent": True,
+        "time_field": field,
+        "start_time": "2026-09-22T17:00:00Z",
+        "end_time": "2026-09-24T17:00:00Z",
+    }
+    assert outcome["status"] == "ok"
+    assert outcome["titles"] == ["Recent budget.pdf"]
+    assert outcome["metadata_only"] is True
+    assert outcome["selection"]["stage"] == "metadata_listing"
+    shown = drive_chat_service._found_files(
+        outcome["files"],
+        truncated=outcome["found_truncated"],
+        time_window=outcome["time_window"],
+        date_field=outcome["date_field"],
+        timezone=outcome["timezone"],
+    )
+    assert "Recent budget" in shown and "2026-09-24" in shown
+    assert "Asia/Kolkata" in shown
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+    interpreter.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Which files were modified in the last two days and what changed?",
+        "Which files were modified in the last two days for the sales team?",
+        "Which file was modified on September 24?",
+    ],
+)
+async def test_ambiguous_file_activity_question_keeps_model_planning(monkeypatch, question):
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [], "truncated": False}),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(
+        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+    )
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+    )
+
+    await chat.run_live_query(
+        user_id="owner", consent_token="", query=question, require_access=AsyncMock()
+    )
+
+    planner.assert_awaited_once()
+
+
 async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monkeypatch):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
     reader = SimpleNamespace(
         find=AsyncMock(
             return_value={
@@ -268,6 +399,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
                 "time_intent": "file_activity",
             }
         ),
+        candidate_selector=AsyncMock(return_value={"selected": ["c1"]}),
     )
     outcome = await chat.run_live_query(
         user_id="owner",
@@ -289,6 +421,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
     assert outcome["status"] == "ok" and outcome["titles"] == [
         "Standup - 2026/09/24 10:00 PDT - Recording"
     ]
+    assert outcome["selection"] == {"stage": "completed", "candidates": 1, "selected": 1}
     # The owner sees the day the recording was made, in their own window text.
     text = drive_chat_service._found_files(
         outcome["files"],
@@ -456,3 +589,185 @@ def test_file_dates_show_in_the_owners_timezone():
         timezone="Asia/Kolkata",
     )
     assert "2026-09-24" in text and "2026-09-23" not in text
+
+
+async def test_a_date_only_listing_states_the_owners_window_and_names_each_file(monkeypatch):
+    """S1: "what did I change on 21 September" lists files, states the owner's
+    own window, and never reads content (metadata-only find)."""
+    open_url = "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view"
+    reader = SimpleNamespace(
+        find=AsyncMock(
+            return_value={
+                "matches": [
+                    {
+                        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+                        "name": "Budget review",
+                        "mime_type": "application/vnd.google-apps.document",
+                        "modified_time": "2026-09-21T05:00:00Z",
+                        "created_time": "2026-09-01T05:00:00Z",
+                        "source_ref": "document:" + "c" * 32,
+                        "open_url": open_url,
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
+        # A spy, not a raising stub: run_live_query's broad except would swallow a raise.
+        read_matches=AsyncMock(),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={
+                "mode": "find",
+                "date_from": "2026-09-21",
+                "date_to": "2026-09-21",
+                "time_intent": "file_activity",
+            }
+        ),
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message="what did I change on 21 September",
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+    kwargs = reader.find.await_args.kwargs
+    assert kwargs["query"] == []
+    assert kwargs["time_field"] == "modifiedTime"
+    assert (kwargs["start_time"], kwargs["end_time"]) == (
+        "2026-09-20T18:30:00Z",
+        "2026-09-21T18:30:00Z",
+    )
+    assert kwargs["title_dates"] == ["2026-09-21"]
+    text = response["response"]
+    assert text.splitlines()[1] == (
+        "Files modified from 2026-09-21 00:00 through 2026-09-22 00:00 (Asia/Kolkata)."
+    )
+    assert f"1. Budget review · file · 2026-09-21 — [Open in Drive]({open_url})" in text
+    assert reader.read_matches.called is False
+    assert response["structured"]["metadata_only"] is True
+
+
+@pytest.mark.parametrize("time_field", ["modifiedTime", "createdTime"])
+async def test_a_file_date_window_asks_drive_to_rank_by_that_date_before_the_cut(time_field):
+    """S2: the 25-file cut must keep the newest files by the date the owner asked
+    about, so the date-bounded search asks Drive to sort by that field."""
+    window = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-24T00:00:00Z')"
+    reader, calls = reader_with({("search_files", window): [file("w1", "Weekly notes")]})
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+
+    day = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-18T00:00:00Z')"
+    reader, calls = reader_with(
+        {("search_files", day): [], ("search_files", "title contains '2026/09/17'"): []}
+    )
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-18T00:00:00Z",
+        title_dates=["2026-09-17"],
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+    # The title-date lookup is not a time window; it keeps Drive's own order.
+    assert calls[-1][1] == "title contains '2026/09/17'"
+    assert "orderBy" not in calls[-1][2]
+
+    # Without a date window the transport keeps its own default order.
+    reader, calls = reader_with({("search_files", "mimeType = 'application/pdf'"): []})
+    await reader.find(query=[], file_kind="pdf")
+    assert "orderBy" not in calls[0][2]
+
+
+@pytest.mark.parametrize(
+    "message, offset_days",
+    [
+        ("share me all my last 30 days standup sync notes i need all 30", 0),
+        (
+            "share me all my last to last 30 days standup sync notes not recent last 30 "
+            "its like 30 before then 30 i need all 30 check my drive",
+            30,
+        ),
+    ],
+)
+async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
+    monkeypatch, message, offset_days
+):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", FrozenDatetime)
+    days = [(NOW.date() - timedelta(days=offset_days + offset + 1)) for offset in range(30)]
+    older_day = NOW.date() - timedelta(days=offset_days + 31)
+    matches = [
+        {
+            "file_id": f"standup-{index}",
+            "name": f"Team Standup Sync Notes - {day:%Y/%m/%d}",
+            "mime_type": "application/vnd.google-apps.document",
+            "modified_time": "2026-09-24T12:00:00Z",
+            "created_time": f"{day:%Y-%m-%d}T12:00:00Z",
+            "source_ref": "document:" + f"{index:032x}",
+            "open_url": f"https://drive.google.com/open?id=standup-{index}",
+        }
+        for index, day in enumerate(days)
+    ]
+    matches.append(
+        {
+            **matches[0],
+            "file_id": "old-standup",
+            "name": f"Team Standup Sync Notes - {older_day:%Y/%m/%d}",
+            "open_url": "https://drive.google.com/open?id=old-standup",
+        }
+    )
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": matches, "truncated": False}),
+        read_matches=AsyncMock(),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock()
+    selector = AsyncMock()
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message=message,
+        require_access=AsyncMock(),
+        timezone="UTC",
+    )
+    assert response["structured"]["status"] == "ok"
+    assert response["structured"]["metadata_only"] is True
+    assert "I found 30 candidate files" in response["response"]
+    assert "30. Team Standup Sync Notes" in response["response"]
+    assert f"{older_day:%Y/%m/%d}" not in response["response"]
+    assert len(response["structured"]["sources"]) == 30
+    first_day = NOW.date() - timedelta(days=offset_days + 30)
+    end_day = NOW.date() - timedelta(days=offset_days)
+    reader.find.assert_awaited_once_with(
+        query=["standup"],
+        time_field="createdTime",
+        start_time=f"{first_day.isoformat()}T00:00:00Z",
+        end_time=f"{end_day.isoformat()}T00:00:00Z",
+        max_results=100,
+        title_only=True,
+    )
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()

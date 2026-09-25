@@ -1,13 +1,17 @@
 """Vault-protected exact-file review, separate from generic/voice confirmation."""
 
 import asyncio
+import json
+import logging
+import re
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from firebase_admin import auth as firebase_auth
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
@@ -27,7 +31,14 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileService,
 )
 
+logger = logging.getLogger(__name__)
+
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
+# Streams also forbid transforms so no proxy buffers or rewrites the frames.
+NO_STORE_STREAM = {
+    "Cache-Control": "private, no-store, no-cache, no-transform",
+    "Pragma": "no-cache",
+}
 
 
 class PrivateSharingRoute(APIRoute):
@@ -52,7 +63,9 @@ class PrivateSharingRoute(APIRoute):
             except HTTPException as error:
                 error.headers = {**(error.headers or {}), **NO_STORE}
                 raise
-            response.headers.update(NO_STORE)
+            response.headers.update(
+                NO_STORE_STREAM if isinstance(response, StreamingResponse) else NO_STORE
+            )
             return response
 
         return private_response
@@ -161,6 +174,34 @@ class QueryAllowRequest(DecisionRequest):
     timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
 
 
+class OwnerShareCreateRequest(StrictRequest):
+    # Exactly one audience: one connected person, or the owner's Trusted circle.
+    recipientPersonRef: UUID | None = None
+    audience: Literal["person", "trusted_circle"] = "person"
+    clientRequestId: UUID
+    query: str = Field(min_length=1, max_length=2000)
+    # The owner's IANA zone, so "yesterday" means the owner's day.
+    timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+    @model_validator(mode="after")
+    def one_audience(self):
+        if (self.audience == "person") != (self.recipientPersonRef is not None):
+            raise ValueError("Choose one person or the Trusted circle.")
+        return self
+
+
+class QueryShareRequest(StrictRequest):
+    fileRefs: list[str] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def known_refs(self):
+        if len(set(self.fileRefs)) != len(self.fileRefs) or any(
+            not re.fullmatch(r"f[1-8]", ref) for ref in self.fileRefs
+        ):
+            raise ValueError("Choose files from the answer.")
+        return self
+
+
 class ApprovalRequest(DecisionRequest):
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
@@ -187,7 +228,12 @@ def _service():
 
 
 def _query_service():
-    return DriveLiveQueryService()
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    return DriveLiveQueryService(
+        sharing=lambda require_owner: DriveSharingService(require_owner=require_owner),
+        suggestions=lambda require_owner: DriveSuggestionService(require_owner=require_owner),
+    )
 
 
 def _error(error):
@@ -218,7 +264,17 @@ def _error(error):
         "rule_changed": (409, "This document trust rule changed. Refresh it."),
         "connector_unavailable": (503, "Document sharing is not available yet."),
         "request_expired": (409, "This question expired."),
+        "owner_share_expired": (409, "This search expired. Search your Drive again."),
         "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
+        "recipient_google_identity_required": (
+            409,
+            "They need to add a Google account to One before files can be shared with them.",
+        ),
+        "recipient_verification_unavailable": (
+            503,
+            "Couldn't check their Google account. Try again.",
+        ),
+        "drive_share_unavailable": (503, "Couldn't prepare these files. Try again."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -263,6 +319,27 @@ async def _owner_target(owner: Owner, body: CreateRequest | QueryCreateRequest) 
     # The domain store separately rechecks the active A/B relationship
     # under locks. A public profile reference is never sharing authority.
     return str(owner_user_id)
+
+
+async def _person_target(owner: Owner, person_ref: UUID) -> str:
+    """A connected person's user id from their public profile reference.
+
+    The domain store separately rechecks the active A/B relationship under
+    locks; a public profile reference is never sharing authority.
+    """
+    await owner.require_current()
+    try:
+        async with asyncio.timeout(6):
+            target_user_id, _ = await asyncio.to_thread(
+                PersonProfileService().get_relationship_target,
+                viewer_user_id=owner.user_id,
+                public_person_ref=str(person_ref),
+            )
+    except PersonProfileNotFoundError:
+        raise _error(DriveSharingError("request_unavailable")) from None
+    except Exception:
+        raise _error(DriveSharingError("identity_verification_unavailable")) from None
+    return str(target_user_id)
 
 
 @router.post("/requests", status_code=202)
@@ -328,6 +405,119 @@ async def prepare_request(request_id: UUID, body: StrictRequest, owner: Owner = 
         raise
     except Exception as error:
         raise _error(error) from None
+
+
+PREPARE_STREAM_HEARTBEAT_SECONDS = 15.0
+# Above the 160 s preparation budget plus its owner and lease fences. Heartbeats
+# would otherwise keep every client and proxy timeout alive for a stuck task.
+PREPARE_STREAM_DEADLINE_SECONDS = 190.0
+PREPARE_STREAM_MAX_PENDING = 32
+# Strong references: a preparation outlives a disconnected stream (see below).
+_PREPARE_STREAM_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
+    body = json.dumps({"event": event, **payload}, separators=(",", ":"))
+    return f"event: {event}\ndata: {body}\n\n".encode()
+
+
+def _prepare_task_done(task: asyncio.Task[None]) -> None:
+    _PREPARE_STREAM_TASKS.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.warning("drive_sharing.prepare_stream_task_failed type=%s", type(error).__name__)
+
+
+async def _prepare_stream(
+    *, request: Request, owner: Owner, request_id: str
+) -> AsyncGenerator[bytes, None]:
+    """Stage names and a terminal status only. Files, ids and coverage stay
+    behind GET /review and the store's source-authority check."""
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    events: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+    reported: list[str] = []
+
+    def on_stage(stage: str) -> None:
+        # Reading and interpreting are both "checking"; send each stage once.
+        if reported[-1:] != [stage]:
+            reported.append(stage)
+            events.put_nowait(("stage", {"stage": stage}))
+
+    async def prepare() -> None:
+        try:
+            result = await DriveSuggestionService(require_owner=owner.require_current).run_one(
+                user_id=owner.user_id,
+                request_id=request_id,
+                on_stage=on_stage,
+            )
+            await owner.require_current()
+        except HTTPException:
+            # Owner authority ended mid-run. End without a terminal frame so the
+            # client's next status read surfaces the real 401/423 through the
+            # session handling a 200 stream cannot trigger.
+            events.put_nowait(None)
+            return
+        except Exception as error:  # noqa: BLE001 - only the public error boundary
+            logger.warning("drive_sharing.prepare_stream_failed type=%s", type(error).__name__)
+            detail = cast(dict, _error(error).detail)
+            events.put_nowait(("error", {"code": detail["code"], "message": detail["message"]}))
+            return
+        events.put_nowait(("complete", {"status": result}))
+
+    task = asyncio.create_task(prepare())
+    _PREPARE_STREAM_TASKS.add(task)
+    task.add_done_callback(_prepare_task_done)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + PREPARE_STREAM_DEADLINE_SECONDS
+    yield _sse_frame("stage", {"stage": "starting"})
+    while True:
+        # Never cancel the preparation: a cancel skips fail_preparation, strands
+        # the lease and could interrupt the review commit. It runs to its own
+        # 160 s budget exactly like an abandoned POST /prepare.
+        if await request.is_disconnected():
+            return
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        try:
+            item = await asyncio.wait_for(
+                events.get(), timeout=min(PREPARE_STREAM_HEARTBEAT_SECONDS, remaining)
+            )
+        except TimeoutError:
+            yield _sse_frame("heartbeat", {})
+            continue
+        if item is None:
+            return
+        event, payload = item
+        yield _sse_frame(event, payload)
+        if event in {"complete", "error"}:
+            return
+
+
+@router.post("/requests/{request_id}/prepare/stream")
+async def prepare_request_stream(
+    request: Request, request_id: UUID, body: StrictRequest, owner: Owner = Depends(_owner)
+):
+    try:
+        # Before the 200: a stale owner stays a real HTTP 401/403/423.
+        await owner.require_current()
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **NO_STORE}
+        raise
+    except Exception as error:
+        raise _error(error) from None
+    if len(_PREPARE_STREAM_TASKS) >= PREPARE_STREAM_MAX_PENDING:
+        # Before the 200, as a plain 503: the client falls back to the uncapped
+        # POST /prepare, so a busy process never denies an owner their search.
+        raise _error(DriveSharingError("sharing_unavailable"))
+    return StreamingResponse(
+        _prepare_stream(request=request, owner=owner, request_id=str(request_id)),
+        media_type="text/event-stream",
+        headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/requests/{request_id}/approve", status_code=202)
@@ -471,10 +661,76 @@ async def allow_query(request_id: UUID, body: QueryAllowRequest, owner: Owner = 
     )
 
 
+@router.post("/queries/{request_id}/share", status_code=202)
+async def share_query_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+):
+    """A shares chosen files from an answered question with the asker, as Viewer."""
+    return await _call(
+        "share",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
+    )
+
+
+@router.post("/owner-shares")
+async def prepare_owner_share(body: OwnerShareCreateRequest, owner: Owner = Depends(_owner)):
+    """A searches A's own Drive to share with a connection. Nothing is shared yet."""
+    if body.audience == "trusted_circle":
+        return await _call(
+            "prepare_trusted_share",
+            owner=owner,
+            factory=_query_service,
+            client_request_id=str(body.clientRequestId),
+            query=body.query,
+            consent_token=owner.token,
+            timezone=body.timeZone or "UTC",
+        )
+    recipient_user_id = await _person_target(owner, cast(UUID, body.recipientPersonRef))
+    return await _call(
+        "prepare_owner_share",
+        owner=owner,
+        factory=_query_service,
+        recipient_user_id=recipient_user_id,
+        client_request_id=str(body.clientRequestId),
+        query=body.query,
+        consent_token=owner.token,
+        timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/owner-shares/{request_id}/share", status_code=202)
+async def share_owner_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+):
+    """A shares chosen files from A's own search with the connection, as Viewer."""
+    return await _call(
+        "share_owner_files",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
+    )
+
+
 @router.post("/queries/{request_id}/deny")
 async def deny_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
     return await _call(
         "deny",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+    )
+
+
+@router.post("/queries/{request_id}/cancel")
+async def cancel_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    """B withdraws their own question. Never reads Drive; stops a running Allow's answer."""
+    return await _call(
+        "cancel",
         owner=owner,
         factory=_query_service,
         request_id=str(request_id),

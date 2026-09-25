@@ -115,6 +115,14 @@ jobs:
           REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
+      - name: Preserve current release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/resolve-cloud-run-deploy-revision.py \
+            "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+
       - name: Checkout deployment SHA
         shell: bash
         run: |
@@ -247,7 +255,7 @@ jobs:
               raise SystemExit("Drive work wake Cloud Scheduler run grant is missing")
           '
 
-      - name: Resolve last-known-good rollback targets
+      - name: Resolve rollback targets from predeploy traffic
         id: rollback-targets
         shell: bash
         run: |
@@ -258,24 +266,35 @@ jobs:
           git fetch --force origin \
             refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest
 
-          backend_revision=""
+          # An audited traffic restore can serve a verified revision without
+          # moving the last-known-good tag. On failure, return to the revision
+          # actually serving before this run rather than an older tag target.
+          backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            backend_revision="$(
-              ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
-              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-              bash scripts/ci/resolve-rollback-target.sh uat backend
-            )"
+            if [ -z "${backend_revision}" ]; then
+              backend_revision="$(
+                ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
+                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+                bash scripts/ci/resolve-rollback-target.sh uat backend
+              )"
+            fi
+          else
+            backend_revision=""
           fi
 
-          frontend_revision=""
+          frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
-            frontend_revision="$(
-              ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
-              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-              bash scripts/ci/resolve-rollback-target.sh uat frontend
-            )"
+            if [ -z "${frontend_revision}" ]; then
+              frontend_revision="$(
+                ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
+                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+                bash scripts/ci/resolve-rollback-target.sh uat frontend
+              )"
+            fi
+          else
+            frontend_revision=""
           fi
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
@@ -921,7 +940,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ 'true' }},_LOCATION_MAP_DEMO=false,_APP_ENV=uat,_ONE_WALLET_CARD_ENABLED=true,_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_MEMORY=1Gi,_CLOUD_RUN_TIMEOUT_SECONDS=300,_CLOUD_RUN_CONCURRENCY=10,_CLOUD_RUN_MIN_INSTANCES=2,_CLOUD_RUN_MAX_INSTANCES=10,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ 'true' }},_LOCATION_MAP_DEMO=false,_APP_ENV=uat,_ONE_WALLET_CARD_ENABLED=true,_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_MEMORY=1Gi,_CLOUD_RUN_TIMEOUT_SECONDS=300,_CLOUD_RUN_CONCURRENCY=10,_CLOUD_RUN_MIN_INSTANCES=2,_CLOUD_RUN_MAX_INSTANCES=10,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
@@ -937,24 +956,211 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestCreatedRevisionName)')"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestCreatedRevisionName)')"
+          backend_revision=""
+          frontend_revision=""
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            backend_revision="${{ steps.backend-candidate-state.outputs.backend_revision }}"
+          fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            gcloud run revisions list \
+              --service="${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-frontend-deploy-revisions.json
+            frontend_revision="$(python3 "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py" \
+              --revisions-json /tmp/uat-frontend-deploy-revisions.json \
+              --deploy-env uat \
+              --deploy-source deploy-uat \
+              --deploy-sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --github-run-id "${{ github.run_id }}" \
+              --github-run-attempt "${{ github.run_attempt }}")"
+          fi
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve zero-traffic frontend analytics candidate
+        id: frontend-analytics-candidate
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"
+          smoke_revision="${release_revision}"
+
+          # A dual-scope release needs reviewer bootstrap to reach the paired
+          # backend candidate without moving canonical backend traffic. Clone
+          # the already-built frontend revision at zero traffic, override only
+          # its server-side backend binding, and discard the clone after the
+          # smoke. The canonical-configured release revision is the one that is
+          # promoted after the smoke succeeds.
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            # Cloud Run rejects changing a secret-backed variable to a literal
+            # in the same update. Remove the secret bindings first.
+            gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --platform=managed \
+              --no-traffic \
+              --remove-secrets=BACKEND_URL,DEVELOPER_API_URL
+            gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --platform=managed \
+              --no-traffic \
+              --update-env-vars="BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }},DEVELOPER_API_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}"
+            smoke_revision="$(gcloud run revisions list \
+              --service="${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --sort-by='~metadata.creationTimestamp' \
+              --limit=1 \
+              --format='value(metadata.name)')"
+            if [ -z "${smoke_revision}" ] || [ "${smoke_revision}" = "${release_revision}" ]; then
+              echo "Paired frontend smoke revision was not created." >&2
+              exit 1
+            fi
+          fi
+
+          gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --update-tags="analytics-candidate=${smoke_revision}"
+          candidate_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json | python3 -c '
+          import json, sys
+          service = json.load(sys.stdin)
+          matches = [
+              item for item in ((service.get("status") or {}).get("traffic") or [])
+              if item.get("tag") == "analytics-candidate"
+          ]
+          if len(matches) != 1 or matches[0].get("revisionName") != sys.argv[1]:
+              raise SystemExit("Frontend analytics candidate tag did not resolve to the expected revision")
+          url = str(matches[0].get("url") or "").strip()
+          if not url.startswith("https://"):
+              raise SystemExit("Frontend analytics candidate URL is unavailable")
+          print(url)
+          ' "${smoke_revision}")"
+          echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"
+          echo "url=${candidate_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node runtime for UAT analytics verification
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install UAT analytics smoke dependencies
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        working-directory: hushh-webapp
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+
+      - name: Verify governed analytics transport on zero-traffic UAT candidate
+        id: verify-analytics-uat
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        shell: bash
+        working-directory: hushh-webapp
+        env:
+          UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}
+        run: |
+          set -euo pipefail
+          reviewer_uid="$(gcloud secrets versions access latest \
+            --secret=REVIEWER_UID \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          reviewer_passphrase="$(gcloud secrets versions access latest \
+            --secret=REVIEWER_VAULT_PASSPHRASE \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::$reviewer_uid"
+          echo "::add-mask::$reviewer_passphrase"
+          export REVIEWER_UID="$reviewer_uid"
+          export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
+          npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
+
+      - name: Remove zero-traffic frontend analytics candidate tag
+        if: always() && steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-frontend-analytics-candidate-cleanup.json
+          if python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          service = json.loads(
+              Path("/tmp/uat-frontend-analytics-candidate-cleanup.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          traffic = (service.get("status") or {}).get("traffic") or []
+          raise SystemExit(
+              0
+              if any(entry.get("tag") == "analytics-candidate" for entry in traffic)
+              else 1
+          )
+          PY
+          then
+            gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --remove-tags=analytics-candidate
+          else
+            echo "Frontend analytics candidate tag is already absent."
+          fi
+
+      - name: Restore canonical frontend backend bindings
+        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The smoke clone may leave a literal candidate URL (or no URL if
+          # its first update succeeded but the second failed) on the service
+          # template. Restore the canonical secret refs before any promotion.
+          gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --no-traffic \
+            --remove-env-vars=BACKEND_URL,DEVELOPER_API_URL \
+            --update-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json | python3 -c '
+          import json, sys
+          service = json.load(sys.stdin)
+          containers = ((service.get("spec") or {}).get("template") or {}).get("spec", {}).get("containers") or []
+          if len(containers) != 1:
+              raise SystemExit("Expected one frontend container")
+          env = {item.get("name"): item for item in containers[0].get("env") or []}
+          for name in ("BACKEND_URL", "DEVELOPER_API_URL"):
+              ref = ((env.get(name) or {}).get("valueFrom") or {}).get("secretKeyRef") or {}
+              if ref.get("name") != "BACKEND_URL" or ref.get("key") != "latest":
+                  raise SystemExit(f"Canonical secret binding missing: {name}")
+          '
 
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+            && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
+            echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
+            exit 0
+          fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
@@ -1015,12 +1221,17 @@ jobs:
           backend_revision, backend_url = serving_state(
               "/tmp/uat-backend-promoted-service.json",
               "${{ steps.candidate-state.outputs.backend_revision }}",
-              "${{ steps.scope.outputs.deploy_backend }}" == "true",
+              "${{ steps.scope.outputs.deploy_backend }}" == "true"
+              and (
+                  "${{ steps.scope.outputs.deploy_frontend }}" != "true"
+                  or "${{ steps.verify-analytics-uat.outcome }}" == "success"
+              ),
           )
           frontend_revision, frontend_url = serving_state(
               "/tmp/uat-frontend-promoted-service.json",
               "${{ steps.candidate-state.outputs.frontend_revision }}",
-              "${{ steps.scope.outputs.deploy_frontend }}" == "true",
+              "${{ steps.scope.outputs.deploy_frontend }}" == "true"
+              and "${{ steps.verify-analytics-uat.outcome }}" == "success",
           )
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"backend_revision={backend_revision}\n")
@@ -1293,6 +1504,7 @@ jobs:
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
           PKM_EVALUATOR_OUTCOME: ${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}
           VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
@@ -1358,6 +1570,11 @@ jobs:
           passkey_associations_success = (
               not passkey_associations_required
               or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
+          )
+          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"
+          analytics_smoke_success = (
+              not analytics_smoke_required
+              or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
           )
 
           blocking: list[str] = []
@@ -1451,6 +1668,12 @@ jobs:
               append_unique(blocking, ["passkey_domain_association_failed"])
               frontend_failure = True
 
+          if not analytics_smoke_success:
+              append_unique(blocking, ["analytics_transport_failed"])
+              frontend_failure = True
+              if os.environ.get("DEPLOY_BACKEND") == "true":
+                  backend_failure = True
+
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
 
@@ -1511,6 +1734,11 @@ jobs:
                   "required": passkey_associations_required,
                   "outcome": os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME", ""),
                   "success": passkey_associations_success,
+              },
+              "analytics_smoke": {
+                  "required": analytics_smoke_required,
+                  "outcome": os.environ.get("ANALYTICS_SMOKE_OUTCOME", ""),
+                  "success": analytics_smoke_success,
               },
               "candidate_pkm_evaluator": {
                   "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,

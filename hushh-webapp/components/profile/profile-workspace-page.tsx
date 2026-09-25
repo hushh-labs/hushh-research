@@ -15,7 +15,6 @@ import {
   AddressBookIcon as ContactRound,
   FingerprintIcon as Fingerprint,
   KeyIcon as KeyRound,
-  LockIcon,
   SpinnerGapIcon as Loader2,
   LogOutIcon as LogOut,
   MailIcon as Mail,
@@ -39,7 +38,7 @@ import {
   LocationAgentIcon,
   MemoryAgentIcon,
   PreferencesProfileIcon,
-  RiaAgentIcon,
+  InviteFriendsProfileIcon,
   SecurityProfileIcon,
   SignOutProfileIcon,
   SupportProfileIcon,
@@ -503,9 +502,11 @@ function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
 }
 
 const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium sm:w-auto sm:min-w-[7.5rem]";
 const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium sm:w-auto sm:min-w-[7.5rem]";
+const VAULT_INLINE_ACTIONS_CLASS =
+  "grid w-full min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end";
 
 function vaultWrapperKey(
   wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
@@ -533,19 +534,14 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return parts.join(" / ");
 }
 
-function VaultComingSoonLogos() {
+function VaultComingSoonBadge() {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-<KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
-      </span>
-      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-<LockIcon aria-hidden="true" className="h-3.5 w-3.5" />
-      </span>
-      <Badge variant="secondary" className={VAULT_INLINE_BADGE_CLASS}>
-        Coming soon
-      </Badge>
-    </div>
+    <Badge
+      variant="secondary"
+      className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium"
+    >
+      Coming soon
+    </Badge>
   );
 }
 
@@ -3889,11 +3885,12 @@ function ProfilePageContent({
   );
 
   const vaultMethodsContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="profile-account-content profile-vault-methods-content">
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
             icon={KeyRound}
+            iconTone="blue"
             title="Create your vault"
             description="Secure saved details."
             chevron
@@ -3913,10 +3910,14 @@ function ProfilePageContent({
             {vaultMethod ? (
               <SettingsRow
                 icon={KeyRound}
+                iconTone="blue"
                 title="Default unlock"
                 description={defaultUnlockDescription}
                 trailing={
-                  <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                  <div
+                    className={VAULT_INLINE_ACTIONS_CLASS}
+                    data-testid="vault-default-unlock-actions"
+                  >
                     <Badge
                       variant="secondary"
                       className={VAULT_INLINE_BADGE_CLASS}
@@ -3932,7 +3933,7 @@ function ProfilePageContent({
                         disabled={switchingVaultMethod}
                         onClick={() => void preferPassphraseUnlock()}
                       >
-                        Use passphrase
+                        Passphrase
                       </Button>
                     ) : null}
                     {canSwitchDefaultToQuick &&
@@ -3950,7 +3951,6 @@ function ProfilePageContent({
                           )
                         }
                       >
-                        Use{" "}
                         {readableQuickMethod(quickMethodReadyOnCurrentDevice)}
                       </Button>
                     ) : null}
@@ -3962,6 +3962,7 @@ function ProfilePageContent({
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
                 icon={KeyRound}
+                iconTone="blue"
                 title="Unlock vault"
                 description="Change methods or passphrase."
                 chevron
@@ -3972,6 +3973,7 @@ function ProfilePageContent({
             {vaultAccess.canMutateSecureData && recommendedQuickMethod ? (
               <SettingsRow
                 icon={Fingerprint}
+                iconTone="purple"
                 title={
                   enrolledPasskeyWrappers.length > 0
                     ? `Add another ${readableQuickMethod(recommendedQuickMethod)}`
@@ -3997,6 +3999,7 @@ function ProfilePageContent({
                 <SettingsRow
                   key={vaultWrapperKey(wrapper)}
                   icon={Fingerprint}
+                  iconTone="purple"
                   title={
                     enrolledPasskeyWrappers.length > 1
                       ? `Passkey ${index + 1}`
@@ -4005,7 +4008,7 @@ function ProfilePageContent({
                   description={describePasskeyWrapper(wrapper)}
                   trailing={
                     vaultAccess.canMutateSecureData ? (
-                      <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                      <div className={VAULT_INLINE_ACTIONS_CLASS}>
                         {isPrimary ? (
                           <Badge
                             variant="secondary"
@@ -4058,6 +4061,7 @@ function ProfilePageContent({
             {vaultMethod ? (
               <SettingsRow
                 icon={RefreshCw}
+                iconTone="orange"
                 title="Change passphrase"
                 description="Update vault protection."
                 disabled={switchingVaultMethod}
@@ -4068,10 +4072,11 @@ function ProfilePageContent({
 
             <SettingsRow
               icon={KeyRound}
+              iconTone="indigo"
               title="BYOK and passkeys"
               description="Additional key methods are being verified."
               disabled
-              trailing={<VaultComingSoonLogos />}
+              trailing={<VaultComingSoonBadge />}
               stackTrailingOnMobile
             />
           </>
@@ -4251,7 +4256,6 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
-      description: "Mail, phone, and sign-in.",
       content: accountContent,
       presentation: "account",
     });
@@ -4455,7 +4459,6 @@ function ProfilePageContent({
       profileStackEntries.push({
         key: "detail:vault",
         title: "Vault methods",
-        description: "Unlock methods.",
         content: vaultMethodsContent,
       });
     } else if (activeDetail === "session") {
@@ -4558,26 +4561,23 @@ function ProfilePageContent({
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={AccountProfileIcon}
-                iconTone="capability"
+                iconTone="blue"
                 title={PROFILE_LABELS.account}
                 chevron
-                density="compact"
                 onClick={openAccountPanel}
               />
               <SettingsRow
                 icon={PreferencesProfileIcon}
-                iconTone="capability"
+                iconTone="purple"
                 title={PROFILE_LABELS.preferences}
                 chevron
-                density="compact"
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
                 icon={SecurityProfileIcon}
-                iconTone="capability"
+                iconTone="green"
                 title={PROFILE_LABELS.security}
                 chevron
-                density="compact"
                 voiceControlId="profile_security"
                 voiceActionId="route.profile_security_panel"
                 voiceLabel={PROFILE_LABELS.security}
@@ -4586,10 +4586,9 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={DevicesProfileIcon}
-                iconTone="capability"
+                iconTone="indigo"
                 title="Trusted devices"
                 chevron
-                density="compact"
                 onClick={() =>
                   openVaultBackedPanel("security", "trusted-devices")
                 }
@@ -4604,11 +4603,10 @@ function ProfilePageContent({
                 onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
-                icon={RiaAgentIcon}
-                iconTone="capability"
+                icon={InviteFriendsProfileIcon}
+                iconTone="purple"
                 title={PROFILE_LABELS.referrals}
                 chevron
-                density="compact"
                 voiceControlId="profile_referrals"
                 voiceActionId="route.profile_referrals_panel"
                 voiceLabel={PROFILE_LABELS.referrals}
@@ -4622,10 +4620,9 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={SupportProfileIcon}
-                iconTone="capability"
+                iconTone="blue"
                 title={PROFILE_LABELS.support}
                 chevron
-                density="compact"
                 onClick={() =>
                   updateProfileView({ panel: "support", detail: null }, "push")
                 }
@@ -4633,11 +4630,10 @@ function ProfilePageContent({
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={DeveloperToolsProfileIcon}
-                  iconTone="capability"
+                  iconTone="orange"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
-                  density="compact"
                   onClick={() => router.push("/one/profile/pkm-agent-lab")}
                 />
               ) : null}
@@ -4646,11 +4642,10 @@ function ProfilePageContent({
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
                 icon={SignOutProfileIcon}
-                iconTone="capability"
+                iconTone="red"
                 title="Sign out"
                 tone="destructive"
                 chevron
-                density="compact"
                 onClick={() => void handleSignOut()}
               />
             </SettingsGroup>

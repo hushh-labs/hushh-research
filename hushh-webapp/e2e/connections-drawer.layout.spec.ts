@@ -48,6 +48,7 @@ test.beforeAll(async () => {
           "@/lib/connections/custom-connector-configuration",
           "next/navigation",
         ].map((find) => ({
+          // Vite string aliases match subpaths; every boundary mock is exact.
           find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
           replacement: path.join(
             root,

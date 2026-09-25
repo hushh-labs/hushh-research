@@ -71,6 +71,7 @@ import type { RouteId } from "@/lib/observability/route-map";
 import {
   OneLocationContactSyncError,
   describeContactSyncOutcome,
+  describeContactSyncToast,
   openContactPermissionSettings,
   syncOneLocationContactSignals,
   type OneLocationContactSignalResult,
@@ -727,6 +728,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       // Picker and iOS limited access both return only a hand-picked subset,
       // so "3 people added" would claim the whole address book was searched.
       const outcome = describeContactSyncOutcome(syncResult);
+      const toastOutcome = describeContactSyncToast(syncResult);
       const remedyAction = ((): {
         label: string;
         onClick: () => void;
@@ -766,13 +768,17 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         }
       })();
       const outcomeOptions = {
-        description: outcome.description,
+        description: toastOutcome.description,
+        classNames: {
+          title: "line-clamp-1",
+          description: "line-clamp-1",
+        },
         ...(remedyAction ? { action: remedyAction } : {}),
       };
       if (syncResult.matchedUserIds.length > 0) {
-        toast.success(outcome.title, outcomeOptions);
+        toast.success(toastOutcome.title, outcomeOptions);
       } else {
-        toast.info(outcome.title, outcomeOptions);
+        toast.info(toastOutcome.title, outcomeOptions);
       }
     } catch (error) {
       const failure =

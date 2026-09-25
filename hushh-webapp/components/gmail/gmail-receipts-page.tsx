@@ -10,7 +10,6 @@ import {
   Mail,
   PenLine,
   RefreshCw,
-  ShieldCheck,
   ShoppingBag,
   Trash2,
 } from "@/components/icons";
@@ -97,11 +96,13 @@ const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   clearGmailOAuthPopupAttempt,
+  consumeStoredGmailOAuthPopupSettlement,
   createGmailOAuthPopupAttempt,
   getGmailOAuthPopupSessionStorage,
   isGmailOAuthPopupSettlement,
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
+  persistGmailOAuthPopupAttempt,
   readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
@@ -438,6 +439,8 @@ export default function GmailReceiptsPage({
   const settledGmailPopupAttemptRef = useRef<string | null>(null);
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
+  const gmailOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  gmailOwnerIdRef.current = user?.uid ?? null;
   const resolvedInitialWorkspace =
     journeyVariant === "onboarding"
       ? "receipts"
@@ -701,6 +704,25 @@ export default function GmailReceiptsPage({
   useEffect(() => {
     if (!gmailPopupAttempt || !user?.uid) return;
     const attempt = gmailPopupAttempt;
+    const isAttemptOwnerCurrent = () =>
+      gmailOwnerIdRef.current === attempt.ownerId;
+    const statusSatisfiesAttemptPurpose = (
+      status: Awaited<ReturnType<typeof refreshGmailStatus>> | null,
+    ) =>
+      Boolean(
+        status?.connected &&
+          (attempt.purpose !== "send" ||
+            status.send_permission_granted === true),
+      );
+
+    if (!isAttemptOwnerCurrent()) {
+      gmailPopupRef.current?.close();
+      clearGmailOAuthPopupAttempt();
+      gmailPopupRef.current = null;
+      setGmailPopupAttempt(null);
+      setGmailActionBusy((current) => (current === "connect" ? null : current));
+      return;
+    }
 
     const clearAttempt = () => {
       clearGmailOAuthPopupAttempt();
@@ -711,15 +733,35 @@ export default function GmailReceiptsPage({
       setGmailActionBusy((current) => (current === "connect" ? null : current));
     };
 
-    const settleClosedPopup = async (message?: string) => {
+    const settleClosedPopup = async (
+      message?: string,
+      failureCode = "USER_CANCELLED",
+    ) => {
       const intent = readOnboardingConnectorIntent();
+      const callbackSettlement = consumeStoredGmailOAuthPopupSettlement(
+        attempt.attemptId,
+      );
+      if (!isAttemptOwnerCurrent()) return;
+      if (callbackSettlement && callbackSettlement.outcome !== "succeeded") {
+        settledGmailPopupAttemptRef.current = attempt.attemptId;
+        clearOnboardingConnectorIntent();
+        toast.error(
+          callbackSettlement.message ||
+            (callbackSettlement.outcome === "cancelled"
+              ? "Mail connection was cancelled."
+              : "Mail connection could not be completed."),
+        );
+        return;
+      }
       const status = await refreshGmailStatus({
         force: true,
         reconcile: false,
       }).catch(() => null);
+      if (!isAttemptOwnerCurrent()) return;
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       }).catch(() => null);
+      if (!isAttemptOwnerCurrent()) return;
       const matchesPendingSetupAttempt = Boolean(
         intent &&
         journey &&
@@ -734,15 +776,23 @@ export default function GmailReceiptsPage({
           userId: user.uid,
           phase: "capability_setup",
           activeCapability: "gmail",
-          callbackState: status?.connected ? "succeeded" : "cancelled",
+          callbackState: statusSatisfiesAttemptPurpose(status)
+            ? "succeeded"
+            : "cancelled",
           expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
           expectedCallbackAttemptId: intent.correlationId,
         }).catch(() => undefined);
       }
       clearOnboardingConnectorIntent();
-      if (status?.connected) {
+      const statusSatisfiesPurpose = statusSatisfiesAttemptPurpose(status);
+      if (statusSatisfiesPurpose) {
         toast.success("Mail connected. You can finish setup when ready.");
       } else {
+        if (!callbackSettlement) {
+          GmailReceiptsService.recordConsentFailure({
+            code: failureCode,
+          }, user.uid);
+        }
         toast.message(
           message ||
             "The Mail window closed. You can try again whenever you are ready.",
@@ -755,6 +805,8 @@ export default function GmailReceiptsPage({
       message?: string;
     }) => {
       if (settledGmailPopupAttemptRef.current === attempt.attemptId) return;
+      if (!isAttemptOwnerCurrent()) return;
+      consumeStoredGmailOAuthPopupSettlement(attempt.attemptId);
       settledGmailPopupAttemptRef.current = attempt.attemptId;
       const intent = readOnboardingConnectorIntent();
       clearAttempt();
@@ -764,11 +816,13 @@ export default function GmailReceiptsPage({
             force: true,
             reconcile: false,
           });
+          if (!isAttemptOwnerCurrent()) return;
           if (journeyVariant === "onboarding" && intent) {
             const journey = await PreVaultUserStateService.bootstrapState(
               user.uid,
               { force: true },
             ).catch(() => null);
+            if (!isAttemptOwnerCurrent()) return;
             const matchesPendingSetupAttempt = Boolean(
               journey &&
               !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -782,14 +836,16 @@ export default function GmailReceiptsPage({
                 userId: user.uid,
                 phase: "capability_setup",
                 activeCapability: "gmail",
-                callbackState: status?.connected ? "succeeded" : "cancelled",
+                callbackState: statusSatisfiesAttemptPurpose(status)
+                  ? "succeeded"
+                  : "cancelled",
                 expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
                 expectedCallbackAttemptId: intent.correlationId,
               }).catch(() => undefined);
             }
           }
           clearOnboardingConnectorIntent();
-          if (status?.connected) {
+          if (statusSatisfiesAttemptPurpose(status)) {
             toast.success("Mail connected. You can finish setup when ready.");
           } else {
             toast.error(
@@ -839,6 +895,7 @@ export default function GmailReceiptsPage({
       clearAttempt();
       void settleClosedPopup(
         "Mail is taking longer than expected. Check your connection and try again.",
+        "POPUP_TIMEOUT",
       );
     }, 500);
 
@@ -878,6 +935,7 @@ export default function GmailReceiptsPage({
           const idToken = await user.getIdToken();
           const nativeStart = await GmailReceiptsService.startNativeConnect({
             idToken,
+            userId: user.uid,
             purpose,
           });
           if (!nativeStart.configured || !nativeStart.server_client_id) {
@@ -886,20 +944,29 @@ export default function GmailReceiptsPage({
             );
           }
 
-          const { serverAuthCode } = await HushhAuth.connectGmail({
-            serverClientId: nativeStart.server_client_id,
-            purpose: nativeStart.purpose,
-          });
+          let serverAuthCode: string;
+          try {
+            ({ serverAuthCode } = await HushhAuth.connectGmail({
+              serverClientId: nativeStart.server_client_id,
+              purpose: nativeStart.purpose,
+            }));
+          } catch (error) {
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
+          }
           if (!serverAuthCode?.trim()) {
-            throw new Error(
+            const error = new Error(
               "Google did not return a Mail authorization code.",
             );
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            throw error;
           }
 
           await GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
             serverAuthCode,
+            purpose,
           });
           await refreshGmailStatus({ force: true });
 
@@ -936,11 +1003,16 @@ export default function GmailReceiptsPage({
       })();
     }
 
-    const attempt = createGmailOAuthPopupAttempt();
+    const attempt = createGmailOAuthPopupAttempt(user.uid, purpose);
     const popup = openGmailOAuthPopup(attempt);
     if (popup) {
       gmailPopupRef.current = popup;
       setGmailPopupAttempt(attempt);
+    } else if (!persistGmailOAuthPopupAttempt(window, attempt)) {
+      toast.error(
+        "Mail sign-in could not be started safely. Please allow popups or try again.",
+      );
+      return Promise.resolve(false);
     }
 
     setGmailActionBusy("connect");
@@ -2001,27 +2073,27 @@ export default function GmailReceiptsPage({
               journeyVariant === "workspace" &&
               workspace === "overview" &&
               !loadingStatus ? (
-                <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                  <Button
-                    type="button"
-                    variant="muted"
-                    onClick={() => void handleConnectGmail()}
-                    disabled={gmailActionBusy !== null}
-                    className="w-full sm:w-auto"
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Reconnect Mail
-                  </Button>
+                <div className="flex w-full flex-row items-center gap-2 flex-nowrap pt-2">
                   <Button
                     type="button"
                     variant="destructive"
                     effect="fade"
                     onClick={() => setShowDisconnectConfirm(true)}
                     disabled={gmailActionBusy !== null}
-                    className="w-full sm:w-auto"
+                    className="flex-1 min-w-0 px-2 sm:px-4"
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Disconnect Mail
+                    <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
+                    <span className="truncate">Disconnect Mail</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="muted"
+                    onClick={() => void handleConnectGmail()}
+                    disabled={gmailActionBusy !== null}
+                    className="flex-1 min-w-0 px-2 sm:px-4"
+                  >
+                    <RefreshCw className="mr-1.5 h-4 w-4 shrink-0" />
+                    <span className="truncate">Reconnect Mail</span>
                   </Button>
                 </div>
               ) : null}
@@ -2054,78 +2126,26 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
+            <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-indigo-500/10 p-2 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0">
-                  <PenLine className="h-4.5 w-4.5" />
+                <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0 mt-0.5">
+                  <PenLine className="h-5 w-5" />
                 </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">Draft with One</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground">Draft with One</h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
                     Draft, reply, or follow up with One. Nothing sends without your approval.
                   </p>
                 </div>
               </div>
-              <div className="flex justify-start w-full">
+              <div className="flex justify-center w-full pt-1">
                 <AskOneButton
                   onClick={handleOpenOneChat}
                   showIcon={false}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
+                  className="w-40 h-10 justify-center text-sm font-semibold rounded-full"
                 >
                   Chat with One
                 </AskOneButton>
-              </div>
-            </SurfaceInset>
-          ) : null}
-
-          {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400 shrink-0">
-                  <ShieldCheck className="h-4.5 w-4.5" />
-                </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">KYC requests</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Store KYC details privately and review auto-generated replies.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-start w-full">
-                <Button
-                  type="button"
-                  variant="muted"
-                  onClick={() => setWorkspace("kyc")}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
-                >
-                  Open KYC
-                </Button>
-              </div>
-            </SurfaceInset>
-          ) : null}
-
-          {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
-                  <ShoppingBag className="h-4.5 w-4.5" />
-                </div>
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">Receipts</p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Sync purchase emails and keep order insights private.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-start w-full">
-                <Button
-                  type="button"
-                  variant="muted"
-                  onClick={() => setWorkspace("receipts")}
-                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
-                >
-                  Open receipts
-                </Button>
               </div>
             </SurfaceInset>
           ) : null}

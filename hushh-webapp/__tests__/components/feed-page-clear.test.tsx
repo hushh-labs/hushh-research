@@ -128,6 +128,12 @@ vi.mock("@/components/feed/feed-row", async (importOriginal) => {
   };
 });
 
+// The push prompt reads the app-wide notification provider; this suite only
+// covers clearing, and feed-push-prompt.test.tsx owns the prompt.
+vi.mock("@/components/feed/feed-push-prompt", () => ({
+  FeedPushPrompt: () => null,
+}));
+
 vi.mock("@/components/feed/feed-actionable-row", () => ({
   FeedActionableRow: () => null,
 }));
@@ -387,6 +393,16 @@ describe("Feed history interactions", () => {
 
     expect(screen.getByText("row-6")).toBeInTheDocument();
     expect(screen.queryByText("row-5")).toBeNull();
+  });
+
+  it("keeps the clear action compact on phone and desktop layouts", async () => {
+    await renderAfterAutomaticRead();
+
+    const clearButton = screen.getByRole("button", {
+      name: "Clear feed notifications on this device",
+    });
+    expect(clearButton).toHaveClass("w-auto", "max-w-full", "px-4");
+    expect(clearButton).not.toHaveClass("w-full");
   });
 
   it("does not dismiss revoked SOS cards or persist a watermark when mark-read fails", async () => {

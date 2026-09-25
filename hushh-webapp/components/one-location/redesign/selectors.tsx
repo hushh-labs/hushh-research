@@ -68,6 +68,7 @@ export function DurationSelector({
   maxWidthClassName = "max-w-[420px]",
   activeClassName,
   rungs,
+  disabled = false,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -123,6 +124,8 @@ export function DurationSelector({
   activeClassName?: string;
   /** Presets used by the visible ladder presentation. */
   rungs?: DurationRung[];
+  /** Prevent changes while the owning flow is committing its current value. */
+  disabled?: boolean;
 }) {
   const labelId = useId();
 
@@ -176,7 +179,7 @@ export function DurationSelector({
           {...(untilStopValue ? { untilStopValue } : {})}
         />
       ) : presentation === "select" ? (
-        <Select value={value} onValueChange={onChange}>
+        <Select value={value} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}

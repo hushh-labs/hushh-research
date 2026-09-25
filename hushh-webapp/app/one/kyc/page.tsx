@@ -386,6 +386,27 @@ export function OneKycWorkspace({
   voicePublisherRole?: VoiceSurfacePublisherRole;
 }) {
   const auth = useRequireAuth();
+  const activeOwnerIdRef = useRef<string | null>(auth.userId);
+  activeOwnerIdRef.current = auth.userId;
+  useEffect(() => {
+    activeOwnerIdRef.current = auth.userId;
+    return () => {
+      if (activeOwnerIdRef.current === auth.userId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [auth.userId]);
+  const trackKycOutcome = useCallback(
+    (
+      ownerId: string | null,
+      action: "redraft_completed" | "reply_sent" | "reply_rejected" | "workflow_refreshed" | "access_approved" | "access_denied",
+      result: "success" | "expected_error" | "error",
+    ) => {
+      if (!ownerId || activeOwnerIdRef.current !== ownerId) return;
+      trackEvent("one_kyc_action", { route_id: "one_kyc", action, result });
+    },
+    [],
+  );
   const isPrivateRelay = isApplePrivateRelayEmail(auth.user?.email);
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
@@ -1172,6 +1193,7 @@ export function OneKycWorkspace({
       workflow: OneKycWorkflow,
     ) => {
       if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
+      const operationOwnerId = auth.userId;
       if (action === "redraft" && !redraftInstructions.trim()) {
         setError(
           "Add redraft instructions before asking One to revise this draft.",
@@ -1185,6 +1207,7 @@ export function OneKycWorkspace({
       }
       setBusy(action);
       setError(null);
+      let recordedSuccessAction: "reply_sent" | "reply_rejected" | "workflow_refreshed" | null = null;
       try {
         const input = {
           userId: auth.userId,
@@ -1205,10 +1228,11 @@ export function OneKycWorkspace({
               input,
             });
             if (!result.ok) {
+              trackKycOutcome(operationOwnerId, "redraft_completed", "expected_error");
               setError("Redraft failed — please try again.");
               return;
             }
-            trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "success" });
+            trackKycOutcome(operationOwnerId, "redraft_completed", "success");
             setLocalDrafts((current) => ({
               ...current,
               [workflow.workflow_id]: result.draft,
@@ -1216,6 +1240,7 @@ export function OneKycWorkspace({
             setRedraftInstructions("");
             toast.success("Draft revised.");
           } catch (err) {
+            trackKycOutcome(operationOwnerId, "redraft_completed", "error");
             setError(
               oneKycErrorMessage(err, "Redraft failed — please try again."),
             );
@@ -1293,7 +1318,8 @@ export function OneKycWorkspace({
                     : null,
             pkmWritebackArtifactHash: artifactHash,
           });
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_sent", result: "success" });
+          trackKycOutcome(operationOwnerId, "reply_sent", "success");
+          recordedSuccessAction = "reply_sent";
 
           let writeback;
           try {
@@ -1346,14 +1372,32 @@ export function OneKycWorkspace({
             ...input,
             reason: "Rejected from KYC.",
           });
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_rejected", result: "success" });
+          trackKycOutcome(operationOwnerId, "reply_rejected", "success");
+          recordedSuccessAction = "reply_rejected";
         } else {
           next = await refreshWorkflowState(workflow);
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "workflow_refreshed", result: "success" });
+          trackKycOutcome(operationOwnerId, "workflow_refreshed", "success");
+          recordedSuccessAction = "workflow_refreshed";
         }
         updateWorkflow(next);
       } catch (err) {
-        setError(oneKycErrorMessage(err, "KYC action failed."));
+        const failedAction =
+          action === "approve"
+            ? "reply_sent"
+            : action === "reject"
+              ? "reply_rejected"
+              : "workflow_refreshed";
+        if (recordedSuccessAction !== failedAction) {
+          trackKycOutcome(operationOwnerId, failedAction, "error");
+        }
+        setError(
+          recordedSuccessAction === "reply_sent"
+            ? oneKycErrorMessage(
+                err,
+                "Approved reply sent, but the encrypted PKM status could not be updated.",
+              )
+            : oneKycErrorMessage(err, "KYC action failed."),
+        );
       } finally {
         setBusy(null);
       }
@@ -1366,6 +1410,7 @@ export function OneKycWorkspace({
       localExportPayloads,
       redraftInstructions,
       refreshWorkflowState,
+      trackKycOutcome,
       updateWorkflow,
       vaultKey,
       vaultOwnerToken,
@@ -1395,6 +1440,7 @@ export function OneKycWorkspace({
         };
       }
       const localDraft = localDrafts[selected.workflow_id];
+      const operationOwnerId = auth.userId;
       const exportPayloads = localExportPayloads[selected.workflow_id] ?? [];
       if (!localDraft || exportPayloads.length === 0) {
         return {
@@ -1417,6 +1463,7 @@ export function OneKycWorkspace({
           },
         });
         if (!result.ok) {
+          trackKycOutcome(operationOwnerId, "redraft_completed", "expected_error");
           return {
             status: "failed" as const,
             summary: "Redraft failed. Try again.",
@@ -1427,12 +1474,14 @@ export function OneKycWorkspace({
           [selected.workflow_id]: result.draft,
         }));
         setRedraftInstructions("");
+        trackKycOutcome(operationOwnerId, "redraft_completed", "success");
         toast.success("Draft revised.");
         return {
           status: "succeeded" as const,
           summary: "The current response draft was revised for review.",
         };
       } catch (err) {
+        trackKycOutcome(operationOwnerId, "redraft_completed", "error");
         const message = oneKycErrorMessage(err, "Redraft failed. Try again.");
         setError(message);
         return { status: "failed" as const, summary: message };
@@ -1446,6 +1495,7 @@ export function OneKycWorkspace({
       localExportPayloads,
       selected,
       selectedCanReviewDraft,
+      trackKycOutcome,
       vaultKey,
       vaultOwnerToken,
     ],
@@ -1524,8 +1574,10 @@ export function OneKycWorkspace({
 
   const approveWorkflowConsent = useCallback(
     async (workflow: OneKycWorkflow) => {
+      const operationOwnerId = auth.userId;
       setBusy("consent-approve");
       setError(null);
+      let mutationConfirmed = false;
       try {
         const withRequests = await ensureConsentRequestsForWorkflow(workflow);
         if (
@@ -1556,13 +1608,15 @@ export function OneKycWorkspace({
             duration: 3000,
           });
           await promise;
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
+          trackKycOutcome(operationOwnerId, "access_approved", "success");
+          mutationConfirmed = true;
         } else {
           await handleApproveBundle(consents, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
+          trackKycOutcome(operationOwnerId, "access_approved", "success");
+          mutationConfirmed = true;
         }
         const refreshed = await refreshWorkflowState(withRequests);
         if (refreshed.status === "waiting_on_user") {
@@ -1573,27 +1627,39 @@ export function OneKycWorkspace({
           );
         }
       } catch (err) {
-        setError(oneKycErrorMessage(err, "Unable to approve access."));
+        if (mutationConfirmed) {
+          setError("Access was approved, but the latest workflow status could not refresh. Refresh to continue.");
+        } else {
+          trackKycOutcome(operationOwnerId, "access_approved", "error");
+          setError(oneKycErrorMessage(err, "Unable to approve access."));
+        }
       } finally {
         setBusy(null);
       }
     },
     [
+      auth.userId,
       ensureConsentRequestsForWorkflow,
       handleApprove,
       handleApproveBundle,
       loadPendingConsentsForWorkflow,
       refreshWorkflowState,
+      trackKycOutcome,
     ],
   );
 
   const denyWorkflowConsent = useCallback(
     async (workflow: OneKycWorkflow) => {
+      const operationOwnerId = auth.userId;
       setBusy("consent-deny");
       setError(null);
+      let mutationConfirmed = false;
       try {
         const withRequests = await ensureConsentRequestsForWorkflow(workflow);
         const requestIds = workflowConsentRequestIds(withRequests);
+        if (requestIds.length === 0) {
+          throw new Error("No access request is ready for this request yet.");
+        }
         if (requestIds.length === 1) {
           const requestId = requestIds[0];
           if (!requestId) {
@@ -1608,26 +1674,35 @@ export function OneKycWorkspace({
             duration: 3000,
           });
           await promise;
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
+          trackKycOutcome(operationOwnerId, "access_denied", "success");
+          mutationConfirmed = true;
         } else {
           await handleDenyBundle(requestIds, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
-          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
+          trackKycOutcome(operationOwnerId, "access_denied", "success");
+          mutationConfirmed = true;
         }
         await refreshWorkflowState(withRequests);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to deny access.");
+        if (mutationConfirmed) {
+          setError("Access was denied, but the latest workflow status could not refresh. Refresh to continue.");
+        } else {
+          trackKycOutcome(operationOwnerId, "access_denied", "error");
+          setError(err instanceof Error ? err.message : "Unable to deny access.");
+        }
       } finally {
         setBusy(null);
       }
     },
     [
+      auth.userId,
       ensureConsentRequestsForWorkflow,
       handleDeny,
       handleDenyBundle,
       refreshWorkflowState,
+      trackKycOutcome,
     ],
   );
 

@@ -3175,7 +3175,7 @@ export function ConsentCenterPage() {
               : "Consent details"
           }
           description={
-            isQuerySelection ? "A question about Google Drive." : isDocumentSelection ? "Review files and recorded Google Drive access." : selectedEntry
+            isQuerySelection ? "A question about Google Drive." : isDocumentSelection ? "Google Drive" : selectedEntry
               ? selectedEntry.kind === "active_grant"
                 ? "Active access"
                 : selectedEntry.kind === "history"
@@ -3189,6 +3189,12 @@ export function ConsentCenterPage() {
           }
           mobilePresentation="sheet"
           showCloseButton={false}
+          // Grouped background: the request's actionable sections read as cards.
+          bodyClassName={
+            isDocumentSelection
+              ? "bg-[color:var(--app-grouped-background)]"
+              : undefined
+          }
         >
           {!isDocumentSelection && !isQuerySelection && notificationAction && selectedEntry?.status === "pending" ? (
             <div
@@ -3206,7 +3212,7 @@ export function ConsentCenterPage() {
             selectedQueryRequestId ? <DriveQueryRequestCard requestId={selectedQueryRequestId} direction={selectedQueryDirection} />
               : <SettingsRow title="Invalid Drive question" description="Open this question from the list again." />
           ) : isDocumentSelection ? (
-            selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} />
+            selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} surface="sheet" />
               : <SettingsRow title="Invalid document request" description="Open this request from the list again." />
           ) : selectedId && !selectedEntry ? (
             <SettingsGroup

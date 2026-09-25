@@ -72,4 +72,18 @@ describe("recursive Profile pane contracts", () => {
       expect(source, file).not.toMatch(/event\.preventDefault\(\)/);
     }
   });
+
+  it("preserves the revamped Profile type and semantic capability icons", () => {
+    const pane = read("components/app-ui/profile-pane.tsx");
+    const workspace = read("components/profile/profile-workspace-page.tsx");
+    const css = read("app/globals.css");
+
+    expect(pane).toContain("font-[family-name:var(--font-app-display)]");
+    expect(pane).toContain("font-[family-name:var(--font-app-body)]");
+    expect(workspace).toContain("InviteFriendsProfileIcon");
+    expect(css).toContain(':not([data-icon-tone="capability"]):not(');
+    expect(css).toContain(
+      '.profile-home-content [data-icon-tone="capability"] svg',
+    );
+  });
 });

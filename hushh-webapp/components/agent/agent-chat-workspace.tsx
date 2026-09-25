@@ -117,6 +117,7 @@ import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
+  PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
@@ -125,6 +126,7 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
 import {
   parseAgentActivityExperience,
+  personSelectionPrompt,
   type AgentStructuredExperience,
   type AgentStructuredExperienceWithPresentation,
 } from "@/lib/agent/agui-structured-experiences";
@@ -152,7 +154,11 @@ import {
   warmAgentPkmContext,
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
-import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import {
+  ingestNaturalLanguagePkm,
+  isExplicitKycIdentitySaveRequest,
+  prepareNaturalLanguagePkm,
+} from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
@@ -201,6 +207,10 @@ import { runConnectedSystemDirective } from "@/lib/agent/connected-system-direct
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
+import {
+  createGoogleOAuthPopupAttempt,
+  persistGoogleOAuthSameWindowAttempt,
+} from "@/lib/google/google-oauth-popup";
 import {
   runLocationDirective,
   type DelegateResult,
@@ -261,9 +271,10 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
-import type {
-  EmailDeliveryError,
-  EmailDraft,
+import {
+  EmailDeliveryService,
+  type EmailDeliveryError,
+  type EmailDraft,
 } from "@/lib/services/email-delivery-service";
 import {
   GmailInformationRequestsService,
@@ -392,6 +403,7 @@ type AgentRunTurnOptions = {
   source: AgentTurnSource;
   personSelectionHandle?: string;
   gmailInformationRequestWorkflowId?: string;
+  kycInformationSaveConfirmed?: boolean;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
   deferPkmContext?: boolean;
@@ -510,14 +522,6 @@ export function getGmailInformationRequestReplyPayload(
   if (!event || event.raw.toolName !== "open_gmail_information_request_reply") return null;
   const body = typeof event.slots.body === "string" ? event.slots.body.trim() : "";
   return body && body.length <= 12_000 ? { body } : null;
-}
-
-/** Metadata-only context for a Gmail KYC handoff. Gmail content never enters chat. */
-function gmailKycRequestSummary(request: GmailInformationRequestHandoff): string {
-  const labels = request.requested_field_labels
-    .map((label) => label.trim())
-    .filter(Boolean);
-  return labels.length ? labels.join(", ") : "KYC details";
 }
 
 export function getCalendarDirectiveFromToolEvent(
@@ -1949,6 +1953,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
+  const renderedWorkspaceOwnerId = user?.uid ?? null;
+  const workspaceOwnerIdRef = useRef<string | null>(renderedWorkspaceOwnerId);
+  workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
+  useEffect(() => {
+    workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
+    return () => {
+      if (workspaceOwnerIdRef.current === renderedWorkspaceOwnerId) {
+        workspaceOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedWorkspaceOwnerId]);
   const {
     isVaultUnlocked,
     vaultKey,
@@ -2183,6 +2198,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >(null);
   const [gmailKycEmailDraftWorkflowId, setGmailKycEmailDraftWorkflowId] =
     useState<string | null>(null);
+  const [gmailKycEmailDraftEnvelope, setGmailKycEmailDraftEnvelope] = useState<
+    { to: string; subject: string } | null
+  >(null);
   const runAgentTurnRef = useRef<(
     text: string,
     options: AgentRunTurnOptions,
@@ -3095,6 +3113,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
+    setGmailKycEmailDraftEnvelope(null);
     setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
@@ -3132,6 +3151,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
+    setGmailKycEmailDraftEnvelope(null);
   };
 
   const loadGmailInformationRequestPreview = useCallback(
@@ -3148,6 +3168,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [getVaultOwnerToken, user],
   );
+
+  useEffect(() => {
+    const workflowId = gmailKycEmailDraftWorkflowId;
+    if (!emailDraftOpen || !workflowId) {
+      setGmailKycEmailDraftEnvelope(null);
+      return;
+    }
+    let active = true;
+    void loadGmailInformationRequestPreview(workflowId)
+      .then((source) => {
+        if (!active) return;
+        const subject = source.subject.trim();
+        setGmailKycEmailDraftEnvelope({
+          to: source.reply_to?.trim() || source.from.trim(),
+          subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
+        });
+      })
+      .catch(() => {
+        if (active) setGmailKycEmailDraftEnvelope(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [emailDraftOpen, gmailKycEmailDraftWorkflowId, loadGmailInformationRequestPreview]);
 
   const handleEmailSendStarted = (draft: EmailDraft): string => {
     const id = `email-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -3231,6 +3275,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           bcc: "",
           subject: "",
           body: sourceBoundReply.body,
+          sourceWorkflowId: gmailKycEmailDraftWorkflowId ?? undefined,
         });
         setEmailDraftAutoDraft(false);
         setEmailDraftAnchorMessageId(assistantMessageId);
@@ -3257,7 +3302,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setEmailDraftOpen(true);
       return true;
     },
-    [hasChatAccess, router, user],
+    [gmailKycEmailDraftWorkflowId, hasChatAccess, router, user],
   );
 
   const upsertMessageStreamEvent = (
@@ -4142,13 +4187,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       assistantMessageId: string;
       sourceMessage: string;
       currentDomains: string[];
+      kycInformationSaveConfirmed?: boolean;
     }): Promise<AgentPkmCaptureStatus> => {
       // Private source text is used only in this transient deduplication key.
       const jobKey = JSON.stringify([params.assistantMessageId, params.sourceMessage]);
       const existing = pkmCaptureJobsRef.current.get(jobKey);
       if (existing) return existing;
       const token = getVaultOwnerToken();
-      if (!user?.uid || !vaultKey || !token || !pkmCaptureEnabledRef.current) {
+      const ownerConfirmedKycSave = params.kycInformationSaveConfirmed === true;
+      if (!user?.uid || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave)) {
         return Promise.resolve({ phase: "review", saved: 0 });
       }
       const userId = user.uid;
@@ -4156,8 +4203,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const controller = new AbortController();
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        isEnabled: () => pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
-          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
+        isEnabled: () => ownerConfirmedKycSave || (
+          pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
+          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)
+        ),
       });
       pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);
@@ -4178,6 +4227,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // Yield presentation without creating an untracked detached timer.
           await guard.assertCurrent();
           settle({ phase: "preparing", saved: 0 });
+          if (ownerConfirmedKycSave || isExplicitKycIdentitySaveRequest(params.sourceMessage)) {
+            // A typed reply to an owner-selected KYC request is an explicit
+            // confirmation for the fixed, restricted KYC schema. The Gmail
+            // email never enters this writer; only the owner's message does.
+            const ingestion = await ingestNaturalLanguagePkm({
+              userId,
+              message: params.sourceMessage,
+              currentDomains: params.currentDomains,
+              vaultKey,
+              vaultOwnerToken: token,
+              source: "agent_chat_kyc_owner_confirmed",
+              memoryProfile: "kyc_identity_v1",
+              confirmation: {
+                confirmedByUser: true,
+                surface: "chat",
+                source: "agent_chat_kyc_owner_confirmed",
+              },
+              writePolicy: "reviewable",
+              batchSimpleDomainExtensions: true,
+            });
+            await guard.assertCurrent();
+            appendDebugEvent(params.turnId, "pkm_kyc_save_result", {
+              saved: ingestion.save.saved,
+              failed: ingestion.save.failed,
+            });
+            return settle({
+              phase: ingestion.save.saved > 0
+                ? (ingestion.save.failed ? "partial" : "saved")
+                : "failed",
+              saved: ingestion.save.saved,
+            });
+          }
           const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
           await guard.assertCurrent();
           const prepared = await prepareNaturalLanguagePkm({
@@ -4697,6 +4778,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       text: "",
       timestamp,
       status: "streaming",
+      // A cold decrypted context read happens before the AG-UI request starts.
+      // Show that real local work immediately without exposing private facts.
+      ...(!options.deferPkmContext
+        ? {
+            streamEvents: [{
+              id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+              label: "Private memory",
+              message: "Preparing your private memory.",
+              status: "running" as const,
+              createdAtMs: Date.now(),
+            }],
+          }
+        : {}),
     };
 
     setMessages((current) => {
@@ -4859,6 +4953,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setIsChatLoading(false);
         setIsStreaming(false);
         return;
+      }
+
+      if (options.kycInformationSaveConfirmed) {
+        // Persist the owner's supplied KYC details before One reasons about
+        // the reply. Refreshing the decrypted context lets the same turn
+        // draft only after the encrypted write has actually completed.
+        pkmToolHandledFullTurn = true;
+        const capture = await captureEligiblePkmFactsInBackground({
+          turnId: debugTurnId,
+          assistantMessageId,
+          sourceMessage: text,
+          currentDomains: agentPkmContext.domains,
+          kycInformationSaveConfirmed: true,
+        });
+        if (capture.saved > 0) {
+          agentPkmContext = await loadAgentPkmContext({
+            userId,
+            vaultOwnerToken: token,
+            vaultKey,
+            message: text,
+            forceRefresh: true,
+            requireDecrypted: true,
+          });
+          turnPkmContext = agentPkmContext;
+        }
+        if (streamAbortController.signal.aborted) {
+          finishCanceledTurn();
+          return;
+        }
+      }
+
+      if (!options.deferPkmContext) {
+        upsertTurnStreamEvent({
+          id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+          label: "Private memory",
+          message: "Private memory ready.",
+          status: "done",
+          createdAtMs: Date.now(),
+        });
       }
 
       performance.mark("hushh:agent-chat:dispatch-start");
@@ -5554,6 +5687,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       text,
       createdAtMs: Date.now(),
       deferPkmContext: options.deferPkmContext,
+      gmailInformationRequestWorkflowId: gmailKycReplyRequest?.workflow_id,
+      kycInformationSaveConfirmed: Boolean(gmailKycReplyRequest?.workflow_id),
     };
     const operation: QueuedWorkspaceOperation = {
       id: prompt.id,
@@ -5564,6 +5699,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             source: "typed",
             personSelectionHandle,
             deferPkmContext: operation.prompt?.deferPkmContext,
+            gmailInformationRequestWorkflowId:
+              operation.prompt?.gmailInformationRequestWorkflowId,
+            kycInformationSaveConfirmed:
+              operation.prompt?.kycInformationSaveConfirmed,
           });
           return;
         }
@@ -5894,11 +6033,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSendStarted={handleEmailSendStarted}
           onSent={handleEmailSent}
           onSendFailed={handleEmailSendFailed}
-          sourceBoundContext={
-            gmailKycReplyRequest
-              ? `This request asks for: ${gmailKycRequestSummary(gmailKycReplyRequest)}.`
-              : undefined
-          }
+          sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
           sourceBoundReply={
             workflowId
               ? {
@@ -5912,21 +6047,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     if (!body) {
                       throw new Error("Write a reply before sending it.");
                     }
-                    const prepared = await GmailInformationRequestsService.prepareReply({
+                    const sourceBoundDraft = {
+                      ...draft,
+                      sourceWorkflowId: workflowId,
+                    };
+                    const prepared = await EmailDeliveryService.prepare({
                       firebaseIdToken,
                       vaultOwnerToken,
-                      workflowId,
-                      body,
-                      htmlBody: draft.htmlBody ?? draft.body,
+                      draft: {
+                        ...sourceBoundDraft,
+                        body,
+                        htmlBody: draft.htmlBody ?? draft.body,
+                      },
                       idempotencyKey,
                     });
-                    const sent = await GmailInformationRequestsService.sendReply({
+                    const sent = await EmailDeliveryService.send({
                       firebaseIdToken,
                       vaultOwnerToken,
-                      workflowId,
                       actionId: prepared.actionId,
-                      body,
-                      htmlBody: draft.htmlBody ?? draft.body,
+                      draft: {
+                        ...sourceBoundDraft,
+                        body,
+                        htmlBody: draft.htmlBody ?? draft.body,
+                      },
                     });
                     return { outcomeUnknown: sent.outcomeUnknown };
                   },
@@ -6102,7 +6245,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
       <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
-        ? (handle, name) => enqueuePrompt(`Check what I can ask ${name} for.`, handle)
+        ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
       <div
         className={cn(
@@ -7079,6 +7222,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           );
                           return;
                         }
+                        const operationOwnerId = user.uid;
                         setSpecialistBusy(true);
                         try {
                           const accessLevel =
@@ -7089,19 +7233,41 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           const start =
                             await GoogleCalendarService.startConnect({
                               idToken: await user.getIdToken(),
-                              userId: user.uid,
+                              userId: operationOwnerId,
                               accessLevel,
                             });
+                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
+                            return;
+                          }
+                          const attempt = createGoogleOAuthPopupAttempt(
+                            "calendar",
+                            { ownerId: operationOwnerId, accessLevel },
+                          );
+                          if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
+                            throw new Error(
+                              "Calendar sign-in could not be started safely. Please try again.",
+                            );
+                          }
                           setPendingSpecialistDirective(null);
                           window.location.assign(start.authorize_url);
                         } catch (error) {
+                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
+                            return;
+                          }
+                          trackEvent("one_calendar_action", {
+                            route_id: "one_calendar",
+                            action: "connected",
+                            result: "error",
+                          });
                           addErrorMessage(
                             error instanceof Error
                               ? error.message
                               : "Unable to request Google Calendar permission.",
                           );
                         } finally {
-                          setSpecialistBusy(false);
+                          if (workspaceOwnerIdRef.current === operationOwnerId) {
+                            setSpecialistBusy(false);
+                          }
                         }
                         return;
                       }

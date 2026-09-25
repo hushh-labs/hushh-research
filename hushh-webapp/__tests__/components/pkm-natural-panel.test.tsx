@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
@@ -8,11 +10,13 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 
-const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory } = vi.hoisted(() => ({
+const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory, trackEvent } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
   clearAgentPkmContext: vi.fn(),
   previewAgentPkmMemory: vi.fn(),
+  trackEvent: vi.fn(),
 }));
 
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
@@ -21,6 +25,8 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   getIgnoredPkmCards: () => [],
   previewAgentPkmMemory,
 }));
+
+vi.mock("@/lib/observability/client", () => ({ trackEvent }));
 
 const push = vi.fn();
 const getIdToken = vi.fn().mockResolvedValue("id-token");
@@ -200,6 +206,16 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       ],
     });
     addToPKM.mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["financial"], results: [] });
+  });
+
+  it("routes every Memory outcome through the initiating-owner guard", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/profile/pkm-natural-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("memoryOwnerIdRef.current !== ownerId");
+    expect(source).toContain("memoryOwnerIdRef.current = null");
+    expect(source.match(/trackEvent\("one_memory_action"/g)).toHaveLength(1);
   });
 
   // Home shows one "Recently learned" row into /one/pkm/recent; the memory
@@ -404,6 +420,51 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
+  it("keeps a confirmed memory write successful when only metadata refresh fails", async () => {
+    vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
+      const plan = await params.build({
+        currentDomainData: FULL_BLOB.financial,
+        currentManifest: null,
+        currentEncryptedDomain: null,
+        baseFullBlob: FULL_BLOB,
+        attempt: 1,
+        upgradedInSession: false,
+      });
+      return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
+    });
+
+    await openMainScreen("recent");
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
+    await screen.findByRole("heading", { name: "Risk Profile" });
+    await waitFor(() =>
+      expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled(),
+    );
+    vi.mocked(PersonalKnowledgeModelService.getMetadata).mockRejectedValueOnce(
+      new Error("refresh unavailable"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "New value for Risk Profile" }),
+      { target: { value: "growth" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+        route_id: "pkm",
+        action: "detail_edited",
+        result: "success",
+      }),
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "one_memory_action",
+      expect.objectContaining({ action: "detail_edited", result: "error" }),
+    );
+    expect((await screen.findAllByText(/latest summary could not refresh/i)).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+  });
+
   it("requires confirmation before forgetting and deletes the exact path", async () => {
     vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
       const plan = await params.build({
@@ -499,6 +560,53 @@ describe("PkmNaturalPanel — Memory redesign", () => {
           confirmation: expect.objectContaining({ confirmedByUser: true }),
         }),
       ),
+    );
+  });
+
+  it("records an exact local duplicate as an expected preparation outcome", async () => {
+    vi.spyOn(AgentPkmContextStore, "findLocalDuplicate").mockReturnValueOnce({
+      kind: "exact", domain: "preferences", path: ["travel", "seat_choice"],
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "I prefer morning flights whenever possible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(await screen.findByText(/exact detail is already saved/i)).toBeTruthy();
+    expect(previewAgentPkmMemory).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm", action: "capture_prepared", result: "expected_error",
+    });
+  });
+
+  it("does not count a review-blocked Memory preparation as success", async () => {
+    previewAgentPkmMemory.mockResolvedValueOnce({
+      cards: [
+        {
+          card_id: "review-blocked-card",
+          write_mode: "confirm_first",
+          sharing_impact: { active_recipient_count: 0 },
+        },
+      ],
+      used_fallback: true,
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "I prefer morning flights whenever possible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+
+    expect(await screen.findByText(/sections need another review/i)).toBeTruthy();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm",
+      action: "capture_prepared",
+      result: "expected_error",
+    });
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "one_memory_action",
+      expect.objectContaining({ action: "capture_prepared", result: "success" }),
     );
   });
 
@@ -687,6 +795,11 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByText(/1 reviewed detail saved. Check Memory/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm",
+      action: "capture_saved",
+      result: "success",
+    });
   });
 
   it("does not let a late owner-A settlement unlock owner-B's pending save", async () => {
@@ -718,8 +831,54 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     await act(async () => finishA({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
     expect(noteB).toBeDisabled();
+    expect(
+      trackEvent.mock.calls.filter(
+        ([event, fields]) =>
+          event === "one_memory_action" &&
+          fields?.action === "capture_saved",
+      ),
+    ).toHaveLength(0);
     await act(async () => finishB({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
     expect(noteB).not.toBeDisabled();
+    expect(
+      trackEvent.mock.calls.filter(
+        ([event, fields]) =>
+          event === "one_memory_action" &&
+          fields?.action === "capture_saved" &&
+          fields?.result === "success",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("records a failed Memory write as an error", async () => {
+    addToPKM.mockResolvedValueOnce({
+      attempted: 1,
+      saved: 0,
+      failed: 1,
+      domains: [],
+      results: [
+        {
+          cardId: "memory-card-1",
+          success: false,
+          message: "Encrypted write failed.",
+        },
+      ],
+    });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "Synthetic preference" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+        route_id: "pkm",
+        action: "capture_saved",
+        result: "error",
+      });
+    });
   });
 
   it("reconciles a save acknowledged during verification recovery with a fresh read", async () => {

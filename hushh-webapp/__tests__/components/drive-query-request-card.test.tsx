@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
     getQuery: vi.fn(),
     allowQuery: vi.fn(),
     denyQuery: vi.fn(),
+    cancelQuery: vi.fn(),
     // Drive-reading and file-review calls of the document flow. A question
     // card must never touch them.
     prepare: vi.fn(),
@@ -29,6 +30,7 @@ const state = vi.hoisted(() => ({
     delivery: vi.fn(),
     approve: vi.fn(),
     decide: vi.fn(),
+    shareQueryFiles: vi.fn(),
   },
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -55,9 +57,15 @@ vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
   ...(await original<typeof import("@/lib/services/drive-sharing-service")>()),
   DriveSharingService: state.service,
 }));
+vi.mock("@/components/consent/document-share-review", () => ({
+  DocumentShareReview: ({ requestId }: { requestId: string }) => (
+    <div data-testid="share-review">{requestId}</div>
+  ),
+}));
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const view = (overrides: Partial<DriveQueryView> = {}): DriveQueryView => ({
@@ -84,6 +92,8 @@ const answered = (overrides: Partial<DriveQueryView> = {}) =>
       text: "Your March statement shows a closing balance.\nSee [link](https://evil.invalid) https://drive.google.com/x",
       titles: ["March statement.pdf", "<script>x</script>.pdf"],
       truncated: false,
+      files: [],
+      shareRequestId: null,
     },
     ...overrides,
   });
@@ -287,5 +297,172 @@ describe("Drive question card", () => {
     expect(screen.getByText("Unlock your vault to see this question.")).toBeVisible();
     expect(screen.queryByText("March statement.pdf")).toBeNull();
     expect(state.invalidate).not.toHaveBeenCalled();
+  });
+  it("lets the asker cancel a waiting question once and never reads Drive", async () => {
+    let finish!: (value: DriveQueryView) => void;
+    state.service.cancelQuery.mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    state.service.getQuery.mockResolvedValue(
+      view({ direction: "outgoing", counterpartName: "Alex", canDecide: false }),
+    );
+    mount({ direction: "outgoing" });
+    const cancel = await screen.findByRole("button", { name: "Cancel question" });
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+    expect(await screen.findByText("Cancelling…")).toBeVisible();
+    expect(state.service.cancelQuery).toHaveBeenCalledOnce();
+    expect(state.service.cancelQuery).toHaveBeenCalledWith("owner-a", requestId, 2, expect.any(Function));
+    await act(async () =>
+      finish(
+        view({
+          direction: "outgoing",
+          counterpartName: "Alex",
+          canDecide: false,
+          status: "cancelled",
+          revision: 3,
+          decidedAt: new Date().toISOString(),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Cancelled")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+    for (const reader of ["allowQuery", "denyQuery", "prepare", "review", "approve", "decide"] as const)
+      expect(state.service[reader]).not.toHaveBeenCalled();
+    expect(state.invalidate).toHaveBeenCalledWith("a");
+  });
+
+  it("tells the owner the asker cancelled, with no Allow or Deny", async () => {
+    state.service.getQuery.mockResolvedValue(
+      view({ status: "cancelled", canDecide: false, decidedAt: new Date().toISOString() }),
+    );
+    mount({ direction: "incoming" });
+    expect(await screen.findByText("Bea cancelled this question.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+    expect(state.periodic.mock.lastCall?.[3]).toEqual({ enabled: false });
+  });
+
+  it("offers no cancel once the question is answered, declined or expired", async () => {
+    for (const status of ["answered", "denied", "expired"] as const) {
+      state.service.getQuery.mockResolvedValue(
+        status === "answered"
+          ? answered({ direction: "outgoing" })
+          : view({ direction: "outgoing", status, canDecide: false }),
+      );
+      const rendered = mount({ direction: "outgoing" });
+      await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+      expect(screen.queryByRole("button", { name: "Cancel question" })).toBeNull();
+      rendered.unmount();
+    }
+  });
+
+  it("offers a reconnect link when Allow needs Google Drive again", async () => {
+    state.service.getQuery.mockResolvedValue(view({ lastError: "reconnect_required" }));
+    const rendered = mount({ direction: "incoming" });
+    const link = await screen.findByRole("link", { name: "Reconnect Google Drive" });
+    expect(link).toHaveAttribute("href", ROUTES.PROFILE_CONNECTORS);
+    rendered.unmount();
+    state.service.getQuery.mockResolvedValue(view({ lastError: "drive_query_unavailable" }));
+    const other = mount({ direction: "incoming" });
+    expect(await screen.findByText("Drive didn't answer. Try again.")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Reconnect Google Drive" })).toBeNull();
+    other.unmount();
+    state.service.getQuery.mockResolvedValue(
+      view({ direction: "outgoing", canDecide: false, lastError: "reconnect_required" }),
+    );
+    mount({ direction: "outgoing" });
+    expect(await screen.findByRole("button", { name: "Cancel question" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Reconnect Google Drive" })).toBeNull();
+  });
+});
+
+
+describe("sharing files from an answered question", () => {
+  const shareId = "22222222-2222-4222-8222-222222222222";
+  const withFiles = (overrides: Partial<NonNullable<DriveQueryView["answer"]>> = {}) =>
+    answered({
+      answer: {
+        text: "These Drive files match your question.",
+        titles: ["March statement.pdf", "Meeting notes"],
+        truncated: false,
+        files: [
+          { ref: "f1", name: "March statement.pdf", modifiedTime: "2026-03-31T10:00:00Z" },
+          { ref: "f2", name: "Meeting notes", modifiedTime: null },
+        ],
+        shareRequestId: null,
+        ...overrides,
+      },
+    });
+  beforeEach(() => {
+    vi.resetAllMocks();
+    state.uid = "a";
+    state.unlocked = true;
+    state.token = "owner-a";
+    state.epoch = 1;
+    state.getToken.mockImplementation(() => state.token);
+  });
+  afterEach(cleanup);
+
+  it("lets A share all or some of the found files as Viewer", async () => {
+    state.service.getQuery.mockResolvedValue(withFiles());
+    state.service.shareQueryFiles.mockResolvedValue(withFiles({ shareRequestId: shareId }));
+    mount();
+    const notes = await screen.findByRole("checkbox", { name: "Meeting notes" });
+    expect(notes).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select all" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Share 2 files" })).toBeEnabled();
+    fireEvent.click(notes);
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+    await waitFor(() =>
+      expect(state.service.shareQueryFiles).toHaveBeenCalledWith(
+        "owner-a", requestId, ["f1"], expect.any(Function),
+      ),
+    );
+    expect(await screen.findByTestId("share-review")).toHaveTextContent(shareId);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // The card itself still never runs the file-review calls.
+    expect(state.service.prepare).not.toHaveBeenCalled();
+    expect(state.service.approve).not.toHaveBeenCalled();
+  });
+
+  it("never shares an empty selection", async () => {
+    state.service.getQuery.mockResolvedValue(withFiles());
+    mount();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select all" }));
+    expect(screen.getByRole("button", { name: "Share 0 files" })).toBeDisabled();
+    expect(state.service.shareQueryFiles).not.toHaveBeenCalled();
+  });
+
+  it("explains when the asker has no Google account to share with", async () => {
+    state.service.getQuery.mockResolvedValue(withFiles());
+    state.service.shareQueryFiles.mockRejectedValue(
+      new DriveSharingError("recipient_google_identity_required", 409),
+    );
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Share 2 files" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Bea needs to add a Google account to One before you can share files.",
+    );
+  });
+
+  it("shows the asker the shared files, never the owner's file list", async () => {
+    state.service.getQuery.mockResolvedValue(
+      answered({
+        direction: "outgoing",
+        answer: {
+          text: "These Drive files match your question.",
+          titles: ["March statement.pdf"],
+          truncated: false,
+          files: [],
+          shareRequestId: shareId,
+        },
+      }),
+    );
+    mount({ direction: "outgoing" });
+    expect(await screen.findByTestId("share-review")).toHaveTextContent(shareId);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Share/ })).toBeNull();
   });
 });

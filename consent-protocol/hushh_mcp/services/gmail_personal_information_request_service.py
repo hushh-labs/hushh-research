@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import getaddresses
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 import asyncpg
 
@@ -61,8 +61,9 @@ _BACKGROUND_USER_CONCURRENCY = 4
 _BACKGROUND_SCAN_TIMEOUT_SECONDS = 90
 _CLASSIFIER_CONCURRENCY = 3
 _CLASSIFIER_TIMEOUT_SECONDS = 30.0
-# Increment only when a classifier-instruction correction needs one bounded
-# newest-page re-evaluation of messages that were previously terminally scanned.
+# Records the instruction version used for a monitoring generation. A version
+# update never reclassifies terminal scan state; an owner must opt in again to
+# begin a new monitored generation.
 _CLASSIFIER_POLICY_VERSION = 2
 _MONITOR_LEASE_SECONDS = 4 * 60
 _KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
@@ -107,6 +108,8 @@ _SCOPE_LABEL_STOPWORDS = frozenset(
         "your",
     }
 )
+
+ScanProgressCallback = Callable[[int, dict[str, Any] | None], Awaitable[None]]
 
 
 class PersonalGmailInformationRequestError(RuntimeError):
@@ -448,8 +451,8 @@ class PersonalGmailInformationRequestService:
             "monitoring_enabled": bool(row and row["monitoring_enabled"]),
             "retention": "metadata_only",
             "disclosure": (
-                "When enabled, Hushh processes new Inbox messages first, then resumes its saved "
-                "newest-to-oldest Inbox backfill without reclassifying already processed mail. "
+                "When enabled, Hushh checks the newest 30 Inbox messages once, then checks "
+                "new Inbox messages without reclassifying already processed mail. "
                 "Email content is not retained in this workflow queue."
             ),
             "monitoring_enabled_at": row["monitoring_enabled_at"] if row else None,
@@ -600,7 +603,7 @@ class PersonalGmailInformationRequestService:
                        candidate_scopes, attachment_review_required, created_at, updated_at
                 FROM gmail_personal_information_requests
                 WHERE user_id = $1 AND status = ANY($2::text[])
-                ORDER BY created_at DESC, workflow_id DESC
+                ORDER BY received_at DESC NULLS LAST, created_at DESC, workflow_id DESC
                 LIMIT $3
                 OFFSET $4
                 """,
@@ -701,6 +704,7 @@ class PersonalGmailInformationRequestService:
         user_id: str,
         max_results: int = _MAX_SCAN_MESSAGES,
         include_recent_inbox: bool = False,
+        on_progress: ScanProgressCallback | None = None,
     ) -> dict[str, Any]:
         """Run one traceable KYC scan without exposing diagnostics to callers."""
 
@@ -716,6 +720,7 @@ class PersonalGmailInformationRequestService:
                 user_id=user_id,
                 max_results=max_results,
                 include_recent_inbox=include_recent_inbox,
+                on_progress=on_progress,
             )
             trace_kyc_debug(
                 "scan.completed",
@@ -725,7 +730,6 @@ class PersonalGmailInformationRequestService:
                 matched_count=int(result.get("matched_count") or 0),
                 failed_count=int(result.get("failed_count") or 0),
                 retry_pending=bool(result.get("retry_pending")),
-                backfill_pending=bool(result.get("backfill_pending")),
             )
             return result
         except Exception as exc:
@@ -740,6 +744,7 @@ class PersonalGmailInformationRequestService:
         user_id: str,
         max_results: int = _MAX_SCAN_MESSAGES,
         include_recent_inbox: bool = False,
+        on_progress: ScanProgressCallback | None = None,
     ) -> dict[str, Any]:
         monitor_state = await self._monitor_state(user_id=user_id)
         expected_generation = int(monitor_state.get("monitoring_generation") or 0)
@@ -768,16 +773,24 @@ class PersonalGmailInformationRequestService:
         workflow_ids: list[str] = []
         baseline_established = False
         baseline_reestablished = False
-        classifier_policy_refresh = (
+        classifier_policy_update_required = (
             int(
                 monitor_state.get("classifier_policy_version", _CLASSIFIER_POLICY_VERSION)
                 or _CLASSIFIER_POLICY_VERSION
             )
             < _CLASSIFIER_POLICY_VERSION
         )
-        if classifier_policy_refresh:
+        classifier_policy_updated = False
+        if classifier_policy_update_required:
+            checkpointed = await self._set_classifier_policy_version(
+                user_id=user_id,
+                expected_generation=expected_generation,
+            )
+            if not checkpointed:
+                raise self._monitoring_changed_error()
+            classifier_policy_updated = True
             trace_kyc_debug(
-                "processing.classifier_policy_refresh_started",
+                "storage.classifier_policy_version_updated",
                 classifier_policy_version=_CLASSIFIER_POLICY_VERSION,
             )
 
@@ -847,6 +860,8 @@ class PersonalGmailInformationRequestService:
                     user_id=user_id,
                     messages=messages,
                     expected_generation=expected_generation,
+                    on_progress=on_progress,
+                    scanned_count_offset=scanned_count,
                 )
                 scanned_count += history_scanned_count
                 unchanged_count += history_unchanged_count
@@ -886,30 +901,39 @@ class PersonalGmailInformationRequestService:
                     has_next_message_offset=next_message_offset is not None,
                 )
 
-        backfill_pending = not bool(monitor_state.get("initial_inbox_backfill_completed"))
-        prior_backfill_pending = backfill_pending
-        prior_initial_cursor = _text(monitor_state.get("initial_inbox_cursor")) or None
-        prior_initial_scan_completed = bool(monitor_state.get("initial_inbox_scan_completed"))
+        initial_scan_pending = not bool(monitor_state.get("initial_inbox_scan_completed"))
+        legacy_backfill_pending = not bool(monitor_state.get("initial_inbox_backfill_completed"))
         remaining_capacity = max(0, bounded - scanned_count)
-        if (backfill_pending or classifier_policy_refresh) and remaining_capacity:
+        if not initial_scan_pending and legacy_backfill_pending:
+            # Versions before the bounded setup scan persisted a Gmail page
+            # cursor and advanced it on every manual, scheduled, and reopen
+            # scan. Retire that cursor without fetching older Inbox pages.
+            checkpointed = await self._set_initial_inbox_backfill_checkpoint(
+                user_id=user_id,
+                initial_inbox_cursor=None,
+                completed=True,
+                expected_generation=expected_generation,
+            )
+            if not checkpointed:
+                raise self._monitoring_changed_error()
+            trace_kyc_debug("storage.legacy_initial_backfill_retired")
+        elif initial_scan_pending and remaining_capacity:
             trace_kyc_debug(
-                "processing.initial_backfill_started",
-                has_page_cursor=bool(prior_initial_cursor) and not classifier_policy_refresh,
+                "processing.initial_inbox_scan_started",
                 requested_count=remaining_capacity,
-                classifier_policy_refresh=classifier_policy_refresh,
             )
             (
                 messages,
                 next_page_token,
             ) = await self.gmail_service.list_personal_inbox_monitor_page(
                 user_id=user_id,
-                # An instruction correction gets one bounded look at the newest
-                # Inbox page. It deliberately does not restart the full backfill.
-                page_token=None if classifier_policy_refresh else prior_initial_cursor,
+                # Setup intentionally uses one newest-first page only. History
+                # is the durable, incremental source for every later scan.
+                page_token=None,
                 limit=remaining_capacity,
             )
             trace_kyc_debug(
-                "processing.initial_backfill_candidates",
+                "processing.initial_inbox_candidates",
                 message_count=len(messages),
                 requested_count=remaining_capacity,
             )
@@ -922,7 +946,8 @@ class PersonalGmailInformationRequestService:
                 user_id=user_id,
                 messages=messages,
                 expected_generation=expected_generation,
-                force_reclassify=classifier_policy_refresh,
+                on_progress=on_progress,
+                scanned_count_offset=scanned_count,
             )
             scanned_count += backfill_scanned_count
             unchanged_count += backfill_unchanged_count
@@ -935,36 +960,20 @@ class PersonalGmailInformationRequestService:
                     failed_count=failed_count,
                     workflow_ids=workflow_ids,
                 )
-            if classifier_policy_refresh and prior_initial_scan_completed:
-                # Preserve the established cursor/completion state. This one
-                # correction must never turn a completed inbox into a full
-                # historical rescan.
-                next_initial_cursor = prior_initial_cursor
-                backfill_pending = prior_backfill_pending
-            else:
-                next_initial_cursor = next_page_token
-                backfill_pending = next_page_token is not None
-            checkpoint_kwargs: dict[str, Any] = {
-                "user_id": user_id,
-                "initial_inbox_cursor": next_initial_cursor,
-                "completed": not backfill_pending,
-                "expected_generation": expected_generation,
-            }
-            if classifier_policy_refresh:
-                checkpoint_kwargs["classifier_policy_version"] = _CLASSIFIER_POLICY_VERSION
             checkpointed = await self._set_initial_inbox_backfill_checkpoint(
-                **checkpoint_kwargs,
+                user_id=user_id,
+                initial_inbox_cursor=None,
+                completed=True,
+                expected_generation=expected_generation,
             )
             if not checkpointed:
                 raise self._monitoring_changed_error()
             trace_kyc_debug(
-                "storage.initial_backfill_checkpoint_updated",
-                backfill_pending=backfill_pending,
+                "storage.initial_inbox_scan_completed",
                 has_next_page=bool(next_page_token),
-                classifier_policy_refresh=classifier_policy_refresh,
             )
-        elif backfill_pending:
-            trace_kyc_debug("processing.initial_backfill_deferred", reason="new_mail_priority")
+        elif initial_scan_pending:
+            trace_kyc_debug("processing.initial_inbox_scan_deferred", reason="new_mail_priority")
 
         if include_recent_inbox:
             trace_kyc_debug("scan.legacy_recent_inbox_request_ignored")
@@ -975,8 +984,7 @@ class PersonalGmailInformationRequestService:
             "matched_count": len(workflow_ids),
             "failed_count": failed_count,
             "workflow_ids": workflow_ids,
-            "backfill_pending": backfill_pending,
-            **({"classifier_policy_refreshed": True} if classifier_policy_refresh else {}),
+            **({"classifier_policy_updated": True} if classifier_policy_updated else {}),
             **({"baseline_established": True} if baseline_established else {}),
             **({"baseline_reestablished": True} if baseline_reestablished else {}),
         }
@@ -1007,7 +1015,8 @@ class PersonalGmailInformationRequestService:
         user_id: str,
         messages: list[dict[str, Any]],
         expected_generation: int,
-        force_reclassify: bool = False,
+        on_progress: ScanProgressCallback | None = None,
+        scanned_count_offset: int = 0,
     ) -> tuple[int, int, int, list[str]]:
         source_hmacs = {
             _text(message.get("id")): _source_fingerprint(message)
@@ -1020,8 +1029,7 @@ class PersonalGmailInformationRequestService:
         pending_messages = [
             message
             for message in messages
-            if force_reclassify
-            or scan_state.get(_text(message.get("id")))
+            if scan_state.get(_text(message.get("id")))
             != source_hmacs.get(_text(message.get("id")))
         ]
         trace_kyc_debug(
@@ -1029,7 +1037,6 @@ class PersonalGmailInformationRequestService:
             candidate_count=len(messages),
             pending_count=len(pending_messages),
             unchanged_count=len(messages) - len(pending_messages),
-            classifier_policy_refresh=force_reclassify,
         )
         semaphore = asyncio.Semaphore(_CLASSIFIER_CONCURRENCY)
 
@@ -1080,23 +1087,66 @@ class PersonalGmailInformationRequestService:
                 return None, True
             return workflow_id, False
 
-        outcomes = await asyncio.gather(*(_process(message) for message in pending_messages))
-        workflow_ids = [
-            workflow_id for workflow_id, failed in outcomes if workflow_id and not failed
-        ]
-        failures = sum(1 for _workflow_id, failed in outcomes if failed)
+        tasks = [asyncio.create_task(_process(message)) for message in pending_messages]
+        workflow_ids: list[str] = []
+        failures = 0
+        classified_count = 0
+        try:
+            for task in asyncio.as_completed(tasks):
+                workflow_id, failed = await task
+                if failed:
+                    failures += 1
+                    continue
+                classified_count += 1
+                if workflow_id:
+                    workflow_ids.append(workflow_id)
+                if on_progress:
+                    workflow = (
+                        await self._public_workflow_by_id(
+                            user_id=user_id,
+                            workflow_id=workflow_id,
+                        )
+                        if workflow_id
+                        else None
+                    )
+                    await on_progress(scanned_count_offset + classified_count, workflow)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         trace_kyc_debug(
             "processing.classification_completed",
-            classified_count=len(pending_messages) - failures,
+            classified_count=classified_count,
             failure_count=failures,
             workflow_count=len(workflow_ids),
         )
         return (
-            len(pending_messages) - failures,
+            classified_count,
             len(messages) - len(pending_messages),
             failures,
             workflow_ids,
         )
+
+    async def _public_workflow_by_id(
+        self, *, user_id: str, workflow_id: str
+    ) -> dict[str, Any] | None:
+        """Return the same metadata-only request shape used by the queue."""
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT workflow_id, status, gmail_thread_id, received_at,
+                       classification_confidence, requested_field_labels,
+                       candidate_scopes, attachment_review_required, created_at, updated_at
+                FROM gmail_personal_information_requests
+                WHERE user_id = $1 AND workflow_id = $2 AND status = 'detected'
+                """,
+                user_id,
+                workflow_id,
+            )
+        return self._public_workflow(dict(row)) if row else None
 
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
         """Maintenance entrypoint for the scheduled personal-Gmail monitor.
@@ -1324,7 +1374,6 @@ class PersonalGmailInformationRequestService:
         initial_inbox_cursor: str | None,
         completed: bool,
         expected_generation: int,
-        classifier_policy_version: int | None = None,
     ) -> bool:
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -1352,7 +1401,6 @@ class PersonalGmailInformationRequestService:
                             WHEN $3 THEN NOW()
                             ELSE NULL
                         END,
-                        classifier_policy_version = COALESCE($4, classifier_policy_version),
                         last_scan_completed_at = NOW(),
                         updated_at = NOW()
                     WHERE user_id = $1
@@ -1360,7 +1408,38 @@ class PersonalGmailInformationRequestService:
                     user_id,
                     initial_inbox_cursor,
                     completed,
-                    classifier_policy_version,
+                )
+        return True
+
+    async def _set_classifier_policy_version(
+        self,
+        *,
+        user_id: str,
+        expected_generation: int,
+    ) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT monitoring_enabled, monitoring_generation
+                    FROM gmail_personal_information_request_preferences
+                    WHERE user_id = $1
+                    FOR UPDATE
+                    """,
+                    user_id,
+                )
+                if not self._monitoring_matches(row, expected_generation):
+                    return False
+                await conn.execute(
+                    """
+                    UPDATE gmail_personal_information_request_preferences
+                    SET classifier_policy_version = $2,
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    _CLASSIFIER_POLICY_VERSION,
                 )
         return True
 
@@ -1493,7 +1572,7 @@ class PersonalGmailInformationRequestService:
         html_body: str | None,
         idempotency_key: str,
     ) -> dict[str, Any]:
-        draft, reply_context = await self._source_bound_reply(
+        draft, reply_context = await self.resolve_reply_delivery(
             user_id=user_id,
             workflow_id=workflow_id,
             body=body,
@@ -1531,6 +1610,7 @@ class PersonalGmailInformationRequestService:
         headers = _header_map(message)
         return {
             "from": headers.get("from", "")[:2048],
+            "reply_to": headers.get("reply-to", "")[:2048],
             "subject": headers.get("subject", "")[:2048],
             "body": _message_text(message),
         }
@@ -1539,7 +1619,9 @@ class PersonalGmailInformationRequestService:
         """Resolve the selected email as transient context for one One turn."""
 
         source = await self.get_source_preview(user_id=user_id, workflow_id=workflow_id)
-        return f"Subject: {source['subject']}\nEmail:\n{source['body']}"[:14_000]
+        return f"From: {source['from']}\nSubject: {source['subject']}\nEmail:\n{source['body']}"[
+            :14_000
+        ]
 
     async def ignore_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         pool = await get_pool()
@@ -1571,7 +1653,7 @@ class PersonalGmailInformationRequestService:
         body: str,
         html_body: str | None,
     ) -> dict[str, Any]:
-        draft, reply_context = await self._source_bound_reply(
+        draft, reply_context = await self.resolve_reply_delivery(
             user_id=user_id,
             workflow_id=workflow_id,
             body=body,
@@ -1583,6 +1665,43 @@ class PersonalGmailInformationRequestService:
             draft_payload=draft,
             reply_context=reply_context,
         )
+        return await self.record_reply_delivery(
+            user_id=user_id,
+            workflow_id=workflow_id,
+            result=result,
+        )
+
+    async def resolve_reply_delivery(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        body: str,
+        html_body: str | None,
+    ) -> tuple[dict[str, Any], GmailReplyContext]:
+        """Derive a reply envelope from the owner-verified Gmail source.
+
+        This is the only bridge from the common Gmail delivery routes to a
+        personal-information request. It deliberately ignores caller-provided
+        recipients, subject, and thread metadata.
+        """
+
+        return await self._source_bound_reply(
+            user_id=user_id,
+            workflow_id=workflow_id,
+            body=body,
+            html_body=html_body,
+        )
+
+    async def record_reply_delivery(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Advance the workflow only after the shared delivery boundary sends."""
+
         if result.get("state") == "sent":
             pool = await get_pool()
             async with pool.acquire() as conn:

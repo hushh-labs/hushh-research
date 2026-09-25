@@ -39,7 +39,6 @@ from tests.services.test_drive_sharing_store import MIGRATIONS, sharing  # noqa:
 
 QUESTION = "potential bank statement"
 FILE_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
-OPEN_URL = f"https://drive.google.com/file/d/{FILE_ID}/view"
 OWNER_PROOF = "synthetic-owner-proof"
 
 
@@ -52,6 +51,9 @@ async def store(sharing, monkeypatch):
     with sharing.db.engine.connect() as connection:
         with connection.connection.driver_connection.cursor() as cursor:
             cursor.execute((MIGRATIONS / "242_drive_live_query_requests.sql").read_text())
+            # Replay mode runs every migration on every deploy.
+            for _ in range(2):
+                cursor.execute((MIGRATIONS / "244_drive_query_notifications.sql").read_text())
         connection.execute(
             text("CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT)")
         )
@@ -82,18 +84,22 @@ def no_drive(monkeypatch):
         monkeypatch.setattr(drive_chat_service, name, spy)
     planner = AsyncMock(side_effect=AssertionError("planner reached"))
     interpreter = AsyncMock(side_effect=AssertionError("interpreter reached"))
-    chat = DriveChatService(search_planner=planner, interpreter=interpreter)
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    chat = DriveChatService(
+        search_planner=planner, interpreter=interpreter, candidate_selector=selector
+    )
     chat.run_live_query = AsyncMock(wraps=chat.run_live_query)
     chat.untouched = lambda: (
         not any(spy.called for spy in spies.values())
         and not planner.called
         and not interpreter.called
+        and not selector.called
         and not chat.run_live_query.called
     )
     return chat
 
 
-def live_chat(monkeypatch, *, reader, plan, interpreter=None):
+def live_chat(monkeypatch, *, reader, plan, interpreter=None, selector=None):
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
     monkeypatch.setattr(
         drive_chat_service, "DriveDocumentReader", Mock(side_effect=AssertionError("selected lane"))
@@ -102,16 +108,17 @@ def live_chat(monkeypatch, *, reader, plan, interpreter=None):
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
         search_planner=AsyncMock(return_value=plan),
         interpreter=interpreter or AsyncMock(side_effect=AssertionError("interpreter reached")),
+        candidate_selector=selector or AsyncMock(return_value={"selected": ["c1"]}),
     )
 
 
-def match(name="March bank statement.pdf"):
+def match(name="March bank statement.pdf", file_id=FILE_ID):
     return {
-        "file_id": FILE_ID,
+        "file_id": file_id,
         "name": name,
         "mime_type": "application/pdf",
         "modified_time": "2026-03-31T10:00:00Z",
-        "open_url": OPEN_URL,
+        "open_url": f"https://drive.google.com/file/d/{file_id}/view",
         "source_ref": "document:" + "a" * 32,
     }
 
@@ -262,10 +269,14 @@ async def test_allow_answers_with_the_cited_file_titles(store, monkeypatch):
         revision=created["revision"],
         consent_token=OWNER_PROOF,
     )
+    # The owner's view adds the shareable files (none here: the fake reader
+    # records no rows) and whether they were shared yet.
     assert answered["answer"] == {
         "text": "The closing balance is 1,204.55.",
         "titles": ["March bank statement.pdf"],
         "truncated": False,
+        "shareRequestId": None,
+        "files": [],
     }
     # The interpreter answers the exact stored question under the owner's token.
     prompt = json.loads(interpreter.await_args.kwargs["prompt"])
@@ -447,6 +458,244 @@ def test_requester_answer_withholds_links_dates_and_owner_instructions():
     assert FILE_ID not in json.dumps(projected) and "2026" not in json.dumps(projected)
     for status in ("input_required", "connect_required"):
         assert requester_answer({"status": status})["text"] == NO_CLEAR_MATCH
+    judged = requester_answer({**files, "unreadable": False, "selection": {"stage": "completed"}})[
+        "text"
+    ]
+    assert judged == (
+        "These files in their Drive look like a match, going by file names, types and dates. "
+        "Their private agent didn't open them."
+    )
+    over_limit = {**files, "unreadable": False, "selection": {"stage": "completed_over_limit"}}
+    assert requester_answer(over_limit)["text"].startswith(judged)
+    # Older outcomes and unjudged listings (exact title, metadata-only) say only
+    # that the files were found.
+    for unjudged in (
+        {**files, "unreadable": False},
+        {**files, "unreadable": False, "selection": {"stage": "exact_title"}},
+    ):
+        assert requester_answer(unjudged)["text"] == (
+            "These files were found in their Drive for this question."
+        )
+    for outcome in (files, {**files, "selection": {"stage": "completed"}}):
+        assert "match your question" not in requester_answer(outcome)["text"]
+    more = requester_answer({**files, "unreadable": False, "found_truncated": True})["text"]
+    assert more.endswith(" More matches may exist.")
+
+
+def test_requester_sees_no_more_titles_than_the_owner_can_share():
+    """B saw up to 10 titles while A could share only 8 (f1..f8), with no note."""
+    ten = {
+        "status": "ok",
+        "answer": None,
+        "files": [match() for _ in range(10)],
+        "unreadable": False,
+        "found_truncated": False,
+        "titles": [f"File {index}.pdf" for index in range(10)],
+        "truncated": True,
+    }
+    projected = requester_answer(ten)
+    assert projected["titles"] == [f"File {index}.pdf" for index in range(8)]
+    assert projected["text"].endswith(" More matches may exist.")
+    assert projected["truncated"] is True
+    eight = {**ten, "files": ten["files"][:8], "titles": ten["titles"][:8], "truncated": False}
+    assert requester_answer(eight) == {
+        "text": "These files were found in their Drive for this question.",
+        "titles": eight["titles"],
+        "truncated": False,
+    }
+
+
+def test_the_owner_only_shares_files_the_asker_was_shown():
+    """Review 2026-09-25: with a folder first, B saw 7 files and the folder
+    while A was offered an 8th file B never saw."""
+    from hushh_mcp.services.drive_chat_service import _files_outcome
+    from hushh_mcp.services.drive_live_query_store import _owner_files
+
+    folder = {
+        **match("Receipts"),
+        "file_id": "1FolderFolderFolderFolderFolder00",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    files = [
+        {**match(f"file{index}.pdf"), "file_id": f"1FileFileFileFileFileFileFile{index:04d}"}
+        for index in range(9)
+    ]
+    outcome = _files_outcome(
+        [folder, *files], {"truncated": False}, unreadable=False, time_window=""
+    )
+    shown = requester_answer(outcome)["titles"]
+    offered = [item["name"] for item in _owner_files(outcome["share_files"])]
+    assert shown == ["Receipts", *[f"file{index}.pdf" for index in range(7)]]
+    assert offered == [f"file{index}.pdf" for index in range(7)]
+    assert set(offered) <= set(shown)
+
+
+INCIDENT_TITLES = [
+    "Notes by Gemini - Sync 2026/09/01",
+    "Notes by Gemini - Sync 2026/09/08",
+    "Notes by Gemini - Bank review",
+    "Notes by Gemini - Statement walkthrough",
+    "Notes by Gemini - Planning",
+    "LP Master LPA",
+    "Employee Existence Verification",
+    "Bank details.txt",
+    "Bank details.txt",
+    "Meeting doc: bank statement process",
+    "HDFC_Statement_Apr2026.pdf",
+    "e-Stmt_XX1234_0526.pdf",
+]
+
+
+def incident_matches():
+    return [
+        {
+            **match(title, file_id=f"1AbCdEfGhIjKlMnOpQrStUvWxYz0{index:05d}"),
+            "source_ref": "document:" + f"{index:032d}",
+        }
+        for index, title in enumerate(INCIDENT_TITLES, 1)
+    ]
+
+
+async def test_allow_lists_only_the_files_the_selector_chose(store, monkeypatch):
+    matches = incident_matches()
+    reader = fake_reader(find=AsyncMock(return_value={"matches": matches, "truncated": False}))
+    selector = AsyncMock(return_value={"selected": ["c11", "c12"]})
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "find"},
+        selector=selector,
+    )
+    created = await ask(store, query="Lat 6 months Bank statement")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    selector.assert_awaited_once()
+    seen = await store.status(user_id="recipient", request_id=created["requestId"])
+    assert seen["answer"]["titles"] == ["HDFC_Statement_Apr2026.pdf", "e-Stmt_XX1234_0526.pdf"]
+    shown = json.dumps(seen)
+    for leaked in (
+        "LP Master LPA",
+        "Employee Existence Verification",
+        "Notes by Gemini",
+        "Bank details",
+        "match your question",
+        "drive.google.com",
+    ):
+        assert leaked not in shown
+    assert "didn't open them" in seen["answer"]["text"]
+    reader.read_matches.assert_not_called()
+
+
+async def test_empty_selection_answers_no_clear_match_without_titles(store, monkeypatch):
+    read_matches = AsyncMock(side_effect=AssertionError("content read"))
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": incident_matches()[:10], "truncated": False}),
+        read_matches=read_matches,
+    )
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["statement"], "mode": "read"},
+        selector=AsyncMock(return_value={"selected": []}),
+    )
+    created = await ask(store)
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    assert answered["answer"]["text"] == NO_CLEAR_MATCH
+    assert answered["answer"]["titles"] == []
+    assert read_matches.called is False
+    assert "Notes by Gemini" not in json.dumps(answered)
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        AsyncMock(side_effect=RuntimeError("model unavailable")),
+        AsyncMock(return_value={"selected": ["c99"]}),
+    ],
+    ids=["raises", "invents"],
+)
+async def test_selector_failure_discloses_nothing_and_releases_the_claim(
+    store, monkeypatch, selector
+):
+    selector.reset_mock()
+    read_matches = AsyncMock(side_effect=AssertionError("content read"))
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": incident_matches(), "truncated": False}),
+        read_matches=read_matches,
+    )
+    chat = live_chat(
+        monkeypatch, reader=reader, plan={"terms": ["statement"], "mode": "find"}, selector=selector
+    )
+    created = await ask(store)
+    with pytest.raises(DriveSharingError, match="drive_query_unavailable"):
+        await service(store, chat).allow(
+            user_id="owner",
+            request_id=created["requestId"],
+            revision=created["revision"],
+            consent_token=OWNER_PROOF,
+        )
+    stored = row(store, created["requestId"])
+    assert stored["status"] == "pending" and stored["answer_envelope"] is None
+    selector.assert_awaited_once()
+    assert read_matches.called is False
+
+
+async def test_none_relevant_is_an_honest_answered_state(store, monkeypatch):
+    content = [
+        {
+            "source_ref": "document:" + "b" * 32,
+            "document_ref": str(uuid4()),
+            "name": "Bank details.txt",
+            "page": None,
+            "text": "IFSC and account holder name",
+            "source_version": "7",
+        }
+    ]
+    reader = fake_reader(
+        read_matches=AsyncMock(
+            return_value={"untrusted_external_content": content, "truncated": False}
+        )
+    )
+    interpreter = AsyncMock(
+        return_value={
+            "answer": "None of these are bank statements.",
+            "source_refs": [],
+            "none_relevant": True,
+        }
+    )
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "read"},
+        interpreter=interpreter,
+    )
+    created = await ask(store, query="what is my closing balance")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    assert answered["answer"] == {
+        "text": "None of these are bank statements.",
+        "titles": [],
+        "truncated": False,
+        "shareRequestId": None,
+        # Owner-only: nothing relevant, so nothing to share.
+        "files": [],
+    }
 
 
 def abandon(store, request_id, *, expired=False):
@@ -521,15 +770,31 @@ def disconnect(store):
         connection.execute(text("UPDATE connections SET status='removed'"))
 
 
-async def test_a_disconnect_during_the_run_releases_no_answer(store, monkeypatch):
+@pytest.mark.parametrize(
+    ("plan", "error", "message"),
+    [
+        # The claim fence before the selector stops the run first.
+        ({"terms": ["bank"], "mode": "find"}, PermissionError, "authority"),
+        # With nothing for the selector to judge, completion refuses the answer.
+        (
+            {"terms": [], "mode": "find", "file_kind": "pdf"},
+            DriveSharingError,
+            "connection_required",
+        ),
+    ],
+)
+async def test_a_disconnect_during_the_run_releases_no_answer(
+    store, monkeypatch, plan, error, message
+):
     async def find(**kwargs):
         disconnect(store)
         return {"matches": [match()], "truncated": False}
 
     reader = fake_reader(find=AsyncMock(side_effect=find))
-    chat = live_chat(monkeypatch, reader=reader, plan={"terms": ["bank"], "mode": "find"})
+    selector = AsyncMock(return_value={"selected": ["c1"]})
+    chat = live_chat(monkeypatch, reader=reader, plan=plan, selector=selector)
     created = await ask(store)
-    with pytest.raises(DriveSharingError, match="connection_required"):
+    with pytest.raises(error, match=message):
         await service(store, chat).allow(
             user_id="owner",
             request_id=created["requestId"],
@@ -538,6 +803,7 @@ async def test_a_disconnect_during_the_run_releases_no_answer(store, monkeypatch
         )
     stored = row(store, created["requestId"])
     assert stored["status"] == "pending" and stored["answer_envelope"] is None
+    assert selector.called is False
 
 
 async def test_the_answer_is_stored_only_while_the_connection_is_active(store):
@@ -578,3 +844,370 @@ async def test_a_selected_files_connection_asks_the_owner_to_reconnect(store, mo
         )
     view = await store.status(user_id="owner", request_id=created["requestId"])
     assert view["status"] == "pending" and view["lastError"] == "reconnect_required"
+
+
+def test_requester_answer_counts_unread_files_without_names():
+    secret = {"name": "Secret.pdf", "reason": "encrypted_document", "source_ref": "document:x"}
+    base = {
+        "status": "ok",
+        "answer": "X",
+        "files": None,
+        "titles": ["A.pdf"],
+        "truncated": True,
+    }
+    two = requester_answer({**base, "not_read": [secret, secret]})
+    assert two["text"] == "X 2 matching files couldn't be read."
+    one = requester_answer({**base, "not_read": [secret]})
+    assert one["text"] == "X 1 matching file couldn't be read."
+    assert requester_answer(base)["text"] == "X"
+    shown = json.dumps([one, two])
+    assert "Secret" not in shown and "encrypted" not in shown and "document:" not in shown
+
+
+async def test_allow_with_an_unreadable_file_tells_b_only_the_count(store, monkeypatch):
+    content = [
+        {
+            "source_ref": "document:" + "b" * 32,
+            "document_ref": str(uuid4()),
+            "name": "March bank statement.pdf",
+            "page": None,
+            "text": "Closing balance 1,204.55",
+            "source_version": "7",
+        }
+    ]
+    locked = {
+        "name": "PRIVATE_Locked statement.pdf",
+        "reason": "encrypted_document",
+        "source_ref": "document:" + "c" * 32,
+    }
+    reader = fake_reader(
+        find=AsyncMock(
+            return_value={
+                "matches": [match(), match("PRIVATE_Locked statement.pdf", file_id="LockedFile1")],
+                "truncated": False,
+            }
+        ),
+        read_matches=AsyncMock(
+            return_value={
+                "untrusted_external_content": content,
+                "unreadable": [locked],
+                "truncated": True,
+            }
+        ),
+    )
+    interpreter = AsyncMock(
+        return_value={
+            "answer": "The closing balance is 1,204.55.",
+            "source_refs": ["document:" + "b" * 32],
+        }
+    )
+    selector = AsyncMock(return_value={"selected": ["c1", "c2"]})
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "read"},
+        interpreter=interpreter,
+        selector=selector,
+    )
+    created = await ask(store, query="what is my closing balance")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+        timezone="Asia/Kolkata",
+    )
+    assert "1 matching file couldn't be read." in answered["answer"]["text"]
+    assert answered["answer"]["titles"] == ["March bank statement.pdf"]
+    shown = json.dumps(answered)
+    assert "PRIVATE" not in shown and "encrypted" not in shown
+    # The interpreter's text reaches B: it gets a local day and one unread
+    # total, never A's timezone or why a file could not be read.
+    raw = interpreter.await_args.kwargs["prompt"]
+    assert "PRIVATE" not in raw
+    for withheld in ("Asia/", "Kolkata", "encrypted", "user_timezone"):
+        assert withheld not in raw
+    prompt = json.loads(raw)
+    assert prompt["retrieved_documents"]["not_read"] == 1
+    assert len(prompt["today_local"]) == 10
+    # A connection's question carries no earlier owner conversation.
+    selector_prompt = json.loads(selector.await_args.kwargs["prompt"])
+    assert selector_prompt["document_request"]["previous_answer"] == ""
+
+
+SHARE_ID = "55555555-5555-4555-8555-555555555555"
+SHARED_DOCUMENT = "66666666-6666-4666-8666-666666666666"
+
+
+async def answered_question(store, monkeypatch):
+    chat = live_chat(monkeypatch, reader=fake_reader(), plan={"terms": ["bank"], "mode": "find"})
+    created = await ask(store)
+    await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    return created["requestId"]
+
+
+def sharing_doubles(*, can_approve=True, prepared="review_ready"):
+    sharing = SimpleNamespace(
+        store=SimpleNamespace(
+            create_request=AsyncMock(return_value={"requestId": SHARE_ID}),
+            request_status=AsyncMock(return_value={"revision": 1}),
+            decline_or_cancel=AsyncMock(),
+        ),
+        review=AsyncMock(
+            return_value={
+                "status": "review_ready" if can_approve else "approved",
+                "canApprove": can_approve,
+                "revision": 2,
+                "reviewDigest": "d" * 64,
+                "files": [{"documentId": SHARED_DOCUMENT}],
+            }
+        ),
+        approve=AsyncMock(return_value={"status": "approved"}),
+    )
+    suggestions = SimpleNamespace(run_one=AsyncMock(return_value=prepared))
+    recipient = SimpleNamespace(user_id="recipient")
+    return sharing, suggestions, AsyncMock(return_value=recipient)
+
+
+def sharing_service(store, sharing, suggestions, identity, owner=None):
+    return DriveLiveQueryService(
+        store=store,
+        chat=SimpleNamespace(),
+        require_owner=owner or AsyncMock(),
+        sharing=lambda _owner: sharing,
+        suggestions=lambda _owner: suggestions,
+        recipient_identity=identity,
+    )
+
+
+async def test_the_owner_sees_the_found_files_and_the_asker_never_does(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    mine = await store.status(user_id="owner", request_id=request_id)
+    assert mine["answer"]["files"] == [
+        {"ref": "f1", "name": "March bank statement.pdf", "modifiedTime": "2026-03-31T10:00:00Z"}
+    ]
+    # Even the owner's view carries a reference, never the Drive file id.
+    assert FILE_ID not in json.dumps(mine)
+    theirs = await store.status(user_id="recipient", request_id=request_id)
+    assert "files" not in theirs["answer"]
+    shown = json.dumps(theirs)
+    assert FILE_ID not in shown and "ownerFiles" not in shown and "2026-03-31" not in shown
+
+
+async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, monkeypatch):
+    from uuid import UUID
+
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    identity.assert_awaited_once_with("recipient")
+    created = sharing.store.create_request.await_args.kwargs
+    assert created["owner_user_id"] == "owner"
+    assert created["purpose"].purpose == QUESTION
+    # A fresh, unguessable request per attempt, created as the owner's own share.
+    assert UUID(created["client_request_id"]).version == 4
+    assert created["owner_initiated"] is True
+    suggestions.run_one.assert_awaited_once_with(
+        user_id="owner",
+        request_id=SHARE_ID,
+        owner_selected=[
+            {
+                "file_id": FILE_ID,
+                "name": "March bank statement.pdf",
+                "mime_type": "application/pdf",
+                "modified_time": "2026-03-31T10:00:00Z",
+            }
+        ],
+    )
+    sharing.approve.assert_awaited_once_with(
+        user_id="owner",
+        request_id=SHARE_ID,
+        revision=2,
+        review_digest="d" * 64,
+        document_ids=[SHARED_DOCUMENT],
+        confirmed=True,
+    )
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+    theirs = await store.status(user_id="recipient", request_id=request_id)
+    assert theirs["answer"]["shareRequestId"] == SHARE_ID
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+
+
+async def test_a_trust_rule_approval_is_not_approved_twice(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles(can_approve=False)
+    shared = await sharing_service(store, sharing, suggestions, identity).share(
+        user_id="owner", request_id=request_id, file_refs=["f1"]
+    )
+    sharing.approve.assert_not_awaited()
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+
+
+@pytest.mark.parametrize("refs", [["f2"], ["f1", "f1"], []])
+async def test_only_files_from_the_answer_can_be_shared(store, monkeypatch, refs):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    with pytest.raises(DriveSharingError):
+        await sharing_service(store, sharing, suggestions, identity).share(
+            user_id="owner", request_id=request_id, file_refs=refs
+        )
+    sharing.store.create_request.assert_not_awaited()
+    identity.assert_not_awaited()
+
+
+async def test_nothing_is_shared_from_a_pending_question_or_by_the_asker(store):
+    created = await ask(store)
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    with pytest.raises(DriveSharingError, match="request_changed"):
+        await queries.share(user_id="owner", request_id=created["requestId"], file_refs=["f1"])
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await queries.share(user_id="recipient", request_id=created["requestId"], file_refs=["f1"])
+    sharing.store.create_request.assert_not_awaited()
+    suggestions.run_one.assert_not_awaited()
+
+
+async def test_sharing_needs_current_owner_authority(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    denied = AsyncMock(side_effect=PermissionError("locked"))
+    with pytest.raises(PermissionError):
+        await sharing_service(store, sharing, suggestions, identity, owner=denied).share(
+            user_id="owner", request_id=request_id, file_refs=["f1"]
+        )
+    identity.assert_not_awaited()
+    sharing.store.create_request.assert_not_awaited()
+
+
+async def test_a_failed_share_is_declined_and_a_retry_starts_fresh(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    suggestions.run_one.side_effect = ["no_ready_files", "review_ready"]
+    queries = sharing_service(store, sharing, suggestions, identity)
+    with pytest.raises(DriveSharingError, match="drive_share_unavailable"):
+        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    # The failed attempt's request is closed, so nothing can prepare or share it later.
+    sharing.store.decline_or_cancel.assert_awaited_once_with(
+        user_id="owner",
+        request_id=SHARE_ID,
+        revision=1,
+        decision="declined",
+        notify_recipient=False,
+    )
+    sharing.approve.assert_not_awaited()
+    shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+    first, second = (
+        call.kwargs["client_request_id"] for call in sharing.store.create_request.await_args_list
+    )
+    assert first != second
+
+
+async def test_folders_are_never_offered_for_sharing(store, monkeypatch):
+    folder = {
+        **match("Statements folder"),
+        "file_id": "1FolderFolderFolderFolderFolder00",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": [match(), folder], "truncated": False})
+    )
+    chat = live_chat(monkeypatch, reader=reader, plan={"terms": ["bank"], "mode": "find"})
+    created = await ask(store)
+    await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    mine = await store.status(user_id="owner", request_id=created["requestId"])
+    assert [item["name"] for item in mine["answer"]["files"]] == ["March bank statement.pdf"]
+
+
+def query_events(store, request_id):
+    with store.db.engine.connect() as connection:
+        return [
+            (item["user_id"], item["event_type"])
+            for item in connection.execute(
+                text(
+                    "SELECT user_id,event_type FROM drive_query_events "
+                    "WHERE request_id=:id ORDER BY revision"
+                ),
+                {"id": request_id},
+            ).mappings()
+        ]
+
+
+async def test_a_new_question_notifies_the_owner_once(store):
+    client = str(uuid4())
+    created = await ask(store, client=client)
+    # A retried send returns the same question and queues nothing more.
+    again = await ask(store, client=client)
+    assert again["requestId"] == created["requestId"]
+    assert query_events(store, created["requestId"]) == [("owner", "document_share_question")]
+
+
+async def test_an_answer_and_a_decline_notify_the_asker(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    assert query_events(store, request_id) == [
+        ("owner", "document_share_question"),
+        ("recipient", "document_share_answered"),
+    ]
+    declined = await ask(store)
+    await store.deny(
+        user_id="owner", request_id=declined["requestId"], revision=declined["revision"]
+    )
+    assert query_events(store, declined["requestId"]) == [
+        ("owner", "document_share_question"),
+        ("recipient", "document_share_declined"),
+    ]
+
+
+async def test_a_question_event_is_delivered_as_an_opaque_alert(store):
+    from unittest.mock import MagicMock
+
+    from hushh_mcp.services.drive_share_notification_store import DriveQueryNotificationStore
+    from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
+
+    created = await ask(store)
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(
+        stores=(DriveQueryNotificationStore(db=store.db),), send_push=send
+    )
+    assert (await worker.run())["outcomes"] == {"settled": 1}
+    args, kwargs = send.call_args
+    assert args == ("owner",)
+    assert kwargs["data"]["type"] == "document_share_question"
+    assert kwargs["data"]["request_id"] == created["requestId"]
+    assert (kwargs["title"], kwargs["body"]) == (
+        "Drive question",
+        "Someone asked about your Drive. Open One to review.",
+    )
+    # The alert carries no question text, name or file detail.
+    serialized = json.dumps(kwargs)
+    assert QUESTION not in serialized and "Ada" not in serialized and "Bo" not in serialized
+    # Settled once: a later drain does not repeat it.
+    assert (await worker.run())["outcomes"] == {}
+    send.assert_called_once()
+
+
+async def test_the_default_worker_drains_questions_and_shares():
+    from hushh_mcp.services.drive_share_notification_store import (
+        DriveQueryNotificationStore,
+        DriveShareNotificationStore,
+    )
+    from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
+
+    worker = DriveShareNotificationWorker(send_push=lambda *a, **k: 1)
+    assert [type(item) for item in worker.stores] == [
+        DriveShareNotificationStore,
+        DriveQueryNotificationStore,
+    ]
+    assert [item.TABLE for item in worker.stores] == ["drive_share_events", "drive_query_events"]

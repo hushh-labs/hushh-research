@@ -6,7 +6,7 @@ import { Plus, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { Button } from "@/components/ui/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -54,6 +54,11 @@ export function LivingCirclePanel({
   const [overCircle, setOverCircle] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
+  const owner = members.find((member) => member.role === "owner");
+  const orbitMembers = owner
+    ? members.filter((member) => member.userId !== owner.userId)
+    : members;
+  const orbitMemberCount = Math.max(0, memberCount - (owner ? 1 : 0));
   // Keep the first four positions stable while a new circle grows. These are
   // illustrations, not member records or a representation of the circle limit.
   const emptySlots =
@@ -70,16 +75,33 @@ export function LivingCirclePanel({
     if (!canInvite || addingUserId || remainingCapacity <= 0) return;
     if (candidates.some((candidate) => candidate.userId === userId)) onAdd(userId);
   };
+  const profileHref = (publicPersonRef: string) =>
+    buildPersonProfileRoute(publicPersonRef, { from: ROUTES.CONNECT });
+  const ownerAvatar = owner ? (
+    <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] p-1 text-[color:var(--app-accent)] shadow-sm transition-transform duration-150 hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none">
+      <ConnectionPersonAvatar
+        size="profile"
+        className="!size-12"
+        photoUrl={owner.photoUrl}
+        label={owner.displayName}
+        verified={Boolean(owner.isRia)}
+      />
+    </span>
+  ) : (
+    <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)] shadow-sm">
+      <UsersRound aria-hidden="true" className="size-7" />
+    </span>
+  );
 
   return (
     <section
       data-testid="connect-living-circle-detail"
       aria-label={`${circleName} members`}
-      className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-6"
+      className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 sm:px-6 sm:py-6"
     >
       <div
         data-testid="connect-circle-drop-zone"
-        className={`mx-auto w-fit rounded-full transition-colors motion-reduce:transition-none ${overCircle ? "bg-[color:var(--app-secondary-fill)] ring-2 ring-[color:var(--app-accent)]" : ""}`}
+        className={`mx-auto w-fit rounded-full bg-[radial-gradient(circle,var(--app-secondary-surface)_0%,transparent_70%)] transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none ${overCircle ? "ring-2 ring-[color:var(--app-accent)]" : ""}`}
         onDragOver={(event) => {
           if (!canInvite || !event.dataTransfer.types.includes(DRAG_TYPE)) return;
           event.preventDefault();
@@ -96,19 +118,31 @@ export function LivingCirclePanel({
         }}
       >
         <PeopleOrbit
-          people={members.map((member) => ({
+          people={orbitMembers.map((member) => ({
             id: member.userId,
             name: member.displayName,
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
+            publicPersonRef: member.publicPersonRef,
           }))}
-          totalCount={memberCount}
+          totalCount={orbitMemberCount}
           emptySlots={emptySlots}
           center={
-            <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)] shadow-sm">
-              <UsersRound aria-hidden="true" className="size-7" />
-            </span>
+            owner?.publicPersonRef ? (
+              <Link
+                data-testid="circle-owner-profile"
+                className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                title={owner.displayName}
+                aria-label={`Open ${owner.displayName}'s profile`}
+                href={profileHref(owner.publicPersonRef)}
+              >
+                {ownerAvatar}
+              </Link>
+            ) : (
+              ownerAvatar
+            )
           }
+          profileHrefForPerson={profileHref}
         />
       </div>
       <p aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
@@ -178,7 +212,7 @@ export function LivingCirclePanel({
                     event.dataTransfer.setData(DRAG_TYPE, person.userId);
                     event.dataTransfer.effectAllowed = "copy";
                   }}
-                  className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-2.5 py-2 sm:cursor-grab sm:active:cursor-grabbing"
+                  className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] sm:cursor-grab sm:active:cursor-grabbing"
                 >
                   <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
                   <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>

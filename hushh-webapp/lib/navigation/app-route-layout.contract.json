@@ -341,6 +341,33 @@
     }
   },
   {
+    "route": "/delete-account",
+    "mode": "hidden",
+    "exemptionReason": "Public account-deletion request page (Google Play Delete account URL) intentionally bypasses the signed-in app shell so it works without signing in or installing the app.",
+    "voicePlaybook": {
+      "playbookId": "route.delete.account",
+      "purpose": "Help the person understand and use the delete account screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/delete-account",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/kyc",
     "mode": "standard",
     "shellVerification": {

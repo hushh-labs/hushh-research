@@ -272,6 +272,11 @@ Low-confidence, ambiguous, duplicate, new-domain, corrective, deletion,
 financial-normalization, secret, government-ID, and shared-memory candidates
 are not written automatically. They are skipped by the chat auto-save path;
 that path must not manufacture a review request or imply that they were saved.
+An explicit owner request to save a supported KYC identifier uses the separate
+fixed-schema KYC flow instead: the value is encrypted as a `restricted` PKM
+field, never added to One's automatic context packet, and requires the owner's
+direct confirmation for that save. Passwords, PINs, card security values,
+authentication tokens, and bank credentials remain ineligible for PKM capture.
 Each automatic write carries an `owner_auto_save_policy` receipt that records
 the enabled policy version rather than claiming that the owner reviewed that
 individual memory.

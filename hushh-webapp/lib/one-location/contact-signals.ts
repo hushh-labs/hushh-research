@@ -580,3 +580,42 @@ export function describeContactSyncOutcome(
     remedy: result.inviteCandidateCount ? "invite" : null,
   };
 }
+
+/**
+ * Sonner is a glanceable status surface, not the results report. Keep one
+ * short title and one short supporting line here; the sheet owns the complete
+ * checked/matched/unmatched explanation.
+ */
+export function describeContactSyncToast(
+  result: Parameters<typeof describeContactSyncOutcome>[0],
+): Pick<ContactSyncOutcome, "title" | "description"> {
+  if (result.mutationOutcomeUnknown) {
+    return {
+      title: "Some results need review",
+      description: "Sync again to confirm them.",
+    };
+  }
+
+  const matched = result.matchedUserIds.length;
+  const connected = result.autoConnectedCount + result.alreadyConnectedCount;
+  const title = result.partial
+    ? `${contactsLabel(matched)} matched`
+    : connected
+      ? `${contactsLabel(connected)} connected`
+      : matched
+        ? `${contactsLabel(matched)} matched`
+        : "No contacts matched";
+  const description = result.partial
+    ? result.uncheckedContactCount
+      ? `${contactsLabel(result.uncheckedContactCount)} not checked yet.`
+      : "Only part of your contacts was checked."
+    : result.requestRequiredCount
+      ? `${contactsLabel(result.requestRequiredCount)} need a connection request.`
+      : result.inviteCandidateCount
+        ? `${contactsLabel(result.inviteCandidateCount)} can be invited.`
+        : result.uncheckableContactCount
+          ? `${contactsLabel(result.uncheckableContactCount)} could not be checked.`
+          : undefined;
+
+  return { title, description };
+}

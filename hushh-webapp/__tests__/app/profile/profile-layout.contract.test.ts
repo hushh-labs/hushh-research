@@ -47,6 +47,74 @@ describe("Profile canonical page layout", () => {
       "padding-top: var(--page-header-section-gap);",
     );
   });
+
+  it("keeps the account screen on the shared canvas without redundant intro copy", () => {
+    const workspace = readFileSync(
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(workspace).not.toContain(
+      'description: "Mail, phone, and sign-in.",',
+    );
+    expect(css).toMatch(
+      /\[data-profile-stack-screen="panel:account"\] \{[\s\S]*?background: transparent;/,
+    );
+    expect(css).not.toMatch(
+      /\[data-profile-stack-screen="panel:account"\] \{[\s\S]*?background: var\(--ios-account-screen-background\);/,
+    );
+  });
+
+  it("keeps Vault methods aligned with the shared Profile visual system", () => {
+    const workspace = readFileSync(
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+
+    expect(workspace).toContain(
+      'className="profile-account-content profile-vault-methods-content"',
+    );
+    expect(workspace).not.toContain('description: "Unlock methods.",');
+    expect(workspace).toContain('data-testid="vault-default-unlock-actions"');
+    expect(workspace).toContain("VAULT_INLINE_ACTIONS_CLASS");
+    expect(workspace).toContain('iconTone="blue"');
+    expect(workspace).toContain('iconTone="purple"');
+    expect(workspace).toContain('iconTone="orange"');
+    expect(workspace).toContain('iconTone="indigo"');
+    expect(workspace).not.toContain("Use device biometric");
+    expect(workspace).not.toContain("Use passphrase");
+    expect(workspace).toContain(
+      "{readableQuickMethod(quickMethodReadyOnCurrentDevice)}",
+    );
+  });
+
+  it("keeps the Profile menu on the same colored tile and type system as Account", () => {
+    const workspace = readFileSync(
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    const homeMenu = workspace.slice(
+      workspace.indexOf('<SettingsGroup title="Your settings"'),
+      workspace.indexOf("</AppPageContentRegion>"),
+    );
+
+    for (const tone of ["blue", "purple", "green", "indigo", "orange", "red"]) {
+      expect(homeMenu).toContain(`iconTone="${tone}"`);
+    }
+    expect(homeMenu).not.toContain('iconTone="capability"');
+    expect(homeMenu).not.toContain('density="compact"');
+    expect(css).toMatch(
+      /\.profile-home-content \[data-slot="settings-row-title"\] \{[\s\S]*?font-size: var\(--ios-account-row-title-size\) !important;[\s\S]*?font-weight: var\(--ios-account-regular-weight\) !important;[\s\S]*?letter-spacing: var\(--ios-account-row-title-tracking\) !important;/,
+    );
+    expect(css).toMatch(
+      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="blue"\][\s\S]*?background: var\(--ios-account-accent\) !important;/,
+    );
+    expect(css).toMatch(
+      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="indigo"\][\s\S]*?background: var\(--app-indigo\) !important;/,
+    );
+  });
   it("keeps account identity in a compact leading-aligned header row", () => {
     const source = readFileSync(
       join(process.cwd(), "components/profile/profile-workspace-page.tsx"),

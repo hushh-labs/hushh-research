@@ -36,7 +36,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         return await self._transaction(operation)
 
-    async def claim_preparation(self, *, user_id, request_id, foreground=False):
+    async def claim_preparation(
+        self, *, user_id, request_id, foreground=False, owner_selected=False
+    ):
         self._sharing_admission(user_id)
         request_id = str(UUID(request_id))
 
@@ -57,7 +59,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             if (
                 row["status"] not in {"pending", "preparing"}
                 or row["expires_at"] <= now
-                or row["preparation_next_at"] > now
+                or (row["preparation_next_at"] > now and not (foreground and owner_selected))
                 or row["preparation_lease_expires_at"]
                 and row["preparation_lease_expires_at"] > now
             ):
@@ -153,11 +155,12 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         return await self._transaction(operation)
 
-    async def fail_preparation(self, job, *, code, retryable=False):
+    async def fail_preparation(self, job, *, code, retryable=False, notify_owner=True):
         allowed = {
             "preparation_unavailable",
             "narrow_selection_required",
             "no_ready_files",
+            "no_relevant_files",
             "source_changed",
         }
         code = code if code in allowed else "preparation_unavailable"
@@ -182,7 +185,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                     "request": job["request_id"],
                 },
             )
-            if not retry:
+            # A failed hand-picked share is answered on the owner's own card;
+            # a "ready to review" alert about their own action is noise.
+            if not retry and notify_owner:
                 self._event(connection, updated, job["user_id"], "document_share_review_ready")
 
         await self._transaction(operation)

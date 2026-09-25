@@ -803,7 +803,7 @@
       "id": "drive_live_questions",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read and no worker wake. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive."
+      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read; no worker reads the question. An opaque drive_query_events row (closed type, ids only) notifies the owner that a question arrived and the asker when it is answered or declined. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive. The asker can cancel a pending or running question; cancel never reads Drive and stops a running Allow from storing an answer."
     },
     {
       "data_class": "workflow_state",
@@ -820,12 +820,13 @@
       "exact_tables": [
         "drive_share_file_claims",
         "drive_share_events",
+        "drive_query_events",
         "drive_share_management_contexts"
       ],
       "id": "drive_original_sharing_coordination",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs; web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded."
+      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded."
     },
     {
       "data_class": "personal_encrypted",
@@ -839,6 +840,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "drive_owner_shares"
+      ],
+      "id": "drive_owner_shares",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "The owner stages a share from chat with one connected person, or with the Trusted circle members the owner accepted by request or invite (contact-sync, circle-only and imported connections never receive). Only the owner's own tap runs one live Drive search under the owner's authority; the found files (at most eight, no folders) are sealed so a share binds exactly what the owner saw, by reference. The owner's explicit selection then goes through the existing exact-file lane (owner-initiated request, owner-selected review, ledger approval, permission worker). The recipient never reads this table."
     },
     {
       "data_class": "workflow_state",
@@ -1884,6 +1895,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.consents.legacy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/delete-account/page.tsx",
+      "pathname": "/delete-account",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.delete.account"
       }
     },
     {
@@ -5656,14 +5690,14 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "033eea40eae969618b95e925bbc071bc891a50786fd3aaca319bda68c97235f4",
-    "cache_manifest": "dc4fd42741730937bb84f1b67da4b26c3aaa148bc36724f9602cf55046455f5f",
-    "data_plane": "bf6e3c20d5bf976274990840f387678ca9f644ab23e742e585af2a5a22527b50",
+    "agent_registry": "3de4e6bf88d0fd7a1cac61df79c31a27cfda094e1cbfffcc0eb182babc540a65",
+    "cache_manifest": "80cfc83ad0686e4a742596c239438f182a529f7b1739d83fb89e16f368f648bf",
+    "data_plane": "04d216691ed1ad06e3b37cead4e5788a39e10f126c68001db79167c56245a9a1",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "dec0f5523e5892aa142dd861a2518daeff5f0dd2b3046ef839522d8b93bbd071",
-    "route_index": "8e36edac46b25dbba52774e0213e9508d5ba549d1e61e428202b085b0c83bfec",
-    "route_layout": "211d5ee6bd0e83ab2ca29b167d8b643002c063eb96ef89513100b9f76f25e81b",
-    "surface_map": "ecec284c732cd000786ee26b39ba730476a3617105f617a8c2f95e17797e1c0e",
+    "one_specialist_tools": "f1d3b49152ed38f339b547723fefe504210d61ee7ef3fff4429eaf41586d1c9e",
+    "route_index": "9c1d1649ac1b6118de6e394b09e596372feda71e6e52ee739cee07ea34bce5aa",
+    "route_layout": "0078f6a0f60cc0296733f32ba580139d2eba8723a1eadfb42c424d8b0d944c04",
+    "surface_map": "b8956cfbefc6edff1a5e3fa5b082b9a8a38aa723986391a1ddefff4414bbfce3",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5675,8 +5709,8 @@
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 139,
+    "physical_routes": 140,
     "semantic_routes": 14,
-    "table_families": 73
+    "table_families": 74
   }
 }

@@ -1,5 +1,7 @@
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 
 export type SharingStatus = {
   requestId: string;
@@ -53,7 +55,24 @@ export type SharingReview = {
   expiresAt: string | null;
   canApprove: boolean;
   canTrustFutureRequests: boolean;
+  preparationError: SharingPreparationError | null;
 };
+const SHARING_PREPARATION_ERRORS = [
+  "no_relevant_files",
+  "no_ready_files",
+  "narrow_selection_required",
+  "source_changed",
+  "preparation_unavailable",
+  "trust_revoked",
+] as const;
+/** Why preparation ended without suggestions. Unknown codes are dropped. */
+export type SharingPreparationError =
+  (typeof SHARING_PREPARATION_ERRORS)[number];
+function preparationError(value: unknown): SharingPreparationError | null {
+  return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
+    ? (value as SharingPreparationError)
+    : null;
+}
 export type SharingDelivery = {
   status: string;
   files: {
@@ -89,6 +108,7 @@ export type DriveQueryStatus =
   | "running"
   | "answered"
   | "denied"
+  | "cancelled"
   | "expired";
 /** One connection's question about the owner's Drive. No file ids or links. */
 export type DriveQueryView = {
@@ -101,9 +121,22 @@ export type DriveQueryView = {
   createdAt: string;
   expiresAt: string;
   decidedAt: string | null;
-  answer: { text: string; titles: string[]; truncated: boolean } | null;
+  answer: {
+    text: string;
+    titles: string[];
+    truncated: boolean;
+    // Owner only: the files found for this question, by reference, never Drive ids.
+    files: DriveQueryFile[];
+    // Set once the owner shared files from this answer.
+    shareRequestId: string | null;
+  } | null;
   canDecide: boolean;
   lastError: "reconnect_required" | "drive_query_unavailable" | null;
+};
+export type DriveQueryFile = {
+  ref: string;
+  name: string;
+  modifiedTime: string | null;
 };
 export type DriveQueryDraft = { clientRequestId: string; query: string } & (
   | { ownerPersonRef: string; ownerUserId?: never }
@@ -130,6 +163,65 @@ export class DriveSharingError extends Error {
   ) {
     super("Could not complete the document request. Refresh and try again.");
   }
+}
+/** The streamed route is unavailable here (older backend or native build). */
+export class StreamUnavailable extends Error {
+  constructor() {
+    super("Streamed preparation is unavailable.");
+  }
+}
+/** Public preparation stages, in order. Never file names, ids or coverage. */
+export const PREPARE_STAGES = ["starting", "searching", "choosing", "checking"] as const;
+export type PrepareStage = (typeof PREPARE_STAGES)[number];
+export type PrepareOutcome =
+  | "review_ready"
+  | "no_ready_files"
+  | "unavailable"
+  | "not_claimed"
+  // The stream ended without a result; status is the truth.
+  | "interrupted";
+const PREPARE_RESULTS = new Set<string>([
+  "review_ready",
+  "no_ready_files",
+  "unavailable",
+  "not_claimed",
+]);
+// The codes drive_sharing.py _error() can send. A client-internal code such as
+// session_changed or request_failed is never accepted from the server.
+const STREAM_ERROR_CODES = new Set<string>([
+  "request_unavailable",
+  "verify_google_identity_required",
+  "review_changed",
+  "source_changed",
+  "recipient_changed",
+  "reconnect_required",
+  "connection_changed",
+  "connection_required",
+  "explicit_approval_required",
+  "confirmation_required",
+  "request_already_decided",
+  "request_changed",
+  "revocation_pending",
+  "no_revocable_permissions",
+  "sharing_unavailable",
+  "rule_not_covered",
+  "rule_changed",
+  "connector_unavailable",
+  "request_expired",
+  "owner_share_expired",
+  "drive_query_unavailable",
+  "recipient_google_identity_required",
+  "recipient_verification_unavailable",
+  "drive_share_unavailable",
+  "invalid_argument",
+]);
+const STREAM_FRAME_MAX_LENGTH = 1024;
+function unimplemented(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "UNIMPLEMENTED"
+  );
 }
 type RecordValue = Record<string, unknown>;
 export type SharingSessionGuard = () => void;
@@ -180,8 +272,31 @@ const QUERY_STATUSES = new Set<DriveQueryStatus>([
   "running",
   "answered",
   "denied",
+  "cancelled",
   "expired",
 ]);
+
+const QUERY_FILE_REF = /^f[1-8]$/;
+
+/** Only the owner ever receives the found files; the asker's view must not carry them. */
+function queryFiles(value: unknown, direction: string): DriveQueryFile[] {
+  if (value == null) return [];
+  if (direction !== "incoming" || !Array.isArray(value) || value.length > 8)
+    throw new DriveSharingError("invalid_response");
+  const files = value.map((item) => {
+    const file = record(item);
+    const ref = string(file.ref, 3);
+    if (!QUERY_FILE_REF.test(ref)) throw new DriveSharingError("invalid_response");
+    return {
+      ref,
+      name: string(file.name, 1024),
+      modifiedTime: file.modifiedTime == null ? null : date(file.modifiedTime),
+    };
+  });
+  if (new Set(files.map((file) => file.ref)).size !== files.length)
+    throw new DriveSharingError("invalid_response");
+  return files;
+}
 
 /** Strict decode: any unexpected shape fails closed instead of rendering. */
 export function parseDriveQueryView(value: unknown): DriveQueryView {
@@ -230,6 +345,9 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
             string(title, 1024),
           ),
           truncated: rawAnswer.truncated as boolean,
+          files: queryFiles(rawAnswer.files, direction),
+          shareRequestId:
+            rawAnswer.shareRequestId == null ? null : id(rawAnswer.shareRequestId),
         }
       : null,
     // Only the owner of a pending question may ever decide it.
@@ -239,6 +357,121 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
       status === "pending",
     // The owner's connection state is never shown to the person asking.
     lastError: direction === "incoming" ? lastError : null,
+  };
+}
+
+/** The owner's own Drive search for sharing with a connection, from chat. */
+export type DriveOwnerShareView = {
+  requestId: string | null;
+  status: "ready" | "shared" | "no_match";
+  recipientName: string | null;
+  files: DriveQueryFile[];
+  shareRequestId: string | null;
+  /** The owner's own search words when nothing matched (e.g. "Which file?"). */
+  message: string | null;
+};
+
+function parseOwnerShareView(value: RecordValue): DriveOwnerShareView {
+  const status = string(value.status, 16);
+  if (status !== "ready" && status !== "shared" && status !== "no_match")
+    throw new DriveSharingError("invalid_response");
+  if (status === "no_match") {
+    return {
+      requestId: null,
+      status,
+      recipientName: null,
+      files: [],
+      shareRequestId: null,
+      message: value.message == null ? null : string(value.message, 600),
+    };
+  }
+  const found = queryFiles(value.files, "incoming");
+  if (!found.length) throw new DriveSharingError("invalid_response");
+  return {
+    requestId: id(value.requestId),
+    status,
+    recipientName:
+      value.recipientName == null ? null : string(value.recipientName, 200),
+    files: found,
+    shareRequestId: value.shareRequestId == null ? null : id(value.shareRequestId),
+    message: null,
+  };
+}
+
+/** Why a Trusted circle member cannot receive a circle share (closed set). */
+export type DriveCircleExclusion =
+  | "not_connected"
+  | "contacts"
+  | "circle"
+  | "imported"
+  | "unavailable"
+  | "no_google_account"
+  | "limit";
+const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
+  "not_connected",
+  "contacts",
+  "circle",
+  "imported",
+  "unavailable",
+  "no_google_account",
+  "limit",
+]);
+
+/** The owner's own search for sharing with their Trusted circle, from chat. */
+export type DriveCircleShareView = {
+  status: "ready" | "shared" | "no_match" | "no_recipients";
+  files: DriveQueryFile[];
+  recipients: Array<{
+    requestId: string;
+    name: string | null;
+    status: "ready" | "shared";
+    shareRequestId: string | null;
+  }>;
+  excluded: Array<{ name: string | null; reason: DriveCircleExclusion }>;
+  message: string | null;
+};
+
+function parseCircleShareView(value: RecordValue): DriveCircleShareView {
+  const status = string(value.status, 16);
+  if (
+    status !== "ready" &&
+    status !== "shared" &&
+    status !== "no_match" &&
+    status !== "no_recipients"
+  )
+    throw new DriveSharingError("invalid_response");
+  if (!Array.isArray(value.recipients) || value.recipients.length > 10)
+    throw new DriveSharingError("invalid_response");
+  if (!Array.isArray(value.excluded) || value.excluded.length > 100)
+    throw new DriveSharingError("invalid_response");
+  const recipients = value.recipients.map((item) => {
+    const row = record(item);
+    const rowStatus = string(row.status, 8);
+    if (rowStatus !== "ready" && rowStatus !== "shared")
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId: id(row.requestId),
+      name: row.name == null ? null : string(row.name, 200),
+      status: rowStatus as "ready" | "shared",
+      shareRequestId: row.shareRequestId == null ? null : id(row.shareRequestId),
+    };
+  });
+  const excluded = value.excluded.map((item) => {
+    const row = record(item);
+    const reason = string(row.reason, 32) as DriveCircleExclusion;
+    if (!CIRCLE_EXCLUSIONS.has(reason)) throw new DriveSharingError("invalid_response");
+    return { name: row.name == null ? null : string(row.name, 200), reason };
+  });
+  const files =
+    status === "ready" || status === "shared" ? queryFiles(value.files, "incoming") : [];
+  if ((status === "ready" || status === "shared") && (!files.length || !recipients.length))
+    throw new DriveSharingError("invalid_response");
+  return {
+    status,
+    files,
+    recipients,
+    excluded,
+    message: value.message == null ? null : string(value.message, 600),
   };
 }
 
@@ -487,6 +720,7 @@ export class DriveSharingService {
         !!expiresAt &&
         !!reviewDigest,
       canTrustFutureRequests: result.canTrustFutureRequests === true,
+      preparationError: preparationError(result.preparationError),
     };
   }
 
@@ -529,11 +763,149 @@ export class DriveSharingService {
     return this.request(token, requestId, guard, "/prepare", {});
   }
 
+  /**
+   * The same preparation as `prepare`, reporting public stages as they happen.
+   * Throws `StreamUnavailable` when the route can't stream here, so the caller
+   * falls back to `prepare` exactly once.
+   */
+  static async prepareStream(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+    {
+      onStage,
+      signal,
+    }: {
+      onStage: (stage: PrepareStage) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<PrepareOutcome> {
+    id(requestId);
+    guard();
+    let response: Response;
+    try {
+      response = await nativeStreamFetch(
+        `${SHARING_PATH}/requests/${requestId}/prepare/stream`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            ...ApiService.getAuthHeaders(token),
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: "{}",
+          signal,
+        },
+      );
+    } catch (error) {
+      if (unimplemented(error)) throw new StreamUnavailable();
+      throw error;
+    }
+    guard();
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      guard();
+      let detail: unknown;
+      try {
+        detail = record(JSON.parse(text)).detail;
+      } catch {
+        detail = undefined;
+      }
+      const code =
+        detail && typeof detail === "object" && !Array.isArray(detail)
+          ? (detail as RecordValue).code
+          : undefined;
+      const known =
+        typeof code === "string" && /^[a-z_]{1,80}$/.test(code) ? code : null;
+      // FastAPI's own Not Found: a backend older than this web build.
+      if (!known && (response.status === 404 || response.status === 405))
+        throw new StreamUnavailable();
+      // The stream route is at capacity; the plain POST still serves the owner.
+      if (known === "sharing_unavailable" && response.status === 503)
+        throw new StreamUnavailable();
+      throw new DriveSharingError(known ?? "request_failed", response.status);
+    }
+    if (
+      !response.body ||
+      !response.headers.get("content-type")?.includes("text/event-stream")
+    ) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new StreamUnavailable();
+    }
+    const reader = response.body.getReader();
+    const cancel = () => void reader.cancel().catch(() => undefined);
+    signal?.addEventListener("abort", cancel, { once: true });
+    const decoder = new TextDecoder();
+    let remainder = "";
+    let received = 0;
+    let reached = -1;
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch {
+          guard();
+          return "interrupted";
+        }
+        guard();
+        if (chunk.done) return "interrupted";
+        received += chunk.value.byteLength;
+        if (received > VIEW_MAX_LENGTH)
+          throw new DriveSharingError("invalid_response");
+        const parsed = parseSSEBlocks(
+          decoder.decode(chunk.value, { stream: true }),
+          remainder,
+        );
+        remainder = parsed.remainder;
+        if (remainder.length > STREAM_FRAME_MAX_LENGTH)
+          throw new DriveSharingError("invalid_response");
+        for (const frame of parsed.events) {
+          if (frame.data.length > STREAM_FRAME_MAX_LENGTH)
+            throw new DriveSharingError("invalid_response");
+          let payload: RecordValue;
+          try {
+            payload = record(JSON.parse(frame.data));
+          } catch {
+            throw new DriveSharingError("invalid_response");
+          }
+          if (payload.event !== frame.event)
+            throw new DriveSharingError("invalid_response");
+          if (frame.event === "stage") {
+            const index = PREPARE_STAGES.indexOf(payload.stage as PrepareStage);
+            if (index < 0) throw new DriveSharingError("invalid_response");
+            // Stages only move forward; a repeat or regression is dropped.
+            if (index > reached) {
+              reached = index;
+              onStage(payload.stage as PrepareStage);
+            }
+          } else if (frame.event === "complete") {
+            if (typeof payload.status !== "string" || !PREPARE_RESULTS.has(payload.status))
+              throw new DriveSharingError("invalid_response");
+            return payload.status as PrepareOutcome;
+          } else if (frame.event === "error") {
+            if (typeof payload.code !== "string" || !STREAM_ERROR_CODES.has(payload.code))
+              throw new DriveSharingError("invalid_response");
+            // Never render the server message.
+            throw new DriveSharingError(payload.code);
+          }
+          // Heartbeats and unknown events are ignored.
+        }
+      }
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      cancel();
+    }
+  }
+
   static approve(
     token: string,
     requestId: string,
     review: SharingReview,
     guard: SharingSessionGuard,
+    // Required: a caller that forgets the selection must not share the whole review.
+    documentIds: string[],
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
   ) {
@@ -543,10 +915,18 @@ export class DriveSharingService {
       Date.parse(review.expiresAt) <= Date.now()
     )
       throw new DriveSharingError("review_changed");
+    // Only a non-empty selection of the files A reviewed can be shared.
+    const reviewed = new Set(review.files.map((file) => file.documentId));
+    if (
+      documentIds.length === 0 ||
+      new Set(documentIds).size !== documentIds.length ||
+      documentIds.some((id) => !reviewed.has(id))
+    )
+      throw new DriveSharingError("invalid_selection");
     return this.request(token, requestId, guard, "/approve", {
       revision: review.revision,
       reviewDigest: review.reviewDigest,
-      documentIds: review.files.map((file) => file.documentId),
+      documentIds,
       confirmed: true,
       ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
@@ -713,16 +1093,116 @@ export class DriveSharingService {
     });
   }
 
+  /** The asker withdraws their own question; never reads Drive. */
+  static cancelQuery(
+    token: string,
+    requestId: string,
+    revisionValue: number,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    return this.queryView(token, requestId, guard, "/cancel", {
+      revision: revisionValue,
+    });
+  }
+
+  /** The owner searches their own Drive to share with one connected person. */
+  static async prepareOwnerShare(
+    token: string,
+    draft: {
+      recipientPersonRef: string;
+      clientRequestId: string;
+      query: string;
+      timeZone?: string;
+    },
+    guard: SharingSessionGuard,
+  ): Promise<DriveOwnerShareView> {
+    if (
+      !DOCUMENT_REQUEST_UUID.test(draft.recipientPersonRef) ||
+      !DOCUMENT_REQUEST_UUID.test(draft.clientRequestId) ||
+      !validDriveQuery(draft.query)
+    )
+      throw new DriveSharingError("invalid_argument");
+    return parseOwnerShareView(
+      await this.send(`${SHARING_PATH}/owner-shares`, token, guard, {
+        recipientPersonRef: draft.recipientPersonRef,
+        clientRequestId: draft.clientRequestId,
+        query: draft.query,
+        ...(draft.timeZone ? { timeZone: draft.timeZone } : {}),
+      }),
+    );
+  }
+
+  /** The owner searches their own Drive to share with their Trusted circle. */
+  static async prepareTrustedShare(
+    token: string,
+    draft: { clientRequestId: string; query: string; timeZone?: string },
+    guard: SharingSessionGuard,
+  ): Promise<DriveCircleShareView> {
+    if (!DOCUMENT_REQUEST_UUID.test(draft.clientRequestId) || !validDriveQuery(draft.query))
+      throw new DriveSharingError("invalid_argument");
+    return parseCircleShareView(
+      await this.send(`${SHARING_PATH}/owner-shares`, token, guard, {
+        audience: "trusted_circle",
+        clientRequestId: draft.clientRequestId,
+        query: draft.query,
+        ...(draft.timeZone ? { timeZone: draft.timeZone } : {}),
+      }),
+    );
+  }
+
+  /** The owner shares chosen files from their own search, as Viewer. */
+  static async shareOwnerFiles(
+    token: string,
+    requestId: string,
+    fileRefs: string[],
+    guard: SharingSessionGuard,
+  ): Promise<DriveOwnerShareView> {
+    if (
+      !DOCUMENT_REQUEST_UUID.test(requestId) ||
+      fileRefs.length === 0 ||
+      fileRefs.length > 8 ||
+      new Set(fileRefs).size !== fileRefs.length ||
+      fileRefs.some((ref) => !QUERY_FILE_REF.test(ref))
+    )
+      throw new DriveSharingError("invalid_selection");
+    return parseOwnerShareView(
+      await this.send(
+        `${SHARING_PATH}/owner-shares/${requestId}/share`,
+        token,
+        guard,
+        { fileRefs },
+      ),
+    );
+  }
+
+  /** The owner shares chosen files from an answered question, as Viewer. */
+  static shareQueryFiles(
+    token: string,
+    requestId: string,
+    fileRefs: string[],
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    if (
+      fileRefs.length === 0 ||
+      fileRefs.length > 8 ||
+      new Set(fileRefs).size !== fileRefs.length ||
+      fileRefs.some((ref) => !QUERY_FILE_REF.test(ref))
+    )
+      throw new DriveSharingError("invalid_selection");
+    return this.queryView(token, requestId, guard, "/share", { fileRefs });
+  }
+
   private static async queryView(
     token: string,
     requestId: string,
     guard: SharingSessionGuard,
-    action: "" | "/allow" | "/deny",
-    body?: { revision: number; timeZone?: string },
+    action: "" | "/allow" | "/deny" | "/cancel" | "/share",
+    body?: { revision: number; timeZone?: string } | { fileRefs: string[] },
   ): Promise<DriveQueryView> {
     if (
       !DOCUMENT_REQUEST_UUID.test(requestId) ||
       (body !== undefined &&
+        "revision" in body &&
         (!Number.isSafeInteger(body.revision) || body.revision < 0))
     )
       throw new DriveSharingError("invalid_argument");

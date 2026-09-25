@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   token: "synthetic-owner-token" as string | null,
   overview: vi.fn(),
   documents: vi.fn(),
+  liveBackground: vi.fn(),
+  setLiveBackground: vi.fn(),
   push: vi.fn(),
   calendarRefresh: vi.fn(),
   calendarDisconnect: vi.fn(),
@@ -30,7 +32,15 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   }),
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { overview: state.overview, documents: state.documents },
+  ExternalConnectorService: {
+    overview: state.overview,
+    documents: state.documents,
+    liveBackground: state.liveBackground,
+    setLiveBackground: state.setLiveBackground,
+  },
+}));
+vi.mock("@/components/consent/trusted-document-rules", () => ({
+  TrustedDocumentRules: () => null,
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({ GmailReceiptsService: {} }));
 vi.mock("@/components/icons", () => ({
@@ -68,6 +78,8 @@ describe("supported connector catalog", () => {
     state.token = "synthetic-owner-token";
     state.overview.mockReset().mockResolvedValue(overview());
     state.documents.mockReset().mockResolvedValue([]);
+    state.liveBackground.mockReset().mockResolvedValue(false);
+    state.setLiveBackground.mockReset().mockResolvedValue(undefined);
     state.push.mockReset();
     state.calendarRefresh.mockReset();
     state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
@@ -315,5 +327,83 @@ describe("supported connector catalog", () => {
     view.rerender(panel());
     expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
     expect(screen.getByText("Unlock your vault to manage connectors.")).toBeInTheDocument();
+  });
+
+  describe("live Drive background preparation", () => {
+    const liveDrive = (profile: "live" | "selected" = "live") => ({
+      connectors: [
+        {
+          connectorId: "google_drive",
+          displayName: "Google Drive",
+          description: "Drive",
+          authStyle: "oauth",
+          profile,
+          status: "connected",
+        },
+      ],
+      features: {
+        connections_panel_v2: true,
+        google_drive_connection: true,
+        google_drive_live: true,
+      },
+    });
+    const openDrive = async () => {
+      render(panel());
+      // The row moves from Available to Connected once the overview arrives;
+      // click the connected row, not the detached pre-overview one.
+      await screen.findByRole("button", { name: "Disconnect Google Drive" });
+      fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    };
+
+    it("lets a live Drive owner turn on preparing requests while away", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      await openDrive();
+      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      expect(state.liveBackground).toHaveBeenCalledWith("synthetic-owner-token");
+      fireEvent.click(toggle);
+      expect(
+        await screen.findByRole("button", { name: "Stop background preparation" }),
+      ).toBeInTheDocument();
+      expect(state.setLiveBackground).toHaveBeenCalledExactlyOnceWith("synthetic-owner-token", true);
+      expect(await screen.findByText("Background preparation enabled.")).toBeInTheDocument();
+    });
+
+    it("keeps the toggle off and says so when the change fails", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      state.setLiveBackground.mockRejectedValue(new Error("synthetic failure"));
+      await openDrive();
+      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      fireEvent.click(toggle);
+      expect(
+        await screen.findByText(
+          "Drive could not finish this action. Check the connection and try again.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Prepare requests while away" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Stop background preparation" })).not.toBeInTheDocument();
+    });
+
+    it("disables the toggle when the current setting cannot be read", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockRejectedValue(new Error("synthetic failure"));
+      await openDrive();
+      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      await waitFor(() => expect(state.liveBackground).toHaveBeenCalled());
+      await act(async () => undefined);
+      expect(toggle).toBeDisabled();
+      fireEvent.click(toggle);
+      expect(state.setLiveBackground).not.toHaveBeenCalled();
+    });
+
+    it("offers no background toggle for selected-file access", async () => {
+      state.overview.mockResolvedValue(liveDrive("selected"));
+      await openDrive();
+      await waitFor(() => expect(state.overview).toHaveBeenCalled());
+      expect(await screen.findByText("Retry Drive")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Prepare requests while away" })).not.toBeInTheDocument();
+      expect(state.liveBackground).not.toHaveBeenCalled();
+    });
   });
 });

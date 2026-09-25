@@ -11,6 +11,7 @@ import {
   type GmailSyncRun,
 } from "@/lib/services/gmail-receipts-service";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import { trackEvent } from "@/lib/observability/client";
 import {
   resolveGmailConnectionPresentation,
   sanitizeGmailUserMessage,
@@ -116,6 +117,15 @@ const inflightStatusRequests = new Map<
   Promise<GmailConnectionStatus | null>
 >();
 const inflightRunPollers = new Map<string, AbortController>();
+let activeConnectorOwnerId: string | null = null;
+
+function trackGmailSyncOutcomeForOwner(
+  userId: string,
+  fields: { action: "complete" | "poll"; result: "success" | "expected_error" | "error" },
+): void {
+  if (activeConnectorOwnerId !== userId) return;
+  trackEvent("gmail_sync_result", fields);
+}
 const inflightBootstrapStatusPollers = new Map<string, AbortController>();
 
 const EMPTY_CONNECTOR_VIEW: GmailConnectorView = {
@@ -585,6 +595,7 @@ async function fetchStatusFromNetwork(params: {
   idTokenProvider?: (() => Promise<string>) | null;
   onSyncComplete?: (status: GmailConnectionStatus) => void;
   pollActiveRun?: boolean;
+  isCurrent?: () => boolean;
 }): Promise<GmailConnectionStatus | null> {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return null;
@@ -628,7 +639,8 @@ async function fetchStatusFromNetwork(params: {
   });
 
   const shouldReconcile = params.reconcile ?? Boolean(params.force);
-  const request = (
+  let request: Promise<GmailConnectionStatus | null>;
+  request = (
     shouldReconcile
       ? GmailReceiptsService.reconcile
       : GmailReceiptsService.getStatus
@@ -637,6 +649,7 @@ async function fetchStatusFromNetwork(params: {
     userId: normalizedUserId,
   })
     .then((status) => {
+      if (params.isCurrent && !params.isCurrent()) return null;
       primeConnectorStatus({
         userId: normalizedUserId,
         status,
@@ -651,12 +664,14 @@ async function fetchStatusFromNetwork(params: {
       return status;
     })
     .catch(async (error) => {
+      if (params.isCurrent && !params.isCurrent()) return null;
       if (shouldReconcile) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
             idToken: params.idToken,
             userId: normalizedUserId,
           });
+          if (params.isCurrent && !params.isCurrent()) return null;
           primeConnectorStatus({
             userId: normalizedUserId,
             status: fallbackStatus,
@@ -674,6 +689,8 @@ async function fetchStatusFromNetwork(params: {
         }
       }
 
+      if (params.isCurrent && !params.isCurrent()) return null;
+
       console.error(
         "[gmail-connector-store] Failed to refresh Gmail status:",
         error,
@@ -689,8 +706,12 @@ async function fetchStatusFromNetwork(params: {
       return entry.status;
     })
     .finally(() => {
-      inflightStatusRequests.delete(normalizedUserId);
-      updateEntry(normalizedUserId, { isRefreshing: false });
+      if (inflightStatusRequests.get(normalizedUserId) === request) {
+        inflightStatusRequests.delete(normalizedUserId);
+        if (!params.isCurrent || params.isCurrent()) {
+          updateEntry(normalizedUserId, { isRefreshing: false });
+        }
+      }
     });
 
   inflightStatusRequests.set(normalizedUserId, request);
@@ -799,27 +820,63 @@ async function pollSyncRun(params: {
         attempt > RUN_POLL_MAX_ATTEMPTS ||
         elapsedMs >= RUN_POLL_MAX_ELAPSED_MS
       ) {
-        updateEntry(normalizedUserId, {
-          activeRunId: null,
-          activeTaskId: null,
-          activeTaskKind: null,
-          suppressedRunId: normalizedRunId,
-          isPolling: false,
-        });
+        let refreshed: GmailConnectionStatus | null = null;
         try {
-          await fetchStatusFromNetwork({
+          const idToken = await params.idTokenProvider();
+          if (controller.signal.aborted) return;
+          refreshed = await fetchStatusFromNetwork({
             userId: normalizedUserId,
-            idToken: await params.idTokenProvider(),
+            idToken,
             force: true,
             routeHref: params.routeHref,
-            idTokenProvider: null,
-            pollActiveRun: false,
-          });
+          idTokenProvider: null,
+          pollActiveRun: false,
+          isCurrent: () =>
+            inflightRunPollers.get(normalizedUserId) === controller &&
+            !controller.signal.aborted,
+        });
         } catch (refreshError) {
+          if (controller.signal.aborted) return;
           console.warn(
             "[gmail-connector-store] Failed to refresh Gmail status after poll timeout:",
             refreshError,
           );
+        }
+        if (controller.signal.aborted) {
+          return;
+        }
+        const finalRun = refreshed?.latest_run;
+        if (
+          refreshed &&
+          finalRun?.run_id === normalizedRunId &&
+          isTerminalRunStatus(finalRun.status)
+        ) {
+          trackGmailSyncOutcomeForOwner(normalizedUserId, {
+            action: "complete",
+            result:
+              finalRun.status === "completed"
+                ? "success"
+                : finalRun.status === "canceled"
+                  ? "expected_error"
+                  : "error",
+          });
+          params.onComplete?.(refreshed);
+          updateEntry(normalizedUserId, { isPolling: false });
+        } else {
+          // The provider run may still be active, but this client can no longer
+          // observe a terminal result within the bounded polling window. Record
+          // the polling failure once; never mislabel the underlying sync itself.
+          trackGmailSyncOutcomeForOwner(normalizedUserId, {
+            action: "poll",
+            result: "error",
+          });
+          updateEntry(normalizedUserId, {
+            activeRunId: null,
+            activeTaskId: null,
+            activeTaskKind: null,
+            suppressedRunId: normalizedRunId,
+            isPolling: false,
+          });
         }
         shouldStopPolling = true;
         continue;
@@ -858,6 +915,15 @@ async function pollSyncRun(params: {
       });
 
       if (isTerminalRunStatus(run.status)) {
+        trackGmailSyncOutcomeForOwner(normalizedUserId, {
+          action: "complete",
+          result:
+            run.status === "completed"
+              ? "success"
+              : run.status === "canceled"
+                ? "expected_error"
+                : "error",
+        });
         finishTaskFromRun(taskId, run, { taskKind });
         updateEntry(normalizedUserId, {
           isPolling: false,
@@ -901,6 +967,11 @@ async function pollSyncRun(params: {
       });
     }
   } catch (error) {
+    if (controller.signal.aborted) return;
+    trackGmailSyncOutcomeForOwner(normalizedUserId, {
+      action: "poll",
+      result: "error",
+    });
     console.error(
       "[gmail-connector-store] Failed to poll Gmail sync run:",
       error,
@@ -913,8 +984,16 @@ async function pollSyncRun(params: {
       statusError: nextError,
     });
   } finally {
-    inflightRunPollers.delete(normalizedUserId);
-    updateEntry(normalizedUserId, { isPolling: false });
+    // Cleanup is generation-scoped. A cleared poll may finish after a new
+    // connection has installed its replacement controller and state.
+    if (inflightRunPollers.get(normalizedUserId) === controller) {
+      inflightRunPollers.delete(normalizedUserId);
+      // clearConnectorStatus intentionally removes the entry. Do not recreate
+      // it from cleanup after its poll controller has been aborted.
+      if (!controller.signal.aborted) {
+        updateEntry(normalizedUserId, { isPolling: false });
+      }
+    }
   }
 
   if (
@@ -1168,6 +1247,14 @@ export function useGmailConnectorStatus(
   options: UseGmailConnectorStatusOptions,
 ): UseGmailConnectorStatusResult {
   const normalizedUserId = String(options.userId || "").trim() || null;
+  useEffect(() => {
+    activeConnectorOwnerId = normalizedUserId;
+    return () => {
+      if (activeConnectorOwnerId === normalizedUserId) {
+        activeConnectorOwnerId = null;
+      }
+    };
+  }, [normalizedUserId]);
   const snapshot = useSyncExternalStore(
     subscribe,
     () => getConnectorView(normalizedUserId),

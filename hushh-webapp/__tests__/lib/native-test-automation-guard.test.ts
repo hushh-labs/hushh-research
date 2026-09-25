@@ -5,6 +5,7 @@ import {
   isNativeTestVaultBootstrapManaged,
   isNativeUiTestSession,
   preferPassphraseUnlockForAutomation,
+  shouldDisableExternalTelemetryForAutomation,
   shouldSkipAuthMailForAutomation,
   shouldSkipGeneratedVaultUnlockForAutomation,
 } from "@/lib/testing/native-test";
@@ -45,6 +46,43 @@ describe("native test automation guards", () => {
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(true);
     expect(shouldSkipAuthMailForAutomation()).toBe(true);
     expect(isNativeTestVaultBootstrapManaged()).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation()).toBe(true);
+  });
+
+  it("allows external telemetry only for the explicit governed UAT analytics smoke", () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      allowUatAnalyticsSmokeTelemetry: true,
+    };
+
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "uat.one.hushh.ai")).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "release-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---other-service-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-rpphvsc3tq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "one.hushh.ai")).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "localhost")).toBe(true);
   });
 
   it("keeps the visible vault challenge on the passphrase surface before a reviewer passphrase is injected", () => {

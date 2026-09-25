@@ -19,10 +19,23 @@ from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnec
 MAX_NOTIFICATION_ATTEMPTS = 3
 NOTIFICATION_LEASE_SECONDS = 90
 MAX_NOTIFICATION_RETRY_SECONDS = 300
+# Every outbox with the 232 + 235 column shape; nothing else may be leased.
+OUTBOX_TABLES = frozenset({"drive_share_events", "drive_query_events"})
 
 
 class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
-    """Lease-only authority for the opaque ``drive_share_events`` outbox."""
+    """Lease-only authority for the opaque ``drive_share_events`` outbox.
+
+    Subclasses bind the same lease protocol to another outbox table with the
+    same columns; the table name is a fixed, allowlisted class constant.
+    """
+
+    TABLE = "drive_share_events"
+
+    def _sql(self, statement: str) -> str:
+        if self.TABLE not in OUTBOX_TABLES:
+            raise ValueError("unknown notification outbox")
+        return statement.replace("{table}", self.TABLE)
 
     @staticmethod
     def _event_id(value: str) -> str:
@@ -39,8 +52,9 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
             # retaining an unbounded retry loop. This remains an attempted
             # dispatch record, never a user-delivery or read receipt.
             connection.execute(
-                text("""
-                UPDATE drive_share_events
+                text(
+                    self._sql("""
+                UPDATE {table}
                 SET notification_state='settled', notification_lease_id=NULL,
                     notification_lease_expires_at=NULL,
                     notification_settled_at=clock_timestamp(),
@@ -50,15 +64,17 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                   AND notification_attempt_count>=:attempts
                   AND (notification_lease_id IS NULL
                     OR notification_lease_expires_at<=clock_timestamp())
-            """),
+            """)
+                ),
                 {"attempts": MAX_NOTIFICATION_ATTEMPTS},
             )
             return [
                 dict(row)
                 for row in connection.execute(
-                    text("""
+                    text(
+                        self._sql("""
                     WITH due AS (
-                      SELECT event_id FROM drive_share_events
+                      SELECT event_id FROM {table}
                       WHERE notification_state IN ('queued','dispatching')
                         AND notification_attempt_count<:attempts
                         AND notification_next_attempt_at<=clock_timestamp()
@@ -67,11 +83,12 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                       ORDER BY notification_inspected_at,created_at,event_id
                       LIMIT :limit FOR UPDATE SKIP LOCKED
                     )
-                    UPDATE drive_share_events event SET notification_inspected_at=clock_timestamp()
+                    UPDATE {table} event SET notification_inspected_at=clock_timestamp()
                     FROM due WHERE event.event_id=due.event_id
                     RETURNING event.event_id,event.user_id,event.request_id,event.event_type,
                       event.notification_state,event.notification_attempt_count
-                """),
+                """)
+                    ),
                     {"attempts": MAX_NOTIFICATION_ATTEMPTS, "limit": limit},
                 ).mappings()
             ]
@@ -85,12 +102,12 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
         def operation(connection: Any) -> dict[str, Any] | None:
             row = self._row(
                 connection,
-                """
+                self._sql("""
                 SELECT event_id,user_id,request_id,event_type,notification_state,
                   notification_attempt_count,notification_next_attempt_at,
                   notification_lease_id,notification_lease_expires_at
-                FROM drive_share_events WHERE event_id=:event FOR UPDATE
-                """,
+                FROM {table} WHERE event_id=:event FOR UPDATE
+                """),
                 {"event": event_id},
             )
             if row is None or row["notification_state"] not in {"queued", "dispatching"}:
@@ -109,8 +126,8 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                 dict[str, Any] | None,
                 self._row(
                     connection,
-                    """
-                    UPDATE drive_share_events
+                    self._sql("""
+                    UPDATE {table}
                     SET notification_state='dispatching', notification_lease_id=:lease,
                         notification_lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
                         notification_attempt_count=notification_attempt_count+1,
@@ -118,7 +135,7 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                     WHERE event_id=:event
                     RETURNING event_id,user_id,request_id,event_type,notification_lease_id,
                       notification_attempt_count
-                    """,
+                    """),
                     {
                         "event": event_id,
                         "lease": lease_id,
@@ -137,8 +154,8 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
         def operation(connection: Any) -> bool:
             row = self._row(
                 connection,
-                """
-                UPDATE drive_share_events
+                self._sql("""
+                UPDATE {table}
                 SET notification_state='settled', notification_lease_id=NULL,
                     notification_lease_expires_at=NULL,
                     notification_settled_at=clock_timestamp(),
@@ -148,7 +165,7 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                   AND notification_lease_id=:lease
                   AND notification_lease_expires_at>clock_timestamp()
                 RETURNING event_id
-                """,
+                """),
                 {"event": event_id, "lease": lease_id},
             )
             return row is not None
@@ -163,8 +180,8 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
         def operation(connection: Any) -> bool:
             row = self._row(
                 connection,
-                """
-                UPDATE drive_share_events
+                self._sql("""
+                UPDATE {table}
                 SET notification_state='suppressed', notification_lease_id=NULL,
                     notification_lease_expires_at=NULL,
                     notification_error_code='notification_type_unavailable'
@@ -172,7 +189,7 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                   AND notification_lease_id=:lease
                   AND notification_lease_expires_at>clock_timestamp()
                 RETURNING event_id
-                """,
+                """),
                 {"event": event_id, "lease": lease_id},
             )
             return row is not None
@@ -187,41 +204,45 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
         def operation(connection: Any) -> str:
             row = self._row(
                 connection,
-                """
-                SELECT notification_attempt_count FROM drive_share_events
+                self._sql("""
+                SELECT notification_attempt_count FROM {table}
                 WHERE event_id=:event AND notification_state='dispatching'
                   AND notification_lease_id=:lease
                   AND notification_lease_expires_at>clock_timestamp()
                 FOR UPDATE
-                """,
+                """),
                 {"event": event_id, "lease": lease_id},
             )
             if row is None:
                 return "not_claimed"
             if int(row["notification_attempt_count"]) >= MAX_NOTIFICATION_ATTEMPTS:
                 connection.execute(
-                    text("""
-                    UPDATE drive_share_events
+                    text(
+                        self._sql("""
+                    UPDATE {table}
                     SET notification_state='settled', notification_lease_id=NULL,
                         notification_lease_expires_at=NULL,
                         notification_settled_at=clock_timestamp(),
                         delivered_at=COALESCE(delivered_at,clock_timestamp()),
                         notification_error_code='notification_unavailable'
                     WHERE event_id=:event AND notification_lease_id=:lease
-                """),
+                """)
+                    ),
                     {"event": event_id, "lease": lease_id},
                 )
                 return "settled_unavailable"
             connection.execute(
-                text("""
-                UPDATE drive_share_events
+                text(
+                    self._sql("""
+                UPDATE {table}
                 SET notification_state='queued', notification_lease_id=NULL,
                     notification_lease_expires_at=NULL,
                     notification_next_attempt_at=clock_timestamp()+make_interval(
                       secs=>LEAST(:max_delay,30*POWER(2,notification_attempt_count-1)::INTEGER)
                     ), notification_error_code='notification_unavailable'
                 WHERE event_id=:event AND notification_lease_id=:lease
-            """),
+            """)
+                ),
                 {
                     "event": event_id,
                     "lease": lease_id,
@@ -231,3 +252,9 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
             return "retry_scheduled"
 
         return cast(str, await self._transaction(operation))
+
+
+class DriveQueryNotificationStore(DriveShareNotificationStore):
+    """The same lease protocol for Drive-question events (migration 244)."""
+
+    TABLE = "drive_query_events"

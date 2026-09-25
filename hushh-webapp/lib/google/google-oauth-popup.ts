@@ -12,6 +12,9 @@ export type GoogleOAuthPopupAttempt = {
   attemptId: string;
   service: GoogleOAuthPopupService;
   startedAt: number;
+  ownerId: string;
+  returnMode?: "popup" | "same_window";
+  accessLevel?: "read" | "manage";
 };
 export type GoogleOAuthPopupSettlement = {
   schemaVersion: 1;
@@ -25,6 +28,28 @@ export type GoogleOAuthPopupSettlement = {
 function validId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{8,96}$/.test(value);
 }
+
+export function persistGoogleOAuthSameWindowAttempt(
+  attempt: GoogleOAuthPopupAttempt,
+): boolean {
+  try {
+    const currentStorage = storage(window);
+    if (!currentStorage) return false;
+    const value = JSON.stringify({ ...attempt, returnMode: "same_window" });
+    currentStorage.setItem(ATTEMPT_KEY, value);
+    return currentStorage.getItem(ATTEMPT_KEY) === value;
+  } catch {
+    return false;
+  }
+}
+
+export function clearGoogleOAuthAttempt(): void {
+  try {
+    storage(window)?.removeItem(ATTEMPT_KEY);
+  } catch {
+    /* stale browser state is best-effort cleanup */
+  }
+}
 function storage(target: Window | null | undefined): Storage | null {
   try {
     return target?.sessionStorage ?? null;
@@ -35,12 +60,15 @@ function storage(target: Window | null | undefined): Storage | null {
 
 export function createGoogleOAuthPopupAttempt(
   service: GoogleOAuthPopupService,
+  options: { ownerId: string; accessLevel?: "read" | "manage" },
 ): GoogleOAuthPopupAttempt {
   return {
     version: 1,
     attemptId: crypto.randomUUID(),
     service,
     startedAt: Date.now(),
+    ownerId: options.ownerId,
+    ...(options.accessLevel ? { accessLevel: options.accessLevel } : {}),
   };
 }
 
@@ -90,7 +118,16 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
       (parsed.service === "gmail_send" ||
         parsed.service === "calendar") &&
       validId(parsed.attemptId) &&
+      typeof parsed.ownerId === "string" &&
+      parsed.ownerId.length > 0 &&
+      parsed.ownerId.length <= 256 &&
       typeof parsed.startedAt === "number" &&
+      (parsed.returnMode === undefined ||
+        parsed.returnMode === "popup" ||
+        parsed.returnMode === "same_window") &&
+      (parsed.accessLevel === undefined ||
+        parsed.accessLevel === "read" ||
+        parsed.accessLevel === "manage") &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )
@@ -139,11 +176,35 @@ export function settleGoogleOAuthPopup(
       SETTLEMENT_KEY,
       JSON.stringify({ ...settlement, sentAt: Date.now() }),
     );
-    window.localStorage.removeItem(SETTLEMENT_KEY);
   } catch {
     /* best effort */
   }
   window.setTimeout(() => window.close(), 0);
+}
+
+export function consumeStoredGoogleOAuthPopupSettlement(
+  attemptId: string,
+): GoogleOAuthPopupSettlement | null {
+  try {
+    const raw = window.localStorage.getItem(SETTLEMENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GoogleOAuthPopupSettlement & {
+      sentAt?: number;
+    };
+    if (
+      !isGoogleOAuthPopupSettlement(parsed) ||
+      parsed.attemptId !== attemptId ||
+      typeof parsed.sentAt !== "number" ||
+      Date.now() - parsed.sentAt < 0 ||
+      Date.now() - parsed.sentAt > MAX_AGE_MS
+    ) {
+      return null;
+    }
+    window.localStorage.removeItem(SETTLEMENT_KEY);
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export function readGoogleOAuthPopupSettlement(

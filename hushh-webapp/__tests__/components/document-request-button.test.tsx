@@ -105,7 +105,9 @@ describe("asking a connection about their Drive", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
     expect(screen.getByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
     expect(
-      screen.getByText("They see your question and decide. Nothing in their Drive is read unless they allow it."),
+      screen.getByText(
+        "They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.",
+      ),
     ).toBeVisible();
     const field = screen.getByLabelText("Your question");
     expect(field).toHaveAttribute("placeholder", "e.g. Find my bank statement from March");
@@ -247,6 +249,107 @@ describe("asking a connection about their Drive", () => {
     mount();
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Ask about files" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request files" })).toBeNull();
+  });
+});
+
+describe("requesting exact files from a connection", () => {
+  const firebaseProof = "synthetic-firebase-proof";
+  beforeEach(() => {
+    vi.resetAllMocks();
+    state.uid = "b";
+    state.unlocked = true;
+    state.epoch = 1;
+    state.token = "owner-b";
+    state.getToken.mockImplementation(() => state.token);
+    state.overview.mockResolvedValue({ features: { drive_document_sharing: true }, connectors: [] });
+    state.googleIdentity.mockResolvedValue(firebaseProof);
+    state.linkGoogle.mockResolvedValue(firebaseProof);
+    state.create.mockResolvedValue({ requestId, status: "pending", revision: 1 });
+    state.lookupClient.mockResolvedValue(null);
+  });
+  afterEach(cleanup);
+
+  async function openFiles(purpose = "Files modified in the last two days") {
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
+  }
+
+  it("offers both actions next to each other", async () => {
+    mount();
+    expect(await screen.findByRole("button", { name: "Request files" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ask about files" })).toBeVisible();
+  });
+
+  it("uses the Google account already linked to the sign-in, never a Drive grant or a question", async () => {
+    const reconcile = vi.fn();
+    window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+    try {
+      mount();
+      await openFiles("  Files modified in the last two days  ");
+      expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+      expect(await screen.findByText("Request sent. No files have been shared yet.")).toBeVisible();
+      expect(state.googleIdentity).toHaveBeenCalledOnce();
+      expect(state.linkGoogle).not.toHaveBeenCalled();
+      expect(state.createQuery).not.toHaveBeenCalled();
+      expect(state.create).toHaveBeenCalledWith(
+        "owner-b",
+        firebaseProof,
+        {
+          ownerPersonRef: personRef,
+          clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          purpose: { purpose: "Files modified in the last two days", periodStart: null, periodEnd: null },
+        },
+        expect.any(Function),
+      );
+      expect(reconcile).toHaveBeenCalledOnce();
+      expect(state.invalidate).toHaveBeenCalledWith("b");
+      const link = screen.getByRole("link", { name: "View request" }).getAttribute("href");
+      expect(link).toContain(encodeURIComponent(`document_share_request:${requestId}`));
+      expect(link).toContain("requestView=sent");
+    } finally {
+      window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+    }
+  });
+
+  it("asks to link Google only when the sign-in has none, then retries with the same key", async () => {
+    state.create
+      .mockRejectedValueOnce(new DriveSharingError("verify_google_identity_required", 409))
+      .mockResolvedValueOnce({ requestId, status: "pending", revision: 1 });
+    mount();
+    await openFiles();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Add a Google account once to receive original files.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add Google account" }));
+    expect(await screen.findByText("Request sent. No files have been shared yet.")).toBeVisible();
+    expect(state.linkGoogle).toHaveBeenCalledOnce();
+    expect(state.create.mock.calls[1][2].clientRequestId).toBe(
+      state.create.mock.calls[0][2].clientRequestId,
+    );
+  });
+
+  it("refuses an incomplete period before any identity check", async () => {
+    mount();
+    await openFiles();
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
+    expect(screen.getByText("Choose both dates, with the end on or after the start.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    expect(state.googleIdentity).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["identity_link_web_required", "Open One on the web to add your Google account once."],
+    ["connection_required", "You need an active connection with this person."],
+    ["sharing_unavailable", "File requests aren't available for this connection yet."],
+  ])("maps %s to plain copy", async (code, copy) => {
+    state.create.mockRejectedValueOnce(new DriveSharingError(code, 409));
+    mount();
+    await openFiles();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy);
   });
 });
 
@@ -272,7 +375,7 @@ describe("chat draft question card", () => {
     }} />);
     expect(await screen.findByText("Ask A: “Six months of statements (2026-03-01 to 2026-08-31)”")).toBeVisible();
     expect(state.createQuery).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask as a question" }));
     await waitFor(() => expect(state.createQuery).toHaveBeenCalledWith(
       "owner-b",
       { ownerPersonRef: personRef, clientRequestId, query: "Six months of statements (2026-03-01 to 2026-08-31)" },
@@ -286,11 +389,33 @@ describe("chat draft question card", () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "Tax return", periodStart: null, periodEnd: null,
     }} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask as a question" }));
     await waitFor(() => expect(state.createQuery.mock.calls[0][1].query).toBe("Tax return"));
   });
 
-  it("keeps showing a legacy document request that this card already sent", async () => {
+  it("requests the draft's exact files with its own retry key, then shows the request", async () => {
+    state.googleIdentity.mockResolvedValue("synthetic-firebase-proof");
+    state.create.mockResolvedValue({ requestId, status: "pending", revision: 1 });
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "Six months of statements",
+      periodStart: "2026-03-01", periodEnd: "2026-08-31",
+    }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByTestId("legacy-document-review")).toHaveTextContent(requestId);
+    expect(state.create).toHaveBeenCalledWith(
+      "owner-b",
+      "synthetic-firebase-proof",
+      {
+        ownerPersonRef: personRef,
+        clientRequestId,
+        purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+      },
+      expect.any(Function),
+    );
+    expect(state.createQuery).not.toHaveBeenCalled();
+  });
+
+  it("keeps showing a file request that this card already sent", async () => {
     state.lookupClient.mockResolvedValue(requestId);
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "Statements", periodStart: null, periodEnd: null,
