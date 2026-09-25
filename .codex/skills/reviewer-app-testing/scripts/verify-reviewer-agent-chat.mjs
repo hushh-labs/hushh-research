@@ -55,10 +55,34 @@ async function conversationIds(token) {
   return new Set((payload.conversations || []).map((item) => String(item.id)));
 }
 
+async function driveAdmission(token) {
+  const response = await fetch(`${appOrigin}/api/connectors`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Connector admission check failed with HTTP ${response.status}.`);
+  const payload = await response.json();
+  const features = payload?.features;
+  if (!features || typeof features !== "object") {
+    throw new Error("Connector admission response is missing feature state.");
+  }
+  return {
+    connection: features.google_drive_connection === true,
+    live: features.google_drive_live === true,
+  };
+}
+
 try {
   session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
+  if (scenario === "drive_connector_setup") {
+    const admission = await driveAdmission(ownerToken);
+    if (!admission.connection || !admission.live) {
+      throw new Error(
+        `DRIVE_CONNECTOR_NOT_ADMITTED connection=${Number(admission.connection)} live=${Number(admission.live)}`,
+      );
+    }
+  }
   // The app may restore the reviewer's last conversation on entry. Start a
   // fresh thread through its own control before asserting a new request ID.
   const newChat = page.getByRole("button", { name: "Create new chat" });
