@@ -10,7 +10,6 @@ import {
   Mail,
   PenLine,
   RefreshCw,
-  ShieldCheck,
   ShoppingBag,
   Trash2,
 } from "@/components/icons";
