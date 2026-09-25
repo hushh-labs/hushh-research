@@ -164,7 +164,7 @@ function Fixture() {
       <section inert={open} className="flex min-h-0 flex-1 flex-col p-4">
         <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
           status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
-          onOpenConnections={(trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
+          onOpenConnections={(_, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>
         <button onClick={() => setTurns(turns + 1)}>

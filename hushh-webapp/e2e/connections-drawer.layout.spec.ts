@@ -207,7 +207,7 @@ for (const width of [320, 390, 768, 1440])
     const original = await draft.elementHandle();
     const receipt = page.getByRole("region", { name: "Mail read details" });
     await expect(receipt).toHaveText(/Reconnect Mail to continue/);
-    const button = receipt.getByRole("button", { name: "Open Connectors" });
+    const button = receipt.getByRole("button", { name: "Review Gmail access" });
     const bounds = (await button.boundingBox())!;
     expect(bounds.height).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
