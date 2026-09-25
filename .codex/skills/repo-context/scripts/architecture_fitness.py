@@ -15,6 +15,7 @@ import json
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -272,23 +273,33 @@ def _representative_findings(findings: list[dict], limit: int) -> list[dict]:
 
 
 def ratchet_regressions(current: dict, baseline: dict) -> list[dict]:
-    baseline_findings = {
-        item["key"]: item for item in baseline.get("findings", [])
-    }
-    regressions = []
+    # A file may contain several same-named nested functions or initialization
+    # calls. Compare each key as a sorted multiset; a dict drops duplicates and
+    # can report a false regression when its last entry is smaller.
+    baseline_findings: dict[str, list[dict]] = defaultdict(list)
+    for item in baseline.get("findings", []):
+        baseline_findings[item["key"]].append(item)
+    for group in baseline_findings.values():
+        group.sort(key=lambda item: item.get("value") or 0, reverse=True)
+    current_findings: dict[str, list[dict]] = defaultdict(list)
     for item in current.get("findings", []):
-        previous = baseline_findings.get(item["key"])
-        if previous is None:
-            regressions.append(item | {"ratchet_reason": "new finding"})
-            continue
-        current_value = item.get("value")
-        previous_value = previous.get("value")
-        if (
-            isinstance(current_value, int)
-            and isinstance(previous_value, int)
-            and current_value > previous_value
-        ):
-            regressions.append(item | {"ratchet_reason": "finding worsened"})
+        current_findings[item["key"]].append(item)
+    regressions = []
+    for key, group in current_findings.items():
+        group.sort(key=lambda item: item.get("value") or 0, reverse=True)
+        previous_group = baseline_findings.get(key, [])
+        for index, item in enumerate(group):
+            if index >= len(previous_group):
+                regressions.append(item | {"ratchet_reason": "new finding"})
+                continue
+            current_value = item.get("value")
+            previous_value = previous_group[index].get("value")
+            if (
+                isinstance(current_value, int)
+                and isinstance(previous_value, int)
+                and current_value > previous_value
+            ):
+                regressions.append(item | {"ratchet_reason": "finding worsened"})
     return regressions
 
 
@@ -359,6 +370,11 @@ def oversized():
     }
     if len(ratchet_regressions(current, baseline)) != 1:
         print("architecture fitness self-test failed: ratchet comparison", file=sys.stderr)
+        return 1
+    duplicate_baseline = {"findings": [{"key": "duplicate", "value": 20}, {"key": "duplicate", "value": 10}]}
+    duplicate_current = {"findings": [{"key": "duplicate", "value": 10}, {"key": "duplicate", "value": 20}]}
+    if ratchet_regressions(duplicate_current, duplicate_baseline):
+        print("architecture fitness self-test failed: duplicate comparison", file=sys.stderr)
         return 1
     print("Architecture fitness self-test passed")
     return 0

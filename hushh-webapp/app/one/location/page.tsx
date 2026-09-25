@@ -298,11 +298,13 @@ import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-poi
 import { useLocationOnboardingProgress } from "@/lib/one-location/use-onboarding-progress";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
-import {
-  isTransientOneApiError,
-  oneLocationErrorMessage,
-} from "@/lib/one-location/error-message";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { ApiError } from "@/lib/services/api-client";
+import { useShareRecipientSelectionState } from "@/lib/one-location/use-share-recipient-selection-state";
+import { AvatarBubble, SegmentedModeControl, type ShareMode } from "@/components/one-location/location-controls";
+import { matchCircleByName } from "@/lib/one-location/resolve-spoken-names";
+import { oneLocationFailureClass } from "@/lib/one-location/error-message";
+export { matchCircleByName, oneLocationFailureClass };
 
 import {
   clearLiveShareEntries,
@@ -1199,77 +1201,8 @@ function toggleSelectedId(
   return [...selectedIds, recipientId];
 }
 
-function useShareRecipientSelectionState(): readonly [
-  string[],
-  (next: SetStateAction<string[]>) => string[],
-  MutableRefObject<string[]>,
-] {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  // React can batch multiple share actions before rerendering. This cursor lets
-  // each action compose from the latest queued selection while state remains
-  // the rendered source of truth. Exposed (read-only by convention) so a
-  // handler that fires immediately after a select -- faster than the render
-  // that would otherwise make the pick visible -- can still read who was just
-  // chosen instead of the not-yet-committed empty state. See its use in
-  // handleShare's effectiveSelectedShareRecipients.
-  const latestSelectedIdsRef = useRef<string[]>([]);
-  const updateSelectedIds = useCallback(
-    (next: SetStateAction<string[]>): string[] => {
-      const resolvedIds =
-        typeof next === "function" ? next(latestSelectedIdsRef.current) : next;
-      latestSelectedIdsRef.current = resolvedIds;
-      setSelectedIds(resolvedIds);
-      return resolvedIds;
-    },
-    [],
-  );
-  return [selectedIds, updateSelectedIds, latestSelectedIdsRef] as const;
-}
-
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
-}
-
-/**
- * Resolve a spoken circle name against the circles the person actually has.
- *
- * Tiered on purpose. A plain substring scan would let "family" resolve
- * "Extended family trip" even when a circle literally called "Family" exists,
- * and the person would then be editing the wrong group's membership without
- * ever being told. Exact wins, then a whole-word prefix, and only then a
- * contained match. Ambiguity within a tier is returned as ambiguity rather than
- * being broken arbitrarily by array order.
- */
-export function matchCircleByName<T extends { name: string }>(
-  circles: readonly T[],
-  spoken: string,
-): { match: T | null; ambiguous: T[] } {
-  const target = normalizeSpokenName(spoken);
-  if (!target) return { match: null, ambiguous: [] };
-  const indexed = circles.map((circle) => ({
-    circle,
-    normalized: normalizeSpokenName(circle.name),
-  }));
-
-  const tiers = [
-    indexed.filter((entry) => entry.normalized === target),
-    indexed.filter(
-      (entry) =>
-        entry.normalized.startsWith(`${target} `) ||
-        entry.normalized.endsWith(` ${target}`) ||
-        entry.normalized.split(" ").includes(target),
-    ),
-    indexed.filter((entry) => entry.normalized.includes(target)),
-  ];
-
-  for (const tier of tiers) {
-    const [only] = tier;
-    if (only && tier.length === 1) return { match: only.circle, ambiguous: [] };
-    if (tier.length > 1) {
-      return { match: null, ambiguous: tier.map((entry) => entry.circle) };
-    }
-  }
-  return { match: null, ambiguous: [] };
 }
 
 function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
@@ -1510,52 +1443,6 @@ function oneLocationBackoffBucket(delayMs: number): OneLocationBackoffBucket {
   if (delayMs < 1000) return "500ms_1s";
   if (delayMs < 3000) return "1s_3s";
   return "gte_3s";
-}
-
-/**
- * Exported for the unit test that guards the ordering below. The ordering is
- * the whole point of this function and is easy to undo by accident.
- */
-export function oneLocationFailureClass(error: unknown): string {
-  if (isTransientOneApiError(error)) return "one_api_unavailable";
-  const name =
-    error && typeof error === "object" && "name" in error
-      ? String((error as { name?: unknown }).name || "").toLowerCase()
-      : "";
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(
-          (error as { message?: unknown })?.message || error || "",
-        ).toLowerCase();
-  if (name === "aborterror" || message.includes("abort")) return "aborted";
-  if (message.includes("network") || message.includes("fetch"))
-    return "network";
-  // Encryption before permission. "location" is a substring of almost every
-  // message this surface produces — "could not decrypt location envelope"
-  // included — so matching it first labelled key and envelope failures as
-  // permission problems. In production, `permission` is 965 of 1,248 retry
-  // events on iOS, and an unknown share of those are really something else;
-  // the point of a failure class is to send you to the right cause.
-  if (
-    message.includes("key") ||
-    message.includes("encrypt") ||
-    message.includes("decrypt")
-  ) {
-    return "encryption";
-  }
-  // Matched on the vocabulary the platforms actually use for a denial, not on
-  // the word "location" — which appears in nearly every message this surface
-  // produces and was therefore labelling unrelated failures as permission
-  // problems.
-  if (
-    message.includes("permission") ||
-    message.includes("denied") ||
-    message.includes("authoriz")
-  ) {
-    return "permission";
-  }
-  return "unknown";
 }
 
 function isRetryableForegroundError(error: unknown): boolean {
@@ -1881,7 +1768,6 @@ function ActionButton({
   );
 }
 
-type ShareMode = "share" | "request";
 
 const onePanelClassName =
   "w-full min-w-0 max-w-full overflow-x-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
@@ -1912,87 +1798,6 @@ function sectionLabel(title: string, count?: number) {
 
 function displayNameFromRecipient(recipient: OneLocationRecipient): string {
   return recipientLabel(recipient);
-}
-
-function initialsForLabel(label: string): string {
-  const words = label
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (words.length >= 2) {
-    const first = words[0]?.[0] || "";
-    const second = words[1]?.[0] || "";
-    return `${first}${second}`.toUpperCase();
-  }
-  return (words[0]?.slice(0, 2) || "?").toUpperCase();
-}
-
-function avatarColor(_index: number): string {
-  return "bg-[color:var(--app-accent-surface)]";
-}
-
-function AvatarBubble({
-  label,
-  index,
-  size = "md",
-  muted = false,
-}: {
-  label: string;
-  index: number;
-  size?: "sm" | "md" | "lg";
-  muted?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase",
-        size === "sm" && "h-9 w-9 text-[15px]",
-        size === "md" && "h-[52px] w-[52px] text-[18px]",
-        size === "lg" && "h-11 w-11 text-[17px]",
-        muted
-          ? "bg-[#e5e5ea] text-[#8e8e93] dark:bg-white/10 dark:text-white/55"
-          : `${avatarColor(index)} text-[color:var(--app-accent-deep)]`,
-      )}
-      aria-hidden="true"
-    >
-      {initialsForLabel(label)}
-    </span>
-  );
-}
-
-function SegmentedModeControl({
-  value,
-  onChange,
-}: {
-  value: ShareMode;
-  onChange: (value: ShareMode) => void;
-}) {
-  return (
-    <div
-      aria-label="Choose location sharing mode"
-      className="flex h-9 w-full min-w-0 max-w-full items-center overflow-hidden rounded-[9px] bg-[#efeff0] p-[3px] dark:bg-white/10"
-      role="tablist"
-    >
-      {(["share", "request"] as const).map((mode) => (
-        <button
-          key={mode}
-          aria-selected={value === mode}
-          role="tab"
-          type="button"
-          onClick={() => onChange(mode)}
-          className={cn(
-            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-[background-color,color,box-shadow] duration-150",
-            value === mode
-              ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
-              : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",
-          )}
-        >
-          {mode}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function EmptyOneState({

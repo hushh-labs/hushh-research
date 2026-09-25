@@ -68,6 +68,12 @@ try {
   // Without this the suite passes when the block regex matches nothing.
   assert(clean.blocks === 2, `expected 2 diagram blocks to be read, saw ${clean.blocks}`);
 
+  for (const readme of ["README.md", "consent-protocol/README.md", "hushh-webapp/README.md"]) {
+    writeFixture(tempRoot, readme, "```mermaid\nflowchart LR\n  a[owner]\n```\n");
+  }
+  const defaults = runDiagramCheck({ workspaceRoot: tempRoot });
+  assert(defaults.blocks === 3, `expected all three README diagrams, saw ${defaults.blocks}`);
+
   const cases = [
     ['  x[an unquoted > breaks the parser]', "UNQUOTED"],
     ['  x["/one/setup/<capability>"]', "htmlLabels"],

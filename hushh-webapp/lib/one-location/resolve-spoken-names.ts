@@ -186,3 +186,45 @@ export function joinNamesForSpeech(names: readonly string[]): string {
   if (clean.length === 2) return `${clean[0]} and ${clean[1]}`;
   return `${clean.slice(0, -1).join(", ")} and ${clean[clean.length - 1]}`;
 }
+
+/**
+ * Resolve a spoken circle name against the circles the person actually has.
+ *
+ * Tiered on purpose. A plain substring scan would let "family" resolve
+ * "Extended family trip" even when a circle literally called "Family" exists,
+ * and the person would then be editing the wrong group's membership without
+ * ever being told. Exact wins, then a whole-word prefix, and only then a
+ * contained match. Ambiguity within a tier is returned as ambiguity rather than
+ * being broken arbitrarily by array order.
+ */
+export function matchCircleByName<T extends { name: string }>(
+  circles: readonly T[],
+  spoken: string,
+): { match: T | null; ambiguous: T[] } {
+  const target = normalizeSpokenName(spoken);
+  if (!target) return { match: null, ambiguous: [] };
+  const indexed = circles.map((circle) => ({
+    circle,
+    normalized: normalizeSpokenName(circle.name),
+  }));
+
+  const tiers = [
+    indexed.filter((entry) => entry.normalized === target),
+    indexed.filter(
+      (entry) =>
+        entry.normalized.startsWith(`${target} `) ||
+        entry.normalized.endsWith(` ${target}`) ||
+        entry.normalized.split(" ").includes(target),
+    ),
+    indexed.filter((entry) => entry.normalized.includes(target)),
+  ];
+
+  for (const tier of tiers) {
+    const [only] = tier;
+    if (only && tier.length === 1) return { match: only.circle, ambiguous: [] };
+    if (tier.length > 1) {
+      return { match: null, ambiguous: tier.map((entry) => entry.circle) };
+    }
+  }
+  return { match: null, ambiguous: [] };
+}

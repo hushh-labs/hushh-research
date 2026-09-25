@@ -41,7 +41,7 @@ python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.
 python3 .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --check
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test
-python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
+python3 .codex/skills/repo-context/scripts/architecture_fitness.py --baseline docs/reference/quality/architecture-fitness-baseline.json --limit 20
 python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py
 python3 .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
 python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py

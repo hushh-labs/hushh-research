@@ -107,7 +107,7 @@ function resolveOneUpstreamTimeoutMs(
   if (/^u\/[^/]+\/turn$/.test(path)) {
     return ONE_TURN_TIMEOUT_MS;
   }
-  if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/draft" || path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
   // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
   // asks for text/event-stream) hold open far longer than a JSON call, so the

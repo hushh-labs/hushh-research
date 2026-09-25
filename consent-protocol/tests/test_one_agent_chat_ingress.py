@@ -8,7 +8,13 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from api.routes.one import agent_chat
-from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_PKM_CONTEXT, STATE_USER_ID
+from hushh_mcp.one_adk.agent_tree import (
+    STATE_CONSENT_TOKEN,
+    STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
+    STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID,
+    STATE_PKM_CONTEXT,
+    STATE_USER_ID,
+)
 
 
 def request(headers=None):
@@ -323,3 +329,61 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeyp
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
+
+
+async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monkeypatch):
+    from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+    workflow_id = "11111111-1111-1111-1111-111111111111"
+    lookup = AsyncMock(return_value="synthetic selected request context")
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(
+        agent_chat,
+        "require_vault_owner_token",
+        AsyncMock(return_value={"user_id": "owner-a", "token": "HCT:synthetic"}),
+    )
+    monkeypatch.setattr(
+        agent_chat,
+        "get_personal_gmail_information_request_service",
+        lambda: Mock(get_chat_reply_context=lookup),
+    )
+
+    state = await agent_chat._extract_state(
+        request({"authorization": "Bearer HCT:synthetic"}),
+        incoming(forwarded_props={"gmailInformationRequestWorkflowId": workflow_id}),
+    )
+
+    lookup.assert_awaited_once_with(user_id="owner-a", workflow_id=workflow_id)
+    assert state[STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID] == workflow_id
+    assert resolve_request_secret(state[STATE_GMAIL_INFORMATION_REQUEST_CONTEXT]) == (
+        "synthetic selected request context"
+    )
+
+
+async def test_selected_gmail_request_requires_owner_token_and_valid_id(monkeypatch):
+    lookup = AsyncMock()
+    monkeypatch.setattr(
+        agent_chat,
+        "get_personal_gmail_information_request_service",
+        lambda: Mock(get_chat_reply_context=lookup),
+    )
+    with pytest.raises(HTTPException) as missing:
+        await agent_chat._extract_state(
+            request(),
+            incoming(forwarded_props={"gmailInformationRequestWorkflowId": "selected-id"}),
+        )
+    assert missing.value.status_code == 403
+
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(
+        agent_chat,
+        "require_vault_owner_token",
+        AsyncMock(return_value={"user_id": "owner-a", "token": "HCT:synthetic"}),
+    )
+    with pytest.raises(HTTPException) as invalid:
+        await agent_chat._extract_state(
+            request({"authorization": "Bearer HCT:synthetic"}),
+            incoming(forwarded_props={"gmailInformationRequestWorkflowId": "../other-owner"}),
+        )
+    assert invalid.value.status_code == 400
+    lookup.assert_not_awaited()

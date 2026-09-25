@@ -76,8 +76,8 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
 
 **Purpose:** give each person their own agent runtime, on compute that is theirs,
 under a hub-governed owner assignment. Managed and BYOC targets have different
-cloud identities and custody. The [container view](./architecture-view-catalog.md#container-view)
-and [BYOC image flow](./architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow)
+cloud identities and custody. The [container view](./views/runtime.md#container-view)
+and [BYOC image flow](./views/deployment.md#dev-byoc-image-and-private-agent-flow)
 show those boundaries together.
 
 BYOC is the owner-compute path behind "Own your AI. Own your data. Own your compute."
@@ -100,7 +100,7 @@ direct and BYOC paths. They are source contracts, not proof of a live rollout.
 This sequence shows the default hub-only managed pod path for an account with a
 pod assignment. BYOC adds owner-project identity and encrypted recovery;
 direct browser admission is a separate, dev-gated flow in the
-[BYOC image and private-agent diagram](./architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow).
+[BYOC image and private-agent diagram](./views/deployment.md#dev-byoc-image-and-private-agent-flow).
 
 ```mermaid
 sequenceDiagram

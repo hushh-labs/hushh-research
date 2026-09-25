@@ -29,15 +29,15 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 
 ## Founder and CTO diagram guide
 
-Follow the concern from this index to the canonical figure; the detailed diagrams live once in the [architecture view catalog](./architecture-view-catalog.md). The status labels describe checked-in source, not live acceptance in every environment.
+Follow the concern from this index to the canonical figure; the detailed diagrams live in the catalog’s [five view pages](./architecture-view-catalog.md). The status labels describe checked-in source, not live acceptance in every environment.
 
 | Reader question | Diagram | Status and boundary |
 | --- | --- | --- |
-| What does Hussh connect, and what is still proposed? | [System landscape](./architecture-view-catalog.md#system-landscape) and [system context](./architecture-view-catalog.md#system-context) | Current Hussh boundary; partner lanes labeled future |
-| What runs in the frontend, hub, and private agent? | [Container view](./architecture-view-catalog.md#container-view) and [component view](./architecture-view-catalog.md#component-view) | Current containers; specialist directions labeled in the component view |
-| Which Docker image runs where, and who controls a BYOC pod? | [Dev BYOC image and private-agent flow](./architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow) | Source-backed dev design; pod image build and direct ingress are conditional |
-| How is a pod provisioned and how does a turn reach it? | [Assigned pod sequence](./architecture-view-catalog.md#dynamic-view-assigned-pod-provisioning-and-standard-first-turn) | Hub-only initial path; direct admission is separately gated |
-| Where do environments, trust boundaries, and information reside? | [Deployment view](./architecture-view-catalog.md#deployment--network--physical-view) and [information boundary](./architecture-view-catalog.md#data-boundary-view) | Dev, UAT, and production drawn separately |
+| What does Hussh connect, and what is still proposed? | [System landscape](./views/system.md#system-landscape) and [system context](./views/system.md#system-context) | Current Hussh boundary; partner lanes labeled future |
+| What runs in the frontend, hub, and private agent? | [Container view](./views/runtime.md#container-view) and [component view](./views/runtime.md#component-view) | Current containers; specialist directions labeled in the component view |
+| Which Docker image runs where, and who controls a BYOC pod? | [Dev BYOC image and private-agent flow](./views/deployment.md#dev-byoc-image-and-private-agent-flow) | Source-backed dev design; pod image build and direct ingress are conditional |
+| How is a pod provisioned and how does a turn reach it? | [Assigned pod sequence](./views/deployment.md#dynamic-view-assigned-pod-provisioning-and-standard-first-turn) | Hub-only initial path; direct admission is separately gated |
+| Where do environments, trust boundaries, and information reside? | [Deployment view](./views/deployment.md#deployment--network--physical-view) and [information boundary](./views/information-boundary.md#data-boundary-view) | Dev, UAT, and production drawn separately |
 
 For board-level future direction, use the [Founder and Board Brief](../../future/hussh-one-infra/founder-board-brief.md); its partner and local-compute diagrams are planning views.
 

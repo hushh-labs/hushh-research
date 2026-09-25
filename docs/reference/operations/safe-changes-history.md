@@ -4,12 +4,7 @@
 
 Canonical visual owner: [Operations Index](README.md).
 
-```mermaid
-flowchart LR
-    H[Historical incident] --> V[Verify against current revision]
-    V --> O[Apply owning workflow]
-    O --> E[Record fresh evidence]
-```
+
 
 
 Preserved during the 2026-09-05 audit. Incident observations below are dated history,

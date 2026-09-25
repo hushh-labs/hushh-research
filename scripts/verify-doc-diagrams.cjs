@@ -28,7 +28,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DEFAULT_SCAN_ROOTS = ["docs", "consent-protocol/docs", "hushh-webapp/docs"];
+const DEFAULT_SCAN_ROOTS = ["docs", "consent-protocol/docs", "hushh-webapp/docs",
+  "README.md", "consent-protocol/README.md", "hushh-webapp/README.md"];
 const IGNORED_DIRS = new Set(["node_modules", ".next", ".git", ".venv", "dist", "build"]);
 
 const BLOCK = /```mermaid\n([\s\S]*?)```/g;
