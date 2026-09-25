@@ -1,7 +1,8 @@
 import React, { StrictMode } from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), remember: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", returnTo: undefined as "connector_settings" | undefined }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), remember: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", platform: "web", returnTo: undefined as "connector_settings" | undefined }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => mocks.platform } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
@@ -19,7 +20,7 @@ vi.mock("@/lib/connections/custom-mcp-catalog-handoff", () => ({ rememberRefresh
 import Page from "@/app/one/profile/connectors/oauth/return/page";
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.current = true; mocks.locked = false; mocks.owner = "owner"; mocks.returnTo = undefined;
+  vi.clearAllMocks(); mocks.current = true; mocks.locked = false; mocks.owner = "owner"; mocks.platform = "web"; mocks.returnTo = undefined;
   mocks.complete.mockResolvedValue({ privateSyntheticResult: true });
   mocks.save.mockResolvedValue({});
   mocks.refresh.mockResolvedValue([]);
@@ -46,6 +47,17 @@ it("does not exchange under a different signed-in owner", async () => {
   await waitFor(() => expect(screen.getByText(/Could not save this connection/)).toBeTruthy());
   expect(mocks.complete).not.toHaveBeenCalled();
   expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it.each(["web", "ios", "android"])("records the actual %s return surface", async platform => {
+  mocks.platform = platform;
+  render(<Page />);
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+  expect(mocks.save).toHaveBeenCalledWith(
+    expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+    expect.objectContaining({ confirmedByUser: true, surface: platform, source: "connector_oauth_return" }),
+    expect.any(Function),
+  );
 });
 
 it("returns Settings sign-in to Settings without arming Chat draft recovery", async () => {
