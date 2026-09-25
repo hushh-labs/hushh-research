@@ -29,7 +29,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
-        versionName "1.1.0"
+        versionName "1.3.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Instrumentation runs against debug unless a lane asks otherwise:
         // the render-performance truth lane passes -PhushhTestBuildType=perf.

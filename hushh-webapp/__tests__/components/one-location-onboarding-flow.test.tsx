@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import {
+  CONTACTS_PRIVACY_DISCLOSURE,
+  OneLocationOnboardingFlow,
+} from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
 const INVITE = {
   circleId: "circle-1",
@@ -264,6 +267,24 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(screen.queryByLabelText("Circle code")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Check my contacts" }),
+    ).toBeTruthy();
+  });
+
+  it("shows the contacts privacy disclosure above the button that raises the OS prompt", async () => {
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts: vi.fn(),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+
+    const disclosure = screen.getByTestId("onboarding-contacts-privacy-disclosure");
+    expect(disclosure.textContent).toBe(CONTACTS_PRIVACY_DISCLOSURE);
+    expect(disclosure.textContent).toMatch(/one-way codes/);
+    expect(disclosure.textContent).toMatch(/never stores your contacts' names or numbers/);
+    expect(disclosure.textContent).toMatch(/nobody is contacted for you/);
+    const button = screen.getByRole("button", { name: "Check my contacts" });
+    expect(
+      disclosure.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

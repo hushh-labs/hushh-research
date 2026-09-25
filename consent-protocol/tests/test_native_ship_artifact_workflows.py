@@ -35,7 +35,7 @@ def test_android_dry_run_builds_and_retains_the_exact_green_main_sha() -> None:
     assert names.index("Check out exact release SHA") < names.index("Assert source SHA")
     assert names.index("Assert source SHA") < names.index("Verify matching UAT backend revision")
     assert names.index("Verify matching UAT backend revision") < names.index(
-        "Publish .aab as workflow artifact"
+        "Preserve signed AAB in private UAT bucket"
     )
     assert names.index("Assert source SHA") < names.index(
         "Build static export & sync Capacitor Android"
@@ -65,10 +65,27 @@ def test_android_dry_run_builds_and_retains_the_exact_green_main_sha() -> None:
     assert (
         "inputs.dry_run != true" in _named(steps, "Hydrate Google Play Service Account Key")["if"]
     )
-    artifact = _named(steps, "Publish .aab as workflow artifact")
-    assert "${{ steps.resolve.outputs.sha }}" in artifact["with"]["name"]
-    assert artifact["with"]["path"].endswith("app-release.aab")
-    assert artifact["with"]["if-no-files-found"] == "error"
+    # The signed AAB goes to the private UAT bucket; Actions keeps only a
+    # redacted receipt, never the AAB itself.
+    private = _named(steps, "Preserve signed AAB in private UAT bucket")
+    assert "if" not in private
+    assert private["env"]["RELEASE_SHA"] == "${{ steps.resolve.outputs.sha }}"
+    assert "upload-private-native-artifact.py" in private["run"]
+    assert "outputs/bundle/release/app-release.aab" in private["run"]
+    assert '--source-sha "$RELEASE_SHA"' in private["run"]
+    assert "--platform android-playstore" in private["run"]
+    receipt = _named(steps, "Upload redacted private AAB receipt")
+    assert "${{ steps.resolve.outputs.sha }}" in receipt["with"]["name"]
+    assert receipt["with"]["path"].endswith("private-native-artifact-receipt.json")
+    assert receipt["with"]["if-no-files-found"] == "error"
+    assert not any(
+        str(step.get("with", {}).get("path", "")).endswith(".aab")
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact")
+    )
+    assert names.index("Preserve signed AAB in private UAT bucket") < names.index(
+        "Upload .aab to Google Play Console"
+    )
     upload = _named(steps, "Upload .aab to Google Play Console")
     assert "github.event_name == 'workflow_dispatch'" in upload["if"]
     assert "inputs.dry_run != true" in upload["if"]
