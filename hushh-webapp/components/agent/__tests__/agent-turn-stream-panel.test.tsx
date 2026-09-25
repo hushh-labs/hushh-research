@@ -100,6 +100,26 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("shows provider thought summaries inside Chat separately from Activity and Response", () => {
+    const { rerender } = render(<AgentTurnStreamPanel
+      streamEvents={[]}
+      thinkingSummary="I checked the connected capability."
+      responseText=""
+      isStreaming
+    />);
+    expect(screen.getByText("I checked the connected capability.")).toBeVisible();
+    rerender(<AgentTurnStreamPanel
+      streamEvents={[]}
+      thinkingSummary="I checked the connected capability."
+      responseText="Here is the answer."
+      isStreaming
+    />);
+    const thinking = screen.getByRole("button", { name: /Thinking summary/i });
+    fireEvent.click(thinking);
+    expect(screen.getByText("I checked the connected capability.")).toBeInTheDocument();
+    expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+  });
   it("renders metadata provenance and opens Connectors only on explicit click", () => {
     const onOpenConnections = vi.fn();
     const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,

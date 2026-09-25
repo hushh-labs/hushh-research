@@ -248,24 +248,27 @@ _SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 _ONE_CHAT_THINKING_LEVEL_ENV = "HUSHH_ONE_CHAT_THINKING_LEVEL"
 
 
-def _one_chat_thinking_config(model: Any | None = None) -> genai_types.ThinkingConfig:
-    """Keep One's model thinking policy while withholding thought summaries.
+def _one_chat_thinking_config(
+    model: Any | None = None, *, include_summaries: bool = False
+) -> genai_types.ThinkingConfig:
+    """Keep One's model thinking policy; opt in to summaries only for Chat.
 
     An unset value preserves the provider's thinking budget. ``low`` remains
     an explicit latency experiment without changing specialist or native-voice
-    policies. Neither setting exposes provider thought summaries to chat.
+    policies. The authenticated Chat head may request provider summaries;
+    the intro and other text heads keep their existing private default.
     """
     configured = os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip()
     if not configured or configured.lower() in {"default", "provider"}:
-        return genai_types.ThinkingConfig(include_thoughts=False)
+        return genai_types.ThinkingConfig(include_thoughts=include_summaries)
     selected_model = model if isinstance(model, str) else getattr(model, "model", None)
     resolved = thinking_config_for(
         str(selected_model or _SPECIALIST_MODEL), configured, genai_types
     )
     if resolved is None:
-        return genai_types.ThinkingConfig(include_thoughts=False)
+        return genai_types.ThinkingConfig(include_thoughts=include_summaries)
     return genai_types.ThinkingConfig(
-        include_thoughts=False,
+        include_thoughts=include_summaries,
         thinking_level=resolved.thinking_level,
     )
 
@@ -2262,6 +2265,7 @@ def build_one_text_agent(
     *,
     model: Any | None = None,
     allow_workspace_tools: bool = False,
+    include_thought_summaries: bool = False,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
 
@@ -2288,7 +2292,9 @@ def build_one_text_agent(
         after_model_callback=timed_one_after_model,
         # Preserve the configured Chat thinking level for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=_one_chat_thinking_config(model),
+            thinking_config=_one_chat_thinking_config(
+                model, include_summaries=include_thought_summaries
+            ),
         ),
     )
 

@@ -95,6 +95,8 @@ export type AgentChatStreamHandlers = {
   /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
   onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
+  /** Provider-authored thought summary only; never raw thoughts or continuation signatures. */
+  onThinkingSummary?: (chunk: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
@@ -597,6 +599,19 @@ export async function streamAgentChat(input: {
   };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
+    onEvent: ({ event }) => {
+      if (event.type === "REASONING_MESSAGE_CONTENT") {
+        const delta = (event as { delta?: unknown }).delta;
+        const metadata = (event as { metadata?: unknown }).metadata;
+        if (asRecord(metadata)?.husshThoughtSummary === true &&
+            typeof delta === "string" && delta.length > 0) {
+          handlers.onThinkingSummary?.(delta.slice(0, 2048));
+        }
+      }
+      return String(event.type).startsWith("REASONING_")
+        ? { stopPropagation: true }
+        : undefined;
+    },
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onMessagesSnapshotEvent: (snapshot) => {
       const { event } = snapshot;

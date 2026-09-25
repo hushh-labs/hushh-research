@@ -7,6 +7,7 @@ from typing import Any
 from ag_ui.core import (
     BaseEvent,
     MessagesSnapshotEvent,
+    ReasoningMessageContentEvent,
     RunErrorEvent,
     StateDeltaEvent,
     StateSnapshotEvent,
@@ -28,10 +29,24 @@ def _private_pointer(pointer: Any) -> bool:
     return key in _PRIVATE_STATE_KEYS
 
 
-def public_event(event: BaseEvent) -> BaseEvent | None:
-    """Remove reasoning from the wire without mutating the stored SDK event."""
+def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> BaseEvent | None:
+    """Expose only bounded provider summary text on authenticated Chat.
+
+    Thought signatures, provider metadata and reasoning snapshots never cross
+    this projection. The ADK continuation event remains untouched.
+    """
     event_type = getattr(event.type, "value", event.type)
     if str(event_type).startswith("REASONING_"):
+        if allow_thought_summary and isinstance(event, ReasoningMessageContentEvent):
+            summary = event.delta[:2048]
+            if summary:
+                return event.model_copy(
+                    update={
+                        "delta": summary,
+                        "metadata": {"husshThoughtSummary": True},
+                        "raw_event": None,
+                    }
+                )
         return None
     if isinstance(event, RunErrorEvent):
         # The installed bridge builds this event from str(exception). Neither
