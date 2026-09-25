@@ -233,8 +233,8 @@ check_local_backend_interpreter() {
   # macOS resolves virtualenv symlinks to the framework Python binary in
   # `ps`, so command-path inspection falsely rejects a correctly launched
   # uvicorn worker. Ask the live process for the dependency-only health proof
-  # instead: an old system interpreter reports ADK 1.x (or lacks this field),
-  # while the pinned process reports the 2.4 contract without a model call.
+  # instead: an incompatible interpreter reports false (or lacks this field),
+  # while the pinned process reports compatibility without a model call.
   local runtime_compatible
   runtime_compatible="$(python3 - <<'PY'
 import json
@@ -250,11 +250,11 @@ PY
 )"
 
   if [ "$runtime_compatible" = "true" ]; then
-    add_check "backend_runtime_interpreter" "pass" "Live backend proves the pinned Google ADK 2.4 runtime contract"
+    add_check "backend_runtime_interpreter" "pass" "Live backend reports a compatible pinned Google ADK runtime"
   elif [ "$runtime_compatible" = "unavailable" ]; then
     add_check "backend_runtime_interpreter" "warn" "Backend listener exists but its runtime contract could not be read"
   else
-    add_check "backend_runtime_interpreter" "fail" "Local backend is missing the pinned Google ADK 2.4 runtime contract; restart with ./bin/hushh backend --mode local --reload"
+    add_check "backend_runtime_interpreter" "fail" "Local backend does not report a compatible pinned Google ADK runtime; restart with ./bin/hushh backend --mode local --reload"
     SOURCE_READY=false
   fi
 }
