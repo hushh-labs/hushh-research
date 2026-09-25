@@ -2587,7 +2587,21 @@ export function LocationImmersiveMap({
       // presentation point -- the venue-anchored avatar -- and the map should
       // frame the check-in radius rather than the owner's earlier GPS fix.
       const fitPaddingPx = 48;
+      const cameraRevision = settledCameraRevisionRef.current;
+      // Claim this fit before the shared native padding queue. Locate or a
+      // marker selection issued while padding is pending must supersede this
+      // older nearby/check-in frame instead of being overwritten afterward.
+      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       if (isNative()) await nativeMapPaddingCommandRef.current;
+      if (
+        generation !== nearbyCircleGenerationRef.current ||
+        mapRef.current !== map ||
+        !rendererReadyRef.current ||
+        cameraCommandGenerationRef.current !== cameraCommandGeneration ||
+        settledCameraRevisionRef.current !== cameraRevision
+      ) {
+        return;
+      }
       const candidatePair =
         !placeFocus?.active && searchPoint && placeCenter
           ? pairBounds(
@@ -2635,8 +2649,6 @@ export function LocationImmersiveMap({
           );
         }
       }
-      const cameraRevision = settledCameraRevisionRef.current;
-      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       await map.fitBounds(bounds, fitPaddingPx);
       if (
         fittedZoom !== null &&

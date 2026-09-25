@@ -3528,6 +3528,40 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
   });
 
+  it("does not start a native nearby fit after a newer Locate command", async () => {
+    platformHarness.native = true;
+    experienceHarness.nearbyAvailable = true;
+    stubCheckInMapGeometry();
+    let resolvePadding!: () => void;
+    const pendingPadding = new Promise<void>((resolve) => {
+      resolvePadding = resolve;
+    });
+    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
+
+    await renderReadyMap({ surface: "check-in" });
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.addCircles).toHaveBeenCalled());
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolvePadding();
+      await pendingPadding;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
   it("does not resize the self dot when distant framing is rejected", async () => {
     stubPhoneGeometry();
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
