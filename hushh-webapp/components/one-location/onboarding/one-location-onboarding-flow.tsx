@@ -1140,6 +1140,11 @@ function formatCircleCode(code: string): string {
  * can set up their One account and later join the Location Circle with it. The
  * code is member-visible only and is never placed in a URL.
  */
+// Mirrored by contacts_disclosure_message in the Android strings.xml; keep both
+// true to lib/marketplace/contact-matching.ts (hash + last four digits only).
+export const CONTACTS_PRIVACY_DISCLOSURE =
+  "Phone numbers are standardized on your device and turned into one-way codes. Only those codes and the last four digits are checked for matches. One never stores your contacts' names or numbers, and nobody is contacted for you.";
+
 /**
  * Find the people you already know who are already on One.
  *
@@ -1264,6 +1269,14 @@ function ContactsScreen({
                   <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
                     <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                       Connect contacts to see who is already here.
+                    </p>
+                    {/* Play prominent disclosure: must render above the button
+                        that raises the OS contacts prompt. */}
+                    <p
+                      className="max-w-[320px] text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]"
+                      data-testid="onboarding-contacts-privacy-disclosure"
+                    >
+                      {CONTACTS_PRIVACY_DISCLOSURE}
                     </p>
                     <PrimaryButton
                       className="mx-auto max-w-[360px]"
