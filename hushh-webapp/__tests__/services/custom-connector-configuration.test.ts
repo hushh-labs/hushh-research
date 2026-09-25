@@ -14,6 +14,12 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
+  it("rejects a lock during preparation before starting the encrypted write", async () => {
+    let current = true;
+    storage.loadDomainData.mockImplementationOnce(async () => { current = false; return null; });
+    await expect(saveCustomConnectorConfiguration(access, record, confirmation, null, () => current)).rejects.toThrow();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
   it("forces a coherent snapshot for invocation and confirmation instead of warm credentials", async () => {
     storage.loadDomainSnapshot.mockResolvedValue({ data: { connectors: { [record.connectorId]: JSON.stringify(record) } } });
     expect(await loadCustomConnectorConfigurations(access, true)).toEqual([record]);

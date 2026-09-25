@@ -1106,6 +1106,15 @@ authenticated owner and vault-session epoch before dispatch. Failed loading is
 not treated as an empty catalog or a reason to fall back to private registration.
 This is source-level integration, not verified live provider/native acceptance.
 
+The existing Connectors panel includes a custom-server editor for public HTTPS
+endpoints with no authentication or a supplied Authorization header. It writes
+through browser-encrypted runtime settings, never the private-registration API,
+and labels records as saved rather than connected. This editor does not yet
+implement remote OAuth, tool-list refresh, permissions management, or removal.
+Those remain explicit integration gaps; do not advertise a saved definition as
+a verified provider connection. Owner/vault guards fence preparation, dispatch,
+retry and cache publication through the existing encrypted write service.
+
 Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
 Owner authority. It removes that private field before handing the input to
 AG-UI, validates the bounded catalog, and stages it in the existing process-local

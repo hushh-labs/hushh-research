@@ -123,15 +123,19 @@ export async function saveCustomConnectorConfiguration(
   configuration: CustomConnectorConfiguration,
   confirmation: PkmUserConfirmation,
   expectedRevision: string | null,
+  isCurrent?: () => boolean,
 ) {
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   const record = parseCustomConnectorConfiguration(configuration);
   const expectedValue = await expectedRecord(access, record.connectorId, expectedRevision);
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
   // Every save invalidates prior call-review bindings, even if the caller
   // mistakenly reuses a draft revision. The generated revision is encrypted.
   record.revision = crypto.randomUUID();
   await PersonalKnowledgeModelService.storeRuntimeSecret({
     ...access, confirmation, credentialRef: reference(record.connectorId),
     secret: JSON.stringify(record), expectedValue,
+    ...(isCurrent ? { mayPublish: isCurrent } : {}),
   });
   return record;
 }

@@ -3920,6 +3920,7 @@ export class PersonalKnowledgeModelService {
     secret: string;
     confirmation: PkmUserConfirmation;
     expectedValue?: string | null;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -3962,6 +3963,7 @@ export class PersonalKnowledgeModelService {
       initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
       initialSnapshot: existing.snapshot,
       applyMutation,
+      mayPublish: params.mayPublish,
     });
   }
 
@@ -4096,6 +4098,7 @@ export class PersonalKnowledgeModelService {
     initialDomainData: Record<string, unknown>;
     initialSnapshot: DomainSnapshotV1 | null;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     let built = await this.buildRuntimeSecretsCommit({
       userId: params.userId,
@@ -4109,7 +4112,10 @@ export class PersonalKnowledgeModelService {
     });
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => this.storeDomainData(built),
+      send: () => {
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+      },
       rebuildAfterConflict: async () => {
         // A genuine version conflict: another writer advanced this domain. Drop
         // the cached copies, re-read the domain fresh, re-apply the leaf, and
