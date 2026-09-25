@@ -163,12 +163,12 @@ class QueryAllowRequest(DecisionRequest):
 
 
 class QueryShareRequest(StrictRequest):
-    fileRefs: list[str] = Field(min_length=1, max_length=10)
+    fileRefs: list[str] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
     def known_refs(self):
         if len(set(self.fileRefs)) != len(self.fileRefs) or any(
-            not re.fullmatch(r"f(?:[1-9]|10)", ref) for ref in self.fileRefs
+            not re.fullmatch(r"f[1-8]", ref) for ref in self.fileRefs
         ):
             raise ValueError("Choose files from the answer.")
         return self

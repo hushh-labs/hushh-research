@@ -45,7 +45,9 @@ const LAST_ERROR_COPY: Record<NonNullable<DriveQueryView["lastError"]>, string> 
 function shareFailureCopy(code: string, name: string | null): string {
   switch (code) {
     case "recipient_google_identity_required":
-      return `${name ?? "They"} need to add a Google account to One before you can share files.`;
+      return name
+        ? `${name} needs to add a Google account to One before you can share files.`
+        : "They need to add a Google account to One before you can share files.";
     case "request_already_decided":
       return "These files were already shared.";
     case "reconnect_required":
@@ -502,8 +504,8 @@ function UnlockedDriveQueryCard({
             ))}
           </ul>
           <HelperText>
-            {name ?? "They"} get Viewer access to the original files in Google Drive. You can
-            remove access anytime.
+            {name ? `${name} gets` : "They get"} Viewer access to the original files in Google
+            Drive. You can remove access anytime.
           </HelperText>
           <Button
             size="prominent"

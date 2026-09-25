@@ -362,7 +362,11 @@ async def test_a_second_question_needs_its_own_allow(cancellable, monkeypatch):
     prompt = json.loads(chat.search_planner.await_args_list[1].kwargs["prompt"])
     assert prompt["document_request"]["purpose"] == "april salary slip"
     first_view = await queries.status(user_id="recipient", request_id=first["requestId"])
-    assert first_view["answer"] == answered["answer"]
+    # The asker sees the stored answer without the owner-only file list.
+    assert "files" not in first_view["answer"]
+    assert first_view["answer"] == {
+        key: value for key, value in answered["answer"].items() if key != "files"
+    }
     with pytest.raises(DriveSharingError, match="request_already_decided"):
         await queries.allow(
             user_id="owner",

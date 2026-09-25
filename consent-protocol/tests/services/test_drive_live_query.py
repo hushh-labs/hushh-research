@@ -641,6 +641,9 @@ async def test_none_relevant_is_an_honest_answered_state(store, monkeypatch):
         "text": "None of these are bank statements.",
         "titles": [],
         "truncated": False,
+        "shareRequestId": None,
+        # Owner-only: nothing relevant, so nothing to share.
+        "files": [],
     }
 
 
@@ -899,7 +902,11 @@ async def answered_question(store, monkeypatch):
 
 def sharing_doubles(*, can_approve=True, prepared="review_ready"):
     sharing = SimpleNamespace(
-        store=SimpleNamespace(create_request=AsyncMock(return_value={"requestId": SHARE_ID})),
+        store=SimpleNamespace(
+            create_request=AsyncMock(return_value={"requestId": SHARE_ID}),
+            request_status=AsyncMock(return_value={"revision": 1}),
+            decline_or_cancel=AsyncMock(),
+        ),
         review=AsyncMock(
             return_value={
                 "status": "review_ready" if can_approve else "approved",
@@ -942,7 +949,7 @@ async def test_the_owner_sees_the_found_files_and_the_asker_never_does(store, mo
 
 
 async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, monkeypatch):
-    from uuid import NAMESPACE_URL, uuid5
+    from uuid import UUID
 
     request_id = await answered_question(store, monkeypatch)
     sharing, suggestions, identity = sharing_doubles()
@@ -952,10 +959,9 @@ async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, mon
     created = sharing.store.create_request.await_args.kwargs
     assert created["owner_user_id"] == "owner"
     assert created["purpose"].purpose == QUESTION
-    # One share per question: a retry finds the same request.
-    assert created["client_request_id"] == str(
-        uuid5(NAMESPACE_URL, f"hushh:drive-query-share:{request_id}")
-    )
+    # A fresh, unguessable request per attempt, created as the owner's own share.
+    assert UUID(created["client_request_id"]).version == 4
+    assert created["owner_initiated"] is True
     suggestions.run_one.assert_awaited_once_with(
         user_id="owner",
         request_id=SHARE_ID,
@@ -1027,3 +1033,44 @@ async def test_sharing_needs_current_owner_authority(store, monkeypatch):
         )
     identity.assert_not_awaited()
     sharing.store.create_request.assert_not_awaited()
+
+
+async def test_a_failed_share_is_declined_and_a_retry_starts_fresh(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    suggestions.run_one.side_effect = ["no_ready_files", "review_ready"]
+    queries = sharing_service(store, sharing, suggestions, identity)
+    with pytest.raises(DriveSharingError, match="drive_share_unavailable"):
+        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    # The failed attempt's request is closed, so nothing can prepare or share it later.
+    sharing.store.decline_or_cancel.assert_awaited_once_with(
+        user_id="owner", request_id=SHARE_ID, revision=1, decision="declined"
+    )
+    sharing.approve.assert_not_awaited()
+    shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+    first, second = (
+        call.kwargs["client_request_id"] for call in sharing.store.create_request.await_args_list
+    )
+    assert first != second
+
+
+async def test_folders_are_never_offered_for_sharing(store, monkeypatch):
+    folder = {
+        **match("Statements folder"),
+        "file_id": "1FolderFolderFolderFolderFolder00",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": [match(), folder], "truncated": False})
+    )
+    chat = live_chat(monkeypatch, reader=reader, plan={"terms": ["bank"], "mode": "find"})
+    created = await ask(store)
+    await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    mine = await store.status(user_id="owner", request_id=created["requestId"])
+    assert [item["name"] for item in mine["answer"]["files"]] == ["March bank statement.pdf"]

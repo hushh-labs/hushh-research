@@ -21,7 +21,10 @@ from hushh_mcp.services.drive_candidate_selection import (
 )
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
-from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan, interpret_live_search
+from hushh_mcp.services.drive_suggestion_service import (
+    interpret_live_search,
+    plan_live_search,
+)
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -59,7 +62,7 @@ async def interpret(*, prompt, user_id, consent_token):
         output_schema=DocumentAnswer,
     )
     result = await run_single_turn(
-        agent, prompt_parts=prompt, user_id=user_id, consent_token=consent_token, timeout_seconds=20
+        agent, prompt_parts=prompt, user_id=user_id, consent_token=consent_token, timeout_seconds=45
     )
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
@@ -376,19 +379,18 @@ class DriveChatService:
                 if live:
                     stage = "search_plan"
                     await require_access()
-                    plan = LiveSearchPlan.model_validate(
-                        await self.search_planner(
-                            prompt=json.dumps(
-                                {
-                                    "document_request": {"purpose": message},
-                                    "previous_answer": previous_answer[:2000],
-                                    "current_time_utc": now_utc.isoformat(),
-                                    "user_timezone": owner_timezone,
-                                },
-                                ensure_ascii=False,
-                            ),
-                            user_id=user_id,
-                        )
+                    plan = await plan_live_search(
+                        self.search_planner,
+                        prompt=json.dumps(
+                            {
+                                "document_request": {"purpose": message},
+                                "previous_answer": previous_answer[:2000],
+                                "current_time_utc": now_utc.isoformat(),
+                                "user_timezone": owner_timezone,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        user_id=user_id,
                     )
                     query = plan.terms
                     if _EXPLICIT_FILE_REFERENCE.search(message) and (
@@ -491,9 +493,7 @@ class DriveChatService:
                         # boundary): an exact title was already resolved, or a
                         # metadata-only listing has no words to judge against.
                         selection = {
-                            "stage": "exact_title"
-                            if plan.exact_title
-                            else "not_applicable_metadata_query",
+                            "stage": "exact_title" if plan.exact_title else "not_applicable_metadata_query",
                             "candidates": len(matches),
                             "selected": len(matches),
                         }

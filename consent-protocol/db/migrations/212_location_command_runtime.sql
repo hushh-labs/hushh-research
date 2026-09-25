@@ -1,30 +1,18 @@
 BEGIN;
 
 -- Extend the existing metadata ledger; no personal inputs or audio are stored.
--- Replay re-runs this file on every deploy, before 231 widens both checks to
--- admit 'document_review'. Re-adding the narrow checks would fail on existing
--- document_review rows (23514, blocking every release) and, even NOT VALID,
--- would reject live document_review writes until 231 re-ran. So this only runs
--- while the channel check does not yet admit 'command' (a first apply); 231's
+ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_channel_check;
+ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_check;
+-- NOT VALID: replay re-runs this file on every deploy, before 231 widens both
+-- checks to admit 'document_review'. A validating ADD here re-narrows them and
+-- fails on the first document_review row (23514), blocking every release; 231's
 -- validating ADD proves the final constraints. Same trap as 158, noted in 163.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'one_action_directive_ledger'::regclass
-      AND conname = 'one_action_directive_ledger_channel_check'
-      AND pg_get_constraintdef(oid) LIKE '%''command''%'
-  ) THEN
-    ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_channel_check;
-    ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_check;
-    ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_channel_check
-      CHECK (channel IN ('typed_chat','voice','command')) NOT VALID;
-    ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_check CHECK (
-      (channel='typed_chat' AND conversation_id IS NOT NULL AND session_id IS NULL)
-      OR (channel IN ('voice','command') AND session_id IS NOT NULL AND conversation_id IS NULL)
-    ) NOT VALID;
-  END IF;
-END $$;
+ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_channel_check
+  CHECK (channel IN ('typed_chat','voice','command')) NOT VALID;
+ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_check CHECK (
+  (channel='typed_chat' AND conversation_id IS NOT NULL AND session_id IS NULL)
+  OR (channel IN ('voice','command') AND session_id IS NOT NULL AND conversation_id IS NULL)
+) NOT VALID;
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS command_effect TEXT NOT NULL DEFAULT 'action' CHECK (command_effect IN ('action','screen'));
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS step_hmac TEXT;
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS command_step INTEGER;

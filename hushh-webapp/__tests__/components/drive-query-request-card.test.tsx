@@ -443,7 +443,7 @@ describe("sharing files from an answered question", () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Share 2 files" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Bea need to add a Google account to One before you can share files.",
+      "Bea needs to add a Google account to One before you can share files.",
     );
   });
 

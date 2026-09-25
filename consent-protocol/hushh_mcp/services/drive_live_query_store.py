@@ -27,7 +27,9 @@ MAX_QUERY_CHARS = 2000
 MAX_QUERY_BYTES = 2048
 MAX_ANSWER_TITLES = 10
 # The files A was shown, kept owner-only so A can share them with the asker.
-MAX_OWNER_FILES = 10
+# The metadata binder handles at most 8 files (drive_live_reader.MAX_READS).
+MAX_OWNER_FILES = 8
+FOLDER_MIME = "application/vnd.google-apps.folder"
 STALE_CLAIM_SECONDS = 300
 FAILURE_CODES = frozenset({"reconnect_required", "drive_query_unavailable"})
 _PARTICIPANT_SQL = """
@@ -58,6 +60,8 @@ def _owner_files(files: object) -> list[dict]:
             or len(mime) > 200
             or modified is not None
             and (not isinstance(modified, str) or len(modified) > 64)
+            # A folder is never shared: only files get Viewer links.
+            or mime == FOLDER_MIME
         ):
             continue
         if any(existing["fileId"] == file_id for existing in kept):

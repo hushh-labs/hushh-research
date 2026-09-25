@@ -215,12 +215,12 @@ const QUERY_STATUSES = new Set<DriveQueryStatus>([
   "expired",
 ]);
 
-const QUERY_FILE_REF = /^f(?:[1-9]|10)$/;
+const QUERY_FILE_REF = /^f[1-8]$/;
 
 /** Only the owner ever receives the found files; the asker's view must not carry them. */
 function queryFiles(value: unknown, direction: string): DriveQueryFile[] {
   if (value == null) return [];
-  if (direction !== "incoming" || !Array.isArray(value) || value.length > 10)
+  if (direction !== "incoming" || !Array.isArray(value) || value.length > 8)
     throw new DriveSharingError("invalid_response");
   const files = value.map((item) => {
     const file = record(item);
@@ -802,7 +802,7 @@ export class DriveSharingService {
   ): Promise<DriveQueryView> {
     if (
       fileRefs.length === 0 ||
-      fileRefs.length > 10 ||
+      fileRefs.length > 8 ||
       new Set(fileRefs).size !== fileRefs.length ||
       fileRefs.some((ref) => !QUERY_FILE_REF.test(ref))
     )

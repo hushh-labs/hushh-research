@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   uid: "a",
+  providers: [] as { providerId: string; email: string | null }[],
   unlocked: true,
   token: "owner-a",
   epoch: 1,
@@ -24,7 +25,7 @@ const state = vi.hoisted(() => ({
   periodic: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid } }),
+  useAuth: () => ({ user: { uid: state.uid, providerData: state.providers } }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
@@ -195,7 +196,10 @@ describe("exact-file document review", () => {
     );
     expect(screen.queryByText("b@example.invalid")).toBeNull();
   });
-  it("gives B only the recorded delivery and explains both access paths", async () => {
+  it("opens B's originals as the Google account that received Viewer access", async () => {
+    // A browser signed into several Google accounts otherwise opens the link
+    // as its default account (on UAT, A's), which has no access.
+    state.providers = [{ providerId: "google.com", email: "b@gmail.test" }];
     state.status.mockResolvedValue({
       ...initial(),
       direction: "outgoing",
@@ -204,12 +208,30 @@ describe("exact-file document review", () => {
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     expect(
       await screen.findByRole("link", { name: "Open in Google Drive" }),
-    ).toHaveAttribute("href", "https://drive.google.com/file/d/approved/view");
+    ).toHaveAttribute(
+      "href",
+      "https://drive.google.com/file/d/approved/view?authuser=b%40gmail.test",
+    );
     expect(state.review).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Share files" })).toBeNull();
     expect(
-      screen.getByText(/connect your own Drive and select these files/),
+      screen.getByText("Shared with b@gmail.test. Open while signed in to that Google account."),
     ).toBeVisible();
+    expect(screen.queryByText(/connect your own Drive/)).toBeNull();
+    state.providers = [];
+  });
+
+  it("keeps the plain link when B has no linked Google account in this session", async () => {
+    state.providers = [{ providerId: "phone", email: null }];
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "completed" });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByRole("link", { name: "Open in Google Drive" }),
+    ).toHaveAttribute("href", "https://drive.google.com/file/d/approved/view");
+    expect(
+      screen.getByText("Open while signed in to the Google account linked to your One sign-in."),
+    ).toBeVisible();
+    state.providers = [];
   });
   it("prepares removal only on click, requires a second decision and polls its recorded outcome", async () => {
     state.status.mockResolvedValue({ ...initial(), status: "completed" });
