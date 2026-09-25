@@ -184,13 +184,9 @@ async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str 
     feature = {"drive": "google_drive_chat_reads", "gmail": "gmail_chat_reads"}.get(provider)
     if feature and not connector_feature_enabled(feature, owner):
         return None
-    # The Chat read flag is not permission to offer an OAuth flow that this
-    # environment has not admitted. Keep discovery in step with the Connect
-    # surface so One cannot promise a Drive sign-in that cannot start.
-    if provider == "drive" and not (
-        connector_feature_enabled("google_drive_connection", owner)
-        and connector_feature_enabled("google_drive_live", owner)
-    ):
+    # Live reading has its own admission. A disabled *new-connection* flag must
+    # not strand an existing verified grant, so do not test that flag here.
+    if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
         return None
     token = resolve_request_secret(tool_context.state.get("hussh:consent_token"))
     return owner if await validate_first_party_owner_token(owner, token) else None
@@ -328,11 +324,14 @@ async def discover_workspace_tools(
         ):
             return {"status": "blocked", "message": "The session changed. Try again."}
     except (DriveOAuthError, GoogleConnectionError, GmailApiError) as error:
+        can_reconnect = provider != "drive" or connector_feature_enabled(
+            "google_drive_connection", owner
+        )
         return {
             "status": "permission_required"
-            if error.status_code in {401, 403, 409}
+            if can_reconnect and error.status_code in {401, 403, 409}
             else "unavailable",
-            "provider": provider,
+            **({"provider": provider} if can_reconnect else {}),
             "message": "Check this connection and its reading permission, then try again.",
         }
     except Exception:  # noqa: BLE001 - provider details may contain credentials
@@ -379,11 +378,14 @@ async def read_workspace_tool(
         if result.is_error:
             return {"status": "unavailable", "message": "The service could not complete that read."}
     except (DriveOAuthError, GoogleConnectionError, GmailApiError) as error:
+        can_reconnect = provider != "drive" or connector_feature_enabled(
+            "google_drive_connection", owner
+        )
         return {
             "status": "permission_required"
-            if error.status_code in {401, 403, 409}
+            if can_reconnect and error.status_code in {401, 403, 409}
             else "unavailable",
-            "provider": provider,
+            **({"provider": provider} if can_reconnect else {}),
             "message": "Check this connection and its reading permission, then try again.",
         }
     except Exception:  # noqa: BLE001 - no raw provider diagnostics in model/history
