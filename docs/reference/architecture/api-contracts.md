@@ -1118,6 +1118,20 @@ Those remain explicit integration gaps; do not advertise a saved definition as
 a verified provider connection. Owner/vault guards fence preparation, dispatch,
 retry and cache publication through the existing encrypted write service.
 
+Block/Enable updates the existing encrypted `enabled` field with revision checks.
+Blocked definitions are omitted from new turn projections, including credentials;
+enabling restores Ask first, not standing execution permission. This does not
+cancel an already-dispatched provider operation or revoke a provider grant.
+
+Custom remote OAuth remains a separate, incomplete custody boundary. The legacy
+`ExternalConnectorOAuthService.complete` writes to the server-owned credential
+store and must not be reused unchanged for vault-owned custom connectors. The
+installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior,
+but its storage, callback and protected-resource/issuer discovery integration
+still need implementation with owner-bound vault custody and endpoint protection.
+No static API-key form or Google provider token passthrough proves standard MCP
+OAuth support. See the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
 `POST /api/connectors/{connector_id}/mcp/catalog` takes a transient
 `connectorConfiguration` under Vault Owner authority. Settings' explicit Refresh
 tools action reloads the encrypted record and calls the same governed toolset as

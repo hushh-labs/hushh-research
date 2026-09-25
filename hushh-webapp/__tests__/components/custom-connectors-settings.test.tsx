@@ -60,3 +60,19 @@ it("refreshes tools from the current vault configuration on explicit tap", async
   expect(loadCustomConnectorConfigurations).toHaveBeenCalledTimes(2);
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
 });
+
+it("blocks a connector with its exact revision without invoking provider discovery", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Block Synthetic" }));
+  await screen.findByText("Blocked for new turns");
+  expect(saveCustomConnectorConfiguration).toHaveBeenCalledWith(access, { ...record, enabled: false }, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
+  expect(screen.getByRole("button", { name: "Refresh tools for Synthetic" })).toBeDisabled();
+  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([{ ...record, enabled: false }]);
+  fireEvent.click(screen.getByRole("button", { name: "Enable Synthetic" }));
+  await screen.findByText("Saved · connection not verified");
+  expect(saveCustomConnectorConfiguration).toHaveBeenLastCalledWith(access, record, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
+  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
+});

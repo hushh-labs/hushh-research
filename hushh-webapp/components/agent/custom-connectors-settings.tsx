@@ -12,7 +12,7 @@ import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent }
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 type Access = { userId: string; vaultKey: string; vaultOwnerToken: string };
-type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision">;
+type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision" | "enabled">;
 
 /** Vault-backed definitions only. Saving is never provider authentication or tool approval. */
 export function CustomConnectorsSettings({ access }: { access: Access }) {
@@ -39,7 +39,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     setItems([]); setCredential(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(access, true).then(records => {
       if (!current()) return;
-      setItems(records.map(({ connectorId, displayName, revision }) => ({ connectorId, displayName, revision })));
+      setItems(records.map(({ connectorId, displayName, revision, enabled }) => ({ connectorId, displayName, revision, enabled })));
       setStatus("ready");
     }).catch(() => { if (current()) setStatus("failed"); });
     return () => { active = false; refreshAbort.current?.abort(); };
@@ -58,7 +58,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
       const saved = await saveCustomConnectorConfiguration(access, configuration,
         { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, null, current);
       if (!current()) return;
-      setItems(previous => [...previous, { connectorId: saved.connectorId, displayName: saved.displayName, revision: saved.revision }]);
+      setItems(previous => [...previous, { connectorId: saved.connectorId, displayName: saved.displayName, revision: saved.revision, enabled: saved.enabled }]);
       setCredential(""); setName(""); setEndpoint(""); setEditing(false);
     })();
     morphyToast.promise(operation, {
@@ -88,6 +88,28 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     finally { inFlight.current = false; if (current()) setBusy(false); }
   };
 
+  const setEnabled = async (item: SavedConnector) => {
+    if (inFlight.current || !lifetime.current()) return;
+    inFlight.current = true; setBusy(true);
+    const current = lifetime.current;
+    const operation = (async () => {
+      const records = await loadCustomConnectorConfigurations(access, true);
+      if (!current()) throw new Error("Session changed.");
+      const configuration = records.find(record => record.connectorId === item.connectorId);
+      if (!configuration || configuration.revision !== item.revision) throw new Error("Connector changed.");
+      const saved = await saveCustomConnectorConfiguration(access, { ...configuration, enabled: !item.enabled },
+        { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, item.revision, current);
+      if (!current()) return;
+      setItems(previous => previous.map(record => record.connectorId === item.connectorId ? {
+        connectorId: saved.connectorId, displayName: saved.displayName, revision: saved.revision, enabled: saved.enabled,
+      } : record));
+      setCatalogs(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
+    })();
+    morphyToast.promise(operation, { loading: "Updating connector…", success: item.enabled ? "Connector blocked for new turns." : "Connector enabled. Calls still require review.", error: "Could not update. Reopen connectors and try again." });
+    try { await operation; } catch { /* Shared toast owns the failure. */ }
+    finally { inFlight.current = false; if (current()) setBusy(false); }
+  };
+
   const remove = async () => {
     if (!removing || inFlight.current || !lifetime.current()) return;
     const selected = removing;
@@ -109,9 +131,12 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     {status === "failed" ? <p role="status" className="text-sm">Could not load saved connectors. Close and reopen to retry.</p> : null}
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
       <p className="text-sm font-medium">{item.displayName}</p>
-      <p className="text-xs text-muted-foreground">Saved · connection not verified</p>
-      <Button size="standard" variant="none" effect="fade" disabled={busy} onClick={() => void refresh(item)}>Refresh tools for {item.displayName}</Button>
-      <Button size="standard" variant="none" effect="fade" disabled={busy} onClick={() => setRemoving(item)}>Remove {item.displayName}</Button>
+      <p className="text-xs text-muted-foreground">{item.enabled ? "Saved · connection not verified" : "Blocked for new turns"}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="standard" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
+        <Button size="standard" variant="none" effect="fade" aria-label={`${item.enabled ? "Block" : "Enable"} ${item.displayName}`} disabled={busy} onClick={() => void setEnabled(item)}>{item.enabled ? "Block" : "Enable"}</Button>
+        <Button size="standard" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>
+      </div>
       {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools · Ask first</summary>
         <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="break-words py-2">{tool.name}</li>)}</ul>
       </details> : null}
