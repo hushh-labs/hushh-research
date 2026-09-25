@@ -719,6 +719,39 @@ Dev lane rules:
 - The dev hub keeps the **UAT runtime identity** (`_RUNTIME_ENVIRONMENT=uat`) so behaviour matches the next lane up. Read the deploy *lane* from `_DEPLOY_ENV`, not from the runtime environment name — they deliberately differ.
 - The pod runtime identity holds **no project roles**. It is shared across the fleet, which is why an ID token from it proves only that a caller is *a* pod and never *which* pod — the reason the hub pulls a pod's key rather than accepting a pushed one.
 
+### Dev BYOC image and private-agent flow
+
+This view joins the build artifact to the request path. It describes the checked-in
+dev BYOC design; a successful build or a published release does not prove that an
+owner pod has installed that image or that direct ingress is live.
+
+```mermaid
+flowchart LR
+  source["CI-green source SHA"] --> build["Cloud Build"]
+  build --> webImage["Frontend image"]
+  build --> hubImage["Hub backend image"]
+  build --> podImage["Private-agent image<br/>Dockerfile.pod, immutable digest"]
+  webImage --> web["Frontend<br/>hushh-webapp"]
+  hubImage --> hub["Hussh hub backend<br/>identity, consent, pod control"]
+  podImage -->|"owner-scoped copy"| ownerRegistry["Owner Artifact Registry<br/>digest-pinned BYOC copy"]
+  ownerRegistry -->|"authorized setup or approved update"| pod["Owner Cloud Run pod<br/>pod_server + private Agent One runtime"]
+  web -->|"login, discovery, consent, Shared turns"| hub
+  hub -->|"provision, bind, update, reconcile"| pod
+  hub -->|"private ingress turn relay"| pod
+  pod -->|"scoped information reads and heartbeat"| hub
+  hub -->|"signed endpoint and app binding"| web
+  web -.->|"direct HTTPS turns only after verified admission"| pod
+```
+
+The frontend, hub, and pod are separate images. Cloud Build creates the pod image;
+the hub copies its digest into the owner's registry before BYOC installation. The
+hub remains the control and consent authority. A direct browser-to-pod turn is
+conditional on a verified owner endpoint, binding, pod session, and live ingress.
+Before direct cutover, the private hub relay is the pod path; after cutover, a
+failed direct turn is surfaced rather than silently rerouted. Shared turns stay
+on the hub runtime and do not create an owner pod. The pod has no direct store
+credential; its scoped reads return through the hub.
+
 ## Data Boundary View
 
 View metadata:
