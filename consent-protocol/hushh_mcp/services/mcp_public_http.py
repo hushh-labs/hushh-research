@@ -111,7 +111,7 @@ class PublicNetworkBackend(httpcore.AsyncNetworkBackend):
 
 class McpResponseLimitError(ValueError):
     def __init__(self) -> None:
-        super().__init__("Connector authorization response exceeded its transport limits.")
+        super().__init__("Connector response exceeded its transport limits.")
 
 
 class _ResponseStream(httpx.AsyncByteStream):
@@ -201,4 +201,21 @@ def create_public_mcp_http_client(
         transport=PublicMcpTransport(max_response_bytes=max_response_bytes),
         follow_redirects=False,
         trust_env=False,
+    )
+
+
+MAX_MCP_WIRE_RESPONSE_BYTES = 4 * 1024 * 1024
+
+
+def create_bounded_mcp_http_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """Use the same public-only transport, but bound bytes before MCP SDK parsing."""
+    return create_public_mcp_http_client(
+        headers=headers,
+        timeout=timeout,
+        auth=auth,
+        max_response_bytes=MAX_MCP_WIRE_RESPONSE_BYTES,
     )

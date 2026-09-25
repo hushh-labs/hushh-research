@@ -26,4 +26,14 @@ describe("Workspace connector setup card", () => {
       expect(screen.getByText(/Connecting does not share information with anyone/)).toBeInTheDocument();
     },
   );
+
+  it("opens the existing connector surface for a private connector", () => {
+    const onOpenConnections = vi.fn();
+    render(<WorkspaceConnectorSetupCard experience={{
+      type: "one.workspace_connector_setup.v1", provider: "custom", status: "manage_available",
+    }} onOpenConnections={onOpenConnections} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open connectors" }));
+    expect(onOpenConnections).toHaveBeenCalledWith("custom", expect.any(HTMLButtonElement));
+    expect(screen.queryByText(/Connecting does not share/)).not.toBeInTheDocument();
+  });
 });

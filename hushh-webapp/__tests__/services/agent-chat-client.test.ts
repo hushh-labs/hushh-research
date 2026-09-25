@@ -213,6 +213,34 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
   });
 
+  it("keeps private connector setup names out of transport diagnostics", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: {
+        toolCallId: "private-connectors", toolCallName: "inspect_private_connectors",
+      } });
+      subscriber.onToolCallEndEvent({
+        event: { toolCallId: "private-connectors" },
+        toolCallName: "inspect_private_connectors",
+        toolCallArgs: {},
+      });
+      subscriber.onToolCallResultEvent({ event: {
+        toolCallId: "private-connectors",
+        content: JSON.stringify({ status: "setup_available", provider: "custom",
+          saved: [{ name: "PRIVATE CONNECTOR NAME", status: "saved" }] }),
+      } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Connect my app", vaultOwnerToken: "fixture",
+      handlers: { onStructuredExperience, onToolResult, onToolWaiting } });
+    expect(onStructuredExperience).toHaveBeenCalledWith({
+      type: "one.workspace_connector_setup.v1", provider: "custom", status: "manage_available",
+    }, "private-connectors");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE CONNECTOR NAME");
+    expect(JSON.stringify(onToolWaiting.mock.calls)).not.toContain("PRIVATE CONNECTOR NAME");
+  });
+
   it.each([
     { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
     { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },

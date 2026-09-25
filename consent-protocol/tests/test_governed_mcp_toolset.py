@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     resolve_registered_connection,
 )
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
+from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client
 
 _NATIVE_RUN = McpTool._run_async_impl
 
@@ -263,6 +264,24 @@ def harness(monkeypatch):
         connection=connection,
         session=session,
     )
+
+
+async def test_native_adk_toolset_uses_bounded_transport():
+    binding = McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp")
+    toolset = GovernedMcpToolset(
+        binding=binding,
+        resolve_connection=AsyncMock(
+            return_value=ResolvedMcpConnection(binding, {"Authorization": "synthetic"})
+        ),
+        authorize_call=AsyncMock(),
+    )
+    try:
+        assert (
+            toolset._mcp_session_manager._connection_params.httpx_client_factory
+            is create_bounded_mcp_http_client
+        )
+    finally:
+        await toolset.close()
 
 
 async def test_native_adk_toolset_defaults_to_app_review(harness):

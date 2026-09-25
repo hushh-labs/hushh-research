@@ -11,10 +11,12 @@ import httpx
 import pytest
 
 from hushh_mcp.services.mcp_public_http import (
+    MAX_MCP_WIRE_RESPONSE_BYTES,
     McpResponseLimitError,
     PublicMcpTransport,
     PublicNetworkBackend,
     UnsafeMcpEndpoint,
+    create_bounded_mcp_http_client,
     create_public_mcp_http_client,
     validate_mcp_endpoint,
 )
@@ -60,6 +62,13 @@ async def test_oauth_response_limit_precedes_sdk_buffering(chunks, encoding, acc
     assert body.closed
     sent = transport._pool.handle_async_request.await_args.args[0]
     assert dict(sent.headers)[b"accept-encoding"] == b"identity"
+
+
+@pytest.mark.asyncio
+async def test_mcp_factory_bounds_provider_bytes_before_sdk_parsing():
+    async with create_bounded_mcp_http_client() as client:
+        assert client._transport._max_response_bytes == MAX_MCP_WIRE_RESPONSE_BYTES
+        assert client.follow_redirects is False
 
 
 @pytest.mark.parametrize(
@@ -199,7 +208,7 @@ async def test_discovery_and_invocation_share_guarded_factory(monkeypatch, opera
         await external_mcp_client.list_tools(endpoint="https://mcp.example.com/mcp")
     else:
         await external_mcp_client.call_tool("read", {}, endpoint="https://mcp.example.com/mcp")
-    assert factories == [create_public_mcp_http_client]
+    assert factories == [create_bounded_mcp_http_client]
 
 
 @pytest.mark.asyncio

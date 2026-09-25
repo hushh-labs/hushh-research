@@ -67,6 +67,7 @@ const WORKSPACE_PROVIDER_LABEL: Record<WorkspaceConnectorProvider, string> = {
   drive: "Drive",
   gmail: "Gmail",
   calendar: "Calendar",
+  custom: "Connectors",
 };
 
 export function WorkspaceConnectorSetupCard({
@@ -77,14 +78,15 @@ export function WorkspaceConnectorSetupCard({
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
   const label = WORKSPACE_PROVIDER_LABEL[experience.provider];
+  const manage = experience.status === "manage_available";
   return (
     <section
-      aria-label={`${label} connection needed`}
+      aria-label={manage ? "Connectors" : `${label} connection needed`}
       className="min-w-0 space-y-2 text-sm text-muted-foreground"
       data-testid="workspace-connector-setup"
     >
-      <p role="status">Connect {label} to continue.</p>
-      <p>One will use only the access you approve. Connecting does not share information with anyone.</p>
+      <p role="status">{manage ? "Add or manage a connector." : `Connect ${label} to continue.`}</p>
+      {!manage ? <p>One will use only the access you approve. Connecting does not share information with anyone.</p> : null}
       {onOpenConnections ? (
         <Button
           type="button"
@@ -92,7 +94,7 @@ export function WorkspaceConnectorSetupCard({
           size="compact"
           onClick={(event) => onOpenConnections(experience.provider, event.currentTarget)}
         >
-          Connect {label}
+          {manage ? "Open connectors" : `Connect ${label}`}
         </Button>
       ) : null}
     </section>

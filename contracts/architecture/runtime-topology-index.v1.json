@@ -5731,7 +5731,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
-    "agent_registry": "e3651cb4e232c064f34d97a1ac46925cae8722bc1f9482901788a51680a811ee",
+    "agent_registry": "10972c626e43fa1022dc21170a1aeed38cb8ca475072ad05fad69d15fb57ea22",
     "cache_manifest": "4e6360a2f7613a09d23365bd25c28bbc534d95d47e22aaf1492406e1114f790f",
     "data_plane": "6f547ed55ab0b236afa3aff2f75694deed972cada24efed35a76b1f16019c7d2",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",

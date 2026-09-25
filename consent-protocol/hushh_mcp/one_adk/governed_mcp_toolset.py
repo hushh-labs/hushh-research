@@ -42,7 +42,7 @@ from hushh_mcp.services.external_mcp_client import (
     _list_session_tools,
     _normalize_and_cap,
 )
-from hushh_mcp.services.mcp_public_http import create_public_mcp_http_client, validate_mcp_endpoint
+from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
 
 
 @dataclass(frozen=True)
@@ -255,7 +255,7 @@ class GovernedMcpToolset(McpToolset):
             connection_params=StreamableHTTPConnectionParams(
                 url=binding.endpoint,
                 timeout=timeout_seconds,
-                httpx_client_factory=create_public_mcp_http_client,
+                httpx_client_factory=create_bounded_mcp_http_client,
             ),
             header_provider=self._current_headers,
             tool_list_cache_ttl_seconds=None,

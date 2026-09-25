@@ -12,7 +12,13 @@ const appOrigin = String(
   process.env.REVIEWER_APP_ORIGIN || "http://127.0.0.1:3000",
 ).replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
-const prompt = "In one sentence, explain the consent lifecycle.";
+const scenario = process.env.REVIEWER_AGENT_CHAT_SCENARIO || "baseline";
+if (!["baseline", "private_connector_setup"].includes(scenario)) {
+  throw new Error("Unsupported reviewer Agent Chat scenario.");
+}
+const prompt = scenario === "private_connector_setup"
+  ? "I want to connect a private app to One. Show me how to open my connectors."
+  : "In one sentence, explain the consent lifecycle.";
 const forbiddenText = [
   "one_adk_sessions",
   "DB operation failed",
@@ -104,23 +110,24 @@ try {
   if (!result.composerControlGeometry) {
     throw new Error("Agent Chat composer controls are not geometrically symmetric.");
   }
+  if (scenario === "private_connector_setup") {
+    const setup = page.getByTestId("workspace-connector-setup").last();
+    await setup.waitFor({ state: "visible", timeout: timeoutMs });
+    await setup.getByRole("button", { name: "Open connectors" }).click();
+    await page.getByRole("dialog", { name: "Connectors" }).waitFor({
+      state: "visible", timeout: timeoutMs,
+    });
+  }
+  const createdIds = [...await conversationIds(ownerToken)]
+    .filter((id) => !baselineConversationIds.has(id));
+  if (createdIds.length !== 1) {
+    throw new Error("Agent Chat did not create exactly one fresh conversation.");
+  }
   session.capture.assertNoCriticalApiFailures("agent chat prompt round-trip");
   process.stdout.write(
-    "[reviewer-app-testing] PASS agent_chat_round_trip=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1\n",
+    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1\n`,
   );
 } finally {
-  if (ownerToken) {
-    const currentIds = await conversationIds(ownerToken).catch(() => new Set());
-    const createdIds = [...currentIds].filter((id) => !baselineConversationIds.has(id));
-    await Promise.all(
-      createdIds.map((id) =>
-        fetch(`${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" },
-        }).catch(() => undefined),
-      ),
-    );
-  }
   await session?.context.close().catch(() => undefined);
   await browser.close().catch(() => undefined);
 }

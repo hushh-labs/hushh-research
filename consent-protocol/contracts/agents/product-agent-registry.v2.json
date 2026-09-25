@@ -3723,9 +3723,15 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "cc0898e973341546b23106fe3d96b0ec60bd06b155419652c05ed28301d5e0f6",
+      "system_instruction_sha256": "8c29eef1d8327840f841240766a2828117c4743a1a28c257cd2937eb73c39712",
       "telemetry_namespace": "agent.one",
       "tools": [
+        {
+          "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
+          "name": "inspect_private_connectors",
+          "py_func": "hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors",
+          "required_scope": "vault.owner"
+        },
         {
           "description": "Discover currently admitted read capabilities for the owner's Drive, Gmail or Calendar through Google's official MCP servers.",
           "name": "discover_workspace_tools",
