@@ -1500,6 +1500,65 @@ describe("LocationImmersiveMap demo experience", () => {
     });
   });
 
+  it("resizes a coarse self fallback for candidate-place framing", async () => {
+    stubCheckInMapGeometry();
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.searchPoint = {
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 5_000,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    };
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      latitude: 25.4615,
+      longitude: 81.8518,
+      distanceMeters: 240,
+      active: false,
+    };
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue(
+      experienceHarness.searchPoint,
+    );
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(Number(fallback?.radius)).toBeGreaterThan(100);
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+      const fittedFallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fittedFallback).toBeDefined();
+      expect(Number(fittedFallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fittedFallback?.radius)).toBeLessThan(100);
+    });
+  });
+
   it("keeps the GPS avatar when a legacy active presence has no venue coordinates", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
@@ -4271,6 +4330,61 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(
       screen.getByTestId("one-location-map-self-avatar"),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-name-labels")).toHaveClass(
+      "opacity-100",
+    );
+  });
+
+  it("settles native motion from trailing bounds when idle never arrives", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    await act(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({
+        mapId: "one-location-private-map",
+        isGesture: true,
+      });
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+
+    // The listener registered successfully, but deliberately emit no idle.
+    // Native adapters deliver this bounds payload from camera-idle too.
+    await act(async () => {
+      mapHarness.listeners.boundsChanged?.({
+        mapId: "one-location-private-map",
+        bounds: {
+          northeast: { lat: 25.49, lng: 81.9 },
+          southwest: { lat: 25.44, lng: 81.83 },
+          center: { lat: 25.465, lng: 81.865 },
+        },
+        latitude: 25.465,
+        longitude: 81.865,
+        zoom: 13,
+        bearing: 0,
+        tilt: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("one-location-map-self-avatar")).not.toHaveClass(
+      "sr-only",
+    );
     expect(screen.getByTestId("one-location-map-name-labels")).toHaveClass(
       "opacity-100",
     );

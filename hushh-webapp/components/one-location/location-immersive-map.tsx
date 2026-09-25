@@ -672,28 +672,32 @@ function pairBounds(
     longitudeArc.spanDegrees * 0.35,
   );
   const paddedLongitudeSpan = longitudeArc.spanDegrees + longitudePad * 2;
-  return new LatLngBounds({
-    southwest: {
-      lat: Math.max(-90, Math.min(first.lat, second.lat) - latitudePad),
-      lng:
-        paddedLongitudeSpan >= 360
-          ? -180
-          : wrappedLongitude(longitudeArc.west - longitudePad),
-    },
-    northeast: {
-      lat: Math.min(90, Math.max(first.lat, second.lat) + latitudePad),
-      lng:
-        paddedLongitudeSpan >= 360
-          ? 180
-          : wrappedLongitude(
-              longitudeArc.west + longitudeArc.spanDegrees + longitudePad,
-            ),
-    },
-    center: {
-      lat: (first.lat + second.lat) / 2,
-      lng: longitudeArc.center,
-    },
-  });
+  const southwest = {
+    lat: Math.max(-90, Math.min(first.lat, second.lat) - latitudePad),
+    lng:
+      paddedLongitudeSpan >= 360
+        ? -180
+        : wrappedLongitude(longitudeArc.west - longitudePad),
+  };
+  const northeast = {
+    lat: Math.min(90, Math.max(first.lat, second.lat) + latitudePad),
+    lng:
+      paddedLongitudeSpan >= 360
+        ? 180
+        : wrappedLongitude(
+            longitudeArc.west + longitudeArc.spanDegrees + longitudePad,
+          ),
+  };
+  const center = {
+    lat: (first.lat + second.lat) / 2,
+    lng: longitudeArc.center,
+  };
+  return {
+    bounds: new LatLngBounds({ southwest, northeast, center }),
+    southwest,
+    northeast,
+    longitudeSpanDegrees: Math.min(360, paddedLongitudeSpan),
+  };
 }
 
 /**
@@ -1767,9 +1771,11 @@ export function LocationImmersiveMap({
         const nextCamera = readCamera(data);
         if (!nextCamera) return;
 
-        // Native reports bounds after the gesture. When its idle listener is
-        // unavailable, that report is the only authoritative settlement event.
-        if (isNative() && !idleListenerRegistered) {
+        // Both native SDK adapters emit bounds from their camera-idle callback
+        // (iOS before idle, Android after it). Treat that native bounds payload
+        // as authoritative even when idle registration succeeded: older bridge
+        // versions can accept the listener and then never deliver it.
+        if (isNative()) {
           publishCameraSettled(nextCamera);
           return;
         }
@@ -2582,35 +2588,52 @@ export function LocationImmersiveMap({
       // frame the check-in radius rather than the owner's earlier GPS fix.
       const fitPaddingPx = 48;
       if (isNative()) await nativeMapPaddingCommandRef.current;
-      const bounds =
+      const candidatePair =
         !placeFocus?.active && searchPoint && placeCenter
           ? pairBounds(
               { lat: searchPoint.latitude, lng: searchPoint.longitude },
               placeCenter,
             )
-          : radiusBounds(
-              {
-                latitude: circleCenter.lat,
-                longitude: circleCenter.lng,
-              },
-              NEARBY_CHECK_IN_RADIUS_METERS,
-            );
+          : null;
+      const bounds =
+        candidatePair?.bounds ??
+        radiusBounds(
+          {
+            latitude: circleCenter.lat,
+            longitude: circleCenter.lng,
+          },
+          NEARBY_CHECK_IN_RADIUS_METERS,
+        );
       let fittedZoom: number | null = null;
-      if (placeFocus?.active && mapElement.current) {
-        // A restored venue intentionally prevents the late entry GPS fix from
-        // moving the camera. Publish the radius-bound target instead so an old
-        // bridge with no idle callback never sizes the owner puck from the
-        // neutral world camera it started on.
+      if (mapElement.current && (candidatePair || placeFocus?.active)) {
         const measuredBox = measureMapBox(mapElement.current);
         const fittingBox = isNative()
           ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
           : measuredBox;
-        fittedZoom = zoomForRadiusBounds(
-          circleCenter.lat,
-          NEARBY_CHECK_IN_RADIUS_METERS,
-          fittingBox,
-          fitPaddingPx,
-        );
+        if (candidatePair) {
+          // A coarse device fix may start at zoom 12, while this owner/place
+          // pair fits at street level. Derive the accepted fit's scale so the
+          // opaque renderer puck remains 9 px instead of growing across the
+          // candidate map when camera callbacks are unavailable.
+          fittedZoom = zoomForCoordinateBounds(
+            candidatePair.southwest,
+            candidatePair.northeast,
+            fittingBox,
+            fitPaddingPx,
+            candidatePair.longitudeSpanDegrees,
+          );
+        } else {
+          // A restored venue intentionally prevents the late entry GPS fix
+          // from moving the camera. Publish the radius-bound target instead so
+          // an old bridge with no idle callback never sizes the owner puck from
+          // the neutral world camera it started on.
+          fittedZoom = zoomForRadiusBounds(
+            circleCenter.lat,
+            NEARBY_CHECK_IN_RADIUS_METERS,
+            fittingBox,
+            fitPaddingPx,
+          );
+        }
       }
       const cameraRevision = settledCameraRevisionRef.current;
       const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
