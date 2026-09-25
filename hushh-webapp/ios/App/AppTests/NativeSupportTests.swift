@@ -24,6 +24,8 @@ final class NativeSupportTests: XCTestCase {
         )
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
     func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
         let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
         XCTAssertEqual(fence.claim(phase: 1, userID: "a", sameSession: true, now: 101), .ignored)
