@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const fetcher = vi.hoisted(() => vi.fn());
+const streamer = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({
+  nativeStreamFetch: streamer,
+}));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: fetcher,
@@ -9,6 +13,7 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   DriveSharingService,
   DriveSharingError,
+  StreamUnavailable,
   parseDriveQueryView,
   validDocumentRequestPeriod,
   validDriveQuery,
@@ -682,3 +687,170 @@ describe("drive question transport", () => {
     expect(isDriveSharingEntry({ id: "x", action: "REQUESTED" } as ConsentCenterEntry)).toBe(false);
   });
 });
+
+describe("streamed preparation", () => {
+  beforeEach(() => vi.resetAllMocks());
+  const encoder = new TextEncoder();
+  const frame = (event: string, payload: Record<string, unknown> = {}) =>
+    `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+  const streamOf = (chunks: string[], { hang = false } = {}) => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        if (!hang) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return {
+      response: new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+      cancelled: () => cancelled,
+    };
+  };
+  const run = (onStage = vi.fn(), signal?: AbortSignal, check = guard) =>
+    DriveSharingService.prepareStream("owner-a", requestId, check, {
+      onStage,
+      signal,
+    });
+
+  it("reports stages in order and returns the committed status", async () => {
+    const whole =
+      frame("stage", { stage: "starting" }) +
+      frame("heartbeat") +
+      frame("stage", { stage: "searching" }) +
+      frame("stage", { stage: "checking" }) +
+      frame("stage", { stage: "choosing" }) +
+      frame("complete", { status: "review_ready" });
+    // Frames split mid-line across reads are reassembled.
+    const chunks = [whole.slice(0, 17), whole.slice(17, 90), whole.slice(90)];
+    streamer.mockResolvedValueOnce(streamOf(chunks).response);
+    const onStage = vi.fn();
+    await expect(run(onStage)).resolves.toBe("review_ready");
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual([
+      "starting",
+      "searching",
+      "checking",
+    ]);
+    const [path, init] = streamer.mock.calls[0];
+    expect(path).toBe(
+      `/api/connectors/google_drive/sharing/requests/${requestId}/prepare/stream`,
+    );
+    expect(init).toMatchObject({ method: "POST", cache: "no-store", body: "{}" });
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer owner-a",
+      Accept: "text/event-stream",
+    });
+  });
+
+  it("rejects an unknown stage, an unknown status and oversized frames", async () => {
+    for (const body of [
+      frame("stage", { stage: "reading-private-file.pdf" }),
+      frame("complete", { status: "shared" }),
+      frame("stage", { stage: "starting", pad: "x".repeat(2000) }),
+      `event: stage\ndata: {"event":"complete","status":"review_ready"}\n\n`,
+    ]) {
+      streamer.mockResolvedValueOnce(streamOf([body]).response);
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("surfaces only an allowlisted server code and never a client-internal one", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([
+        frame("error", { code: "reconnect_required", message: "<b>provider</b>" }),
+      ]).response,
+    );
+    const error = await run().catch((cause) => cause);
+    expect(error).toBeInstanceOf(DriveSharingError);
+    expect(error.code).toBe("reconnect_required");
+    expect(error.message).not.toContain("provider");
+    for (const code of ["session_changed", "request_failed", "made_up"]) {
+      streamer.mockResolvedValueOnce(
+        streamOf([frame("error", { code, message: "x" })]).response,
+      );
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("treats a stream that ends or breaks without a result as interrupted", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([frame("stage", { stage: "starting" })]).response,
+    );
+    await expect(run()).resolves.toBe("interrupted");
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError("network"));
+      },
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(broken, { headers: { "content-type": "text/event-stream" } }),
+    );
+    await expect(run()).resolves.toBe("interrupted");
+  });
+
+  it("asks for the POST fallback only when this route cannot stream", async () => {
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockResolvedValueOnce(Response.json({ status: "review_ready" }));
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockRejectedValueOnce(
+      Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A busy stream route defers to the plain POST.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "sharing_unavailable", message: "x" },
+        }),
+        { status: 503 },
+      ),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A coded refusal is a real error, not a missing route.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "request_unavailable", message: "x" },
+        }),
+        { status: 404 },
+      ),
+    );
+    await expect(run()).rejects.toMatchObject({
+      code: "request_unavailable",
+      status: 404,
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Owner authorization required" }), {
+        status: 401,
+      }),
+    );
+    await expect(run()).rejects.toMatchObject({ code: "request_failed", status: 401 });
+  });
+
+  it("stops reading and cancels the stream once the session changes or the run is aborted", async () => {
+    const stream = streamOf([frame("stage", { stage: "starting" })], { hang: true });
+    streamer.mockResolvedValueOnce(stream.response);
+    let current = true;
+    const onStage = vi.fn(() => {
+      current = false;
+    });
+    const check = () => {
+      if (!current) throw new DriveSharingError("session_changed");
+    };
+    const controller = new AbortController();
+    const pending = run(onStage, controller.signal, check);
+    await vi.waitFor(() => expect(onStage).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    expect(stream.cancelled()).toBe(true);
+    expect(onStage).toHaveBeenCalledTimes(1);
+  });
+});
+

@@ -352,6 +352,13 @@ for (const width of [320, 390, 768, 1440])
       "**/api/connectors/google_drive/sharing/requests/**",
       async (route) => {
         const url = new URL(route.request().url());
+        // A backend without the streamed route: FastAPI's own Not Found.
+        if (url.pathname.endsWith("/prepare/stream"))
+          return route.fulfill({
+            status: 404,
+            contentType: "application/json",
+            body: JSON.stringify({ detail: "Not Found" }),
+          });
         let result: unknown = {
           requestId: id,
           status: state,
@@ -415,12 +422,11 @@ for (const width of [320, 390, 768, 1440])
     const panel = page.getByRole("dialog", { name: "Document request" });
     await expect(panel.getByText("February–June missing")).toBeVisible();
     expect(approvals).toBe(0);
-    const controls = [
-      "Share files",
-      "Decline",
-      "Refresh suggestions",
-      "Refresh status",
-    ];
+    // A ready review has one refresh action, not two.
+    await expect(
+      panel.getByRole("button", { name: "Refresh status" }),
+    ).toHaveCount(0);
+    const controls = ["Share files", "Decline", "Refresh suggestions"];
     for (const name of controls) {
       const button = panel.getByRole("button", { name, exact: true });
       await button.scrollIntoViewIfNeeded();
@@ -436,6 +442,16 @@ for (const width of [320, 390, 768, 1440])
       body: await page.screenshot(),
       contentType: "image/png",
     });
+    // The whole row toggles its file, and the box toggles exactly once.
+    const box = panel.getByRole("checkbox", { name: filename });
+    await expect(box).toHaveAttribute("aria-checked", "true");
+    await panel.getByText(filename, { exact: true }).click();
+    await expect(box).toHaveAttribute("aria-checked", "false");
+    await expect(
+      panel.getByRole("button", { name: "Share 0 of 1 files" }),
+    ).toBeDisabled();
+    await box.click();
+    await expect(box).toHaveAttribute("aria-checked", "true");
     await panel.getByRole("button", { name: "Lock test vault" }).click();
     await expect(panel.getByText("Unlock your vault to review.")).toBeVisible();
     await expect(panel.getByText(filename)).toHaveCount(0);
@@ -465,3 +481,281 @@ for (const width of [320, 390, 768, 1440])
     );
     expect(errors).toEqual([]);
   });
+
+const fixtureHtml = () =>
+  `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`;
+const reviewId = "11111111-1111-4111-8111-111111111111";
+const reviewDocumentId = "22222222-2222-4222-8222-222222222222";
+const reviewBody = (status: string, revision: number) => ({
+  requestId: reviewId,
+  status,
+  revision,
+  recipientEmail: "verified-recipient@synthetic.invalid",
+  purpose: {
+    purpose: "Last three standup notes",
+    periodStart: null,
+    periodEnd: null,
+  },
+  files:
+    status === "review_ready"
+      ? [{ documentId: reviewDocumentId, name: "Standup notes.pdf" }]
+      : [],
+  coverage:
+    status === "review_ready"
+      ? {
+          coverage_summary: "The three latest notes.",
+          coverage_status: "complete",
+          gaps: [],
+          truncated: false,
+        }
+      : null,
+  canApprove: status === "review_ready",
+  reviewDigest: status === "review_ready" ? "a".repeat(64) : null,
+  expiresAt:
+    status === "review_ready"
+      ? new Date(Date.now() + 60_000).toISOString()
+      : null,
+  preparationError: null,
+});
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`progressive preparation shows the request before its files (${colorScheme}, 390px)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 820 });
+    await page.emulateMedia({ colorScheme });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    let state = "pending";
+    let posts = 0;
+    let streams = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("http://localhost/document-review-fixture", (route) =>
+      route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
+    );
+    await page.route(
+      "**/api/connectors/google_drive/sharing/requests/**",
+      async (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname.endsWith("/prepare/stream")) {
+          streams++;
+          return route.fulfill({
+            status: 404,
+            contentType: "application/json",
+            body: JSON.stringify({ detail: "Not Found" }),
+          });
+        }
+        if (url.pathname.endsWith("/prepare")) {
+          posts++;
+          await held;
+          state = "review_ready";
+          return route.fulfill({
+            contentType: "application/json",
+            body: JSON.stringify({ status: "review_ready" }),
+          });
+        }
+        const revision = state === "pending" ? 0 : 1;
+        const result = url.pathname.endsWith("/review")
+          ? reviewBody(state, revision)
+          : { requestId: reviewId, status: state, direction: "incoming", revision };
+        await route.fulfill({
+          contentType: "application/json",
+          headers: { "Cache-Control": "no-store" },
+          body: JSON.stringify(result),
+        });
+      },
+    );
+    await page.goto("http://localhost/document-review-fixture");
+    if (colorScheme === "dark")
+      await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Review document request" }).click();
+    const panel = page.getByRole("dialog", { name: "Document request" });
+    // Who asked and why arrive before the search finishes.
+    await expect(
+      panel.getByText("verified-recipient@synthetic.invalid"),
+    ).toBeVisible();
+    await expect(panel.getByRole("status")).toContainText("Finding files…");
+    const decline = panel.getByRole("button", { name: "Decline", exact: true });
+    await expect(decline).toBeEnabled();
+    const bounds = (await decline.boundingBox())!;
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    await expect(
+      panel.getByRole("button", { name: "Share files", exact: true }),
+    ).toBeDisabled();
+    expect(streams).toBe(1);
+    await expect.poll(() => posts).toBe(1);
+    await testInfo.attach(`finding files (${colorScheme})`, {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    release();
+    await expect(
+      panel.getByRole("checkbox", { name: "Standup notes.pdf" }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "Share files", exact: true }),
+    ).toBeEnabled();
+    expect(
+      await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
+    // Consent copy stays readable: at least WCAG AA against the sheet it sits on.
+    const note = panel.getByText(
+      "Originals stay in Drive. The recipient sees later edits.",
+    );
+    const ratio = await note.evaluate((node) => {
+      const rgba = (value: string) =>
+        (value.match(/[\d.]+/g) ?? []).map(Number) as number[];
+      const luminance = ([r, g, b]: number[]) => {
+        const channel = (c: number) => {
+          const v = c / 255;
+          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+      };
+      let background = node.parentElement;
+      while (
+        background &&
+        rgba(getComputedStyle(background).backgroundColor)[3] === 0
+      )
+        background = background.parentElement;
+      const bg = rgba(getComputedStyle(background!).backgroundColor);
+      const fg = rgba(getComputedStyle(node).color);
+      const alpha = fg[3] ?? 1;
+      const blended = [0, 1, 2].map((i) => fg[i] * alpha + bg[i] * (1 - alpha));
+      const [hi, lo] = [luminance(blended), luminance(bg)].sort((a, b) => b - a);
+      return (hi + 0.05) / (lo + 0.05);
+    });
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+    await testInfo.attach(`ready for review (${colorScheme})`, {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    expect(posts).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+test("a streamed preparation needs no fallback request", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 820 });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let state = "pending";
+  let posts = 0;
+  await page.route("http://localhost/document-review-fixture", (route) =>
+    route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
+  );
+  await page.route(
+    "**/api/connectors/google_drive/sharing/requests/**",
+    async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith("/prepare/stream")) {
+        expect(route.request().headers().accept).toBe("text/event-stream");
+        state = "review_ready";
+        const frame = (event: string, payload: Record<string, unknown>) =>
+          `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+        return route.fulfill({
+          contentType: "text/event-stream",
+          body:
+            frame("stage", { stage: "starting" }) +
+            frame("stage", { stage: "searching" }) +
+            frame("heartbeat", {}) +
+            frame("stage", { stage: "choosing" }) +
+            frame("stage", { stage: "checking" }) +
+            frame("complete", { status: "review_ready" }),
+        });
+      }
+      if (url.pathname.endsWith("/prepare")) posts++;
+      const revision = state === "pending" ? 0 : 1;
+      const result = url.pathname.endsWith("/review")
+        ? reviewBody(state, revision)
+        : { requestId: reviewId, status: state, direction: "incoming", revision };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(result),
+      });
+    },
+  );
+  await page.goto("http://localhost/document-review-fixture");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Review document request" }).click();
+  const panel = page.getByRole("dialog", { name: "Document request" });
+  await expect(
+    panel.getByRole("checkbox", { name: "Standup notes.pdf" }),
+  ).toBeVisible();
+  await expect(panel.getByText("Looks complete")).toBeVisible();
+  expect(posts).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`a sent request renders flat inside the chat card (${colorScheme}, 390px)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 820 });
+    await page.emulateMedia({ colorScheme });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("http://localhost/document-review-fixture", (route) =>
+      route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
+    );
+    const sentId = "44444444-4444-4444-8444-444444444444";
+    await page.route(
+      "**/api/connectors/google_drive/sharing/requests/**",
+      async (route) => {
+        const url = new URL(route.request().url());
+        const result = url.pathname.endsWith("/delivery")
+          ? {
+              requestId: sentId,
+              status: "completed",
+              files: [
+                {
+                  name: "Standup notes.pdf",
+                  status: "succeeded",
+                  managed: true,
+                  grantId: "33333333-3333-4333-8333-333333333333",
+                  openUrl: "https://drive.google.com/file/d/synthetic/view",
+                },
+              ],
+            }
+          : {
+              requestId: sentId,
+              status: "completed",
+              direction: "outgoing",
+              revision: 2,
+            };
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify(result),
+        });
+      },
+    );
+    await page.goto("http://localhost/document-review-fixture");
+    if (colorScheme === "dark")
+      await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Show sent request" }).click();
+    const card = page.getByRole("region", { name: "Sent request card" });
+    const open = card.getByRole("link", { name: "Open in Google Drive" });
+    await expect(open).toBeVisible();
+    expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // Flat inside the chat card: no second card surface.
+    const shells = card.locator('[data-slot="settings-group-shell"]');
+    await expect(shells).toHaveCount(1);
+    expect(
+      await shells.first().evaluate((node) => getComputedStyle(node).backgroundColor),
+    ).toBe("rgba(0, 0, 0, 0)");
+    expect(
+      await card.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
+    await testInfo.attach(`sent request in chat (${colorScheme})`, {
+      body: await card.screenshot(),
+      contentType: "image/png",
+    });
+    expect(errors).toEqual([]);
+  });
+
