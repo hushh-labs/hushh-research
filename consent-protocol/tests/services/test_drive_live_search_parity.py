@@ -822,17 +822,37 @@ async def test_owner_listing_reaches_date_only_note_in_named_meeting_folder(monk
         "source_ref": "document:" + "f" * 32,
         "open_url": "https://drive.google.com/open?id=gemini-note",
     }
+    agenda = {
+        **child,
+        "file_id": "agenda-file",
+        "name": "2026/09/23 Standup Sync Agenda",
+        "source_ref": "document:" + "e" * 32,
+        "open_url": "https://drive.google.com/open?id=agenda-file",
+    }
+    budget = {
+        **child,
+        "file_id": "budget-file",
+        "name": "2026/09/23 Budget Notes by Gemini",
+        "source_ref": "document:" + "d" * 32,
+        "open_url": "https://drive.google.com/open?id=budget-file",
+    }
 
     async def find(**kwargs):
         return {
-            "matches": [folder] if kwargs.get("file_kind") == "folder" else [],
+            "matches": (
+                [folder]
+                if kwargs.get("file_kind") == "folder"
+                else [agenda]
+                if kwargs.get("recent")
+                else []
+            ),
             "truncated": False,
         }
 
     reader = SimpleNamespace(
         find=AsyncMock(side_effect=find),
         find_compilation_folder_children=AsyncMock(
-            return_value={"matches": [child], "truncated": False}
+            return_value={"matches": [child, agenda, budget], "truncated": False}
         ),
         require_current=AsyncMock(),
     )
@@ -853,6 +873,10 @@ async def test_owner_listing_reaches_date_only_note_in_named_meeting_folder(monk
     assert response["structured"]["status"] == "ok"
     assert response["structured"]["owner_compile_available"] is True
     assert child["name"] in response["response"]
+    assert agenda["name"] not in response["response"]
+    assert budget["name"] not in response["response"]
+    assert "excluded 2 dated files" in response["response"]
+    assert response["structured"]["truncated"] is True
     assert response["structured"]["sources"][0]["source_ref"] == child["source_ref"]
     reader.find_compilation_folder_children.assert_awaited_once_with(folder_ids=["meeting-folder"])
 

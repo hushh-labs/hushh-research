@@ -464,6 +464,13 @@ class DriveChatService:
                     matches = found["matches"]
                     await reader.require_current()
                     if not matches:
+                        if found["excluded_ambiguous"]:
+                            return _outcome(
+                                "input_required",
+                                "I found dated files, but their titles or formats did not "
+                                "verify them as meeting notes. Review the matching Drive "
+                                "folder or give me an exact note title.",
+                            )
                         if found["truncated"]:
                             return _outcome(
                                 "input_required",
@@ -483,6 +490,12 @@ class DriveChatService:
                     )
                     if listing.requested_count is not None and count < listing.requested_count:
                         opening += f" You asked for {listing.requested_count}."
+                    if found["excluded_ambiguous"]:
+                        opening += (
+                            f" I excluded {found['excluded_ambiguous']} dated files whose "
+                            "titles or formats did not verify them as meeting notes; "
+                            "coverage is partial."
+                        )
                     text = (
                         opening
                         + "\n\n"

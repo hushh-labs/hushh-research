@@ -186,6 +186,47 @@ async def test_named_meeting_folder_supplies_date_only_gemini_note():
 
 
 @pytest.mark.asyncio
+async def test_meeting_folder_excludes_unrelated_dated_children_and_reports_partial():
+    children = notes(5)
+    children[0]["name"] = "2026-09-25 Notes by Gemini"
+    children[1]["name"] = "2026-09-24 Budget"
+    children[2]["name"] = "2026-09-23 Standup Sync Agenda"
+    children[3]["name"] = "2026-09-22 Notes by Gemini"
+    children[3]["mime_type"] = "application/pdf"
+    children[4]["name"] = "2026-09-21 Budget Notes by Gemini"
+    recording = notes(6)[5]
+    recording["name"] = "2026-09-20 Standup Sync Recording"
+    folder = {
+        **notes(1)[0],
+        "file_id": "meeting-folder",
+        "name": "Hushh Team Sync and Standup",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    # Full-text/title discovery sees both non-note titles independently of
+    # the folder path. The repeated Agenda ID must count only once.
+    reader = Reader([recording], broad=[children[2]], folders=[folder], children=children)
+    result = await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+        user_id="owner",
+        message="share me all my last 30 days standup sync notes",
+        timezone="UTC",
+        require_access=AsyncAccess(),
+    )
+    assert (result.status, result.matched, result.included, result.truncated) == (
+        "partial",
+        1,
+        1,
+        True,
+    )
+    assert reader.read_ids == ["note-00"]
+    assert "Excluded 5 dated file(s)" in result.markdown
+    assert "Original contents of note-01" not in result.markdown
+    assert "Original contents of note-02" not in result.markdown
+    assert "Original contents of note-03" not in result.markdown
+    assert "Original contents of note-04" not in result.markdown
+    assert "Original contents of note-05" not in result.markdown
+
+
+@pytest.mark.asyncio
 async def test_fixed_listing_window_survives_a_local_midnight(monkeypatch):
     class NextDayDatetime(datetime):
         @classmethod

@@ -48,6 +48,11 @@ _FOLDER_NOTE_MIMES = frozenset(
         "application/vnd.oasis.opendocument.text",
     }
 )
+_GEMINI_NOTE_TITLE = re.compile(r"(?<!\w)notes\s+by\s+gemini(?!\w)", re.IGNORECASE)
+_NON_NOTE_TITLE = re.compile(
+    r"(?<!\w)(?:agenda|budget|recording|transcript|slides?|deck)(?!\w)", re.IGNORECASE
+)
+_MEETING_NOTE_TERMS = frozenset({"standup", "sync", "meeting", "minutes"})
 _FAILURE_LABELS = {
     "encrypted_document": "Password protected",
     "file_too_large": "Too large to read",
@@ -138,6 +143,23 @@ def _fence(value: str) -> str:
     return "~" * max(3, longest + 1)
 
 
+def _verified_folder_note(spec: LongRangeListing, item: dict) -> bool:
+    """A matching folder alone does not make every dated child a note."""
+    name = item["name"]
+    return (
+        item.get("mime_type") == "application/vnd.google-apps.document"
+        and not _NON_NOTE_TITLE.search(name)
+        and (bool(_GEMINI_NOTE_TITLE.search(name)) or matches_long_range_subject(spec, name))
+    )
+
+
+def _verified_direct_note(spec: LongRangeListing, item: dict) -> bool:
+    """A meeting-title hit is not automatically a requested meeting note."""
+    return not (
+        _MEETING_NOTE_TERMS.intersection(spec.title_terms) and _NON_NOTE_TITLE.search(item["name"])
+    )
+
+
 def _utf8_prefix(value: str, byte_limit: int) -> str:
     if byte_limit <= 0:
         return ""
@@ -176,6 +198,7 @@ def _render(
     read: dict[int, tuple[object, str, bool]],
     failures: dict[int, str],
     discovery_truncated: bool,
+    excluded_ambiguous: int,
 ) -> CompilationResult:
     lengths = [len(read[index][1].encode("utf-8")) for index in sorted(read)]
     allowance = dict(zip(sorted(read), _allocate_text_bytes(lengths), strict=True))
@@ -195,6 +218,12 @@ def _render(
         )
     if discovery_truncated or len(matches) > len(selected):
         lines.append("More matching files may exist or were outside this compilation's file limit.")
+    if excluded_ambiguous:
+        lines.append(
+            f"Excluded {excluded_ambiguous} dated file(s) from the bounded search "
+            "because their titles or formats did not verify them as meeting notes. "
+            "Review the Drive results for possible additional notes."
+        )
     lines.extend(["", "## Notes", ""])
 
     for index, match in enumerate(selected):
@@ -236,13 +265,16 @@ def _render(
         if failures
         or shortened
         or discovery_truncated
+        or excluded_ambiguous
         or len(matches) > len(selected)
         or spec.requested_count is not None
         and len(matches) < spec.requested_count
         else "complete"
     )
     if status == "partial":
-        lines.insert(2, "Coverage: partial. See missing, unreadable, or shortened files below.")
+        lines.insert(
+            2, "Coverage: partial. See missing, excluded, unreadable, or shortened files below."
+        )
     markdown = "\n".join(lines)
     if len(markdown.encode("utf-8")) > MAX_MARKDOWN_BYTES:
         # All provider titles and text are bounded before this point. Refuse
@@ -254,7 +286,9 @@ def _render(
         matched=len(matches),
         included=len(read),
         failed=len(failures),
-        truncated=shortened or discovery_truncated or len(matches) > len(selected),
+        truncated=bool(
+            shortened or discovery_truncated or excluded_ambiguous or len(matches) > len(selected)
+        ),
     )
 
 
@@ -313,14 +347,14 @@ async def discover_long_range_matches(
         if matching_folders
         else {"matches": [], "truncated": False}
     )
-    direct = filter_long_range_matches(
+    direct_candidates = filter_long_range_matches(
         spec,
         [*timed["matches"], *broad["matches"]],
         now_utc=now_utc,
         timezone=timezone,
         window=window,
     )
-    scoped = filter_long_range_matches(
+    scoped_candidates = filter_long_range_matches(
         spec,
         [item for item in children["matches"] if item.get("mime_type") in _FOLDER_NOTE_MIMES],
         now_utc=now_utc,
@@ -328,18 +362,32 @@ async def discover_long_range_matches(
         require_title_terms=False,
         window=window,
     )
+    # A matching folder is contextual evidence, not proof that every dated
+    # child is a standup note. Original Gemini Docs and Google Docs with the
+    # named meeting subject and no non-note marker can enter compilation.
+    direct = [item for item in direct_candidates if _verified_direct_note(spec, item)]
+    scoped = [item for item in scoped_candidates if _verified_folder_note(spec, item)]
     unique = {item["file_id"]: item for item in direct}
     for item in scoped:
         unique.setdefault(item["file_id"], item)
+    excluded_ambiguous = len(
+        {
+            item["file_id"]
+            for item in [*direct_candidates, *scoped_candidates]
+            if item["file_id"] not in unique
+        }
+    )
     discovered = sorted(unique.values(), key=lambda item: item["listing_day"], reverse=True)
     return {
         "matches": discovered[:MAX_CANDIDATES],
+        "excluded_ambiguous": excluded_ambiguous,
         "truncated": bool(
             timed["truncated"]
             or broad["truncated"]
             or folders["truncated"]
             or children["truncated"]
             or folder_limit_hit
+            or excluded_ambiguous
             or len(discovered) > MAX_CANDIDATES
         ),
     }
@@ -477,4 +525,5 @@ class DriveContentCompilationService:
                 read=read,
                 failures=failures,
                 discovery_truncated=discovery_truncated,
+                excluded_ambiguous=found["excluded_ambiguous"],
             )
