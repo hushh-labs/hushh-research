@@ -260,6 +260,21 @@ export default function ProfileGmailOAuthReturnPageClient({
       clearOnboardingConnectorIntent();
     };
 
+    const popupAttempt = readGmailOAuthPopupAttempt();
+    if (!user?.uid) {
+      const redirectTarget =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
+      router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
+      return;
+    }
+    if (popupAttempt && popupAttempt.ownerId !== user.uid) {
+      clearGmailOAuthPopupAttempt();
+      window.setTimeout(() => window.close(), 0);
+      return;
+    }
+
     if (oauthError) {
       const oauthErrorDescription =
         liveErrorDescription || initialErrorDescription;
@@ -268,7 +283,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           oauthError.toLowerCase() === "access_denied"
             ? "USER_CANCELLED"
             : oauthError,
-      });
+      }, user.uid);
       setStage("error");
       setError(
         oauthErrorDescription ||
@@ -299,7 +314,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     if (!code || !state) {
       GmailReceiptsService.recordConsentFailure({
         code: "MALFORMED_CALLBACK",
-      });
+      }, user.uid);
       setStage("error");
       setError(
         "Missing OAuth code or state. Start Connect Mail again from Mail.",
@@ -313,21 +328,6 @@ export default function ProfileGmailOAuthReturnPageClient({
       return;
     }
 
-    if (!user?.uid) {
-      const redirectTarget =
-        typeof window !== "undefined"
-          ? `${window.location.pathname}${window.location.search}`
-          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
-      router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
-      return;
-    }
-
-    const popupAttempt = readGmailOAuthPopupAttempt();
-    if (popupAttempt && popupAttempt.ownerId !== user.uid) {
-      clearGmailOAuthPopupAttempt();
-      window.setTimeout(() => window.close(), 0);
-      return;
-    }
     const requestedPurpose = popupAttempt?.purpose ?? "read";
     const statusSatisfiesPurpose = (
       status: Awaited<ReturnType<typeof GmailReceiptsService.getStatus>> | null,

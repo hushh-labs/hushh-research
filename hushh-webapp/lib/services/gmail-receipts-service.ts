@@ -321,7 +321,7 @@ export class GmailReceiptsService {
     includeGrantedScopes: boolean;
     purpose?: "read" | "send";
   }): Promise<GmailConnectStartResponse> {
-    trackEvent("gmail_connect_started", {
+    trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
     });
@@ -368,7 +368,7 @@ export class GmailReceiptsService {
     userId: string;
     purpose?: "read" | "send";
   }): Promise<GmailNativeConnectStartResponse> {
-    trackEvent("gmail_connect_started", {
+    trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.purpose === "send" ? "incremental" : "full",
       result: "success",
     });

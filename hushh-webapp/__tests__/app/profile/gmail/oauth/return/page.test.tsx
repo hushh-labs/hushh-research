@@ -634,9 +634,10 @@ describe("ProfileGmailOAuthReturnPage", () => {
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
-    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith({
-      code: "USER_CANCELLED",
-    });
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+      { code: "USER_CANCELLED" },
+      "user-123",
+    );
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
     expect(screen.getByText("Mail connection needs attention")).toBeTruthy();
   });
@@ -650,9 +651,38 @@ describe("ProfileGmailOAuthReturnPage", () => {
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
-    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith({
-      code: "MALFORMED_CALLBACK",
-    });
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+      { code: "MALFORMED_CALLBACK" },
+      "user-123",
+    );
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+  });
+
+  it("does not attribute an earlier owner's provider failure to the active owner", async () => {
+    const closeSpy = vi
+      .spyOn(window, "close")
+      .mockImplementation(() => undefined);
+    window.sessionStorage.setItem(
+      "one_gmail_oauth_popup_attempt_v1",
+      JSON.stringify({
+        version: 1,
+        attemptId: "gmail-previous-owner",
+        startedAt: Date.now(),
+        ownerId: "previous-owner",
+        purpose: "read",
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) =>
+      key === "error" ? "access_denied" : null,
+    );
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => expect(window.sessionStorage.getItem(
+      "one_gmail_oauth_popup_attempt_v1",
+    )).toBeNull());
+    await waitFor(() => expect(closeSpy).toHaveBeenCalled());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).not.toHaveBeenCalled();
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 

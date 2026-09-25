@@ -97,6 +97,30 @@ describe("native Gmail observability", () => {
     );
   });
 
+  it("suppresses start telemetry from a stale initiating owner", async () => {
+    mocks.currentUserId = "other-owner";
+    mocks.apiFetch.mockResolvedValueOnce(
+      response({
+        configured: true,
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
+        state: "state",
+        redirect_uri: "https://one.hushh.ai/profile/gmail/oauth/return",
+        expires_at: "2026-09-25T10:00:00Z",
+      }),
+    );
+
+    await GmailReceiptsService.startConnect({
+      idToken: "token",
+      userId: "owner",
+      includeGrantedScopes: false,
+    });
+
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "gmail_connect_started",
+      expect.anything(),
+    );
+  });
+
   it("emits the same start and completion stages as web OAuth", async () => {
     mocks.apiFetch
       .mockResolvedValueOnce(response({ configured: true, server_client_id: "public-client", purpose: "read" }))
