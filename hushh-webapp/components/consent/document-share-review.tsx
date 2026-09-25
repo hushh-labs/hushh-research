@@ -69,6 +69,10 @@ export function DocumentShareReview({
   onChanged: () => void;
 }) {
   const { user } = useAuth();
+  // Viewer access goes to the Google account linked to this One sign-in, so
+  // the recipient opens each original as that account, not the browser default.
+  const googleEmail =
+    user?.providerData?.find((provider) => provider?.providerId === "google.com")?.email ?? null;
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to review.</BodyText>;
@@ -78,6 +82,7 @@ export function DocumentShareReview({
       requestId={requestId}
       getToken={getVaultOwnerToken}
       onChanged={onChanged}
+      googleEmail={googleEmail}
     />
   );
 }
@@ -86,15 +91,22 @@ function UnlockedDocumentReview({
   requestId,
   getToken,
   onChanged,
+  googleEmail,
 }: {
   requestId: string;
   getToken: () => string | null;
   onChanged: () => void;
+  googleEmail: string | null;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
+  // Files A left unticked for this review revision; every file starts selected.
+  const [unselected, setUnselected] = useState<{ key: string; ids: string[] }>({
+    key: "",
+    ids: [],
+  });
   const serial = useRef(0);
   const alive = useRef(false);
   const inFlight = useRef(false);
@@ -244,6 +256,13 @@ function UnlockedDocumentReview({
     !!review?.canApprove &&
     !!review.expiresAt &&
     Date.parse(review.expiresAt) > now;
+  // A new review revision starts with every file selected again.
+  const reviewKey = review ? `${review.revision}:${review.reviewDigest}` : "";
+  const unselectedIds = unselected.key === reviewKey ? unselected.ids : [];
+  const selectedIds = (review?.files ?? [])
+    .map((file) => file.documentId)
+    .filter((id) => !unselectedIds.includes(id));
+  const allSelected = !!review && selectedIds.length === review.files.length;
   const refresh = () => {
     polls.current = 0;
     void run(load);
@@ -300,12 +319,45 @@ function UnlockedDocumentReview({
               <BodyText as="dd">Viewer · Until you remove access</BodyText>
             </div>
           </dl>
+          {review.files.length > 1 ? (
+            <label className="flex min-h-11 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedIds.length === review.files.length}
+                disabled={busy || !canApprove}
+                onChange={(event) =>
+                  setUnselected({
+                    key: reviewKey,
+                    ids: event.target.checked
+                      ? []
+                      : review.files.map((file) => file.documentId),
+                  })
+                }
+              />
+              <span>Select all</span>
+            </label>
+          ) : null}
           <ul aria-label="Exact files to share" className="min-w-0 space-y-2">
             {review.files.map((file) => (
               <li key={file.documentId}>
-                <MediumRowLabel className="break-all">
-                  {file.name}
-                </MediumRowLabel>
+                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(file.documentId)}
+                    disabled={busy || !canApprove}
+                    onChange={(event) =>
+                      setUnselected({
+                        key: reviewKey,
+                        ids: event.target.checked
+                          ? unselectedIds.filter((id) => id !== file.documentId)
+                          : [...unselectedIds, file.documentId],
+                      })
+                    }
+                  />
+                  <MediumRowLabel className="min-w-0 break-all">
+                    {file.name}
+                  </MediumRowLabel>
+                </label>
               </li>
             ))}
           </ul>
@@ -340,7 +392,14 @@ function UnlockedDocumentReview({
               ) : null}
             </div>
           ) : (
-            <HelperText>Suggestions are not ready yet.</HelperText>
+            <HelperText>
+              {review.status === "review_ready" &&
+              review.preparationError === "no_relevant_files"
+                ? "Your private agent didn't find files that look like what they asked for. You can decline, or refresh after adding the files."
+                : review.preparationError === "no_ready_files"
+                  ? "Matching files couldn't be read, for example password-protected or scanned PDFs."
+                  : "Suggestions are not ready yet."}
+            </HelperText>
           )}
           <HelperText>
             Original files stay in Google Drive. Later edits remain visible to
@@ -348,15 +407,20 @@ function UnlockedDocumentReview({
           </HelperText>
           <FlowSelectionSummary
             label="Files"
-            value={review.files.length}
+            value={selectedIds.length}
             detail="Viewer access"
           />
-          {!canApprove ? (
+          {!canApprove &&
+          !(
+            review.coverage == null &&
+            review.status === "review_ready" &&
+            review.preparationError === "no_relevant_files"
+          ) ? (
             <HelperText>Refresh suggestions before sharing.</HelperText>
           ) : null}
           {review.canTrustFutureRequests ? (
             <label className="flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={trustFuture} disabled={busy || !canApprove}
+              <input type="checkbox" checked={trustFuture && allSelected} disabled={busy || !canApprove || !allSelected}
                 onChange={(event) => setTrustFuture(event.target.checked)} />
               <span>Trust {review.recipientEmail} for any requested Drive file, including future files. One may share matching files without asking again, including while you’re away when background preparation is enabled. You can stop future sharing anytime.</span>
             </label>
@@ -365,14 +429,14 @@ function UnlockedDocumentReview({
             primary={
               <Button
                 size="prominent"
-                disabled={busy || !canApprove}
+                disabled={busy || !canApprove || selectedIds.length === 0}
                 onClick={() =>
-                  mutate((token, guard) => trustFuture
-                    ? DriveSharingService.approve(token, requestId, review, guard, true, "any_requested_drive_file")
-                    : DriveSharingService.approve(token, requestId, review, guard))
+                  mutate((token, guard) => trustFuture && allSelected
+                    ? DriveSharingService.approve(token, requestId, review, guard, selectedIds, true, "any_requested_drive_file")
+                    : DriveSharingService.approve(token, requestId, review, guard, selectedIds))
                 }
               >
-                Share files
+                {allSelected ? "Share files" : `Share ${selectedIds.length} of ${review.files.length} files`}
               </Button>
             }
             secondary={
@@ -423,7 +487,11 @@ function UnlockedDocumentReview({
                 ) : null}
                 {file.openUrl ? (
                   <a
-                    href={file.openUrl}
+                    href={
+                      snapshot.status.direction === "outgoing" && googleEmail
+                        ? `${file.openUrl}?authuser=${encodeURIComponent(googleEmail)}`
+                        : file.openUrl
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     referrerPolicy="no-referrer"
@@ -437,8 +505,9 @@ function UnlockedDocumentReview({
           </ul>
           {snapshot.status.direction === "outgoing" ? (
             <HelperText>
-              Open with the Google identity approved for this request. To ask
-              One questions, connect your own Drive and select these files.
+              {googleEmail
+                ? `Shared with ${googleEmail}. Open while signed in to that Google account.`
+                : "Open while signed in to the Google account linked to your One sign-in."}
             </HelperText>
           ) : (
             <>

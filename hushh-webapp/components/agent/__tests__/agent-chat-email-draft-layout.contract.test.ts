@@ -35,11 +35,20 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("message.id === emailDraftAnchorMessageId");
     expect(source).toContain("renderEmailDraftCard()");
     expect(source).toContain("sourceBoundReply=");
+    expect(source).toContain("sourceBoundEnvelope={gmailKycEmailDraftEnvelope}");
+    expect(source).toContain("source.reply_to?.trim() || source.from.trim()");
+    expect(source).not.toContain("sourceBoundContext=");
+    expect(source).not.toContain("gmailKycRequestSummary");
+    expect(source).toContain("sourceWorkflowId: workflowId");
+    expect(source).toContain("const prepared = await EmailDeliveryService.prepare");
+    expect(source).not.toContain("GmailInformationRequestsService.prepareReply");
     expect(source).not.toContain("GmailKycReplyCard");
     expect(source).toContain("itemsAfterMessage.get(message.id)");
     expect(source).toContain(
       "openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);",
     );
+    expect(source).toContain("kycInformationSaveConfirmed:");
+    expect(source).toContain("gmailInformationRequestWorkflowId:");
     expect(source).not.toContain(
       "current.filter((message) => message.id !== assistantMessageId)",
     );

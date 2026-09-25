@@ -213,7 +213,8 @@
     "238_gmail_personal_information_request_classifier_policy_version.sql",
     "239_drop_server_plaid_custody.sql",
     "241_drive_live_sharing.sql",
-    "242_drive_live_query_requests.sql"
+    "242_drive_live_query_requests.sql",
+    "243_drive_live_query_cancel.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -441,6 +442,7 @@
     "227_gmail_personal_information_request_incremental_backfill.sql": "rollback/227_gmail_personal_information_request_incremental_backfill.rollback.sql",
     "239_drop_server_plaid_custody.sql": "rollback/239_drop_server_plaid_custody.rollback.sql",
     "241_drive_live_sharing.sql": "rollback/241_drive_live_sharing.rollback.sql",
-    "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql"
+    "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
+    "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql"
   }
 }

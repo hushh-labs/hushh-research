@@ -105,7 +105,9 @@ describe("asking a connection about their Drive", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
     expect(screen.getByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
     expect(
-      screen.getByText("They see your question and decide. Nothing in their Drive is read unless they allow it."),
+      screen.getByText(
+        "They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.",
+      ),
     ).toBeVisible();
     const field = screen.getByLabelText("Your question");
     expect(field).toHaveAttribute("placeholder", "e.g. Find my bank statement from March");

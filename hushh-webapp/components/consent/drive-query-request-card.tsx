@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -10,6 +11,7 @@ import {
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
@@ -22,12 +24,14 @@ import {
   DriveSharingService,
   type DriveQueryView,
 } from "@/lib/services/drive-sharing-service";
+import { DocumentShareReview } from "@/components/consent/document-share-review";
 
 type Direction = DriveQueryView["direction"];
 type SessionGuard = () => void;
 /** `notice: undefined` keeps the current notice (a quiet background poll). */
 type Outcome = { view: DriveQueryView; notice?: string | null };
-type Phase = "idle" | "loading" | "allowing" | "denying";
+type Phase = "idle" | "loading" | "allowing" | "denying" | "cancelling" | "sharing";
+type Choice = "allow" | "deny" | "cancel";
 
 const POLL_MS = 5000;
 /** Three minutes: long enough to watch one allowed search finish. */
@@ -37,6 +41,34 @@ const LAST_ERROR_COPY: Record<NonNullable<DriveQueryView["lastError"]>, string> 
   reconnect_required: "Reconnect Google Drive, then allow again.",
   drive_query_unavailable: "Drive didn't answer. Try again.",
 };
+
+function shareFailureCopy(code: string, name: string | null): string {
+  switch (code) {
+    case "recipient_google_identity_required":
+      return name
+        ? `${name} needs to add a Google account to One before you can share files.`
+        : "They need to add a Google account to One before you can share files.";
+    case "request_already_decided":
+      return "These files were already shared.";
+    case "reconnect_required":
+    case "connection_changed":
+      return "Reconnect Google Drive, then share again.";
+    case "connection_required":
+      return "You're no longer connected with this person.";
+    case "request_changed":
+      return "This answer changed. Refresh and choose the files again.";
+    default:
+      return "Couldn't share these files. Try again.";
+  }
+}
+
+function shortDate(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
 
 function codeOf(cause: unknown): string {
   return cause instanceof DriveSharingError ? cause.code : "request_failed";
@@ -68,8 +100,9 @@ function loadFailureCopy(code: string): string {
 }
 
 /**
- * One question about the owner's Drive. The owner only allows or denies; this
- * card never reads Drive itself and never prepares or reviews files.
+ * One question about the owner's Drive. The owner only allows or denies; the
+ * asker can cancel while it waits. This card never reads Drive itself and
+ * never prepares or reviews files.
  */
 export function DriveQueryRequestCard({
   requestId,
@@ -118,6 +151,11 @@ function UnlockedDriveQueryCard({
   const [view, setView] = useState<DriveQueryView | null>(initial ?? null);
   const [phase, setPhase] = useState<Phase>(initial ? "idle" : "loading");
   const [notice, setNotice] = useState<string | null>(null);
+  // Files the owner left unticked for this answer; every file starts selected.
+  const [unshared, setUnshared] = useState<{ key: string; refs: string[] }>({
+    key: "",
+    refs: [],
+  });
   const alive = useRef(false);
   const serial = useRef(0);
   const busy = useRef<"none" | "load" | "decide">("none");
@@ -229,9 +267,15 @@ function UnlockedDriveQueryCard({
   const showDecision =
     !!view && (view.canDecide || phase === "allowing" || phase === "denying") && !expired;
   const canDecide = showDecision && !!view?.canDecide && phase === "idle";
+  const canCancel =
+    !!view &&
+    view.direction === "outgoing" &&
+    (view.status === "pending" || view.status === "running") &&
+    !expired &&
+    phase === "idle";
 
-  const decide = (choice: "allow" | "deny") => {
-    if (!view || !canDecide) return;
+  const decide = (choice: Choice) => {
+    if (!view || !(choice === "cancel" ? canCancel : canDecide)) return;
     const revision = view.revision;
     void run(
       async (token, guard) => {
@@ -239,7 +283,9 @@ function UnlockedDriveQueryCard({
           const result =
             choice === "allow"
               ? await DriveSharingService.allowQuery(token, requestId, revision, guard)
-              : await DriveSharingService.denyQuery(token, requestId, revision, guard);
+              : choice === "deny"
+                ? await DriveSharingService.denyQuery(token, requestId, revision, guard)
+                : await DriveSharingService.cancelQuery(token, requestId, revision, guard);
           guard();
           announceChange();
           return { view: result, notice: null };
@@ -258,13 +304,50 @@ function UnlockedDriveQueryCard({
         }
       },
       "decide",
-      choice === "allow" ? "allowing" : "denying",
+      choice === "allow" ? "allowing" : choice === "deny" ? "denying" : "cancelling",
     );
   };
 
   const refresh = () => {
     polls.current = 0;
     void run(load, "load", "loading");
+  };
+
+  const shareKey = view ? `${view.requestId}:${view.revision}` : "";
+  const shareable =
+    view?.direction === "incoming" && view.status === "answered" && !view.answer?.shareRequestId
+      ? (view.answer?.files ?? [])
+      : [];
+  const unsharedRefs = unshared.key === shareKey ? unshared.refs : [];
+  const selectedRefs = shareable
+    .map((file) => file.ref)
+    .filter((ref) => !unsharedRefs.includes(ref));
+
+  const shareFiles = () => {
+    if (!view || phase !== "idle" || selectedRefs.length === 0) return;
+    const refs = [...selectedRefs];
+    void run(
+      async (token, guard) => {
+        try {
+          const result = await DriveSharingService.shareQueryFiles(token, requestId, refs, guard);
+          guard();
+          announceChange();
+          return { view: result, notice: null };
+        } catch (cause) {
+          const code = codeOf(cause);
+          if (code === "session_changed") throw cause;
+          guard();
+          const fresh = await DriveSharingService.getQuery(token, requestId, guard);
+          guard();
+          return {
+            view: fresh,
+            notice: fresh.answer?.shareRequestId ? null : shareFailureCopy(code, view.counterpartName),
+          };
+        }
+      },
+      "decide",
+      "sharing",
+    );
   };
 
   const incoming = (view?.direction ?? direction) === "incoming";
@@ -292,20 +375,28 @@ function UnlockedDriveQueryCard({
                   ? "You allowed this question."
                   : view.status === "denied"
                     ? "You declined this question."
-                    : null
-          : view.status === "running"
-            ? "Allowed — finding the answer"
-            : view.status === "answered"
-              ? "Answered"
-              : view.status === "denied"
-                ? "Declined"
-                : expired
-                  ? "Expired"
-                  : `Waiting for ${name ?? "them"} to allow`;
+                    : view.status === "cancelled"
+                      ? `${name ?? "They"} cancelled this question.`
+                      : null
+          : phase === "cancelling"
+            ? "Cancelling…"
+            : view.status === "cancelled"
+              ? "Cancelled"
+              : view.status === "running"
+                ? "Allowed — finding the answer"
+                : view.status === "answered"
+                  ? "Answered"
+                  : view.status === "denied"
+                    ? "Declined"
+                    : expired
+                      ? "Expired"
+                      : `Waiting for ${name ?? "them"} to allow`;
   const lastError =
     incoming && view?.status === "pending" && view.lastError && !notice
       ? LAST_ERROR_COPY[view.lastError]
       : null;
+  const showReconnect =
+    incoming && view?.status === "pending" && view.lastError === "reconnect_required";
   const showRefresh =
     phase === "idle" &&
     (!view ||
@@ -336,6 +427,11 @@ function UnlockedDriveQueryCard({
       ) : null}
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {lastError ? <HelperText>{lastError}</HelperText> : null}
+      {showReconnect ? (
+        <Button asChild size="standard">
+          <Link href={ROUTES.PROFILE_CONNECTORS}>Reconnect Google Drive</Link>
+        </Button>
+      ) : null}
       {view?.answer ? (
         <div className="min-w-0 space-y-2">
           <BodyText className="whitespace-pre-wrap break-words">
@@ -360,6 +456,75 @@ function UnlockedDriveQueryCard({
             </>
           ) : null}
         </div>
+      ) : null}
+      {shareable.length > 0 ? (
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+          <legend>
+            <MediumRowLabel as="span">Share files with {name ?? "them"}</MediumRowLabel>
+          </legend>
+          {shareable.length > 1 ? (
+            <label className="flex min-h-11 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedRefs.length === shareable.length}
+                onChange={(event) =>
+                  setUnshared({
+                    key: shareKey,
+                    refs: event.target.checked ? [] : shareable.map((file) => file.ref),
+                  })
+                }
+              />
+              <span>Select all</span>
+            </label>
+          ) : null}
+          <ul aria-label="Files you can share" className="min-w-0 space-y-1">
+            {shareable.map((file) => (
+              <li key={file.ref}>
+                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRefs.includes(file.ref)}
+                    onChange={(event) =>
+                      setUnshared({
+                        key: shareKey,
+                        refs: event.target.checked
+                          ? unsharedRefs.filter((ref) => ref !== file.ref)
+                          : [...unsharedRefs, file.ref],
+                      })
+                    }
+                  />
+                  <span className="min-w-0 break-all">
+                    {file.name}
+                    {shortDate(file.modifiedTime) ? (
+                      <HelperText as="span"> · {shortDate(file.modifiedTime)}</HelperText>
+                    ) : null}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <HelperText>
+            {name ? `${name} gets` : "They get"} Viewer access to the original files in Google
+            Drive. You can remove access anytime.
+          </HelperText>
+          <Button
+            size="prominent"
+            disabled={phase !== "idle" || selectedRefs.length === 0}
+            onClick={shareFiles}
+          >
+            {phase === "sharing"
+              ? "Sharing…"
+              : selectedRefs.length === 1
+                ? "Share 1 file"
+                : `Share ${selectedRefs.length} files`}
+          </Button>
+        </fieldset>
+      ) : null}
+      {view?.answer?.shareRequestId ? (
+        <DocumentShareReview
+          requestId={view.answer.shareRequestId}
+          onChanged={announceChange}
+        />
       ) : null}
       {showDecision ? (
         <>
@@ -391,10 +556,19 @@ function UnlockedDriveQueryCard({
           />
         </>
       ) : null}
-      {showRefresh ? (
-        <Button size="standard" variant="none" onClick={refresh}>
-          Refresh
-        </Button>
+      {showRefresh || canCancel ? (
+        <div className="flex flex-wrap gap-2">
+          {showRefresh ? (
+            <Button size="standard" variant="none" onClick={refresh}>
+              Refresh
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button size="standard" variant="none" onClick={() => decide("cancel")}>
+              Cancel question
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

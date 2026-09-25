@@ -47,8 +47,8 @@ type EmailDraftCardProps = {
   onSendFailed?: (error: EmailDeliveryError, attemptId?: string | null) => void;
   /** Reuses this editor while keeping recipient and thread server-derived. */
   sourceBoundReply?: SourceBoundEmailReplyAdapter | null;
-  /** Metadata-only context for the source-bound request; never Gmail content. */
-  sourceBoundContext?: string;
+  /** Owner-visible, server-derived envelope for a source-bound reply. */
+  sourceBoundEnvelope?: { to: string; subject: string } | null;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -77,7 +77,7 @@ export function EmailDraftCard({
   onSent,
   onSendFailed,
   sourceBoundReply = null,
-  sourceBoundContext,
+  sourceBoundEnvelope = null,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -405,13 +405,9 @@ export function EmailDraftCard({
             <Mail className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">
-              {sourceBoundReply ? "Review KYC reply" : "Review Mail Draft"}
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">Review Mail Draft</h2>
             <p className="text-xs text-muted-foreground">
-              {sourceBoundReply
-                ? "Edit the response before sending it in the original Mail thread"
-                : "Verify recipients and content before sending"}
+              Verify recipients and content before sending
             </p>
           </div>
         </div>
@@ -456,16 +452,30 @@ export function EmailDraftCard({
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
           {sourceBoundReply ? (
-            <div
-              className="flex items-start gap-2 rounded-xl bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground"
-              data-testid="one-email-draft-source-bound-notice"
-            >
-              <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <span>
-                This reply stays in the original Mail thread. Recipient and subject are taken from that message.
-                {sourceBoundContext ? ` ${sourceBoundContext}` : ""}
-              </span>
-            </div>
+            <>
+              <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+                <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
+                <Input
+                  data-testid="one-email-draft-source-bound-to"
+                  type="text"
+                  value={sourceBoundEnvelope?.to || "Recipient verified when you send"}
+                  readOnly
+                  aria-label="Verified recipient"
+                  className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+                <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Subject</span>
+                <Input
+                  data-testid="one-email-draft-source-bound-subject"
+                  type="text"
+                  value={sourceBoundEnvelope?.subject || "Reply in original thread"}
+                  readOnly
+                  aria-label="Verified subject"
+                  className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
+                />
+              </div>
+            </>
           ) : (
             <>
               <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">

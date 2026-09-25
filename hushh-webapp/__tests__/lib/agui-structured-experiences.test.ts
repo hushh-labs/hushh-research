@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
+  personSelectionPrompt,
 } from "@/lib/agent/agui-structured-experiences";
 
 const scopeResult = {
@@ -69,7 +70,11 @@ describe("AG-UI structured experience registry", () => {
         { ...candidate, profilePath: "https://example.test" },
         { ...candidate, selectionHandle: "forged" }],
     });
-    expect(result).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+    expect(result).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
+      candidates: [candidate],
+    });
   });
   it("preserves an incomplete candidate signal for the picker", () => {
     const candidate = {
@@ -87,6 +92,7 @@ describe("AG-UI structured experience registry", () => {
       }),
     ).toEqual({
       type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
       candidates: [candidate],
       candidatesIncomplete: true,
     });
@@ -104,7 +110,39 @@ describe("AG-UI structured experience registry", () => {
         status: "needs_clarification",
         candidates: [candidate],
       }),
-    ).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "list_information_shared_with_me",
+      candidates: [candidate],
+    });
+  });
+  it("keeps the tool that asked for a person and continues that request after a choice", () => {
+    const candidate = {
+      selectionHandle: "d".repeat(32),
+      personRef: "1234567890abcdef",
+      displayName: "Rahul Sharma",
+      profilePath: "/people/1234567890abcdef",
+      detail: null,
+    };
+    expect(
+      parseAgentToolResultExperience("propose_document_request", {
+        status: "needs_clarification",
+        candidates: [candidate],
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "propose_document_request",
+      candidates: [candidate],
+    });
+    expect(personSelectionPrompt("propose_document_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("propose_information_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("discover_person_information", "Rahul Sharma")).toBe(
+      "Check what I can ask Rahul Sharma for.",
+    );
   });
   it("turns a consent proposal into the Profile-aligned review card", () => {
     expect(

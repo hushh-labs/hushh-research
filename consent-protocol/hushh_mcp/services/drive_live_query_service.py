@@ -1,16 +1,27 @@
 """A connection asks; the owner allows or denies; Allow runs one live Drive turn.
 
-Create and Deny never read Drive and wake no worker. Allow claims the exact
+Create, Deny and Cancel never read Drive and wake no worker. Allow claims the exact
 stored question once and runs the owner's own bounded chat turn
 (``DriveChatService.run_live_query``), fenced on every step by the owner's
 current authority and the claim. The requester receives answer text and file
 titles only: no Drive links, file ids, dates or owner-directed instructions.
+
+When the question has search words and no exact title, a tool-less selector
+gene judges the keyword-found files before any title is released. The requester
+gets only the titles it chose, worded as what they are (judged from names,
+types and dates, not opened), or the no-clear-match text when it chose none.
+A date-only listing (no search words) and an exact-title match skip the
+selector, record the skip (``metadata_listing`` / ``exact_title``)
+and release the found titles worded as found, not judged.
 """
+
+from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_chat_service import DriveChatService
-from hushh_mcp.services.drive_live_query_store import DriveLiveQueryStore
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_live_query_store import MAX_OWNER_FILES, DriveLiveQueryStore
+from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRequestPurpose
 
 NO_CLEAR_MATCH = (
     "Their Drive didn't have a clear match for this question. Try asking more specifically."
@@ -22,24 +33,54 @@ def requester_answer(outcome: dict) -> dict:
     if outcome["status"] != "ok":
         return {"text": NO_CLEAR_MATCH, "titles": [], "truncated": False}
     if outcome["files"] is not None:
-        text = "These Drive files match your question."
+        # Older outcomes carry no selection trace.
+        stage = (outcome.get("selection") or {}).get("stage")
         if outcome["unreadable"]:
-            text += " Their contents couldn't be read."
-        if outcome["found_truncated"] or len(outcome["files"]) > 10:
+            text = "These files look like a match, but their contents couldn't be read."
+        elif stage in {"completed", "completed_over_limit"}:
+            text = (
+                "These files in their Drive look like a match, going by file names, types "
+                "and dates. Their private agent didn't open them."
+            )
+        else:
+            text = "These files were found in their Drive for this question."
+        # B never sees more titles than A can share (f1..f8).
+        more = outcome["found_truncated"] or len(outcome["files"]) > MAX_OWNER_FILES
+        if more:
             text += " More matches may exist."
-        return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
-    return {
-        "text": outcome["answer"],
-        "titles": outcome["titles"],
-        "truncated": outcome["truncated"],
-    }
+        return {
+            "text": text,
+            "titles": outcome["titles"][:MAX_OWNER_FILES],
+            "truncated": outcome["truncated"] or more,
+        }
+    text = outcome["answer"]
+    # A count only: which files and why stay with the owner.
+    unread = len(outcome.get("not_read") or [])
+    if unread == 1:
+        text += " 1 matching file couldn't be read."
+    elif unread > 1:
+        text += f" {unread} matching files couldn't be read."
+    return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}
 
 
 class DriveLiveQueryService:
-    def __init__(self, *, store=None, chat=None, require_owner=None):
+    def __init__(
+        self,
+        *,
+        store=None,
+        chat=None,
+        require_owner=None,
+        sharing=None,
+        suggestions=None,
+        recipient_identity=None,
+    ):
         self.store = store or DriveLiveQueryStore()
         self.chat = chat or DriveChatService()
         self.require_owner = require_owner
+        # Factories, so each share uses this request's owner authority.
+        self.sharing = sharing
+        self.suggestions = suggestions
+        self.recipient_identity = recipient_identity or recipient_identity_for_user
 
     async def _require_owner(self):
         if self.require_owner is None:
@@ -63,6 +104,11 @@ class DriveLiveQueryService:
     async def deny(self, *, user_id, request_id, revision):
         await self._require_owner()
         return await self.store.deny(user_id=user_id, request_id=request_id, revision=revision)
+
+    async def cancel(self, *, user_id, request_id, revision):
+        """The asker withdraws their question; never touches the chat turn."""
+        await self._require_owner()
+        return await self.store.cancel(user_id=user_id, request_id=request_id, revision=revision)
 
     async def allow(self, *, user_id, request_id, revision, consent_token, timezone="UTC"):
         await self._require_owner()
@@ -92,6 +138,7 @@ class DriveLiveQueryService:
                     request_id=request_id,
                     revision=claimed,
                     answer=requester_answer(outcome),
+                    owner_files=outcome.get("share_files") or [],
                 )
         except Exception:
             await self.store.release(
@@ -110,3 +157,68 @@ class DriveLiveQueryService:
             user_id=user_id, request_id=request_id, revision=claimed, error_code=code
         )
         raise DriveSharingError(code, retryable=code == "drive_query_unavailable")
+
+    async def share(self, *, user_id, request_id, file_refs):
+        """A shares chosen files from B's answered question as Viewer.
+
+        The existing exact-file lane does the work: a request bound to B's
+        verified Google identity, a review of exactly these files (no planner,
+        model or content read), and A's explicit approval on the ledger. Grants
+        are queued for the permission worker; B sees each link once Google
+        confirms it.
+        """
+        await self._require_owner()
+        selection = await self.store.owner_selection(
+            user_id=user_id, request_id=request_id, refs=file_refs
+        )
+        if selection["shareRequestId"]:
+            raise DriveSharingError("request_already_decided")
+        recipient = await self.recipient_identity(selection["requesterUserId"])
+        await self._require_owner()
+        sharing = self.sharing(self.require_owner)
+        # A fresh request per attempt, so one failed attempt never blocks a retry.
+        created = await sharing.store.create_request(
+            recipient=recipient,
+            owner_user_id=user_id,
+            client_request_id=str(uuid4()),
+            purpose=ShareRequestPurpose(purpose=selection["query"][:2000]),
+            owner_initiated=True,
+        )
+        share_id = created["requestId"]
+        try:
+            prepared = await self.suggestions(self.require_owner).run_one(
+                user_id=user_id, request_id=share_id, owner_selected=selection["files"]
+            )
+            if prepared != "review_ready":
+                raise DriveSharingError("drive_share_unavailable", retryable=True)
+            review = await sharing.review(user_id=user_id, request_id=share_id)
+            if review.get("canApprove"):
+                await sharing.approve(
+                    user_id=user_id,
+                    request_id=share_id,
+                    revision=review["revision"],
+                    review_digest=review["reviewDigest"],
+                    document_ids=[item["documentId"] for item in review["files"]],
+                    confirmed=True,
+                )
+            elif review.get("status") not in {"approved", "partial", "completed"}:
+                raise DriveSharingError("drive_share_unavailable", retryable=True)
+        except BaseException:
+            await self._abandon(sharing, user_id=user_id, request_id=share_id)
+            raise
+        return await self.store.record_share(
+            user_id=user_id, request_id=request_id, share_request_id=share_id
+        )
+
+    async def _abandon(self, sharing, *, user_id, request_id):
+        """Close a failed attempt's request so nothing can prepare or share it later."""
+        try:
+            status = await sharing.store.request_status(user_id=user_id, request_id=request_id)
+            await sharing.store.decline_or_cancel(
+                user_id=user_id,
+                request_id=request_id,
+                revision=status["revision"],
+                decision="declined",
+            )
+        except Exception:  # noqa: BLE001 - the original failure is the one to report
+            return

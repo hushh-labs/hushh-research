@@ -80,7 +80,7 @@ const INTERNAL_KEYS = new Set([
 const SECRET_KEY_PATTERN =
   /(?:^|[_-])(secret|secrets|password|passphrase|token|api[_-]?key|private[_-]?key|encryption[_-]?key|recovery[_-]?key|vault[_-]?key|credential|credentials|authorization|mnemonic)(?:$|[_-])/i;
 const AGENT_CONTEXT_SENSITIVE_KEY_PATTERN =
-  /(?:^|[_-])(account[_-]?(?:number|no)|routing[_-]?(?:number|no)|iban|swift|ssn|social[_-]?security|tax[_-]?(?:id|number)|passport(?:[_-]?(?:number|no))?|driver(?:s)?[_-]?licen[cs]e(?:[_-]?(?:number|no))?|licen[cs]e[_-]?(?:number|no)|identity[_-]?document|document[_-]?(?:number|no)|card[_-]?number|pan|cvv|cvc|pin|otp|one[_-]?time[_-]?(?:password|code)|aadhaar|national[_-]?id|government[_-]?id)(?:$|[_-])/i;
+  /(?:^|[_-])(account[_-]?(?:number|no)|routing[_-]?(?:number|no)|iban|swift|ssn|social[_-]?security|tax[_-]?(?:id|number)|passport(?:[_-]?(?:number|no))?|driver(?:s)?[_-]?licen[cs]e(?:[_-]?(?:number|no))?|licen[cs]e[_-]?(?:number|no)|identity[_-]?document|document[_-]?(?:number|no)|card[_-]?number|pan|cvv|cvc|pin|otp|one[_-]?time[_-]?(?:password|code)|aadhaar|aadhar|national[_-]?id|government[_-]?id)(?:$|[_-])/i;
 const AGENT_CONTEXT_SOURCE_KEY_PATTERN =
   /(?:^|[_-])(source[_-]?(?:text|document|file|artifact|extract|content)|document[_-]?(?:text|content|file)|raw[_-]?(?:text|content|document)|transcript|provenance)(?:$|[_-])/i;
 const INTERNAL_PKM_DOMAINS = new Set([

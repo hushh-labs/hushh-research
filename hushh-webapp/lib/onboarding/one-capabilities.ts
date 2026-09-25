@@ -244,6 +244,10 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     agentId: "agent_kyc",
     title: "KYC",
     description: "Review information requests and approve each response.",
+    // Personal Gmail owns the current KYC experience. Keep this legacy
+    // compatibility route/runtime available without presenting it as a
+    // second standalone agent in One's roster or agent switcher.
+    isVisibleOnRoster: false,
     href: ROUTES.ONE_KYC,
     icon: customCapabilityIcon(KycAgentIcon),
     tone: "email",

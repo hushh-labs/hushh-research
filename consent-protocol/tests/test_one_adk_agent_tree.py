@@ -960,6 +960,9 @@ class TestGmailEmailDraftDirective:
         assert "SELECTED GMAIL INFORMATION REQUEST" in instruction
         assert "Please share your education details." in instruction
         assert "open_gmail_information_request_reply" in instruction
+        assert "do not draft a refusal" in instruction
+        assert "ask the owner plainly for exactly the missing information" in instruction
+        assert "save the details privately and prepare the email" in instruction
 
     @pytest.mark.asyncio
     async def test_opens_only_an_editable_draft_directive(self):

@@ -803,7 +803,7 @@
       "id": "drive_live_questions",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read and no worker wake. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive."
+      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read and no worker wake. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive. The asker can cancel a pending or running question; cancel never reads Drive and stops a running Allow from storing an answer."
     },
     {
       "data_class": "workflow_state",
@@ -5643,11 +5643,11 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "2704a892de370eaffbf730af509b78257cf0f25b74cd4d43bd6c207c3ffd26b8",
+    "agent_registry": "bc89c794da111438dc0f01f92f672e160f4cfc1a3400611083f190ebff935328",
     "cache_manifest": "7e06bffcb92862a81614bcc30d40e6593942eedce8f9eea9f900302d76a478b7",
-    "data_plane": "f8dac06aa54f0b3c71ffbe982bb5ad7db28c4f19d23fc04afd8cd99f7520fac5",
+    "data_plane": "f4845bf0ab57b06be728736c7f28e7bbc38e5e43604da399027e21dfc863171f",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "54a1bb92d4008e2e05209996bf4da8e3e27f7242d7515620efbbc8eed9acf1a6",
+    "one_specialist_tools": "f133928702ba08cbe7cb7d0c4d1a989261cf8f4f1a510dbda340e26974275e0f",
     "route_index": "c99892f37570c3b151b066b26ef3f71f481d5782bbbd6c6f41606524217c2363",
     "route_layout": "8615e5f82f15017bececf1034d797845a3a23bb9a662bc72a9aa420f49cdd27f",
     "surface_map": "2be2e035ab4f748a61adf0949867a7a415f93891e8c3274b9dae4eb61740788c",

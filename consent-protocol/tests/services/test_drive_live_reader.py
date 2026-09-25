@@ -374,3 +374,180 @@ async def test_a_search_with_no_matches_is_an_empty_answer_not_a_failure():
     mcp.read_tool.return_value = ExternalMcpToolResult(False, _search_metadata({}), False)
     found = await reader.find(query=["statement"])
     assert found == {"matches": [], "truncated": False}
+
+
+def three_file_reader(read_payloads, metadata_errors=None):
+    reader, adapter, mcp, _ = fixture()
+    names = {"file-1": "March statement.pdf", "file-2": "Locked.pdf", "file-3": "Huge.pdf"}
+    metadata_errors = metadata_errors or {}
+
+    async def metadata(*, file_id, **_):
+        if file_id in metadata_errors:
+            raise DriveReadError(metadata_errors[file_id])
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    async def read(*, user_id, tool_name, arguments):
+        return ExternalMcpToolResult(False, read_payloads[arguments["fileId"]], False)
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = read
+    matches = [
+        {"file_id": file_id, "name": name, "source_ref": f"document:{index:032d}"}
+        for index, (file_id, name) in enumerate(names.items(), 1)
+    ]
+    return reader, mcp, matches
+
+
+@pytest.mark.asyncio
+async def test_unreadable_files_are_reported_with_a_reason():
+    reader, _, matches = three_file_reader(
+        {
+            "file-1": {"fileContent": "Statement period: March 2026"},
+            "file-2": {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+        },
+        metadata_errors={"file-3": "file_too_large"},
+    )
+    result = await reader.read_matches(matches=matches)
+    assert result["unreadable"] == [
+        {
+            "name": "Locked.pdf",
+            "reason": "encrypted_document",
+            "source_ref": matches[1]["source_ref"],
+        },
+        {"name": "Huge.pdf", "reason": "file_too_large", "source_ref": matches[2]["source_ref"]},
+    ]
+    assert result["truncated"] is True
+    assert len(result["untrusted_external_content"]) == 1
+    assert len(reader._rows) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ({"fileContent": "   "}, "no_extractable_text"),
+        ({"textFormattingNotSupported": True}, "unsupported_format"),
+        # A reason outside the allowlist is never passed through.
+        ({"textFormattingNotSupported": True, "reason": "PRIVATE detail"}, "unsupported_format"),
+        (
+            {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
+            "no_extractable_text",
+        ),
+    ],
+)
+async def test_each_unreadable_file_carries_one_allowlisted_reason(payload, reason):
+    reader, _, matches = three_file_reader({"file-1": payload})
+    result = await reader.read_matches(matches=matches[:1])
+    assert result["unreadable"] == [
+        {"name": "March statement.pdf", "reason": reason, "source_ref": matches[0]["source_ref"]}
+    ]
+    assert result["untrusted_external_content"] == [] and result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_readable_turn_reports_no_unreadable_files():
+    reader, _, _, _ = fixture()
+    result = await reader.read_matches(
+        matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
+    )
+    assert result["unreadable"] == []
+
+
+def statements_reader(count, text):
+    reader, adapter, mcp, _ = fixture()
+    names = {f"file-{index}": f"Statement {index:02d}.pdf" for index in range(1, count + 1)}
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, {"fileContent": text}, False)
+    return reader, [{"file_id": file_id, "name": name} for file_id, name in names.items()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unit", ["A", "क"])  # one byte and three bytes in UTF-8
+async def test_six_statements_all_reach_the_model_with_a_fair_share_each(unit):
+    """UAT 2026-09-25: 'last six months of statements' read three files in full
+    and dropped the rest at the 16 KiB context budget."""
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(6, "Statement period March 2026. " + unit * 6000)
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert [item["name"] for item in content] == [item["name"] for item in matches]
+    assert all(item["text"].startswith("Statement period March 2026.") for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+    assert result["truncated"] is True and len(reader._rows) == 6
+
+
+@pytest.mark.asyncio
+async def test_one_file_still_gets_the_full_excerpt():
+    reader, matches = statements_reader(1, "A" * 6000)
+    result = await reader.read_matches(matches=matches)
+    assert len(result["untrusted_external_content"][0]["text"]) == 4000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("count", "text", "name_length"),
+    [
+        # Review 2026-09-25: a Hindi header over English lines overshot a
+        # proportional clip, so only three of six statements were kept.
+        (6, "क" * 1500 + "Txn 2026-01-02 UPI 450.00\n" * 200, 12),
+        (8, "\x01" * 1000 + "A" * 4000, 12),
+        (8, "A" * 6000, 240),
+    ],
+    ids=["hindi-header-six", "control-chars-eight", "long-names-eight"],
+)
+async def test_mixed_bytes_and_long_names_still_fit_every_chosen_file(count, text, name_length):
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(count, text)
+    names = {
+        item["file_id"]: "N" * (name_length - 7) + f"-{index:02d}.pdf"
+        for index, item in enumerate(matches)
+    }
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    reader.adapter.get_metadata.side_effect = metadata
+    for item in matches:
+        item["name"] = names[item["file_id"]]
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert len(content) == count
+    assert all(item["text"] for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_file_leaves_its_share_to_the_others():
+    reader, matches = statements_reader(8, "S" * 6000)
+    locked = {item["file_id"] for item in matches[:5]}
+
+    async def read(*, user_id, tool_name, arguments):
+        if arguments["fileId"] in locked:
+            return ExternalMcpToolResult(
+                False, {"textFormattingNotSupported": True, "reason": "encrypted_document"}, False
+            )
+        return ExternalMcpToolResult(False, {"fileContent": "S" * 6000}, False)
+
+    reader.mcp.read_tool.side_effect = read
+    result = await reader.read_matches(matches=matches)
+    texts = [item["text"] for item in result["untrusted_external_content"]]
+    # Five locked files leave their share: the three readable ones keep the
+    # full excerpt instead of an eighth of the budget each.
+    assert [len(text) for text in texts] == [4000, 4000, 4000]

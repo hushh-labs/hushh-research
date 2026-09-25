@@ -9,7 +9,11 @@ from firebase_admin import auth as firebase_auth
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingError,
+    VerifiedGoogleRecipient,
+    recipient_from_google_provider,
+)
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import (
@@ -37,6 +41,21 @@ async def require_recipient_identity(recipient: dict) -> None:
         raise
     except Exception:
         raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
+
+
+async def recipient_identity_for_user(user_id: str) -> VerifiedGoogleRecipient:
+    """B's current, exactly-one linked Google identity from Firebase Admin."""
+    try:
+        async with asyncio.timeout(6):
+            user = await asyncio.to_thread(
+                firebase_auth.get_user, user_id, app=get_firebase_auth_app()
+            )
+    except Exception:
+        raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
+    candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
+    if user.disabled or len(candidates) != 1:
+        raise DriveSharingError("recipient_google_identity_required")
+    return recipient_from_google_provider(user_id, candidates[0])
 
 
 def existing_individual_permission(snapshot, *, email: str) -> dict | None:

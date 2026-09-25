@@ -5,6 +5,7 @@ export type KycIdentityField = {
   domain: string;
   path: string;
   aliases: string[];
+  sensitivity?: "restricted";
 };
 
 export const KYC_IDENTITY_PROFILE_VERSION = profile.version;

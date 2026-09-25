@@ -202,3 +202,55 @@ def test_substituted_file_or_recipient_changes_bound_authority(cipher):
 def test_request_period_is_explicit_and_valid(data):
     with pytest.raises(ValidationError):
         ShareRequestPurpose.model_validate(data)
+
+
+def _approval_with(*document_ids):
+    from hushh_mcp.services.drive_sharing_contract import SharingApproval
+
+    return SharingApproval.model_validate(
+        {
+            "request_id": "11111111-1111-4111-8111-111111111111",
+            "revision": 1,
+            "owner_user_id": "owner",
+            "recipient_user_id": "recipient",
+            "recipient_binding": "a" * 64,
+            "connection_generation": 1,
+            "sources": [
+                {
+                    "document_id": document_id,
+                    "source_fingerprint": str(index) * 64,
+                    "source_version": "1",
+                    "index_version": "b" * 64,
+                    "processing_revision": 0,
+                }
+                for index, document_id in enumerate(document_ids)
+            ],
+        }
+    )
+
+
+def test_narrowing_keeps_every_term_except_the_unselected_files():
+    one, two = "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"
+    approval = _approval_with(one, two)
+    narrowed = approval.narrowed_to([two])
+    assert [str(source.document_id) for source in narrowed.sources] == [two]
+    assert {**narrowed.model_dump(), "sources": None} == {**approval.model_dump(), "sources": None}
+
+
+@pytest.mark.parametrize(
+    "selection", [[], ["not-a-uuid"], ["44444444-4444-4444-8444-444444444444"]]
+)
+def test_narrowing_refuses_empty_invalid_or_outside_selections(selection):
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+    approval = _approval_with("22222222-2222-4222-8222-222222222222")
+    with pytest.raises(DriveSharingError, match="review_changed"):
+        approval.narrowed_to(selection)
+
+
+def test_narrowing_refuses_a_repeated_file():
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+    one = "22222222-2222-4222-8222-222222222222"
+    with pytest.raises(DriveSharingError, match="review_changed"):
+        _approval_with(one, "33333333-3333-4333-8333-333333333333").narrowed_to([one, one])

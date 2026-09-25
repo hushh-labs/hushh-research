@@ -106,6 +106,45 @@ async def test_full_text_search_keeps_drive_relevance_order(monkeypatch):
         arguments={"query": "(title contains 'tax' or fullText contains 'tax')"},
     )
     assert listing.await_args.kwargs["order_by"] is None
+    # A requested date order cannot apply either: Drive does not sort fullText matches.
+    await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={
+            "query": "(title contains 'tax' or fullText contains 'tax')",
+            "orderBy": "createdTime desc",
+        },
+    )
+    assert listing.await_args.kwargs["order_by"] is None
+
+
+async def test_a_created_window_is_listed_newest_created_first(monkeypatch):
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={
+            "query": "(createdTime >= '2026-09-17T00:00:00Z' and createdTime < '2026-09-24T00:00:00Z')",
+            "orderBy": "createdTime desc",
+        },
+    )
+    assert listing.await_args.kwargs["order_by"] == "createdTime desc"
+
+
+@pytest.mark.parametrize(
+    "order", ["name", "createdTime", "recency desc", ["createdTime desc"], None]
+)
+async def test_an_unlisted_order_is_refused_before_any_provider_call(monkeypatch, order):
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "title contains 'x'", "orderBy": order},
+        )
+    assert listing.called is False
 
 
 async def test_recent_files_come_back_newest_first(monkeypatch):
@@ -160,6 +199,45 @@ async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
     )
     assert result.payload == {"textFormattingNotSupported": True}
+
+
+@pytest.mark.parametrize(
+    ("code", "payload"),
+    [
+        (
+            "encrypted_document",
+            {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+        ),
+        (
+            "no_extractable_text",
+            {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
+        ),
+        ("file_too_large", {"textFormattingNotSupported": True, "reason": "file_too_large"}),
+        ("invalid_document", {"textFormattingNotSupported": True, "reason": "invalid_document"}),
+        # Anything else keeps the exact old payload: no new vocabulary leaks out.
+        ("unsupported_format", {"textFormattingNotSupported": True}),
+        ("unexpected_code", {"textFormattingNotSupported": True}),
+    ],
+)
+async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payload):
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(
+                FILE_ID, "Locked.pdf", "application/pdf", "3", "2026-09-20T00:00:00Z", 1, None
+            )
+        ),
+        read_live_bytes=AsyncMock(return_value=("application/pdf", b"%PDF-1.7")),
+    )
+
+    def refuse(content, mime_type):
+        raise rest.ParseError(code)
+
+    monkeypatch.setattr(rest, "parse_document", refuse)
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
+    )
+    assert result.payload == payload
 
 
 @pytest.mark.parametrize(
@@ -241,7 +319,17 @@ async def test_the_connect_probe_is_one_bounded_rest_search():
             },
             True,
         ),
+        (
+            {
+                **adapter_module.LIST_FIXED,
+                "q": "x",
+                "pageSize": "8",
+                "orderBy": "createdTime desc",
+            },
+            True,
+        ),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "recency"}, False),
+        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "createdTime"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "26"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "name"}, False),
         ({**adapter_module.LIST_FIXED, "fields": "*", "q": "x", "pageSize": "8"}, False),

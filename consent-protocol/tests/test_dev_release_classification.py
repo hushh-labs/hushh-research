@@ -12,6 +12,8 @@ import yaml
     [
         ("location_command_recovery", True, False, True),
         ("frontend_login", False, True, True),
+        ("calendar_secret", True, False, True),
+        ("calendar_runtime", True, False, True),
         ("signed_in_routes:/one", False, False, False),
     ],
 )
@@ -45,6 +47,21 @@ def test_semantic_failure_selects_rollback(
         "GITHUB_OUTPUT": str(tmp_path / "outputs"),
     }.items():
         monkeypatch.setenv(key, value)
+    if failure.startswith("calendar_"):
+        parity = {"classifications": ["runtime_mount_missing"]}
+        if failure == "calendar_secret":
+            parity.update(
+                required={"calendar": ["CALENDAR_SECRET"]}, missing_secrets=["CALENDAR_SECRET"]
+            )
+        else:
+            parity["runtime_contract"] = {
+                "backend_calendar": [{"key": "CALENDAR_KEY", "status": "missing"}]
+            }
+        (tmp_path / "dev-runtime-parity-attempt-2.json").write_text(json.dumps(parity))
+        monkeypatch.setenv("PARITY_ATTEMPT_1", "failure")
+        monkeypatch.setenv("PARITY_ATTEMPT_2", "failure")
+        monkeypatch.setenv("SEMANTIC_ATTEMPT_1", "success")
+        monkeypatch.setenv("SEMANTIC_ATTEMPT_2", "skipped")
     exec(compile(source, str(root / ".github/workflows/deploy-dev.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
     result = json.loads((tmp_path / "dev-release-classification.json").read_text())
     assert result["release_failed"] is blocked

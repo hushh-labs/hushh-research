@@ -35,7 +35,7 @@ describe("GmailVerificationOnboarding", () => {
     mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
   });
 
-  it("keeps the setup check accessible without a visible skeleton or premature intake", async () => {
+  it("keeps the setup check accessible with a visible KYC workspace placeholder", async () => {
     let finishCheck!: (snapshot: { data: Record<string, unknown> }) => void;
     mocks.getStaleFirst.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
     const { container } = render(
@@ -45,8 +45,9 @@ describe("GmailVerificationOnboarding", () => {
         <div>KYC workspace</div>
       </GmailVerificationOnboarding>,
     );
-    expect(screen.getByLabelText("Checking KYC setup")).toHaveClass("sr-only");
-    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(screen.getByLabelText("Checking KYC setup")).toBeVisible();
+    expect(screen.getByText("Getting your KYC workspace ready.")).toBeVisible();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
     expect(screen.queryByText("KYC workspace")).not.toBeInTheDocument();
     finishCheck({ data: {} });

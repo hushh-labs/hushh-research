@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   uid: "a",
+  providers: [] as { providerId: string; email: string | null }[],
   unlocked: true,
   token: "owner-a",
   epoch: 1,
@@ -24,7 +25,7 @@ const state = vi.hoisted(() => ({
   periodic: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid } }),
+  useAuth: () => ({ user: { uid: state.uid, providerData: state.providers } }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
@@ -126,6 +127,7 @@ describe("exact-file document review", () => {
       requestId,
       expect.objectContaining({ revision: 3, files: review().files }),
       expect.any(Function),
+      ["document-one"],
     );
     expect(changed).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveFocus();
@@ -194,7 +196,10 @@ describe("exact-file document review", () => {
     );
     expect(screen.queryByText("b@example.invalid")).toBeNull();
   });
-  it("gives B only the recorded delivery and explains both access paths", async () => {
+  it("opens B's originals as the Google account that received Viewer access", async () => {
+    // A browser signed into several Google accounts otherwise opens the link
+    // as its default account (on UAT, A's), which has no access.
+    state.providers = [{ providerId: "google.com", email: "b@gmail.test" }];
     state.status.mockResolvedValue({
       ...initial(),
       direction: "outgoing",
@@ -203,12 +208,30 @@ describe("exact-file document review", () => {
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     expect(
       await screen.findByRole("link", { name: "Open in Google Drive" }),
-    ).toHaveAttribute("href", "https://drive.google.com/file/d/approved/view");
+    ).toHaveAttribute(
+      "href",
+      "https://drive.google.com/file/d/approved/view?authuser=b%40gmail.test",
+    );
     expect(state.review).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Share files" })).toBeNull();
     expect(
-      screen.getByText(/connect your own Drive and select these files/),
+      screen.getByText("Shared with b@gmail.test. Open while signed in to that Google account."),
     ).toBeVisible();
+    expect(screen.queryByText(/connect your own Drive/)).toBeNull();
+    state.providers = [];
+  });
+
+  it("keeps the plain link when B has no linked Google account in this session", async () => {
+    state.providers = [{ providerId: "phone", email: null }];
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "completed" });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByRole("link", { name: "Open in Google Drive" }),
+    ).toHaveAttribute("href", "https://drive.google.com/file/d/approved/view");
+    expect(
+      screen.getByText("Open while signed in to the Google account linked to your One sign-in."),
+    ).toBeVisible();
+    state.providers = [];
   });
   it("prepares removal only on click, requires a second decision and polls its recorded outcome", async () => {
     state.status.mockResolvedValue({ ...initial(), status: "completed" });
@@ -258,12 +281,88 @@ describe("exact-file document review", () => {
   it("requires explicit broad trust and sends its scope with approval", async () => {
     state.review.mockResolvedValue({ ...review(), canTrustFutureRequests: true });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    const trust = await screen.findByRole("checkbox");
+    const trust = await screen.findByRole("checkbox", { name: /^Trust b@example\.invalid/ });
     expect(trust).not.toBeChecked();
     fireEvent.click(trust);
     fireEvent.click(screen.getByRole("button", { name: "Share files" }));
     await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
-      "owner-a", requestId, expect.anything(), expect.any(Function), true, "any_requested_drive_file"));
+      "owner-a", requestId, expect.anything(), expect.any(Function), ["document-one"], true, "any_requested_drive_file"));
+  });
+
+  it("shares only the files A keeps selected, and never an empty selection", async () => {
+    const files = [
+      { documentId: "document-one", name: "March statement.pdf" },
+      { documentId: "document-two", name: "Meeting notes" },
+    ];
+    state.review.mockResolvedValue({ ...review(), files, canTrustFutureRequests: true });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    const notes = await screen.findByRole("checkbox", { name: "Meeting notes" });
+    const all = screen.getByRole("checkbox", { name: "Select all" });
+    expect(notes).toBeChecked();
+    expect(all).toBeChecked();
+    fireEvent.click(all);
+    expect(notes).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Share 0 of 2 files" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "March statement.pdf" }));
+    // Trust for future requests follows a review accepted in full.
+    expect(screen.getByRole("checkbox", { name: /^Trust b@example\.invalid/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 of 2 files" }));
+    await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
+      "owner-a", requestId, expect.anything(), expect.any(Function), ["document-one"]));
+  });
+
+  it("tells A plainly when no file looks like what was asked for", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: "no_relevant_files",
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        "Your private agent didn't find files that look like what they asked for. You can decline, or refresh after adding the files.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Suggestions are not ready yet.")).toBeNull();
+    expect(screen.queryByText("Refresh suggestions before sharing.")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Refresh suggestions" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeVisible();
+  });
+
+  it("tells A when matching files couldn't be read", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: "no_ready_files",
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        "Matching files couldn't be read, for example password-protected or scanned PDFs.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Suggestions are not ready yet.")).toBeNull();
+  });
+
+  it("still says suggestions are not ready for any other result", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: null,
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText("Suggestions are not ready yet."),
+    ).toBeVisible();
+    expect(screen.getByText("Refresh suggestions before sharing.")).toBeVisible();
   });
 
 });

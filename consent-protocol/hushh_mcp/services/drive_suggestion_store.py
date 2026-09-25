@@ -36,7 +36,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         return await self._transaction(operation)
 
-    async def claim_preparation(self, *, user_id, request_id, foreground=False):
+    async def claim_preparation(
+        self, *, user_id, request_id, foreground=False, owner_selected=False
+    ):
         self._sharing_admission(user_id)
         request_id = str(UUID(request_id))
 
@@ -57,7 +59,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             if (
                 row["status"] not in {"pending", "preparing"}
                 or row["expires_at"] <= now
-                or row["preparation_next_at"] > now
+                or (row["preparation_next_at"] > now and not (foreground and owner_selected))
                 or row["preparation_lease_expires_at"]
                 and row["preparation_lease_expires_at"] > now
             ):
@@ -158,6 +160,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             "preparation_unavailable",
             "narrow_selection_required",
             "no_ready_files",
+            "no_relevant_files",
             "source_changed",
         }
         code = code if code in allowed else "preparation_unavailable"

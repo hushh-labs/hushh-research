@@ -7,6 +7,7 @@ import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,8 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_sharing_contract import (
+    BROAD_TRUST_DISCLOSURE,
+    BROAD_TRUST_SCOPE,
     DriveSharingError,
     ReviewedSource,
     ShareRequestPurpose,
@@ -277,6 +280,54 @@ async def test_approval_enqueues_exact_files_without_claiming_provider_success(s
 
 
 @pytest.mark.asyncio
+async def test_owner_can_share_some_of_the_reviewed_files(sharing):
+    prepared, ids = await review(sharing)
+    result = await approve(sharing, prepared, ids[:1])
+    assert result["status"] == "approved"
+    assert result["fileCount"] == 1
+    operations = rows(sharing, "drive_share_permission_operations")
+    # Only the selected file is queued; the other reviewed file is never granted.
+    assert [str(item["document_id"]) for item in operations] == ids[:1]
+    assert {item["state"] for item in rows(sharing, "one_action_directive_ledger")} == {"consumed"}
+    # The sealed plan names only the shared file, so dispatch never rechecks
+    # (or is withdrawn by) the file A chose not to share.
+    plan = sharing.sharing_cipher.open(
+        operations[0]["plan_envelope"],
+        user_id="owner",
+        resource_id=str(operations[0]["operation_id"]),
+        purpose="permission-plan",
+    )
+    assert [source["document_id"] for source in plan["approval"]["sources"]] == ids[:1]
+
+
+@pytest.mark.asyncio
+async def test_queue_grants_refuses_a_plan_that_names_other_files(sharing):
+    approval = SimpleNamespace(
+        sources=[SimpleNamespace(document_id="one"), SimpleNamespace(document_id="two")]
+    )
+    with pytest.raises(DriveSharingError, match="invalid_selection"):
+        sharing._queue_grants(
+            None, request=None, approval=approval, sources=[{"document_id": "one"}], batch="b"
+        )
+
+
+@pytest.mark.asyncio
+async def test_trust_for_future_requests_needs_the_whole_review(sharing):
+    prepared, ids = await review(sharing)
+    with pytest.raises(DriveReadError, match="rule_not_covered"):
+        await approve(
+            sharing,
+            prepared,
+            ids[:1],
+            trust_future_requests=True,
+            trust_scope=BROAD_TRUST_SCOPE,
+            trust_disclosure_version=BROAD_TRUST_DISCLOSURE,
+        )
+    assert rows(sharing, "drive_share_permission_operations") == []
+    assert rows(sharing, "one_action_directive_ledger")[0]["state"] == "issued"
+
+
+@pytest.mark.asyncio
 async def test_concurrent_decisions_never_enqueue_duplicates(sharing):
     prepared, ids = await review(sharing)
     result = await asyncio.gather(
@@ -291,7 +342,8 @@ async def test_concurrent_decisions_never_enqueue_duplicates(sharing):
     "changed",
     [
         "wrong_owner",
-        "missing_file",
+        "outside_file",
+        "duplicate_file",
         "wrong_file",
         "revision",
         "digest",
@@ -303,7 +355,8 @@ async def test_substituted_approval_has_no_effect(sharing, changed):
     prepared, ids = await review(sharing)
     changes = {
         "wrong_owner": {"user_id": "recipient"},
-        "missing_file": {"document_ids": ids[:1]},
+        "outside_file": {"document_ids": [ids[0], str(uuid4())]},
+        "duplicate_file": {"document_ids": [ids[0], ids[0]]},
         "wrong_file": {"document_ids": [str(uuid4())]},
         "revision": {"revision": 2},
         "digest": {"review_digest": "0" * 64},
