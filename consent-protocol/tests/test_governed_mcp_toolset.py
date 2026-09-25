@@ -509,6 +509,75 @@ async def test_reserved_tool_does_not_hide_other_tools(harness):
     assert len(tools) == 1 and tools[0].descriptor["name"] == "search"
 
 
+async def test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_tools(
+    harness, monkeypatch
+):
+    """Real MCP messages and native ADK invocation, with in-memory transport only.
+
+    This is not HTTPS/OAuth proof: the session acquisition seam supplies the
+    SDK's connected client/server session instead of an external connection.
+    """
+    from mcp.server import Server
+    from mcp.shared.memory import create_connected_server_and_client_session
+    from mcp.types import ListToolsRequest, ListToolsResult, Tool
+
+    h = harness
+    server = Server("synthetic-connector")
+    calls = []
+    cursors = []
+    changed = False
+
+    @server.list_tools()
+    async def list_tools(request: ListToolsRequest):
+        cursor = request.params.cursor if request.params else None
+        cursors.append(cursor)
+        if cursor == "page-2":
+            return ListToolsResult(tools=[Tool(name="other", inputSchema={"type": "object"})])
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="search",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                        "required": ["q"],
+                        "additionalProperties": False,
+                    },
+                    description="Changed" if changed else "Synthetic search",
+                )
+            ],
+            nextCursor="page-2",
+        )
+
+    @server.call_tool()
+    async def call_tool(name, arguments):
+        calls.append((name, arguments))
+        return CallToolResult(content=[], structuredContent={"count": 1})
+
+    async with create_connected_server_and_client_session(server) as session:
+        h.toolset._mcp_session_manager.create_session = AsyncMock(return_value=session)
+        h.toolset._mcp_session_manager._get_session_context = Mock(return_value=None)
+        h.context._invocation_context = SimpleNamespace(user_id="owner")
+        monkeypatch.setattr(McpTool, "_run_async_impl", _NATIVE_RUN)
+        tools = await h.toolset.get_tools(h.context)
+        assert len(tools) == 2 and cursors == [None, "page-2"]
+        selected = next(tool for tool in tools if tool.descriptor["name"] == "search")
+        assert calls == []
+        h.approve.return_value = {"status": "permission_required"}
+        assert await selected.run_async(args={"q": "synthetic"}, tool_context=h.context) == {
+            "status": "permission_required"
+        }
+        assert calls == []
+        h.approve.return_value = None
+        result = await selected.run_async(args={"q": "synthetic"}, tool_context=h.context)
+        assert result["status"] == "ok" and result["result"] == {"count": 1}
+        assert calls == [("search", {"q": "synthetic"})]
+        changed = True
+        stale = await selected.run_async(args={"q": "synthetic"}, tool_context=h.context)
+        assert stale["error"] == "MCP_CATALOG_CHANGED"
+        assert len(calls) == 1
+
+
 async def test_http_body_diagnostics_block_before_credentials(harness, monkeypatch):
     h = harness
     monkeypatch.setattr(

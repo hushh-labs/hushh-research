@@ -1143,6 +1143,15 @@ Discovery uses the shared toolset's bounded pagination and timeout; an empty
 catalog is distinct from failure. Provider notifications and persistent per-tool
 permission controls remain unimplemented.
 
+Protocol proof: `test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_tools`
+in `tests/test_governed_mcp_toolset.py` uses a real MCP Server/ClientSession over
+the SDK memory transport and the native ADK tool implementation. It verifies two
+catalog pages, no invocation while application approval is pending, exact wire
+tool/arguments on one permitted invocation, and rejection of an old tool after
+catalog revision changes. Session acquisition and the approval decision are test
+seams; this does not certify HTTPS, real consent-ledger approval, OAuth, browser,
+or provider behavior.
+
 Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
 Owner authority. It removes that private field before handing the input to
 AG-UI, validates the bounded catalog, and stages it in the existing process-local
