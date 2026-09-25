@@ -31,6 +31,15 @@
  */
 @source "../lib/morphy-ux/tokens/semantic-roles.ts";
 
+/* Portaled connector and shared overlay classes must be present in the first
+ * stylesheet, including in ignored development worktrees where automatic
+ * source detection may not see these files. */
+@source "../components/agent/agent-connections-drawer.tsx";
+@source "../components/ui/dialog.tsx";
+@source "../components/ui/sheet.tsx";
+@source "../components/ui/popover.tsx";
+@source inline("sm:max-w-[28rem] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]");
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
