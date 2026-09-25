@@ -3723,7 +3723,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "120d144415e745d8217141bbc232c43b700e90adb7fe75c03e7bd4f8fdc94459",
+      "system_instruction_sha256": "866d465da48b4282012e6c7a0ad9d553f0deb7184fc9e4c59c2e1ca2580c4030",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

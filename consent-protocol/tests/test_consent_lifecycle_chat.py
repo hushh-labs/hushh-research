@@ -1159,3 +1159,42 @@ def test_the_drive_share_card_survives_a_chat_reload_without_file_ids():
         },
     }
     assert _safe_agent_history_metadata(event({"status": "connection_required"})) is None
+
+
+@pytest.mark.asyncio
+async def test_a_trusted_circle_share_proposal_names_no_person():
+    context = _ctx(_state())
+    with _auth():
+        ready = await action_tools.propose_drive_share(
+            "", "the Chris onboarding recordings", context, trusted_circle=True
+        )
+    assert ready["status"] == "proposal_ready" and ready["audience"] == "trusted_circle"
+    assert "person" not in ready
+    assert "connected with by request" in ready["nextStep"]
+
+
+def test_the_trusted_circle_share_card_survives_a_chat_reload():
+    from api.routes.one.agent_chat import _safe_agent_history_metadata
+
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(
+            name="propose_drive_share",
+            response={
+                "status": "proposal_ready",
+                "audience": "trusted_circle",
+                "filesRequest": "the Chris onboarding recordings",
+                "clientRequestId": "33333333-3333-4333-8333-333333333333",
+            },
+        )
+    )
+    metadata = _safe_agent_history_metadata(
+        SimpleNamespace(id="event-circle-1", content=SimpleNamespace(parts=[part]))
+    )
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.drive_share_review.v1",
+        "content": {
+            "audience": "trusted_circle",
+            "clientRequestId": "33333333-3333-4333-8333-333333333333",
+            "filesRequest": "the Chris onboarding recordings",
+        },
+    }

@@ -300,3 +300,137 @@ async def test_an_expired_search_is_searched_again_on_the_next_tap(shares):
     again = await prepare(queries, client=client)
     assert live.run_live_query.await_count == 2
     assert again["requestId"] != first["requestId"] and again["status"] == "ready"
+
+
+# --- Trusted circle ---------------------------------------------------------
+
+CIRCLE_ID = "66666666-6666-4666-8666-666666666666"
+
+
+@pytest.fixture
+async def circle(shares, monkeypatch):
+    """A Trusted circle holding each kind of connection the product creates."""
+    monkeypatch.setenv(
+        "CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient,contact,comember,stranger,nogoogle"
+    )
+    with shares.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE one_location_circles(id UUID PRIMARY KEY,owner_user_id TEXT,"
+                "system_kind TEXT,status TEXT)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE one_location_circle_memberships(circle_id UUID,user_id TEXT,"
+                "status TEXT)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE connection_origins(id UUID PRIMARY KEY,connection_id UUID,"
+                "origin_kind TEXT,status TEXT)"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+            {"id": CIRCLE_ID},
+        )
+        origins = {
+            "recipient": "direct_request",  # the owner accepted a request
+            "nogoogle": "direct_request",
+            "contact": "contact_sync",  # auto-connected by someone's contact sync
+            "comember": "circle_member",  # joined a circle, never asked
+        }
+        for member in ("recipient", "nogoogle", "contact", "comember", "stranger"):
+            connection.execute(
+                text("INSERT INTO one_location_circle_memberships VALUES (:c,:u,'active')"),
+                {"c": CIRCLE_ID, "u": member},
+            )
+            if member in origins:
+                connection_id = str(uuid4())
+                if member != "recipient":  # the sharing fixture already connects recipient
+                    connection.execute(
+                        text("INSERT INTO connections VALUES (:id,'owner',:u,'active')"),
+                        {"id": connection_id, "u": member},
+                    )
+                else:
+                    connection_id = connection.execute(
+                        text("SELECT id FROM connections WHERE user_b_id='recipient'")
+                    ).scalar_one()
+                connection.execute(
+                    text("INSERT INTO connection_origins VALUES (:id,:c,:k,'active')"),
+                    {"id": str(uuid4()), "c": connection_id, "k": origins[member]},
+                )
+    return shares
+
+
+def circle_service(shares, live, **changes):
+    queries = service(shares, live, **changes)
+
+    async def identity(user_id):
+        if user_id == "nogoogle":
+            raise DriveSharingError("recipient_google_identity_required")
+        return SimpleNamespace(user_id=user_id)
+
+    queries.recipient_identity = AsyncMock(side_effect=identity)
+    return queries
+
+
+async def prepare_circle(queries, client=None):
+    return await queries.prepare_trusted_share(
+        user_id="owner",
+        client_request_id=client or str(uuid4()),
+        query=WORDS,
+        consent_token=OWNER_PROOF,
+        timezone="Asia/Kolkata",
+    )
+
+
+async def test_only_people_the_owner_accepted_can_receive_a_circle_share(circle):
+    live = chat()
+    view = await prepare_circle(circle_service(circle, live))
+    assert view["status"] == "ready"
+    assert [person["name"] for person in view["recipients"]] == ["Bo"]
+    reasons = sorted(item["reason"] for item in view["excluded"])
+    assert reasons == ["circle", "contacts", "no_google_account", "not_connected"]
+    live.run_live_query.assert_awaited_once()
+    with circle.db.engine.connect() as connection:
+        recipients = [
+            row[0]
+            for row in connection.execute(text("SELECT recipient_user_id FROM drive_owner_shares"))
+        ]
+    # A contact-sync or circle-only connection never gets a row to share from.
+    assert recipients == ["recipient"]
+    assert FILE_ID not in json.dumps(view)
+
+
+async def test_a_retried_circle_tap_returns_the_first_search(circle):
+    live = chat()
+    queries = circle_service(circle, live)
+    client = str(uuid4())
+    first = await prepare_circle(queries, client=client)
+    again = await prepare_circle(queries, client=client)
+    assert again["recipients"] == first["recipients"]
+    live.run_live_query.assert_awaited_once()
+
+
+async def test_no_eligible_person_searches_nothing(circle):
+    with circle.db.engine.begin() as connection:
+        connection.execute(text("UPDATE connection_origins SET origin_kind='contact_sync'"))
+    live = chat()
+    view = await prepare_circle(circle_service(circle, live))
+    assert view["status"] == "no_recipients" and view["recipients"] == []
+    live.run_live_query.assert_not_awaited()
+
+
+async def test_each_circle_recipient_is_shared_through_their_own_lane(circle):
+    sharing, suggestions = sharing_doubles()
+    queries = circle_service(circle, chat(), sharing=sharing, suggestions=suggestions)
+    view = await prepare_circle(queries)
+    [person] = view["recipients"]
+    shared = await queries.share_owner_files(
+        user_id="owner", request_id=person["requestId"], file_refs=["f1"]
+    )
+    assert shared["status"] == "shared"
+    assert sharing.store.create_request.await_args.kwargs["owner_initiated"] is True

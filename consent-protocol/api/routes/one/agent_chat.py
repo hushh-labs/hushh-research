@@ -607,11 +607,22 @@ def _safe_drive_share_descriptor(
                 break
         if result.get("status") != "proposal_ready":
             return None
+        client_id = _bounded_text(result.get("clientRequestId"), 36)
+        files_request = _bounded_text(result.get("filesRequest"), 2000)
+        if result.get("audience") == "trusted_circle":
+            if not client_id or not files_request or not re.fullmatch(r"[0-9a-f-]{36}", client_id):
+                return None
+            return {
+                "activityType": "one.drive_share_review.v1",
+                "content": {
+                    "audience": "trusted_circle",
+                    "clientRequestId": client_id,
+                    "filesRequest": files_request,
+                },
+            }
         person = _record(result.get("person")) or {}
         person_ref = _bounded_text(person.get("personRef"), 36)
-        client_id = _bounded_text(result.get("clientRequestId"), 36)
         person_name = _bounded_text(person.get("displayName"), 120)
-        files_request = _bounded_text(result.get("filesRequest"), 2000)
         if (
             not person_ref
             or not client_id

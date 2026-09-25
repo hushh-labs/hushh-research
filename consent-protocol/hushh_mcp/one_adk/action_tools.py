@@ -2906,12 +2906,15 @@ async def propose_drive_share(
     files_request: str,
     tool_context: ToolContext,
     selection_handle: str = "",
+    trusted_circle: bool = False,
 ) -> dict[str, Any]:
-    """Stage sharing the owner's own Drive files with one connected person.
+    """Stage sharing the owner's own Drive files with one connected person,
+    or with their Trusted circle (trusted_circle=true, person left empty).
 
     Nothing is searched or shared here. The chat card searches the owner's
-    Drive only when the owner taps it, shows the exact files it found, and
-    shares only the files the owner then picks and confirms, as Viewer.
+    Drive only when the owner taps it, shows the exact files it found (and,
+    for the circle, exactly who can receive them), and shares only what the
+    owner then picks and confirms, as Viewer.
     """
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -2923,6 +2926,14 @@ async def propose_drive_share(
         return {
             "status": "needs_clarification",
             "message": "Say which Drive files to share, for example a name, type or date.",
+        }
+    if trusted_circle is True:
+        return {
+            "status": "proposal_ready",
+            "audience": "trusted_circle",
+            "filesRequest": request,
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "The card finds the files when the person taps Find files, then shows the files and the Trusted circle members who can receive them. Only people they connected with by request can receive; others are listed as not included. Nothing is shared until they tap Share.",
         }
     try:
         person_ref, display_name = await asyncio.to_thread(

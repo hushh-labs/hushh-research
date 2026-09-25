@@ -117,8 +117,10 @@ export type DocumentRequestReviewExperience = {
 /** The owner stages sharing their own Drive files with one connected person. */
 export type DriveShareReviewExperience = {
   type: typeof DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE;
-  personRef: string;
-  personName: string;
+  /** One connected person, or the owner's Trusted circle (no person). */
+  audience: "person" | "trusted_circle";
+  personRef: string | null;
+  personName: string | null;
   clientRequestId: string;
   filesRequest: string;
 };
@@ -381,14 +383,19 @@ function parseDriveShareReview(content: unknown): DriveShareReviewExperience | n
   const record = unwrapToolResult(content);
   if (!record) return null;
   const person = asRecord(record.person);
-  const personRef = boundedString(record.personRef ?? person?.personRef, 36);
-  const personName = boundedString(record.personName ?? person?.displayName, 120);
   const clientRequestId = boundedString(record.clientRequestId, 36);
   const filesRequest = boundedString(record.filesRequest, 2000);
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!personRef || !uuid.test(personRef) || !clientRequestId || !uuid.test(clientRequestId) ||
-      !personName || !filesRequest?.trim()) return null;
-  return { type: DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE, personRef, personName, clientRequestId, filesRequest };
+  if (!clientRequestId || !uuid.test(clientRequestId) || !filesRequest?.trim()) return null;
+  if (record.audience === "trusted_circle") {
+    return { type: DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE, audience: "trusted_circle",
+      personRef: null, personName: null, clientRequestId, filesRequest };
+  }
+  const personRef = boundedString(record.personRef ?? person?.personRef, 36);
+  const personName = boundedString(record.personName ?? person?.displayName, 120);
+  if (!personRef || !uuid.test(personRef) || !personName) return null;
+  return { type: DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE, audience: "person", personRef, personName,
+    clientRequestId, filesRequest };
 }
 
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {

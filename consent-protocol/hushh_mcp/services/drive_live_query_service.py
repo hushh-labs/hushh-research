@@ -219,6 +219,95 @@ class DriveLiveQueryService:
         )
         if existing is not None:
             return existing
+        files, no_match = await self._owner_search(
+            user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
+        )
+        if no_match is not None:
+            return no_match
+        await self._require_owner()
+        return await self.owner_shares.create(
+            user_id=user_id,
+            recipient_user_id=recipient_user_id,
+            client_request_id=client_request_id,
+            query=query,
+            owner_files=files,
+        )
+
+    async def prepare_trusted_share(
+        self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
+    ):
+        """A searches A's own Drive to share with A's Trusted circle, from chat.
+
+        Only Trusted members A accepted by request or invite are recipients;
+        the rest are listed with a reason and never receive anything. One
+        search, one sealed row per recipient with the same files, so each
+        share runs through the same per-person lane. Nothing is shared here.
+        """
+        await self._require_owner()
+        if not connector_feature_enabled("google_drive_chat_reads", user_id):
+            raise DriveSharingError("sharing_unavailable")
+        circle = await self.owner_shares.trusted_recipients(user_id=user_id)
+        eligible, excluded = [], list(circle["excluded"])
+        for member in circle["eligible"]:
+            try:
+                await self.recipient_identity(member["userId"])
+            except DriveSharingError:
+                excluded.append({**member, "reason": "no_google_account"})
+                continue
+            eligible.append(member)
+        excluded_view = [{"name": item["name"], "reason": item["reason"]} for item in excluded]
+        existing = await self.owner_shares.existing_group(
+            user_id=user_id, client_request_id=client_request_id
+        )
+        if existing:
+            return self._group_view(existing, excluded_view)
+        if not eligible:
+            return {
+                "status": "no_recipients",
+                "files": [],
+                "recipients": [],
+                "excluded": excluded_view,
+                "message": None,
+            }
+        files, no_match = await self._owner_search(
+            user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
+        )
+        if no_match is not None:
+            return {**no_match, "recipients": [], "excluded": excluded_view}
+        rows = []
+        for member in eligible:
+            await self._require_owner()
+            rows.append(
+                await self.owner_shares.create(
+                    user_id=user_id,
+                    recipient_user_id=member["userId"],
+                    client_request_id=client_request_id,
+                    query=query,
+                    owner_files=files,
+                )
+            )
+        return self._group_view(rows, excluded_view)
+
+    @staticmethod
+    def _group_view(rows, excluded):
+        return {
+            "status": "ready" if any(row["status"] == "ready" for row in rows) else "shared",
+            "files": rows[0]["files"],
+            "recipients": [
+                {
+                    "requestId": row["requestId"],
+                    "name": row["recipientName"],
+                    "status": row["status"],
+                    "shareRequestId": row["shareRequestId"],
+                }
+                for row in rows
+            ],
+            "excluded": excluded,
+            "message": None,
+        }
+
+    async def _owner_search(self, *, user_id, query, consent_token, timezone):
+        """One live turn under A's own authority. Returns (files, None) or (None, no_match)."""
 
         async def require_access():
             await self._require_owner()
@@ -242,20 +331,13 @@ class DriveLiveQueryService:
         if not any(item.get("mime_type") != FOLDER_MIME for item in files):
             # A's own words from A's own search (e.g. "Which file do you mean?").
             message = outcome.get("answer") if outcome["status"] == "input_required" else None
-            return {
+            return None, {
                 "requestId": None,
                 "status": "no_match",
                 "files": [],
                 "message": str(message)[:600] if message else None,
             }
-        await self._require_owner()
-        return await self.owner_shares.create(
-            user_id=user_id,
-            recipient_user_id=recipient_user_id,
-            client_request_id=client_request_id,
-            query=query,
-            owner_files=files,
-        )
+        return files, None
 
     async def share_owner_files(self, *, user_id, request_id, file_refs):
         """A shares chosen files from A's own search with B, as Viewer."""

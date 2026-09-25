@@ -24,6 +24,8 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "explain the recipient request and owner review step" not in composed
     # The card's search cannot see chat: files are passed by name, not "it".
     assert "put those files' exact names in files_request" in composed
+    # The Trusted circle is shared only with members accepted by request.
+    assert "propose_drive_share with trusted_circle=true" in composed
     assert "DRIVE READ ADMISSION: disabled" in composed
     assert "Do not claim Drive is disconnected" in composed
 

@@ -337,6 +337,83 @@ function parseOwnerShareView(value: RecordValue): DriveOwnerShareView {
   };
 }
 
+/** Why a Trusted circle member cannot receive a circle share (closed set). */
+export type DriveCircleExclusion =
+  | "not_connected"
+  | "contacts"
+  | "circle"
+  | "imported"
+  | "unavailable"
+  | "no_google_account"
+  | "limit";
+const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
+  "not_connected",
+  "contacts",
+  "circle",
+  "imported",
+  "unavailable",
+  "no_google_account",
+  "limit",
+]);
+
+/** The owner's own search for sharing with their Trusted circle, from chat. */
+export type DriveCircleShareView = {
+  status: "ready" | "shared" | "no_match" | "no_recipients";
+  files: DriveQueryFile[];
+  recipients: Array<{
+    requestId: string;
+    name: string | null;
+    status: "ready" | "shared";
+    shareRequestId: string | null;
+  }>;
+  excluded: Array<{ name: string | null; reason: DriveCircleExclusion }>;
+  message: string | null;
+};
+
+function parseCircleShareView(value: RecordValue): DriveCircleShareView {
+  const status = string(value.status, 16);
+  if (
+    status !== "ready" &&
+    status !== "shared" &&
+    status !== "no_match" &&
+    status !== "no_recipients"
+  )
+    throw new DriveSharingError("invalid_response");
+  if (!Array.isArray(value.recipients) || value.recipients.length > 10)
+    throw new DriveSharingError("invalid_response");
+  if (!Array.isArray(value.excluded) || value.excluded.length > 100)
+    throw new DriveSharingError("invalid_response");
+  const recipients = value.recipients.map((item) => {
+    const row = record(item);
+    const rowStatus = string(row.status, 8);
+    if (rowStatus !== "ready" && rowStatus !== "shared")
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId: id(row.requestId),
+      name: row.name == null ? null : string(row.name, 200),
+      status: rowStatus as "ready" | "shared",
+      shareRequestId: row.shareRequestId == null ? null : id(row.shareRequestId),
+    };
+  });
+  const excluded = value.excluded.map((item) => {
+    const row = record(item);
+    const reason = string(row.reason, 32) as DriveCircleExclusion;
+    if (!CIRCLE_EXCLUSIONS.has(reason)) throw new DriveSharingError("invalid_response");
+    return { name: row.name == null ? null : string(row.name, 200), reason };
+  });
+  const files =
+    status === "ready" || status === "shared" ? queryFiles(value.files, "incoming") : [];
+  if ((status === "ready" || status === "shared") && (!files.length || !recipients.length))
+    throw new DriveSharingError("invalid_response");
+  return {
+    status,
+    files,
+    recipients,
+    excluded,
+    message: value.message == null ? null : string(value.message, 600),
+  };
+}
+
 /** Private responses stay in the invoking component's memory, never a cache. */
 export class DriveSharingService {
   private static async request(
@@ -851,6 +928,24 @@ export class DriveSharingService {
     return parseOwnerShareView(
       await this.send(`${SHARING_PATH}/owner-shares`, token, guard, {
         recipientPersonRef: draft.recipientPersonRef,
+        clientRequestId: draft.clientRequestId,
+        query: draft.query,
+        ...(draft.timeZone ? { timeZone: draft.timeZone } : {}),
+      }),
+    );
+  }
+
+  /** The owner searches their own Drive to share with their Trusted circle. */
+  static async prepareTrustedShare(
+    token: string,
+    draft: { clientRequestId: string; query: string; timeZone?: string },
+    guard: SharingSessionGuard,
+  ): Promise<DriveCircleShareView> {
+    if (!DOCUMENT_REQUEST_UUID.test(draft.clientRequestId) || !validDriveQuery(draft.query))
+      throw new DriveSharingError("invalid_argument");
+    return parseCircleShareView(
+      await this.send(`${SHARING_PATH}/owner-shares`, token, guard, {
+        audience: "trusted_circle",
         clientRequestId: draft.clientRequestId,
         query: draft.query,
         ...(draft.timeZone ? { timeZone: draft.timeZone } : {}),

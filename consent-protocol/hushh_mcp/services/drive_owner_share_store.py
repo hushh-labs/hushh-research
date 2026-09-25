@@ -22,6 +22,29 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveS
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 
 _PURPOSE = "owner-share"
+# A person the owner accepted: a connection request or an invite both people
+# acted on. Contact sync, circle co-membership and imports are not acceptance
+# (contact_sync_contract.py), so they never receive a circle-wide share.
+ACCEPTED_ORIGINS = ("direct_request", "legacy_invite")
+MAX_CIRCLE_RECIPIENTS = 10
+_TRUSTED_MEMBERS_SQL = """
+    SELECT m.user_id,
+      COALESCE(bool_or(o.origin_kind IN ('direct_request','legacy_invite')), false) AS accepted,
+      COALESCE(array_agg(DISTINCT o.origin_kind) FILTER (WHERE o.origin_kind IS NOT NULL),
+        ARRAY[]::text[]) AS origins
+    FROM one_location_circles c
+    JOIN one_location_circle_memberships m
+      ON m.circle_id = c.id AND m.status = 'active' AND m.user_id <> :owner
+    LEFT JOIN connections conn
+      ON conn.status = 'active'
+     AND ((conn.user_a_id = :owner AND conn.user_b_id = m.user_id)
+       OR (conn.user_b_id = :owner AND conn.user_a_id = m.user_id))
+    LEFT JOIN connection_origins o ON o.connection_id = conn.id AND o.status = 'active'
+    WHERE c.owner_user_id = :owner AND c.system_kind = 'trusted' AND c.status = 'active'
+    GROUP BY m.user_id
+    ORDER BY m.user_id
+    LIMIT 100
+"""
 _OWNER_ROW_SQL = "SELECT * FROM drive_owner_shares WHERE request_id=:id AND user_id=:user"
 _OWNER_ROW_LOCK_SQL = _OWNER_ROW_SQL + " FOR UPDATE"
 
@@ -93,6 +116,75 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
         if not row:
             raise DriveSharingError("request_unavailable")
         return row
+
+    async def trusted_recipients(self, *, user_id):
+        """The owner's Trusted circle, split into who may receive a share and why not.
+
+        Trusted membership alone authorizes nothing: only people the owner
+        accepted by request or invite are eligible. Returns eligible user ids
+        (at most MAX_CIRCLE_RECIPIENTS) and the rest with a closed reason.
+        """
+
+        def reason(row):
+            origins = set(row["origins"] or [])
+            if not origins:
+                return "not_connected"
+            if "contact_sync" in origins:
+                return "contacts"
+            if "import" in origins and not origins - {"import"}:
+                return "imported"
+            return "circle"
+
+        def operation(connection):
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    text(_TRUSTED_MEMBERS_SQL), {"owner": user_id}
+                ).mappings()
+            ]
+            eligible, excluded = [], []
+            for row in rows:
+                member = row["user_id"]
+                name = self._name(connection, member)
+                if not row["accepted"]:
+                    excluded.append({"userId": member, "name": name, "reason": reason(row)})
+                elif not connector_feature_enabled("drive_document_sharing", member):
+                    excluded.append({"userId": member, "name": name, "reason": "unavailable"})
+                elif len(eligible) >= MAX_CIRCLE_RECIPIENTS:
+                    excluded.append({"userId": member, "name": name, "reason": "limit"})
+                else:
+                    eligible.append({"userId": member, "name": name})
+            return {"eligible": eligible, "excluded": excluded}
+
+        return cast(dict, await self._transaction(operation))
+
+    async def existing_group(self, *, user_id, client_request_id):
+        """Every recipient row of one circle search, for a retried tap."""
+
+        def operation(connection):
+            params = {"owner": user_id, "client": str(UUID(str(client_request_id)))}
+            connection.execute(
+                text("""
+                DELETE FROM drive_owner_shares WHERE user_id=:owner
+                  AND client_request_id=:client AND status='ready'
+                  AND expires_at<=clock_timestamp()
+            """),
+                params,
+            )
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    text("""
+                    SELECT * FROM drive_owner_shares
+                    WHERE user_id=:owner AND client_request_id=:client
+                    ORDER BY created_at, recipient_user_id
+                """),
+                    params,
+                ).mappings()
+            ]
+            return [self._view(connection, row) for row in rows]
+
+        return cast(list, await self._transaction(operation))
 
     async def existing(self, *, user_id, recipient_user_id, client_request_id):
         """A retried tap returns the first search's files instead of searching again.
