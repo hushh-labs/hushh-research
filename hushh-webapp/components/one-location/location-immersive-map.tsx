@@ -2947,10 +2947,6 @@ export function LocationImmersiveMap({
         await map.disableClustering();
       }
       if (initialFrameCommand && !framedInitialMarkersRef.current) {
-        framedInitialMarkersRef.current = true;
-        if (initialFrameCommandRef.current === initialFrameCommand) {
-          initialFrameCommandRef.current = null;
-        }
         if (isNative()) await nativeMapPaddingCommandRef.current;
         if (
           cancelled ||
@@ -2963,6 +2959,14 @@ export function LocationImmersiveMap({
             initialFrameCommand.cameraRevision
         ) {
           return;
+        }
+        // Clustering and native padding are asynchronous bridge writes. Do not
+        // consume the shared one-time frame until this is still the current
+        // marker/camera pass after both complete; a fresher pass must retain the
+        // reservation when this one was superseded while either write waited.
+        framedInitialMarkersRef.current = true;
+        if (initialFrameCommandRef.current === initialFrameCommand) {
+          initialFrameCommandRef.current = null;
         }
         const measuredBox = mapElement.current
           ? measureMapBox(mapElement.current)

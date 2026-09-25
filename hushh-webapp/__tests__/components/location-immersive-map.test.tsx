@@ -3621,6 +3621,63 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
   });
 
+  it("retains initial framing when an older marker pass stalls in clustering", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockRejectedValueOnce(
+      new Error("entry location unavailable"),
+    );
+    let resolveClustering!: () => void;
+    const pendingClustering = new Promise<void>((resolve) => {
+      resolveClustering = resolve;
+    });
+    // The first marker render precedes entry-location settlement and is not
+    // eligible to own the initial camera. Stall the following eligible pass.
+    mapHarness.map.disableClustering
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(pendingClustering);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 40.7128, -74.006),
+        incomingMarker(ABDUL, 25.4358, 81.8463),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() =>
+      expect(
+        mapHarness.map.disableClustering.mock.calls.length,
+      ).toBeGreaterThan(1),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    mapHarness.map.fitBounds.mockClear();
+
+    // Supersede the pass while it is past addMarkers but still waiting on the
+    // clustering bridge. The fresh pass must inherit, then consume, the same
+    // one-time camera reservation instead of leaving the map at world view.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 20_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    await act(async () => {
+      resolveClustering();
+      await pendingClustering;
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers.mock.calls.length).toBeGreaterThan(1);
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+  });
+
   it("does not resize the self dot when distant framing is rejected", async () => {
     stubPhoneGeometry();
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
