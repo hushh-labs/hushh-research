@@ -2503,6 +2503,16 @@ export function LocationImmersiveMap({
           ? { lat: searchPoint.latitude, lng: searchPoint.longitude }
           : placeCenter
       : null;
+    // Reserve the camera intent synchronously with the state that requested
+    // this frame. Primitive writes and the serialized queue can both suspend;
+    // an explicit camera action issued afterward must remain newer than this
+    // automatic nearby/check-in frame.
+    const nearbyFrameCommand = circleCenter
+      ? {
+          cameraRevision: settledCameraRevisionRef.current,
+          generation: ++cameraCommandGenerationRef.current,
+        }
+      : null;
     let addedIds: string[] = [];
     let addedLineIds: string[] = [];
 
@@ -2587,18 +2597,14 @@ export function LocationImmersiveMap({
       // presentation point -- the venue-anchored avatar -- and the map should
       // frame the check-in radius rather than the owner's earlier GPS fix.
       const fitPaddingPx = 48;
-      const cameraRevision = settledCameraRevisionRef.current;
-      // Claim this fit before the shared native padding queue. Locate or a
-      // marker selection issued while padding is pending must supersede this
-      // older nearby/check-in frame instead of being overwritten afterward.
-      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       if (isNative()) await nativeMapPaddingCommandRef.current;
       if (
+        !nearbyFrameCommand ||
         generation !== nearbyCircleGenerationRef.current ||
         mapRef.current !== map ||
         !rendererReadyRef.current ||
-        cameraCommandGenerationRef.current !== cameraCommandGeneration ||
-        settledCameraRevisionRef.current !== cameraRevision
+        cameraCommandGenerationRef.current !== nearbyFrameCommand.generation ||
+        settledCameraRevisionRef.current !== nearbyFrameCommand.cameraRevision
       ) {
         return;
       }
@@ -2654,8 +2660,8 @@ export function LocationImmersiveMap({
         fittedZoom !== null &&
         generation === nearbyCircleGenerationRef.current &&
         mapRef.current === map &&
-        cameraCommandGenerationRef.current === cameraCommandGeneration &&
-        settledCameraRevisionRef.current === cameraRevision
+        cameraCommandGenerationRef.current === nearbyFrameCommand.generation &&
+        settledCameraRevisionRef.current === nearbyFrameCommand.cameraRevision
       ) {
         setSettledCameraZoom(fittedZoom);
       }
@@ -2820,6 +2826,23 @@ export function LocationImmersiveMap({
     // pin made it routine: `visibleMarkers` now also changes on every place
     // selection and presence poll, not just on a position update.
     const generation = ++markerGenerationRef.current;
+    // The tray becomes interactive from React state before native marker and
+    // clustering writes finish. Claim a possible one-time auto-frame now, so a
+    // later explicit Locate/marker command can supersede it while those bridge
+    // writes are still pending.
+    const initialFrameCommand =
+      // Check-in has a separate radius/pair framing owner below. Letting the
+      // generic people auto-frame claim that camera as the venue marker appears
+      // would cancel the authoritative check-in fit.
+      !isCheckInSurface &&
+      entryLocationSettled &&
+      !framedInitialMarkersRef.current &&
+      visibleMarkers.length > 0
+        ? {
+            cameraRevision: settledCameraRevisionRef.current,
+            generation: ++cameraCommandGenerationRef.current,
+          }
+        : null;
     let cancelled = false;
     const enqueue = (command: () => Promise<void>): Promise<void> => {
       const next = markerCommandRef.current
@@ -2909,25 +2932,18 @@ export function LocationImmersiveMap({
       } else {
         await map.disableClustering();
       }
-      if (
-        entryLocationSettled &&
-        !framedInitialMarkersRef.current &&
-        visibleMarkers.length > 0
-      ) {
+      if (initialFrameCommand && !framedInitialMarkersRef.current) {
         framedInitialMarkersRef.current = true;
-        const cameraRevision = settledCameraRevisionRef.current;
-        // Claim the camera before waiting for the native padding queue. A
-        // later Locate/marker action must win even when an older bridge keeps
-        // this initial frame suspended for a while.
-        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         if (isNative()) await nativeMapPaddingCommandRef.current;
         if (
           cancelled ||
           generation !== markerGenerationRef.current ||
           mapRef.current !== map ||
           !rendererReadyRef.current ||
-          cameraCommandGenerationRef.current !== cameraCommandGeneration ||
-          settledCameraRevisionRef.current !== cameraRevision
+          cameraCommandGenerationRef.current !==
+            initialFrameCommand.generation ||
+          settledCameraRevisionRef.current !==
+            initialFrameCommand.cameraRevision
         ) {
           return;
         }
@@ -2945,8 +2961,10 @@ export function LocationImmersiveMap({
             if (
               mapRef.current === map &&
               rendererReadyRef.current &&
-              cameraCommandGenerationRef.current === cameraCommandGeneration &&
-              settledCameraRevisionRef.current === cameraRevision
+              cameraCommandGenerationRef.current ===
+                initialFrameCommand.generation &&
+              settledCameraRevisionRef.current ===
+                initialFrameCommand.cameraRevision
             ) {
               setSettledCameraZoom(targetZoom);
             }
@@ -2968,6 +2986,7 @@ export function LocationImmersiveMap({
   }, [
     clusteringActive,
     entryLocationSettled,
+    isCheckInSurface,
     mapReady,
     rendererMarkers,
     visibleMarkers,

@@ -3528,20 +3528,24 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
   });
 
-  it("does not start a native nearby fit after a newer Locate command", async () => {
+  it("does not start a nearby fit after a newer Locate command while its circle is pending", async () => {
     platformHarness.native = true;
     experienceHarness.nearbyAvailable = true;
     stubCheckInMapGeometry();
-    let resolvePadding!: () => void;
-    const pendingPadding = new Promise<void>((resolve) => {
-      resolvePadding = resolve;
-    });
-    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
 
     await renderReadyMap({ surface: "check-in" });
-    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    await waitFor(() => expect(mapHarness.map.addCircles).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     mapHarness.map.addCircles.mockClear();
     mapHarness.map.fitBounds.mockClear();
+    let resolveCircle!: (ids: string[]) => void;
+    const pendingCircle = new Promise<string[]>((resolve) => {
+      resolveCircle = resolve;
+    });
+    mapHarness.map.addCircles.mockReturnValueOnce(pendingCircle);
 
     fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
     await waitFor(() => expect(mapHarness.map.addCircles).toHaveBeenCalled());
@@ -3554,8 +3558,44 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await act(async () => {
-      resolvePadding();
-      await pendingPadding;
+      resolveCircle(["nearby-circle"]);
+      await pendingCircle;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-frame markers installed after a newer Locate command", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let resolveMarkers!: (ids: string[]) => void;
+    const pendingMarkers = new Promise<string[]>((resolve) => {
+      resolveMarkers = resolve;
+    });
+    mapHarness.map.addMarkers.mockReturnValueOnce(pendingMarkers);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 40.7128, -74.006),
+        incomingMarker(ABDUL, 25.4358, 81.8463),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.addMarkers).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolveMarkers(["marker-0", "marker-1"]);
+      await pendingMarkers;
       await Promise.resolve();
     });
 
