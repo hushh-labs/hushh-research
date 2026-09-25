@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
 import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
+import { installConsentStreamProbe } from "./consent-rehearsal-stream-probe.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -95,6 +96,7 @@ try {
   );
   baselineConversationIds = await conversationIds(ownerToken);
   await page.getByTestId("agent-chat-composer-textarea").waitFor({ state: "visible" });
+  await page.evaluate(installConsentStreamProbe);
   const baselineAssistantTurns = await page.locator('[data-message-role="assistant"]').count();
   await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
   await page.getByRole("button", { name: "Send message" }).click();
@@ -118,7 +120,11 @@ try {
   const finalStatus = await page.locator('[data-message-role="assistant"]').last()
     .getAttribute("data-message-status");
   if (finalStatus !== "done") {
-    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"}`);
+    const failure = await page.evaluate(() => {
+      const stream = window.__consentRehearsalStreams?.at(-1);
+      return stream?.runError ? stream.runErrorClass || "untyped" : "no_run_error";
+    });
+    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"} error_class=${failure}`);
   }
 
   const result = await page.evaluate((forbidden) => {
@@ -175,8 +181,13 @@ try {
       await custom.waitFor({ state: "visible", timeout: 15_000 });
       const add = custom.getByRole("button", { name: "Add connector" });
       await add.waitFor({ state: "visible", timeout: 15_000 });
-      if (!await add.isEnabled()) throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
-      await add.click();
+      try {
+        // The vault-backed catalog can render its button before it finishes
+        // loading. Playwright waits for the actual enabled/hit-test state.
+        await add.click({ timeout: 20_000 });
+      } catch {
+        throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
+      }
       await custom.getByRole("textbox", { name: "Server address" }).waitFor({
         state: "visible", timeout: 15_000,
       });
