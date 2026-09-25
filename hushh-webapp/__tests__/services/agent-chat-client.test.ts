@@ -123,8 +123,12 @@ describe("AG-UI Agent One client", () => {
     };
     const onToolResult = vi.fn();
     const onToolWaiting = vi.fn();
+    const onToolStart = vi.fn();
     await streamAgentChat({ userId: "user-1", message: "Read my connector", conversationId: "thread-1",
-      vaultOwnerToken: "owner-token", handlers: { onToolResult, onToolWaiting } });
+      vaultOwnerToken: "owner-token", handlers: { onToolStart, onToolResult, onToolWaiting } });
+    expect(onToolStart.mock.calls[0][0]).toMatchObject({ label: "Connected tool", message: "Using a connected tool." });
+    expect(`${onToolStart.mock.calls[0][0].label} ${onToolStart.mock.calls[0][0].message}`)
+      .not.toContain(`mcp_${"a".repeat(40)}`);
     expect(onToolResult).toHaveBeenCalledOnce();
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("OWNER_INFORMATION");
     expect(onToolWaiting).not.toHaveBeenCalled();

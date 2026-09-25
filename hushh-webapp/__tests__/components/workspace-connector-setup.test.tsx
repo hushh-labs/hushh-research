@@ -18,7 +18,11 @@ describe("Workspace connector setup card", () => {
     render(<WorkspaceConnectorSetupCard experience={{ type: "one.workspace_connector_setup.v1", provider: "gmail", status: "manage_available" }} />);
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Gmail" }));
     expect(gmailState.disconnect).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect Gmail" }).at(-1)!);
+    const confirmButton = screen.getAllByRole("button", { name: "Disconnect Gmail" }).at(-1)!;
+    expect(confirmButton).toHaveTextContent("Disconnect");
+    expect(confirmButton).toHaveClass("min-w-0", "w-full");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("min-w-0", "w-full");
+    fireEvent.click(confirmButton);
     await waitFor(() => expect(gmailState.disconnect).toHaveBeenCalledOnce());
     gmailState.connected = false;
   });
