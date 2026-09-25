@@ -300,7 +300,10 @@ class GoogleDrivePermissionAdapter:
             )
         ):
             raise DrivePermissionError("source_not_shareable")
-        if result.get("version") != expected_version:
+        # Metadata-only shares bind identity (id, name, time window), not bytes.
+        # An earlier grant of the same file bumps its version, so an exact
+        # version fence here silently cancelled every later recipient.
+        if not metadata_only and result.get("version") != expected_version:
             raise DrivePermissionError("source_changed")
         if metadata_only:
             if time_field not in {"modifiedTime", "createdTime"} or not all(

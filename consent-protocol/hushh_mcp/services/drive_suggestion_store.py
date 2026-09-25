@@ -155,7 +155,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         return await self._transaction(operation)
 
-    async def fail_preparation(self, job, *, code, retryable=False):
+    async def fail_preparation(self, job, *, code, retryable=False, notify_owner=True):
         allowed = {
             "preparation_unavailable",
             "narrow_selection_required",
@@ -185,7 +185,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                     "request": job["request_id"],
                 },
             )
-            if not retry:
+            # A failed hand-picked share is answered on the owner's own card;
+            # a "ready to review" alert about their own action is noise.
+            if not retry and notify_owner:
                 self._event(connection, updated, job["user_id"], "document_share_review_ready")
 
         await self._transaction(operation)

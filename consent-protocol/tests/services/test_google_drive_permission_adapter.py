@@ -363,7 +363,7 @@ async def test_live_sheet_is_shareable_without_selected_parser_support():
     )
 
 
-async def test_metadata_only_video_share_rechecks_exact_version_and_share_capability():
+async def test_metadata_only_video_share_binds_identity_not_version_and_rechecks_share():
     adapter = acl.GoogleDrivePermissionAdapter()
     payload = {
         "id": "synthetic-file",
@@ -384,15 +384,22 @@ async def test_metadata_only_video_share_rechecks_exact_version_and_share_capabi
         start_time="2026-09-22T00:00:00Z",
         end_time="2026-09-24T00:00:00Z",
     )
+    metadata_only = {
+        "expected_version": "1",
+        "require_app_authorized": False,
+        "require_genai_eligibility": False,
+        "metadata_only": True,
+        "time_field": "modifiedTime",
+        "start_time": "2026-09-22T00:00:00Z",
+        "end_time": "2026-09-24T00:00:00Z",
+    }
+    # Granting the same file to an earlier recipient bumps its version. It is
+    # still the file the owner picked, so the next recipient's grant proceeds.
+    adapter._exchange.return_value = {**payload, "version": "2"}
+    await adapter.inspect_shareable(**arguments(), **metadata_only)
+    adapter._exchange.return_value = {**payload, "capabilities": {"canShare": False}}
+    with pytest.raises(acl.DrivePermissionError, match="source_not_shareable"):
+        await adapter.inspect_shareable(**arguments(), **metadata_only)
     adapter._exchange.return_value = {**payload, "modifiedTime": "2026-09-21T00:00:00Z"}
     with pytest.raises(acl.DrivePermissionError, match="source_changed"):
-        await adapter.inspect_shareable(
-            **arguments(),
-            expected_version="1",
-            require_app_authorized=False,
-            require_genai_eligibility=False,
-            metadata_only=True,
-            time_field="modifiedTime",
-            start_time="2026-09-22T00:00:00Z",
-            end_time="2026-09-24T00:00:00Z",
-        )
+        await adapter.inspect_shareable(**arguments(), **metadata_only)

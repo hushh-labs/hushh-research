@@ -128,6 +128,12 @@ vi.mock("@/components/feed/feed-row", async (importOriginal) => {
   };
 });
 
+// The push prompt reads the app-wide notification provider; this suite only
+// covers clearing, and feed-push-prompt.test.tsx owns the prompt.
+vi.mock("@/components/feed/feed-push-prompt", () => ({
+  FeedPushPrompt: () => null,
+}));
+
 vi.mock("@/components/feed/feed-actionable-row", () => ({
   FeedActionableRow: () => null,
 }));

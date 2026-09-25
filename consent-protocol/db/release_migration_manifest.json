@@ -216,7 +216,8 @@
     "242_drive_live_query_requests.sql",
     "243_drive_live_query_cancel.sql",
     "244_drive_query_notifications.sql",
-    "245_drive_owner_shares.sql"
+    "245_drive_owner_shares.sql",
+    "246_drive_feed_projection.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -447,6 +448,7 @@
     "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
     "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql",
     "244_drive_query_notifications.sql": "rollback/244_drive_query_notifications.rollback.sql",
-    "245_drive_owner_shares.sql": "rollback/245_drive_owner_shares.rollback.sql"
+    "245_drive_owner_shares.sql": "rollback/245_drive_owner_shares.rollback.sql",
+    "246_drive_feed_projection.sql": "rollback/246_drive_feed_projection.rollback.sql"
   }
 }
