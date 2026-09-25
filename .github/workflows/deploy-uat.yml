@@ -937,15 +937,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestCreatedRevisionName)')"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestCreatedRevisionName)')"
+          backend_revision=""
+          frontend_revision=""
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            backend_revision="${{ steps.backend-candidate-state.outputs.backend_revision }}"
+          fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            gcloud run revisions list \
+              --service="${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-frontend-deploy-revisions.json
+            frontend_revision="$(python3 scripts/ci/resolve-cloud-run-deploy-revision.py \
+              --revisions-json /tmp/uat-frontend-deploy-revisions.json \
+              --deploy-env uat \
+              --deploy-source deploy-uat \
+              --deploy-sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --github-run-id "${{ github.run_id }}")"
+          fi
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"

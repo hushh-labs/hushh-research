@@ -96,6 +96,24 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     )
 
 
+def test_uat_and_production_resolve_frontend_candidate_by_exact_deploy_labels() -> None:
+    resolver = "scripts/ci/resolve-cloud-run-deploy-revision.py"
+    require(
+        ".github/workflows/deploy-uat.yml",
+        resolver,
+        "--deploy-env uat",
+        "--deploy-source deploy-uat",
+        '--github-run-id "${{ github.run_id }}"',
+    )
+    require(
+        ".github/workflows/deploy-production.yml",
+        resolver,
+        "--deploy-env production",
+        "--deploy-source deploy-production",
+        '--github-run-id "${{ github.run_id }}"',
+    )
+
+
 def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
     path = "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs"
     require(

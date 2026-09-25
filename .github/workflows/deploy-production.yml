@@ -727,10 +727,17 @@ jobs:
             fi
           fi
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
-            frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            gcloud run revisions list \
+              --service="${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
-              --format='value(status.latestCreatedRevisionName)')"
+              --format=json > /tmp/prod-frontend-deploy-revisions.json
+            frontend_revision="$(python3 scripts/ci/resolve-cloud-run-deploy-revision.py \
+              --revisions-json /tmp/prod-frontend-deploy-revisions.json \
+              --deploy-env production \
+              --deploy-source deploy-production \
+              --deploy-sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --github-run-id "${{ github.run_id }}")"
           fi
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
