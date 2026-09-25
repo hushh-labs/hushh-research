@@ -696,9 +696,8 @@ textarea {
   /* Fixed bottom navbar clearance fallback (before runtime measurement). */
   --bottom-nav-offset: 88px;
   --app-bottom-shell-max-width: 48rem;
-  /* The desktop Agent Bar and navigation share the same dock chassis. Keeping
-   * these widths aligned prevents a narrow voice input above a wide nav pill. */
-  --app-agent-bar-max-width: var(--app-bottom-shell-max-width);
+  /* Keep the voice launcher compact above the wider five-item navigation. */
+  --app-agent-bar-max-width: 34rem;
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;

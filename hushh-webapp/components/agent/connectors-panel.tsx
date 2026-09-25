@@ -32,7 +32,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -132,7 +132,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
           aria-label={entry.name}
           aria-describedby={entry.detail ? detailId : undefined}
           onClick={entry.onOpen}
-          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{entry.name}</span>
@@ -149,12 +149,12 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
       {entry.action ? (
         <button
           type="button"
-          className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={entry.action.label}
           disabled={entry.action.disabled}
           onClick={entry.action.onClick}
         >
-          {entry.action.label.startsWith("Connect ") ? "Connect" : "Manage"}
+          {entry.action.label.startsWith("Reconnect ") ? "Reconnect" : entry.action.label.startsWith("Connect ") ? "Connect" : "Manage"}
         </button>
       ) : entry.trailingText ? (
         <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
@@ -235,8 +235,10 @@ function OwnerConnectorsPanel({
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
   const [mailMessage, setMailMessage] = useState("");
+  const [plaidMessage, setPlaidMessage] = useState("");
   const [driveBusy, setDriveBusy] = useState(false);
   const [mailBusy, setMailBusy] = useState(false);
+  const [plaidBusy, setPlaidBusy] = useState(false);
   const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [activeConnector, setActiveConnector] = useState<string | null>(initialConnector);
@@ -1153,6 +1155,30 @@ function OwnerConnectorsPanel({
   const confirmAction = () => {
     const target = confirm;
     setConfirm(null);
+    if (target?.startsWith("plaid:") && activeConnector === "plaid") {
+      const itemId = target.slice("plaid:".length);
+      const financialData = financial.data?.data;
+      const ownerId = user?.uid;
+      const ownerToken = vaultOwnerToken;
+      const key = vaultKey;
+      const signal = controller.current?.signal;
+      if (!itemId || !financialData || !ownerId || !ownerToken || !key || !signal || signal.aborted || plaidBusy) return;
+      if (!vaultConnections(financialData)[itemId]) return;
+      setPlaidBusy(true);
+      void disconnectVaultPlaid({ userId: ownerId, vaultKey: key, vaultOwnerToken: ownerToken, itemId, financial: financialData, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web" })
+        .then(async (disconnected) => {
+          if (signal.aborted || currentToken.current !== ownerToken) return;
+          setPlaidMessage(disconnected ? "Bank disconnected." : "Could not disconnect this bank. Retry.");
+          if (disconnected) await financial.refresh({ force: true });
+        })
+        .catch(() => {
+          if (!signal.aborted && currentToken.current === ownerToken) setPlaidMessage("Could not disconnect this bank. Retry.");
+        })
+        .finally(() => {
+          if (!signal.aborted && currentToken.current === ownerToken) setPlaidBusy(false);
+        });
+      return;
+    }
     if (
       !target ||
       (target === "mail" && activeConnector !== "gmail") ||
@@ -1263,7 +1289,9 @@ function OwnerConnectorsPanel({
             ? "Reconnect needed"
             : undefined,
       action: {
-        label: "Manage Calendar",
+        label: calendar.loaded && !calendar.error && !calendar.connected
+          ? calendar.status?.status === "needs_reauth" ? "Reconnect Calendar" : "Connect Calendar"
+          : "Manage Calendar",
         onClick: () => {
           onBack();
           router.push(ROUTES.CALENDAR);
@@ -1274,6 +1302,7 @@ function OwnerConnectorsPanel({
       id: "plaid",
       name: "Plaid",
       connected: plaidConnections.length > 0,
+      onOpen: () => showConnector("plaid"),
       detail: financial.error
         ? "Status unavailable"
         : financial.loading
@@ -1281,13 +1310,6 @@ function OwnerConnectorsPanel({
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Reconnect needed"
             : undefined,
-      action: {
-        label: "Manage Plaid",
-        onClick: () => {
-          onBack();
-          router.push(ROUTES.KAI_PORTFOLIO_SOURCES);
-        },
-      },
     },
     ...(overview?.connectors ?? [])
       .filter((item, index, items) =>
@@ -1366,7 +1388,7 @@ function OwnerConnectorsPanel({
           </p>
         ) : !activeConnector ? (
           <>
-            <label className="flex min-h-11 items-center gap-2 rounded-full bg-foreground/10 px-4 text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+            <label className="flex min-h-11 items-center gap-2 rounded-full bg-foreground/10 px-4 text-muted-foreground focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
               <SearchIcon className="size-4 shrink-0" aria-hidden="true" />
               <input
                 ref={searchRef}
@@ -1786,6 +1808,30 @@ function OwnerConnectorsPanel({
                 </details>
               )}
             </section>}
+            {activeConnector === "plaid" && (
+              <section className="space-y-3" aria-label="Plaid connection details">
+                <p className="text-sm text-muted-foreground">
+                  {financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected"}
+                </p>
+                {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
+                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{connection.institution_name || "Bank connection"}</p>
+                      <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
+                    </div>
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => setConfirm(`plaid:${itemId}`)}>
+                      Disconnect
+                    </Button>
+                  </div>
+                ))}
+                <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidBusy ? "Disconnecting bank…" : plaidMessage}</p>
+                {!plaidConnections.length && !financial.loading && !financial.error && (
+                  <Button className={touch} size="compact" variant="outline" onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
+                    Connect a bank
+                  </Button>
+                )}
+              </section>
+            )}
             {selectedCatalog && activeConnector !== "google_drive" && activeConnector !== "gmail" && (
               <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
                 <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
@@ -1804,12 +1850,14 @@ function OwnerConnectorsPanel({
                     ? "Disconnect Mail? Drive stays connected."
                     : confirm === "drive"
                       ? "Disconnect Drive and remove its selected files from One? Existing Google sharing stays active until you revoke it. Mail stays connected."
+                      : confirm.startsWith("plaid:")
+                        ? "Disconnect this bank and remove its connected financial records from your vault? Other banks stay connected."
                       : "Remove this file from One? The original in Google Drive is unchanged."}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     className={touch}
-                    disabled={mailBusy || driveBusy}
+                    disabled={mailBusy || driveBusy || plaidBusy}
                     onClick={confirmAction}
                   >
                     Confirm

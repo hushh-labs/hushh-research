@@ -337,7 +337,7 @@ for (const width of [320, 390, 1440])
     await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
     expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
-    const plaid = dialog.getByRole("button", { name: "Manage Plaid" });
+    const plaid = dialog.getByRole("button", { name: "Plaid" });
     await plaid.scrollIntoViewIfNeeded();
     await expect(plaid).toBeVisible();
     const action = await plaid.boundingBox();

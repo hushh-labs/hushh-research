@@ -25,6 +25,9 @@ export function usePkmDomainResource() {
 export function vaultConnections() {
   return {};
 }
+export async function disconnectVaultPlaid() {
+  throw new Error("No Plaid mutation in the layout fixture");
+}
 export function useRouter() {
   return {
     push: (href: string) => window.history.pushState({}, "", href),
