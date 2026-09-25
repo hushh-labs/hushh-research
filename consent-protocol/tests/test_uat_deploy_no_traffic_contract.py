@@ -533,8 +533,5 @@ def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
         assert (
             workflow.count("status.latestCreatedRevisionName") == expected_created_revision_lookups
         )
-        if path.endswith("deploy-uat.yml"):
-            assert "--format='value(status.traffic[0].revisionName)'" not in workflow
-            assert "resolve-cloud-run-serving-state.py" in workflow
-        else:
-            assert workflow.count("status.traffic[0].revisionName") >= 6
+        assert "--format='value(status.traffic[0].revisionName)'" not in workflow
+        assert "resolve-cloud-run-serving-state.py" in workflow
