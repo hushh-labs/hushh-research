@@ -66,6 +66,11 @@ export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration
   authentication: Exclude<Authentication, { kind: "oauth" }> | Omit<Extract<Authentication, { kind: "oauth" }>, "refreshToken" | "clientInfo">;
 };
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
+export type InvalidCustomConnector = { connectorId: string; removable: boolean };
+export type CustomConnectorSnapshot = {
+  configurations: CustomConnectorConfiguration[];
+  invalid: InvalidCustomConnector[];
+};
 
 function containsVaultOwnerCredential(record: CustomConnectorConfiguration): boolean {
   return record.authentication.kind === "api_key" &&
@@ -147,6 +152,49 @@ export async function loadCustomConnectorConfigurations(access: VaultAccess, for
   return Object.entries(await storedRecords(access, force)).map(([key, value]) => parseStoredRecord(key, value));
 }
 
+/** A bad sibling must not hide an owner's otherwise valid connectors. Invalid
+ * records never enter ADK; only their opaque, validated key reaches repair UI.
+ * A failed vault read or malformed root still fails closed.
+ */
+export async function loadCustomConnectorSnapshot(access: VaultAccess, force = false): Promise<CustomConnectorSnapshot> {
+  const records = await storedRecords(access, force);
+  const snapshot: CustomConnectorSnapshot = { configurations: [], invalid: [] };
+  for (const [key, value] of Object.entries(records)) {
+    if (!identifier.safeParse(key).success) throw invalidConfiguration();
+    try {
+      const record = parseStoredRecord(key, value);
+      if (containsVaultOwnerCredential(record)) throw invalidConfiguration();
+      snapshot.configurations.push(record);
+    } catch {
+      snapshot.invalid.push({ connectorId: key, removable: typeof value === "string" });
+    }
+  }
+  return snapshot;
+}
+
+/** Remove one invalid record with an exact compare-and-delete. Never parse or
+ * echo its private contents, and never rewrite healthy siblings.
+ */
+export async function removeInvalidCustomConnectorConfiguration(
+  access: VaultAccess, connectorId: string, confirmation: PkmUserConfirmation,
+  isCurrent?: () => boolean,
+) {
+  if (!identifier.safeParse(connectorId).success || (isCurrent && !isCurrent())) throw invalidConfiguration();
+  const records = await storedRecords(access, true);
+  const value = records[connectorId];
+  if (typeof value !== "string") throw invalidConfiguration();
+  let healthy = false;
+  try {
+    healthy = !containsVaultOwnerCredential(parseStoredRecord(connectorId, value));
+  } catch { /* A malformed record is eligible for exact-record recovery. */ }
+  if (healthy) throw invalidConfiguration();
+  if (isCurrent && !isCurrent()) throw invalidConfiguration();
+  return PersonalKnowledgeModelService.removeRuntimeSecret({
+    ...access, confirmation, credentialRef: reference(connectorId), expectedValue: value,
+    ...(isCurrent ? { mayPublish: isCurrent } : {}),
+  });
+}
+
 /** Accept only a fresh owner-bound result; credentials go directly to encryption.
  * No implicit lifetime is invented for servers omitting token expiry.
  */
@@ -164,7 +212,7 @@ export async function saveCustomConnectorOAuthResult(
     expiresAt: z.number().int().positive(),
   }).strict().safeParse(value);
   if (!result.success || !isCurrent() || result.data.expiresAt <= Date.now() / 1000) throw invalidConfiguration();
-  const records = await loadCustomConnectorConfigurations(access, true);
+  const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
   if (!isCurrent()) throw invalidConfiguration();
   const record = records.find(item => item.connectorId === connectorId);
   if (!record || !record.enabled || record.revision !== expectedRevision) throw invalidConfiguration();

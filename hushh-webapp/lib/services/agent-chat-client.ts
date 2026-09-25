@@ -338,6 +338,22 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Drive",
     message: "Checking selected file status.",
   },
+  inspect_private_connectors: {
+    label: "Connectors",
+    message: "Checking your saved connectors.",
+  },
+  discover_workspace_tools: {
+    label: "Connection status",
+    message: "Checking available connector access.",
+  },
+  ask_email_agent: {
+    label: "Gmail",
+    message: "Checking your mail request.",
+  },
+  ask_documents_agent: {
+    label: "Drive",
+    message: "Checking your file request.",
+  },
   list_pending_connection_requests: {
     label: "Connection requests",
     message: "Checking your pending connection requests.",

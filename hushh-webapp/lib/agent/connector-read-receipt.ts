@@ -24,6 +24,7 @@ export type WorkspaceConnectorSetupExperience = {
   type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
   provider: WorkspaceConnectorProvider;
   status: "connect_required" | "manage_available";
+  saved?: Array<{ id: string; name: string; status: "saved" | "disabled" | "reconnect_needed" }>;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -57,11 +58,23 @@ export function parseWorkspaceConnectorSetup(
     const result = outer && (typeof outer.status === "string" ? outer : [outer.result, outer.content, outer.data]
       .map(parseRecord)
       .find((candidate) => candidate?.status) ?? outer);
+    const rawSaved = result?.saved;
+    const saved = Array.isArray(rawSaved) && rawSaved.length <= 32
+      ? rawSaved.map(value => {
+        const item = record(value);
+        return item && typeof item.id === "string" && /^custom_[a-f0-9]{32}$/.test(item.id) &&
+          typeof item.name === "string" && item.name.trim().length > 0 && item.name.length <= 100 &&
+          !/[\x00-\x1f\x7f]/.test(item.name) &&
+          ["saved", "disabled", "reconnect_needed"].includes(String(item.status))
+          ? { id: item.id, name: item.name, status: item.status as "saved" | "disabled" | "reconnect_needed" }
+          : null;
+      }) : null;
     return result?.status === "setup_available" && result.provider === "custom"
       ? {
         type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
         provider: "custom",
         status: "manage_available",
+        ...(saved?.every(Boolean) && saved.length ? { saved: saved as NonNullable<WorkspaceConnectorSetupExperience["saved"]> } : {}),
       }
       : null;
   }
@@ -74,7 +87,8 @@ export function parseWorkspaceConnectorSetup(
   const result = [outer.result, outer.content, outer.data]
     .map(parseRecord)
     .find((candidate) => candidate?.status) ?? outer;
-  if (result.status !== "permission_required") return null;
+  if (result.status !== "permission_required" &&
+    !(toolName === "discover_workspace_tools" && ["api_available", "ok"].includes(String(result.status)))) return null;
 
   const args = parseRecord(toolArguments);
   const resultProvider = result.provider;
@@ -90,7 +104,7 @@ export function parseWorkspaceConnectorSetup(
   return {
     type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
     provider,
-    status: "connect_required",
+    status: result.status === "permission_required" ? "connect_required" : "manage_available",
   };
 }
 

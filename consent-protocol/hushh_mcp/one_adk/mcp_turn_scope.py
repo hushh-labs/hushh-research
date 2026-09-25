@@ -236,7 +236,9 @@ class McpTurnResources:
                 status = "reconnect_needed"
             else:
                 status = "saved"
-            entries.append({"name": record["displayName"], "status": status})
+            entries.append(
+                {"id": record["connectorId"], "name": record["displayName"], "status": status}
+            )
         return sorted(entries, key=lambda entry: entry["name"].casefold())
 
     async def resolve_connection(self, context: Any, connector_id: str) -> ResolvedMcpConnection:
