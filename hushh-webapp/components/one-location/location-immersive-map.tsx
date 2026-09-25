@@ -2904,7 +2904,21 @@ export function LocationImmersiveMap({
       ) {
         framedInitialMarkersRef.current = true;
         const cameraRevision = settledCameraRevisionRef.current;
+        // Claim the camera before waiting for the native padding queue. A
+        // later Locate/marker action must win even when an older bridge keeps
+        // this initial frame suspended for a while.
+        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         if (isNative()) await nativeMapPaddingCommandRef.current;
+        if (
+          cancelled ||
+          generation !== markerGenerationRef.current ||
+          mapRef.current !== map ||
+          !rendererReadyRef.current ||
+          cameraCommandGenerationRef.current !== cameraCommandGeneration ||
+          settledCameraRevisionRef.current !== cameraRevision
+        ) {
+          return;
+        }
         const measuredBox = mapElement.current
           ? measureMapBox(mapElement.current)
           : undefined;
@@ -2912,7 +2926,6 @@ export function LocationImmersiveMap({
           measuredBox && isNative()
             ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
             : measuredBox;
-        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         await frameMarkers(
           map,
           visibleMarkers,
@@ -3490,7 +3503,19 @@ export function LocationImmersiveMap({
     }
     if (visibleMarkers.length > 0) {
       const cameraRevision = settledCameraRevisionRef.current;
+      // Reserve this intent before the native padding queue. Otherwise a slow
+      // padding bridge lets this older Everyone press wake up after a newer
+      // Locate/marker action and move the camera back over the user's choice.
+      const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
       if (isNative()) await nativeMapPaddingCommandRef.current;
+      if (
+        mapRef.current !== map ||
+        !rendererReadyRef.current ||
+        cameraCommandGenerationRef.current !== cameraCommandGeneration ||
+        settledCameraRevisionRef.current !== cameraRevision
+      ) {
+        return;
+      }
       const measuredBox = mapElement.current
         ? measureMapBox(mapElement.current)
         : undefined;
@@ -3499,7 +3524,6 @@ export function LocationImmersiveMap({
           ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
           : measuredBox;
       try {
-        const cameraCommandGeneration = ++cameraCommandGenerationRef.current;
         await frameMarkers(
           map,
           visibleMarkers,

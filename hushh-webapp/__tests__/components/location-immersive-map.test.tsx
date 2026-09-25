@@ -3493,6 +3493,41 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(Number(fallbackAfterLateFit?.radius)).toBeLessThan(100);
   });
 
+  it("does not start a native Everyone fit after a newer Locate command", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let resolvePadding!: () => void;
+    const pendingPadding = new Promise<void>((resolve) => {
+      resolvePadding = resolve;
+    });
+    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolvePadding();
+      await pendingPadding;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
   it("does not resize the self dot when distant framing is rejected", async () => {
     stubPhoneGeometry();
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
