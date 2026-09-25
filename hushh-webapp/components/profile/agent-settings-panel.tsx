@@ -5,13 +5,9 @@ import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { Button } from "@/lib/morphy-ux/morphy";
+import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
-import {
-  isAgentAsleep,
-  isAgentNotAnswering,
-} from "@/lib/feed/agent-presence-policy";
 
 const HOST_LABELS = {
   shared: "Hussh Shared",
@@ -20,6 +16,30 @@ const HOST_LABELS = {
   pending: "Setup in progress",
   unknown: "Hosting unavailable",
 } as const;
+
+type HostingMode = keyof typeof HOST_LABELS;
+
+function isHostingMode(value: unknown): value is HostingMode {
+  return typeof value === "string" && value in HOST_LABELS;
+}
+
+function updateCheckMessage(
+  status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>,
+) {
+  if (status.hostingMode === "shared")
+    return "Hussh Shared updates automatically.";
+  if (status.hostingMode === "pending")
+    return "Updates become available after setup finishes.";
+  if (status.updateInProgress) return "Your private agent is updating.";
+  if (status.updateOfferable && status.availableRelease) {
+    return `Version ${status.availableRelease.version} is ready to install.`;
+  }
+  if (status.updateAvailable)
+    return "An update is available, but this pod is not ready to install it.";
+  if (status.installedReleaseVerified)
+    return "Your private agent is up to date.";
+  return "Update status checked. The running version is not yet verified.";
+}
 
 export function AgentSettingsPanel({
   kind,
@@ -32,13 +52,50 @@ export function AgentSettingsPanel({
   const { status, update, refresh } = useAgentDeploymentFollow({ userId });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const [error, setError] = useState<string | null>(null);
-  const mode = status?.hostingMode ?? "unknown";
+  const mode: HostingMode = isHostingMode(status?.hostingMode)
+    ? status.hostingMode
+    : "unknown";
+  const isPod = mode === "byoc" || mode === "hussh_pods";
   const working = update.inProgress || update.presentationState === "scheduled";
+
+  async function checkStatus() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const request = ApiService.getPersonalAgentStatus().then((next) => {
+      if (!isHostingMode(next.hostingMode) || next.hostingMode === "unknown") {
+        throw new Error("Hosting status unavailable");
+      }
+      return next;
+    });
+    try {
+      await morphyToast
+        .promise(request, {
+          loading:
+            kind === "hosting" ? "Checking hosting…" : "Checking for updates…",
+          success: (next) =>
+            kind === "hosting"
+              ? `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
+              : updateCheckMessage(next),
+          error:
+            kind === "hosting"
+              ? "Couldn’t verify hosting. Try again."
+              : "Couldn’t check for updates. Try again.",
+        })
+        .unwrap();
+      refresh();
+    } catch {
+      // The promise toast owns the transient error.
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
 
   async function act(action: "approve" | "defer") {
     if (
       busyRef.current ||
+      !isPod ||
       !status?.updateOfferable ||
       !update.releaseId ||
       working
@@ -46,24 +103,33 @@ export function AgentSettingsPanel({
       return;
     busyRef.current = true;
     setBusy(true);
-    setError(null);
+    const request: Promise<void> =
+      action === "approve"
+        ? ApiService.approvePersonalAgentUpdate({
+            releaseId: update.releaseId,
+            idempotencyKey: crypto.randomUUID(),
+          }).then(() => undefined)
+        : ApiService.deferPersonalAgentUpdate({
+            releaseId: update.releaseId,
+          }).then(() => undefined);
     try {
-      if (action === "approve") {
-        await ApiService.approvePersonalAgentUpdate({
-          releaseId: update.releaseId,
-          idempotencyKey: crypto.randomUUID(),
-        });
-      } else {
-        await ApiService.deferPersonalAgentUpdate({
-          releaseId: update.releaseId,
-        });
-      }
+      await morphyToast
+        .promise(request, {
+          loading:
+            action === "approve"
+              ? "Scheduling your update…"
+              : "Saving your reminder…",
+          success:
+            action === "approve"
+              ? "Update scheduled."
+              : "We’ll remind you later.",
+          error: "We couldn’t complete that request. Try again.",
+        })
+        .unwrap();
       dispatchFeedStateChanged();
       refresh();
     } catch {
-      setError(
-        "We couldn’t complete that request. Check for updates and try again.",
-      );
+      // The promise toast owns the transient error.
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -74,14 +140,18 @@ export function AgentSettingsPanel({
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    setError(null);
     try {
-      await ApiService.reconnectOwnerPod();
+      await morphyToast
+        .promise(ApiService.reconnectOwnerPod(), {
+          loading: "Reconnecting your pod…",
+          success: "Pod connection checked.",
+          error:
+            "Your pod could not be reached. Check its connection and try again.",
+        })
+        .unwrap();
       refresh();
     } catch {
-      setError(
-        "Your pod could not be reached. Check its connection and try again.",
-      );
+      // The promise toast owns the transient error.
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -89,46 +159,75 @@ export function AgentSettingsPanel({
   }
 
   if (kind === "hosting") {
+    const canManageCloud =
+      mode === "shared" || mode === "pending" || mode === "byoc";
     return (
-      <div className="space-y-4">
-        <SettingsGroup title="Where your private agent runs">
+      <div className="space-y-5">
+        <SettingsGroup density="compact">
           <SettingsRow
-            title="Hosting"
+            title="Current hosting"
             description={status ? HOST_LABELS[mode] : "Checking hosting…"}
           />
-          {status?.cloudProject ? (
+          {mode === "byoc" && status?.cloudProject ? (
             <SettingsRow
-              title="Cloud project"
-              description={status.cloudProject}
+              title="Your cloud project"
+              description={[status.cloudProject, status.cloudRegion]
+                .filter(Boolean)
+                .join(" · ")}
             />
           ) : null}
-          {status?.cloudRegion ? (
-            <SettingsRow title="Region" description={status.cloudRegion} />
-          ) : null}
         </SettingsGroup>
-        {mode === "shared" ? (
+
+        <SettingsGroup
+          title="Hosting choices"
+          density="compact"
+          headingClassName="!mt-5"
+        >
+          <SettingsRow
+            title="Hussh Shared"
+            description="Hussh runs and updates the shared service automatically."
+            trailing={mode === "shared" ? "Current" : undefined}
+          />
+          <SettingsRow
+            title="Bring your own cloud"
+            description="Your private agent and device relay. You approve updates."
+            trailing={
+              mode === "byoc"
+                ? "Current"
+                : mode === "pending"
+                  ? "Continue"
+                  : undefined
+            }
+            onClick={
+              canManageCloud
+                ? () => router.push(ROUTES.ONE_SETUP_CLOUD)
+                : undefined
+            }
+            chevron={canManageCloud}
+          />
+          <SettingsRow
+            title="Hussh Pods"
+            description={
+              mode === "hussh_pods"
+                ? "Your dedicated Hussh-hosted pod. You approve updates."
+                : "Dedicated hosting is unavailable for new setups."
+            }
+            trailing={mode === "hussh_pods" ? "Current" : "Unavailable"}
+          />
+        </SettingsGroup>
+
+        {mode === "unknown" && status ? (
           <p className="text-sm text-muted-foreground">
-            Hussh manages the shared service. Set up your own cloud for a
-            dedicated private agent and Puppy’s private device relay.
-          </p>
-        ) : null}
-        {mode === "pending" ? (
-          <p className="text-sm text-muted-foreground">
-            Continue your existing setup to verify your cloud and finish
-            connecting your private agent.
+            We couldn’t verify your hosting. Your existing setup has not
+            changed.
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          {mode !== "unknown" ? (
-            <Button onClick={() => router.push(ROUTES.ONE_SETUP_CLOUD)}>
-              {mode === "shared"
-                ? "Set up your cloud"
-                : mode === "pending"
-                  ? "Continue setup"
-                  : "Manage hosting"}
-            </Button>
-          ) : null}
-          <Button variant="muted" onClick={refresh}>
+          <Button
+            variant="muted"
+            disabled={busy}
+            onClick={() => void checkStatus()}
+          >
             Check hosting
           </Button>
           {mode === "byoc" ? (
@@ -141,118 +240,78 @@ export function AgentSettingsPanel({
             </Button>
           ) : null}
         </div>
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <p className="text-sm text-muted-foreground">
-          New Hussh Pods deployments are currently unavailable.
-        </p>
       </div>
     );
   }
 
-  const shared = mode === "shared";
   const stateLabel = !status
-    ? "Checking release status…"
-    : shared
-      ? "Managed by Hussh"
-      : working
-        ? "Finishing current work and updating"
-        : update.failed
-          ? "Update needs attention"
-          : status.installedReleaseVerified === true &&
-              update.available === false
-            ? "Latest offered version installed"
-            : update.available === true
-              ? "Update available"
-              : "Running version not verified";
-  const release = status?.availableRelease;
+    ? "Checking update status…"
+    : mode === "shared"
+      ? "Updated automatically by Hussh"
+      : mode === "pending"
+        ? "Available after setup finishes"
+        : mode === "unknown"
+          ? "Hosting status unavailable"
+          : working
+            ? "Finishing current work and updating"
+            : update.failed
+              ? "Update needs attention"
+              : update.available === true && status.updateOfferable
+                ? "Update ready for your approval"
+                : update.available === true
+                  ? "New release not ready for this pod"
+                  : status.installedReleaseVerified === true &&
+                      update.available === false
+                    ? "Up to date"
+                    : "Running version not verified";
+  const release = isPod ? status?.availableRelease : null;
+  const installedVersion = status?.installedRelease?.version;
+  const versionLabel =
+    mode === "shared"
+      ? installedVersion?.replace(/^Managed service /, "Managed build ")
+      : installedVersion;
   return (
-    <div className="space-y-4">
-      <SettingsGroup title="Software updates">
+    <div className="space-y-5">
+      <SettingsGroup density="compact">
         <SettingsRow title="Status" description={stateLabel} />
-        {!shared ? (
+        {mode === "shared" || isPod ? (
           <SettingsRow
-            title="Pod connection"
-            description={
-              isAgentNotAnswering(status?.health)
-                ? "Not responding. Installed version details are from the last verification."
-                : isAgentAsleep(status?.health)
-                  ? "Asleep; wakes when needed."
-                  : status?.health === "healthy"
-                    ? "Last reported healthy"
-                    : "Connection not verified"
+            title={
+              isPod && !status?.installedReleaseVerified
+                ? "Reported version"
+                : "Current version"
             }
+            description={versionLabel ?? "Not verified"}
           />
         ) : null}
-        <SettingsRow
-          title="Current version"
-          description={status?.installedRelease?.version ?? "Not verified"}
-        />
-        {status?.installedRelease?.sourceRevision ? (
-          <SettingsRow
-            title="Build"
-            description={status.installedRelease.sourceRevision.slice(0, 12)}
-          />
-        ) : null}
-        {release ? (
-          <SettingsRow
-            title="Available version"
-            description={release.version}
-          />
-        ) : null}
-        {status?.releaseCheckedAt ? (
-          <SettingsRow
-            title="Release channel checked"
-            description={new Date(status.releaseCheckedAt).toLocaleString()}
-          />
-        ) : null}
-        {status?.installedReleaseVerifiedAt ? (
-          <SettingsRow
-            title="Installation verified"
-            description={new Date(
-              status.installedReleaseVerifiedAt,
-            ).toLocaleString()}
-          />
+        {release && update.available ? (
+          <SettingsRow title="New version" description={release.version} />
         ) : null}
       </SettingsGroup>
-      {shared ? (
-        <p className="text-sm text-muted-foreground">
-          Hussh updates this shared service. If you set up your own cloud, you
-          choose when to install updates to your private agent.
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          You choose when to install. We finish active work and verify your
-          private agent before reporting the update complete.
-        </p>
-      )}
-      {release ? (
-        <section aria-label="Release notes" className="space-y-3">
-          <p className="text-sm">{release.summary}</p>
+
+      {release && update.available ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium">
+            What’s in this update
+          </summary>
+          <p className="mt-2 text-muted-foreground">{release.summary}</p>
           {Object.entries(release.notes)
             .filter(([, entries]) => entries.length > 0)
             .map(([heading, entries]) => (
-              <div key={heading}>
-                <h3 className="text-sm font-medium capitalize">{heading}</h3>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              <div key={heading} className="mt-3">
+                <h3 className="font-medium capitalize">{heading}</h3>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
                   {entries.map((text, index) => (
                     <li key={index}>{text}</li>
                   ))}
                 </ul>
               </div>
             ))}
-        </section>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Verified release notes are not available yet.
-        </p>
-      )}
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
+        </details>
       ) : null}
+
       <div className="flex flex-wrap gap-2">
-        {!shared &&
+        {isPod &&
         status?.updateOfferable === true &&
         update.releaseId &&
         !working ? (
@@ -269,19 +328,33 @@ export function AgentSettingsPanel({
             </Button>
           </>
         ) : null}
-        <Button variant="muted" disabled={busy} onClick={refresh}>
+        <Button
+          variant="muted"
+          disabled={busy}
+          onClick={() => void checkStatus()}
+        >
           Check for updates
         </Button>
       </div>
-      {update.running || update.target ? (
+
+      {isPod &&
+      (status?.releaseCheckedAt || status?.installedReleaseVerifiedAt) ? (
         <details className="text-sm text-muted-foreground">
-          <summary>Technical details</summary>
-          <dl className="mt-2 space-y-2 break-all">
-            <dt>Reported running build</dt>
-            <dd>{update.running ?? "Unknown"}</dd>
-            <dt>Offered build</dt>
-            <dd>{update.target ?? "Unknown"}</dd>
-          </dl>
+          <summary className="cursor-pointer">Verification details</summary>
+          <div className="mt-2 space-y-1">
+            {status.releaseCheckedAt ? (
+              <p>
+                Last checked:{" "}
+                {new Date(status.releaseCheckedAt).toLocaleString()}
+              </p>
+            ) : null}
+            {status.installedReleaseVerifiedAt ? (
+              <p>
+                Installation verified:{" "}
+                {new Date(status.installedReleaseVerifiedAt).toLocaleString()}
+              </p>
+            ) : null}
+          </div>
         </details>
       ) : null}
     </div>
