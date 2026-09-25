@@ -131,13 +131,49 @@ async def test_vault_configuration_reviews_without_private_registry(harness, mon
     )
     assert catalog["configurationRevision"] == configuration["revision"]
     assert catalog["tools"] == [
-        {"id": h.tool.name, "name": "search", "revision": "rev1", "permission": "ask_first"}
+        {
+            "id": h.tool.name,
+            "name": "search",
+            "revision": "rev1",
+            "fingerprint": module.mcp_tool_fingerprint(h.tool.descriptor),
+            "permission": "ask_first",
+        }
     ]
     assert "synthetic-secret" not in str(catalog)
     h.ledger.issue.assert_not_called()
     h.tool.run_async.assert_not_called()
     with pytest.raises(ExternalMcpError):
         await module.prepare_review(**{**request, "connector_id": "custom_" + "b" * 32})
+
+
+async def test_discovery_keeps_blocked_tool_visible_for_reenable(harness, monkeypatch):
+    h = harness
+    monkeypatch.setattr(
+        mcp_turn_scope, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    configuration = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Vault connector",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "none"},
+        "blockedTools": [
+            {
+                "id": h.tool.name,
+                "fingerprint": module.mcp_tool_fingerprint(h.tool.descriptor),
+            }
+        ],
+    }
+    catalog = await module.discover_catalog(
+        token=h.request["token"],
+        connector_id=configuration["connectorId"],
+        configuration=configuration,
+    )
+    assert catalog["tools"][0]["permission"] == "blocked"
+    assert catalog["tools"][0]["id"] == h.tool.name
+    h.tool.run_async.assert_not_called()
 
 
 async def test_review_and_confirmation_use_current_terms_without_executing(harness):

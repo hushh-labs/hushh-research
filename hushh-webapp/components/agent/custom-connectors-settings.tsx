@@ -19,6 +19,7 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
   authenticationKind: CustomConnectorConfiguration["authentication"]["kind"];
   hasOAuthRegistration: boolean;
 };
+type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" };
 
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
   return {
@@ -35,7 +36,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
 }) {
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
-  const [catalogs, setCatalogs] = useState<Record<string, Array<{ id: string; name: string; revision: string }>>>({});
+  const [catalogs, setCatalogs] = useState<Record<string, CatalogTool[]>>({});
   const [authRequired, setAuthRequired] = useState<Record<string, boolean>>({});
   const refreshAbort = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
@@ -191,6 +192,31 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
+  const setToolBlocked = async (item: SavedConnector, tool: CatalogTool) => {
+    if (inFlight.current || !lifetime.current()) return;
+    inFlight.current = true; setBusy(true);
+    const current = lifetime.current;
+    const operation = (async () => {
+      const records = await loadCustomConnectorConfigurations(access, true);
+      if (!current()) throw new Error("Session changed.");
+      const configuration = records.find(record => record.connectorId === item.connectorId);
+      if (!configuration || !configuration.enabled || configuration.revision !== item.revision ||
+          !catalogs[item.connectorId]?.some(entry => entry.id === tool.id && entry.fingerprint === tool.fingerprint))
+        throw new Error("Connector tools changed.");
+      const blockedTools = (configuration.blockedTools ?? []).filter(entry => entry.id !== tool.id);
+      if (tool.permission !== "blocked") blockedTools.push({ id: tool.id, fingerprint: tool.fingerprint });
+      const saved = await saveCustomConnectorConfiguration(access, { ...configuration, blockedTools },
+        { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, item.revision, current);
+      if (!current()) return;
+      setItems(previous => previous.map(record => record.connectorId === item.connectorId ? savedConnector(saved) : record));
+      setCatalogs(previous => ({ ...previous, [item.connectorId]: (previous[item.connectorId] ?? []).map(entry =>
+        entry.id === tool.id ? { ...entry, permission: tool.permission === "blocked" ? "ask_first" : "blocked" } : entry) }));
+    })();
+    morphyToast.promise(operation, { loading: "Updating tool…", success: tool.permission === "blocked" ? "Tool available for reviewed calls in new turns." : "Tool blocked for new turns.", error: "Could not update the tool. Refresh tools and try again." });
+    try { await operation; } catch { /* The shared toast owns action errors. */ }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+  };
+
   const remove = async () => {
     if (!removing || inFlight.current || !lifetime.current()) return;
     const selected = removing;
@@ -220,7 +246,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
           ? "Saved credential rejected · remove and add again"
           : "Sign in needed"
-        : catalogs[item.connectorId] ? `${catalogs[item.connectorId]?.length ?? 0} tools available`
+        : catalogs[item.connectorId] ? `${catalogs[item.connectorId]?.length ?? 0} tools discovered`
         : "Saved · tools not checked"}</p>
       <div className="flex flex-wrap gap-2">
         {onPrepareRecovery && item.authenticationKind !== "api_key" && (item.hasOAuthRegistration || item.authenticationKind === "oauth" || authRequired[item.connectorId])
@@ -229,8 +255,13 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         <Button size="standard" variant="none" effect="fade" aria-label={`${item.enabled ? "Block" : "Enable"} ${item.displayName}`} disabled={busy} onClick={() => void setEnabled(item)}>{item.enabled ? "Block" : "Enable"}</Button>
         <Button size="standard" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => setRemoving(item)}>Remove</Button>
       </div>
-      {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools · Ask first</summary>
-        <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="break-words py-2">{tool.name}</li>)}</ul>
+      {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools</summary>
+        <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1">
+          <span className="min-w-0 break-words">{tool.name}</span>
+          <Button size="standard" variant="none" effect="fade" disabled={busy || !item.enabled}
+            aria-label={`${tool.permission === "blocked" ? "Allow reviewed calls to" : "Block"} ${tool.name} in ${item.displayName}`}
+            onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow" : "Ask first · Block"}</Button>
+        </li>)}</ul>
       </details> : null}
     </li>)}</ul>
     {editing ? <form className="space-y-3" onSubmit={event => { event.preventDefault(); void save(); }}>

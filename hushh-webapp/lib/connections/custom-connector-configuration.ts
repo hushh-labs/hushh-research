@@ -38,6 +38,10 @@ const configurationSchema = z.object({
     .refine(value => !/[\x00-\x1f\x7f]/.test(value)),
   endpoint,
   enabled: z.boolean(),
+  blockedTools: z.array(z.object({
+    id: z.string().regex(/^mcp_[a-f0-9]{40}$/),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length).optional(),
   oauthRegistration: oauthRegistration.optional(),
   authentication: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("none") }).strict(),

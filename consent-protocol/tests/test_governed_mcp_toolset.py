@@ -308,6 +308,14 @@ async def test_catalog_policy_cannot_invent_provider_tool(harness):
     h.native.assert_not_called()
 
 
+async def test_catalog_policy_omits_blocked_tool_before_adk_sees_it(harness):
+    h = harness
+    h.toolset.catalog_policy = lambda catalog: []
+    assert await h.toolset.get_tools(h.context) == []
+    h.approve.assert_not_called()
+    h.native.assert_not_called()
+
+
 async def test_catalog_policy_cannot_erase_provider_schema_constraints(harness):
     h = harness
     h.toolset.catalog_policy = lambda catalog: [{**catalog[0], "inputSchema": {"type": "object"}}]

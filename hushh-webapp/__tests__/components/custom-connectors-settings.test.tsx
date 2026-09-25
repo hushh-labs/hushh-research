@@ -152,10 +152,10 @@ it("requires confirmation and the displayed revision before removal", async () =
 it("refreshes tools from the current vault configuration on explicit tap", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
-  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "tool", name: "search_files", revision: "rev1" }]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
   render(<CustomConnectorsSettings access={access} />);
   fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
-  await screen.findByText("1 tools · Ask first");
+  await screen.findByText("1 tools");
   expect(loadCustomConnectorConfigurations).toHaveBeenCalledTimes(2);
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
   expect(screen.queryByRole("button", { name: "Sign in to Synthetic" })).toBeNull();
@@ -163,13 +163,13 @@ it("refreshes tools from the current vault configuration on explicit tap", async
 
 it("shows the one-time catalog refreshed during OAuth return without another provider call", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "oauth" as const, accessToken: "synthetic", expiresAt: Math.floor(Date.now() / 1000) + 300 } };
-  const tools = [{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1" }];
+  const tools = [{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" as const }];
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
   rememberRefreshedMcpCatalog({ ownerUserId: access.userId, vaultEpoch: snapshotVaultSessionEpoch(),
     connectorId: record.connectorId, configurationRevision: record.revision, tools });
   render(<CustomConnectorsSettings access={access} />);
-  expect(await screen.findByText("1 tools available")).toBeInTheDocument();
-  fireEvent.click(screen.getByText("1 tools · Ask first"));
+  expect(await screen.findByText("1 tools discovered")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("1 tools"));
   expect(screen.getByText("search_files")).toBeInTheDocument();
   expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
 });
@@ -199,7 +199,7 @@ it("does not send a rejected API key into OAuth", async () => {
 it("discards tool catalogs and pending removal when the owner changes", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
-  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "tool", name: "prior_owner_tool", revision: "rev1" }]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "prior_owner_tool", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
   const view = render(<CustomConnectorsSettings access={access} />);
   fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
   await screen.findByText("prior_owner_tool");
@@ -227,4 +227,21 @@ it("blocks a connector with its exact revision without invoking provider discove
   await screen.findByText("Saved · tools not checked");
   expect(saveCustomConnectorConfiguration).toHaveBeenLastCalledWith(access, record, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
   expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
+});
+
+it("blocks and re-enables one discovered tool without disabling its connector", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  const tool = { id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" as const };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([tool]);
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
+  fireEvent.click(await screen.findByText("1 tools"));
+  fireEvent.click(screen.getByRole("button", { name: "Block search_files in Synthetic" }));
+  await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledWith(
+    access, { ...record, blockedTools: [{ id: tool.id, fingerprint: tool.fingerprint }] },
+    expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function),
+  ));
+  expect(await screen.findByRole("button", { name: "Allow reviewed calls to search_files in Synthetic" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Block Synthetic" })).toBeEnabled();
 });

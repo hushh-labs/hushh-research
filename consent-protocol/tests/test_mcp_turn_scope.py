@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.one_adk import mcp_turn_scope as module
-from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
+from hushh_mcp.one_adk.governed_mcp_toolset import (
+    McpConnectionBinding,
+    ResolvedMcpConnection,
+    mcp_tool_fingerprint,
+    mcp_tool_name,
+)
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
@@ -351,3 +356,37 @@ async def test_changed_configuration_cannot_reuse_binding_with_same_revision(run
                 ).binding
             )
     assert bindings[0] != bindings[1]
+
+
+async def test_vault_blocked_tool_is_filtered_from_adk_catalog(runtime, monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    record = configuration()
+    blocked = {"name": "read_private", "inputSchema": {"type": "object"}}
+    allowed = {"name": "search_public", "inputSchema": {"type": "object"}}
+    record["blockedTools"] = [
+        {
+            "id": mcp_tool_name(record["connectorId"], blocked["name"]),
+            "fingerprint": mcp_tool_fingerprint(blocked),
+        }
+    ]
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.catalog_policy([blocked, allowed]) == [allowed]
+        # A changed contract has no standing block; it returns to Ask first.
+        changed = {**blocked, "inputSchema": {"type": "object", "required": ["id"]}}
+        assert resolved.catalog_policy([changed, allowed]) == [changed, allowed]
+
+
+@pytest.mark.parametrize(
+    "blocked",
+    [
+        "not-a-list",
+        [{"id": "bad", "fingerprint": "a" * 64}],
+        [{"id": "mcp_" + "a" * 40, "fingerprint": "invalid"}],
+        [{"id": "mcp_" + "a" * 40, "fingerprint": "a" * 64}] * 2,
+    ],
+)
+def test_invalid_blocked_tool_configuration_fails_closed(blocked):
+    with pytest.raises(ExternalMcpError) as caught:
+        module.validate_mcp_turn_configurations([{**configuration(), "blockedTools": blocked}])
+    assert caught.value.code == "MCP_CONFIGURATION_INVALID"
