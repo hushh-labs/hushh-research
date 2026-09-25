@@ -410,7 +410,11 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
-import { clearAllLocationWorkspaceMemory } from "@/lib/one-location/location-workspace-memory";
+import {
+  clearAllLocationWorkspaceMemory,
+  writeLocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
+import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
@@ -691,6 +695,72 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByRole("button", { name: "Continue" }),
     ).toBeInTheDocument();
+  });
+
+  it("never carries a cached private coordinate or neutral zoom across consent", async () => {
+    experienceHarness.demoMode = false;
+    writeLocationWorkspaceMemory("test-user", {
+      myLocationPoint: {
+        latitude: 25.46,
+        longitude: 81.85,
+        accuracyM: 12,
+        capturedAt: "2026-09-25T00:00:00.000Z",
+        sourcePlatform: "web",
+      },
+      decryptedPoints: {},
+    });
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(mapHarness.create).toHaveBeenCalled();
+    });
+    expect(
+      screen.getByTestId("one-location-map-disclosure"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Your location" })).toBeNull();
+    expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(mapHarness.map.setCamera).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        coordinate: { lat: 25.46, lng: 81.85 },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mapHarness.map.setOnCameraIdleListener).toHaveBeenCalled(),
+    );
+    mapHarness.map.setCamera.mockImplementationOnce(async () => {
+      await new Promise<void>(() => undefined);
+    });
+    mapHarness.map.addCircles.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.46, lng: 81.85 },
+        }),
+      );
+    });
+    // This neutral report belonged to the pre-consent camera command but was
+    // delivered after consent while the private move was still pending.
+    await act(async () => {
+      mapHarness.listeners.cameraIdle?.({
+        bounds: {
+          northeast: { lat: 85, lng: 180 },
+          southwest: { lat: -85, lng: -180 },
+          center: { lat: 0, lng: 0 },
+        },
+        latitude: 0,
+        longitude: 0,
+        zoom: 2,
+        bearing: 0,
+        tilt: 0,
+      });
+      await Promise.resolve();
+    });
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -1023,18 +1093,23 @@ describe("LocationImmersiveMap demo experience", () => {
     // `UIColor(hex:) ?? .blue`. So `"var(--app-accent)"` never once drew in the
     // app's accent, and no `fillOpacity` asked for here reached the fill that
     // was really produced.
-    const [[[drawnCircle]]] = mapHarness.map.addCircles.mock.calls as Array<
-      [Array<Record<string, unknown>>]
-    >;
+    const drawnCircle = (
+      mapHarness.map.addCircles.mock.calls as Array<
+        [Array<Record<string, unknown>>]
+      >
+    )
+      .flatMap(([circles]) => circles)
+      .find((circle) => circle.radius === 500);
+    expect(drawnCircle).toBeDefined();
     for (const key of ["fillColor", "strokeColor"] as const) {
-      expect(String(drawnCircle[key])).not.toContain("var(");
-      expect(String(drawnCircle[key])).toMatch(/^#[0-9a-f]{3,8}$/i);
+      expect(String(drawnCircle?.[key])).not.toContain("var(");
+      expect(String(drawnCircle?.[key])).toMatch(/^#[0-9a-f]{3,8}$/i);
     }
     // And it stays subordinate to the map it describes: the radius is a
     // background fact, the owner avatar and place pin inside it are the subject.
-    expect(Number(drawnCircle.fillOpacity)).toBeLessThanOrEqual(0.08);
-    expect(Number(drawnCircle.strokeOpacity)).toBeLessThanOrEqual(0.4);
-    expect(Number(drawnCircle.strokeWeight)).toBeLessThanOrEqual(2);
+    expect(Number(drawnCircle?.fillOpacity)).toBeLessThanOrEqual(0.08);
+    expect(Number(drawnCircle?.strokeOpacity)).toBeLessThanOrEqual(0.4);
+    expect(Number(drawnCircle?.strokeWeight)).toBeLessThanOrEqual(2);
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
     await waitFor(() => {
@@ -1133,8 +1208,10 @@ describe("LocationImmersiveMap demo experience", () => {
 
     const live = new Set(added.flat());
     for (const id of removed.flat()) live.delete(id);
-    // Exactly one batch may remain on the map: the current one.
-    expect(live.size).toBe(added.at(-1)?.length ?? 0);
+    // Exactly one marker may remain: the current candidate-place batch. The
+    // owner fallback is a separately managed, non-clustered circle. Superseded
+    // marker ids must all be removed.
+    expect(live.size).toBe(1);
   });
 
   it("previews a candidate place separately from the owner's avatar", async () => {
@@ -1257,9 +1334,10 @@ describe("LocationImmersiveMap demo experience", () => {
       animate: true,
     });
 
-    // The owner avatar is HTML, and it now owns the venue coordinate. Neither
-    // the old GPS point nor the venue is ever handed to the native renderer as
-    // a generic pin, including before the first camera projection report.
+    // The owner avatar is HTML, and it now owns the venue presentation. The old
+    // GPS point never reaches the renderer. A small, centre-anchored renderer
+    // circle stays at the venue underneath it so motion never needs an async
+    // marker handoff; the separate candidate pin is retired after confirmation.
     const rendererMarkers = mapHarness.map.addMarkers.mock.calls.flatMap(
       (call) =>
         (call[0] as Array<{
@@ -1281,6 +1359,24 @@ describe("LocationImmersiveMap demo experience", () => {
           marker.coordinate.lng === -122.4172,
       ),
     ).toBe(false);
+    const venueFallbacks = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .filter((circle) => {
+        const center = circle.center as
+          { lat: number; lng: number } | undefined;
+        return (
+          center?.lat === 37.7775 &&
+          center.lng === -122.4172 &&
+          circle.title === "Your check-in place"
+        );
+      });
+    expect(venueFallbacks.length).toBeGreaterThan(0);
+    expect(venueFallbacks.at(-1)).toEqual(
+      expect.objectContaining({
+        fillColor: "#34c759",
+        clickable: false,
+      }),
+    );
     expect(mapHarness.map.addPolylines).not.toHaveBeenCalled();
 
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
@@ -1362,11 +1458,14 @@ describe("LocationImmersiveMap demo experience", () => {
     );
   });
 
-  it("never substitutes a generic venue pin when camera projection is unavailable", async () => {
+  it("keeps a renderer-owned venue fallback when camera projection is unavailable", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
       new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockRejectedValue(
+      new Error("location permission unavailable"),
     );
 
     seedConsentedRenderer();
@@ -1377,18 +1476,34 @@ describe("LocationImmersiveMap demo experience", () => {
         "true",
       );
     });
-    mapHarness.map.addMarkers.mockClear();
+    mapHarness.map.addCircles.mockClear();
     fireEvent.click(screen.getByTestId("publish-nearby-state"));
 
     await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-map-locate"),
-      ).toHaveAccessibleName("Show my check-in place");
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap(
+          (call) =>
+            call[0] as Array<{
+              center: { lat: number; lng: number };
+              fillColor?: string;
+              radius?: number;
+              title?: string;
+            }>,
+        )
+        .find((circle) => circle.title === "Your check-in place");
+      expect(fallback).toEqual(
+        expect.objectContaining({
+          center: { lat: 37.7775, lng: -122.4172 },
+          fillColor: "#34c759",
+        }),
+      );
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
     });
-    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
-    expect(
-      screen.queryByTestId("one-location-map-self-avatar"),
-    ).not.toBeInTheDocument();
+    expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
   });
 
   it("renders the venue-anchored avatar without a fresh device fix", async () => {
@@ -1417,6 +1532,65 @@ describe("LocationImmersiveMap demo experience", () => {
       coordinate: { lat: 37.7775, lng: -122.4172 },
       zoom: 15,
       animate: true,
+    });
+  });
+
+  it("resizes a coarse self fallback for candidate-place framing", async () => {
+    stubCheckInMapGeometry();
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.searchPoint = {
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 5_000,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    };
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      latitude: 25.4615,
+      longitude: 81.8518,
+      distanceMeters: 240,
+      active: false,
+    };
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue(
+      experienceHarness.searchPoint,
+    );
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(Number(fallback?.radius)).toBeGreaterThan(100);
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+      const fittedFallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fittedFallback).toBeDefined();
+      expect(Number(fittedFallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fittedFallback?.radius)).toBeLessThan(100);
     });
   });
 
@@ -1491,6 +1665,12 @@ describe("LocationImmersiveMap demo experience", () => {
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
     // Camera padding is a NATIVE-only bridge call, so this case runs native.
     platformHarness.native = true;
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
@@ -1514,13 +1694,20 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function getBoundingClientRect() {
+        const isMap = this.tagName === "CAPACITOR-GOOGLE-MAP";
         const isCheckInSheet = this.hasAttribute(
           "data-one-location-nearby-check-in-sheet",
         );
         const isPeopleTray =
           this.getAttribute("data-testid") === "one-location-map-people-tray";
         const top = isCheckInSheet ? 280 : isPeopleTray ? 732 : 0;
-        const bottom = isCheckInSheet ? 800 : isPeopleTray ? 788 : 56;
+        const bottom = isMap
+          ? 800
+          : isCheckInSheet
+            ? 800
+            : isPeopleTray
+              ? 788
+              : 56;
         return {
           x: 0,
           y: top,
@@ -1555,6 +1742,27 @@ describe("LocationImmersiveMap demo experience", () => {
         }),
       );
       expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+
+    mapHarness.map.addCircles.mockClear();
+    const fitCountBeforeActive = mapHarness.map.fitBounds.mock.calls.length;
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds.mock.calls.length).toBeGreaterThan(
+        fitCountBeforeActive,
+      );
+    });
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your check-in place");
+      expect(fallback).toBeDefined();
+      // 390x800 minus native padding (20/20 horizontally, 68/532
+      // vertically), then fitBounds' own 48 px padding leaves a 104 px
+      // diameter. The renderer circle should therefore still be a 9 px puck.
+      const fittedMetresPerPixel = 500 / (104 / 2);
+      expect(Number(fallback?.radius) / fittedMetresPerPixel).toBeCloseTo(9, 1);
     });
   });
 
@@ -2942,15 +3150,752 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
   }
 
+  it("fail-closes the whole renderer when consent is revoked", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    await waitFor(() => {
+      expect(
+        mapHarness.map.addCircles.mock.calls
+          .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+          .some((circle) => circle.title === "Your location"),
+      ).toBe(true);
+      expect(mapHarness.map.addMarkers).toHaveBeenCalled();
+    });
+
+    mapHarness.map.addMarkers.mockClear();
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.removeCircles.mockClear();
+    mapHarness.map.removeCircles.mockRejectedValue(
+      new Error("native map transaction permanently unavailable"),
+    );
+    serviceHarness.getMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+    });
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+
+    await waitFor(() => {
+      // Targeted removal is not trusted as a privacy boundary. The old map is
+      // destroyed and the replacement starts at a neutral camera instead.
+      expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
+      expect(mapHarness.create).toHaveBeenCalledTimes(2);
+      expect(
+        screen.getByTestId("one-location-map-disclosure"),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
+    });
+    const replacementConfig = mapHarness.create.mock.calls.at(-1)?.[0]
+      ?.config as { center: { lat: number; lng: number }; zoom: number };
+    expect(replacementConfig.center).toEqual(
+      neutralWorldCamera({ width: 390, height: 844 }).center,
+    );
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    mapHarness.map.removeCircles.mockResolvedValue(undefined);
+  });
+
+  it("drops a decrypted refresh that completes after consent revocation", async () => {
+    stubPhoneGeometry();
+    let resolveRefresh!: (value: {
+      markers: ReturnType<typeof incomingMarker>[];
+      preferences: { presenceMode: "ghost" };
+      freshnessSeconds: number;
+    }) => void;
+    const pendingRefresh = new Promise<{
+      markers: ReturnType<typeof incomingMarker>[];
+      preferences: { presenceMode: "ghost" };
+      freshnessSeconds: number;
+    }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    serviceHarness.getMapState
+      .mockResolvedValueOnce({
+        markers: [],
+        preferences: { presenceMode: "ghost" },
+      })
+      .mockReturnValueOnce(pendingRefresh)
+      .mockResolvedValueOnce({
+        markers: [],
+        preferences: { presenceMode: "ghost" },
+        freshnessSeconds: 90,
+      });
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(mapHarness.create).toHaveBeenCalledTimes(1);
+      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
+    });
+
+    mapHarness.map.addMarkers.mockClear();
+    serviceHarness.getMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+    });
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
+
+    // Re-consent must not inherit the abandoned refresh's in-flight lock.
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(3);
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    });
+
+    await act(async () => {
+      resolveRefresh({
+        markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+        preferences: { presenceMode: "ghost" },
+        freshnessSeconds: 90,
+      });
+      await pendingRefresh;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+      "data-map-marker-count",
+      "0",
+    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+  });
+
+  it("ignores camera callbacks retained by a replaced map instance", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    const staleIdleListener = mapHarness.listeners.cameraIdle;
+    expect(staleIdleListener).toBeDefined();
+
+    serviceHarness.getMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+    });
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await reportCamera();
+    await waitFor(() => {
+      expect(
+        screen.queryAllByTestId("one-location-map-name-label").length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getByTestId("one-location-map-self-avatar"),
+      ).not.toHaveClass("sr-only");
+    });
+
+    await act(async () => {
+      staleIdleListener?.({
+        bounds: {
+          northeast: { lat: 25.47, lng: 81.87 },
+          southwest: { lat: 25.42, lng: 81.8 },
+          center: { lat: 25.445, lng: 81.835 },
+        },
+        zoom: 12,
+        bearing: 42,
+        tilt: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.queryAllByTestId("one-location-map-name-label").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByTestId("one-location-map-self-avatar")).not.toHaveClass(
+      "sr-only",
+    );
+  });
+
+  it("sizes the self dot from a programmatic target when camera callbacks are unavailable", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({ zoom: 16 }),
+      );
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+  });
+
+  it("does not publish a fallback zoom for a rejected camera move", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setCamera.mockImplementation(
+      async (camera: { zoom?: number }) => {
+        if (camera.zoom === 16) {
+          throw new Error("native camera transaction rejected");
+        }
+      },
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({ zoom: 16 }),
+      );
+    });
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(false);
+
+    // A later accepted Locate Me command can safely publish its target and
+    // restore the renderer-owned dot; the rejection did not poison the scale.
+    mapHarness.map.setCamera.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+  });
+
+  it("resizes the self dot for distant framing without camera callbacks", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        // Deliberately cross-continent: retaining the street-level geographic
+        // radius through this fit would make the owner dot effectively 0 px.
+        incomingMarker(ANKIT, 40.7128, -74.006),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+
+    mapHarness.map.fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    await waitFor(() => {
+      const fittedFallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fittedFallback).toBeDefined();
+      expect(fittedFallback?.center).toEqual({ lat: 25.46, lng: 81.85 });
+      const longitudeSpan = 81.85 - -74.006;
+      const fittedZoom = Math.log2((390 - 48) / (256 * (longitudeSpan / 360)));
+      const metresPerPixel =
+        (156543.03392 * Math.cos((25.46 * Math.PI) / 180)) / 2 ** fittedZoom;
+      expect(Number(fittedFallback?.radius) / metresPerPixel).toBeCloseTo(9, 1);
+    });
+    expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+  });
+
+  it("ignores an older framing result after a newer camera command", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+
+    let resolveOlderFit!: () => void;
+    const olderFit = new Promise<void>((resolve) => {
+      resolveOlderFit = resolve;
+    });
+    mapHarness.map.fitBounds.mockReturnValueOnce(olderFit);
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolveOlderFit();
+      await olderFit;
+      await Promise.resolve();
+    });
+
+    const fallbackAfterLateFit = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .reverse()
+      .find((circle) => circle.title === "Your location");
+    expect(fallbackAfterLateFit).toBeDefined();
+    expect(Number(fallbackAfterLateFit?.radius)).toBeLessThan(100);
+  });
+
+  it("does not start a native Everyone fit after a newer Locate command", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let resolvePadding!: () => void;
+    const pendingPadding = new Promise<void>((resolve) => {
+      resolvePadding = resolve;
+    });
+    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolvePadding();
+      await pendingPadding;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("does not start a native Everyone fit after a user gesture begins", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let resolvePadding!: () => void;
+    const pendingPadding = new Promise<void>((resolve) => {
+      resolvePadding = resolve;
+    });
+    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await act(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({
+        mapId: "one-location-private-map",
+        isGesture: true,
+      });
+      resolvePadding();
+      await pendingPadding;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("does not start a nearby fit after a newer Locate command while its circle is pending", async () => {
+    platformHarness.native = true;
+    experienceHarness.nearbyAvailable = true;
+    stubCheckInMapGeometry();
+
+    await renderReadyMap({ surface: "check-in" });
+    await waitFor(() => expect(mapHarness.map.addCircles).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.fitBounds.mockClear();
+    let resolveCircle!: (ids: string[]) => void;
+    const pendingCircle = new Promise<string[]>((resolve) => {
+      resolveCircle = resolve;
+    });
+    mapHarness.map.addCircles.mockReturnValueOnce(pendingCircle);
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.addCircles).toHaveBeenCalled());
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    await act(async () => {
+      resolveCircle(["nearby-circle"]);
+      await pendingCircle;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-frame markers installed after a newer Locate command", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockRejectedValueOnce(
+      new Error("entry location unavailable"),
+    );
+    let resolveMarkers!: (ids: string[]) => void;
+    const pendingMarkers = new Promise<string[]>((resolve) => {
+      resolveMarkers = resolve;
+    });
+    mapHarness.map.addMarkers.mockReturnValueOnce(pendingMarkers);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 40.7128, -74.006),
+        incomingMarker(ABDUL, 25.4358, 81.8463),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.addMarkers).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    mapHarness.map.fitBounds.mockClear();
+    const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera.mock.calls.length).toBeGreaterThan(
+        cameraCallsBeforeLocate,
+      );
+    });
+
+    // A freshness-clock render must reuse the pending automatic-frame token;
+    // recreating it here would make the old frame newer than Locate again.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 20_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    await act(async () => {
+      resolveMarkers(["marker-0", "marker-1"]);
+      await pendingMarkers;
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("retains initial framing when an older marker pass stalls in clustering", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockRejectedValueOnce(
+      new Error("entry location unavailable"),
+    );
+    let resolveClustering!: () => void;
+    const pendingClustering = new Promise<void>((resolve) => {
+      resolveClustering = resolve;
+    });
+    // The first marker render precedes entry-location settlement and is not
+    // eligible to own the initial camera. Stall the following eligible pass.
+    mapHarness.map.disableClustering
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(pendingClustering);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 40.7128, -74.006),
+        incomingMarker(ABDUL, 25.4358, 81.8463),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() =>
+      expect(
+        mapHarness.map.disableClustering.mock.calls.length,
+      ).toBeGreaterThan(1),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    mapHarness.map.fitBounds.mockClear();
+
+    // A rejected explicit move did not replace the neutral renderer camera, so
+    // it must not permanently supersede the pending automatic frame.
+    mapHarness.map.setCamera.mockRejectedValueOnce(
+      new Error("native camera transaction rejected"),
+    );
+    const locate = screen.getByTestId("one-location-map-locate");
+    fireEvent.click(locate);
+    await waitFor(() => expect(locate).toHaveAttribute("aria-busy", "false"));
+
+    mapHarness.map.fitBounds.mockRejectedValueOnce(
+      new Error("native fit transaction rejected"),
+    );
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Map could not frame everyone."),
+    );
+
+    // Map creation may report its neutral camera while clustering is pending.
+    // That non-gesture report must renew, not permanently stale, the shared
+    // first-frame reservation.
+    await reportCamera();
+
+    // Supersede the pass while it is past addMarkers but still waiting on the
+    // clustering bridge. The fresh pass must inherit, then consume, the same
+    // one-time camera reservation instead of leaving the map at world view.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 20_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    await act(async () => {
+      resolveClustering();
+      await pendingClustering;
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers.mock.calls.length).toBeGreaterThan(1);
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+  });
+
+  it("does not resize the self dot when distant framing is rejected", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.fitBounds.mockRejectedValueOnce(
+      new Error("native fit transaction rejected"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+
+    const ownerCircles = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .filter((circle) => circle.title === "Your location");
+    expect(ownerCircles.length).toBeGreaterThan(0);
+    expect(Number(ownerCircles.at(-1)?.radius)).toBeLessThan(100);
+    mapHarness.map.fitBounds.mockResolvedValue(undefined);
+  });
+
+  it("frames people across the antimeridian on the shortest longitude arc", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 10,
+      longitude: 179.5,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 10, -179.5)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+
+    const bounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
+      value: {
+        southwest: { lat: number; lng: number };
+        northeast: { lat: number; lng: number };
+        center: { lat: number; lng: number };
+      };
+    };
+    expect(bounds.value.southwest.lng).toBeGreaterThan(
+      bounds.value.northeast.lng,
+    );
+    expect(Math.abs(bounds.value.center.lng)).toBeCloseTo(180, 5);
+
+    const fittedFallback = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .reverse()
+      .find((circle) => circle.title === "Your location");
+    expect(fittedFallback).toBeDefined();
+    const fittedZoom = Math.log2((390 - 48) / (256 * (1 / 360)));
+    const metresPerPixel =
+      (156543.03392 * Math.cos((10 * Math.PI) / 180)) / 2 ** fittedZoom;
+    expect(Number(fittedFallback?.radius) / metresPerPixel).toBeCloseTo(9, 1);
+  });
+
+  it("never replaces a self dot whose renderer removal failed", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(
+        mapHarness.map.addCircles.mock.calls
+          .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+          .some((circle) => circle.title === "Your location"),
+      ).toBe(true);
+    });
+
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.removeCircles.mockClear();
+    mapHarness.map.removeCircles.mockRejectedValue(
+      new Error("native map transaction busy"),
+    );
+    await reportCamera({ zoom: 13 });
+
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledTimes(2);
+    });
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+
+    mapHarness.map.removeCircles.mockResolvedValue(undefined);
+    await reportCamera({ zoom: 14 });
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledTimes(3);
+      expect(mapHarness.map.addCircles).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening
     // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
     // gets the one word he is called.
     //
     // The owner is the one marker that never needed a name: the product knows
-    // who they are, so their pin is their face. Both the renderer's generic pin
-    // and the "My location" pill go away with it — three ways of saying "you"
-    // on one coordinate is two too many.
+    // who they are, so their visible stationary marker is their face. The
+    // renderer-owned fallback stays geographically anchored underneath it and
+    // the redundant "My location" pill goes away.
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
       latitude: 25.46,
@@ -3003,8 +3948,9 @@ describe("LocationImmersiveMap reported map defects", () => {
       ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
     });
 
-    // And the renderer is no longer asked to draw a pin under it. The last
-    // marker write carries the two incoming people and nothing else.
+    // The owner's fallback is a renderer circle. The last shared marker batch
+    // still carries only the two incoming people, so camera gestures do not
+    // rewrite either lifecycle.
     await waitFor(() => {
       const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(
         -1,
@@ -3016,6 +3962,27 @@ describe("LocationImmersiveMap reported map defects", () => {
         ),
       ).toBe(false);
     });
+
+    const selfFallbackCircles = mapHarness.map.addCircles.mock.calls
+      .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+      .filter((circle) => circle.title === "Your location");
+    expect(
+      selfFallbackCircles.some((circle) => {
+        const center = circle.center as { lat: number; lng: number };
+        return (
+          Math.abs(center.lat - 25.46) < 0.0001 &&
+          Math.abs(center.lng - 81.85) < 0.0001
+        );
+      }),
+    ).toBe(true);
+    expect(selfFallbackCircles).not.toHaveLength(0);
+    expect(
+      selfFallbackCircles.every(
+        (circle) =>
+          /^#[0-9a-f]{6}$/i.test(String(circle.fillColor)) &&
+          circle.clickable === false,
+      ),
+    ).toBe(true);
 
     // The boundary the pills are allowed to exist on top of: names are HTML in
     // the WebView, and the renderer is still told nothing but coordinates.
@@ -3051,10 +4018,53 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toHaveTextContent("AK");
   });
 
+  it("keeps the owner fallback outside marker clustering", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: Array.from({ length: 9 }, (_, index) =>
+        incomingMarker(
+          `Person ${index}`,
+          25.4358 + index * 0.001,
+          81.8463 + index * 0.001,
+        ),
+      ),
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+
+    await waitFor(() => {
+      expect(mapHarness.map.enableClustering).toHaveBeenCalledWith(4);
+    });
+    const clusteredMarkers = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) => call[0] as Array<{ coordinate: { lat: number; lng: number } }>,
+    );
+    expect(
+      clusteredMarkers.some(
+        (marker) =>
+          Math.abs(marker.coordinate.lat - 25.46) < 0.0001 &&
+          Math.abs(marker.coordinate.lng - 81.85) < 0.0001,
+      ),
+    ).toBe(false);
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(true);
+  });
+
   it("uses the owner's avatar for the check-in map location marker", async () => {
     // During selection the avatar is still the current device fix. The active
     // check-in transition is covered separately above, including its move to
-    // the venue and removal of the renderer pin.
+    // the venue while the stable renderer fallback follows the same identity.
     experienceHarness.nearbyAvailable = true;
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
@@ -3080,28 +4090,27 @@ describe("LocationImmersiveMap reported map defects", () => {
         .getByTestId("one-location-map-self-avatar-legend")
         .querySelector("img"),
     ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
-    // The renderer never draws the owner at all -- avatar from the first
-    // frame it can project, nothing before that -- so there is no pin to
-    // add and none to remove when the avatar takes over.
-    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
-      (call) =>
-        (call[0] as Array<{
-          coordinate: { lat: number; lng: number };
-        }>) ?? [],
+    // The renderer owns one stable, non-clustered geographic fallback under
+    // the avatar.
+    const drawnCircles = mapHarness.map.addCircles.mock.calls.flatMap(
+      (call) => call[0] as Array<Record<string, unknown>>,
     );
     expect(
-      drawnCoords.some(
-        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
-      ),
-    ).toBe(false);
+      drawnCircles.some((circle) => {
+        const center = circle.center as { lat: number };
+        return (
+          circle.title === "Your location" &&
+          Math.abs(center.lat - 25.46) < 0.0001
+        );
+      }),
+    ).toBe(true);
   });
 
-  it("draws no renderer pin while the camera has not reported", async () => {
+  it("keeps a renderer-owned self dot while the camera has not reported", async () => {
     // A renderer too old to emit onBoundsChanged/onCameraIdle can project
-    // nothing, so the avatar layer has no coordinates to draw at. The map
-    // briefly shows no self marker rather than the wrong one: a generic pin
-    // flashing on first paint was the reported bug, and the avatar (with its
-    // initials fallback) appears the moment a camera report arrives.
+    // nothing, so the avatar layer has no coordinates to draw at. The native
+    // marker remains anchored to the real coordinate instead of leaving the
+    // owner missing or asking React to guess screen pixels.
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
       latitude: 25.46,
@@ -3110,25 +4119,30 @@ describe("LocationImmersiveMap reported map defects", () => {
       capturedAt: "2026-07-23T00:00:00.000Z",
       sourcePlatform: "ios",
     });
+    mapHarness.map.addCircles.mockRejectedValueOnce(
+      new Error("transient native circle install failure"),
+    );
 
     await renderReadyMap();
 
     // No reportCamera() in this case, on purpose.
-    expect(
-      screen.queryByTestId("one-location-map-self-avatar"),
-    ).not.toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
-      (call) =>
-        (call[0] as Array<{
-          coordinate: { lat: number; lng: number };
-        }>) ?? [],
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
     );
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const drawnCircles = mapHarness.map.addCircles.mock.calls.flatMap(
+      (call) => call[0] as Array<Record<string, unknown>>,
+    );
+    expect(mapHarness.map.addCircles.mock.calls.length).toBeGreaterThan(1);
     expect(
-      drawnCoords.some(
-        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
-      ),
-    ).toBe(false);
+      drawnCircles.some((circle) => {
+        const center = circle.center as { lat: number };
+        return (
+          circle.title === "Your location" &&
+          Math.abs(center.lat - 25.46) < 0.0001
+        );
+      }),
+    ).toBe(true);
   });
 
   it("answers a tap on your avatar the way the renderer answered a tap on your pin", async () => {
@@ -3260,12 +4274,192 @@ describe("LocationImmersiveMap reported map defects", () => {
     );
   });
 
-  it("fades the names out while a native camera is mid-gesture", async () => {
-    // iOS and Android report the camera only once it settles. Holding the old
-    // positions through a drag would walk every name away from its pin, so the
-    // layer says nothing until it knows something again.
-    platformHarness.native = true;
+  it.each([
+    ["Your Map", "map" as const],
+    ["Check-in", "check-in" as const],
+  ])(
+    "keeps the owner marker anchored during bounds-only web motion on %s",
+    async (_name, surface) => {
+      // This regression was reported on both routes. Capacitor web derives
+      // move-start from centre changes, but wheel/pinch zoom can emit only
+      // bounds changes. The first bounds event must therefore hide the manually
+      // projected avatar until idle while the already-mounted renderer circle
+      // remains geographically authoritative.
+      stubPhoneGeometry();
+      serviceHarness.captureCurrentPosition.mockResolvedValue({
+        latitude: 25.46,
+        longitude: 81.85,
+        accuracyM: 12,
+        capturedAt: "2026-07-23T00:00:00.000Z",
+        sourcePlatform: "ios",
+      });
+      serviceHarness.getMapState.mockResolvedValue({
+        markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+        preferences: { presenceMode: "ghost" },
+      });
+
+      await renderReadyMap({ surface });
+      if (surface === "check-in") {
+        fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+      }
+      await reportCamera();
+
+      const layer = screen.getByTestId("one-location-map-name-labels");
+      expect(layer).toHaveClass("opacity-100");
+      expect(
+        screen.getByTestId("one-location-map-self-avatar"),
+      ).toBeInTheDocument();
+
+      const ownerControl = screen.getByTestId("one-location-map-self-avatar");
+      ownerControl.focus();
+      const initialRendererCircles =
+        mapHarness.map.addCircles.mock.calls.flatMap(
+          (call) => call[0] as Array<Record<string, unknown>>,
+        );
+      expect(
+        initialRendererCircles.some((circle) => {
+          const center = circle.center as { lat: number; lng: number };
+          return (
+            circle.title === "Your location" &&
+            Math.abs(center.lat - 25.46) < 0.0001 &&
+            Math.abs(center.lng - 81.85) < 0.0001
+          );
+        }),
+      ).toBe(true);
+
+      mapHarness.map.addMarkers.mockClear();
+      mapHarness.map.removeMarkers.mockClear();
+      mapHarness.map.addCircles.mockClear();
+      mapHarness.map.removeCircles.mockClear();
+      await act(async () => {
+        mapHarness.listeners.boundsChanged?.({
+          mapId: "one-location-private-map",
+          bounds: {
+            northeast: { lat: 25.49, lng: 81.9 },
+            southwest: { lat: 25.44, lng: 81.83 },
+            center: { lat: 25.465, lng: 81.865 },
+          },
+          latitude: 25.465,
+          longitude: 81.865,
+          zoom: 13,
+          bearing: 0,
+          tilt: 0,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
+      expect(layer).toHaveClass("opacity-0");
+      expect(screen.getByTestId("one-location-map-self-avatar")).toBe(
+        ownerControl,
+      );
+      expect(ownerControl).toHaveClass("sr-only");
+      expect(document.activeElement).toBe(ownerControl);
+      expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeCircles).not.toHaveBeenCalled();
+
+      // Further bounds frames remain moving and still do not churn any bridge
+      // marker lifecycle.
+      await act(async () => {
+        mapHarness.listeners.boundsChanged?.({
+          mapId: "one-location-private-map",
+          bounds: {
+            northeast: { lat: 25.49, lng: 81.9 },
+            southwest: { lat: 25.44, lng: 81.83 },
+            center: { lat: 25.465, lng: 81.865 },
+          },
+          latitude: 25.465,
+          longitude: 81.865,
+          zoom: 12,
+          bearing: 0,
+          tilt: 0,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+      expect(screen.getByTestId("one-location-map-self-avatar")).toBe(
+        ownerControl,
+      );
+      expect(ownerControl).toHaveClass("sr-only");
+      expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeCircles).not.toHaveBeenCalled();
+
+      // Camera idle commits the matching camera and then restores the avatar.
+      await reportCamera();
+      expect(layer).toHaveClass("opacity-100");
+      expect(screen.getByTestId("one-location-map-self-avatar")).toBe(
+        ownerControl,
+      );
+      expect(ownerControl).not.toHaveClass("sr-only");
+      expect(document.activeElement).toBe(ownerControl);
+      expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeCircles).not.toHaveBeenCalled();
+    },
+  );
+
+  it("settles bounds-only web motion when the idle listener is unavailable", async () => {
     stubPhoneGeometry();
+    mapHarness.map.setOnCameraIdleListener.mockRejectedValueOnce(
+      new Error("camera idle listener unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    const ownerControl = screen.getByTestId("one-location-map-self-avatar");
+    const layer = screen.getByTestId("one-location-map-name-labels");
+
+    await act(async () => {
+      mapHarness.listeners.boundsChanged?.({
+        mapId: "one-location-private-map",
+        bounds: {
+          northeast: { lat: 25.49, lng: 81.9 },
+          southwest: { lat: 25.44, lng: 81.83 },
+          center: { lat: 25.465, lng: 81.865 },
+        },
+        latitude: 25.465,
+        longitude: 81.865,
+        zoom: 13,
+        bearing: 0,
+        tilt: 0,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(ownerControl).toHaveClass("sr-only");
+    expect(layer).toHaveClass("opacity-0");
+
+    await waitFor(() => {
+      expect(ownerControl).not.toHaveClass("sr-only");
+      expect(layer).toHaveClass("opacity-100");
+    });
+  });
+
+  it("keeps web HTML overlays disabled when bounds changes cannot be observed", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera bounds listener unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
     serviceHarness.getMapState.mockResolvedValue({
       markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
       preferences: { presenceMode: "ghost" },
@@ -3274,20 +4468,258 @@ describe("LocationImmersiveMap reported map defects", () => {
     await renderReadyMap();
     await reportCamera();
 
-    const layer = screen.getByTestId("one-location-map-name-labels");
-    expect(layer).toHaveClass("opacity-100");
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+    expect(screen.queryAllByTestId("one-location-map-name-label")).toHaveLength(
+      0,
+    );
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(true);
+  });
+
+  it("serializes native padding writes across an older rejection", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let rejectFirstPadding!: (reason: Error) => void;
+    const firstPadding = new Promise<void>((_resolve, reject) => {
+      rejectFirstPadding = reject;
+    });
+    mapHarness.map.setPadding
+      .mockReturnValueOnce(firstPadding)
+      .mockResolvedValue(undefined);
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 900,
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    // The changed geometry is queued behind the in-flight bridge write, so an
+    // older failure can never arrive after (and roll back) the newer success.
+    expect(mapHarness.map.setPadding).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rejectFirstPadding(new Error("older native padding write rejected"));
+      await firstPadding.catch(() => undefined);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mapHarness.map.setPadding.mock.calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  it("keeps native HTML overlays disabled when move-start cannot be observed", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    mapHarness.map.setOnCameraMoveStartedListener.mockRejectedValueOnce(
+      new Error("native move-start listener unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+    expect(screen.queryAllByTestId("one-location-map-name-label")).toHaveLength(
+      0,
+    );
+    expect(
+      mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .some((circle) => circle.title === "Your location"),
+    ).toBe(true);
+  });
+
+  it("does not treat Android's trailing bounds notification as a new camera move", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+    await reportCamera();
 
     await act(async () => {
       mapHarness.listeners.cameraMoveStarted?.({
         mapId: "one-location-private-map",
         isGesture: true,
       });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
-    expect(layer).toHaveClass("opacity-0");
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
 
-    // The camera settling is what ends the blackout.
     await reportCamera();
-    expect(layer).toHaveClass("opacity-100");
+    expect(
+      screen.getByTestId("one-location-map-self-avatar"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-self-avatar")).not.toHaveClass(
+      "sr-only",
+    );
+
+    // The Android bridge reports idle before its final bounds callback. That
+    // callback may update the settled camera, but must not reopen the moving
+    // window or leave the avatar hidden indefinitely.
+    await act(async () => {
+      mapHarness.listeners.boundsChanged?.({
+        mapId: "one-location-private-map",
+        bounds: {
+          northeast: { lat: 25.49, lng: 81.9 },
+          southwest: { lat: 25.44, lng: 81.83 },
+          center: { lat: 25.465, lng: 81.865 },
+        },
+        latitude: 25.465,
+        longitude: 81.865,
+        zoom: 13,
+        bearing: 0,
+        tilt: 0,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    expect(
+      screen.getByTestId("one-location-map-self-avatar"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-name-labels")).toHaveClass(
+      "opacity-100",
+    );
+  });
+
+  it("settles native motion from trailing bounds when idle never arrives", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    await act(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({
+        mapId: "one-location-private-map",
+        isGesture: true,
+      });
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
+      "sr-only",
+    );
+
+    // The listener registered successfully, but deliberately emit no idle.
+    // Native adapters deliver this bounds payload from camera-idle too.
+    await act(async () => {
+      mapHarness.listeners.boundsChanged?.({
+        mapId: "one-location-private-map",
+        bounds: {
+          northeast: { lat: 25.49, lng: 81.9 },
+          southwest: { lat: 25.44, lng: 81.83 },
+          center: { lat: 25.465, lng: 81.865 },
+        },
+        latitude: 25.465,
+        longitude: 81.865,
+        zoom: 13,
+        bearing: 0,
+        tilt: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("one-location-map-self-avatar")).not.toHaveClass(
+      "sr-only",
+    );
+    expect(screen.getByTestId("one-location-map-name-labels")).toHaveClass(
+      "opacity-100",
+    );
+  });
+
+  it("uses the renderer-owned self dot when rotation makes HTML projection unsafe", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    expect(
+      screen.getByTestId("one-location-map-self-avatar"),
+    ).toBeInTheDocument();
+
+    const ownerControl = screen.getByTestId("one-location-map-self-avatar");
+    const initialRendererCircles = mapHarness.map.addCircles.mock.calls.flatMap(
+      (call) => call[0] as Array<Record<string, unknown>>,
+    );
+    expect(
+      initialRendererCircles.some((circle) => {
+        const center = circle.center as { lat: number; lng: number };
+        return (
+          circle.title === "Your location" &&
+          Math.abs(center.lat - 25.46) < 0.0001 &&
+          Math.abs(center.lng - 81.85) < 0.0001
+        );
+      }),
+    ).toBe(true);
+
+    mapHarness.map.addMarkers.mockClear();
+    mapHarness.map.removeMarkers.mockClear();
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.removeCircles.mockClear();
+    mapHarness.map.setCamera.mockClear();
+    await reportCamera({ bearing: 42 });
+
+    expect(screen.getByTestId("one-location-map-self-avatar")).toBe(
+      ownerControl,
+    );
+    expect(ownerControl).toHaveClass("sr-only");
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.removeMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(mapHarness.map.removeCircles).not.toHaveBeenCalled();
+
+    expect(ownerControl).toHaveAccessibleName("Your location");
+    fireEvent.click(ownerControl);
+    expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: { lat: 25.46, lng: 81.85 },
+      zoom: 15,
+      animate: true,
+    });
   });
 });
