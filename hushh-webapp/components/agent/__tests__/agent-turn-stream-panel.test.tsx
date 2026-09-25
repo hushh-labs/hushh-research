@@ -256,6 +256,7 @@ describe("AgentTurnStreamPanel", () => {
       onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes} />);
     fireEvent.click(screen.getByRole("button", { name: "Compile original notes" }));
     expect(onCompileDriveNotes).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("list", { name: "Document sources" })).not.toBeInTheDocument();
 
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
       structuredExperience={experience} onCompileDriveNotes={onCompileDriveNotes}
