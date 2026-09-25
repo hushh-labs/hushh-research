@@ -586,6 +586,7 @@ async function fetchStatusFromNetwork(params: {
   idTokenProvider?: (() => Promise<string>) | null;
   onSyncComplete?: (status: GmailConnectionStatus) => void;
   pollActiveRun?: boolean;
+  isCurrent?: () => boolean;
 }): Promise<GmailConnectionStatus | null> {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return null;
@@ -629,7 +630,8 @@ async function fetchStatusFromNetwork(params: {
   });
 
   const shouldReconcile = params.reconcile ?? Boolean(params.force);
-  const request = (
+  let request: Promise<GmailConnectionStatus | null>;
+  request = (
     shouldReconcile
       ? GmailReceiptsService.reconcile
       : GmailReceiptsService.getStatus
@@ -638,6 +640,7 @@ async function fetchStatusFromNetwork(params: {
     userId: normalizedUserId,
   })
     .then((status) => {
+      if (params.isCurrent && !params.isCurrent()) return null;
       primeConnectorStatus({
         userId: normalizedUserId,
         status,
@@ -652,12 +655,14 @@ async function fetchStatusFromNetwork(params: {
       return status;
     })
     .catch(async (error) => {
+      if (params.isCurrent && !params.isCurrent()) return null;
       if (shouldReconcile) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
             idToken: params.idToken,
             userId: normalizedUserId,
           });
+          if (params.isCurrent && !params.isCurrent()) return null;
           primeConnectorStatus({
             userId: normalizedUserId,
             status: fallbackStatus,
@@ -690,8 +695,12 @@ async function fetchStatusFromNetwork(params: {
       return entry.status;
     })
     .finally(() => {
-      inflightStatusRequests.delete(normalizedUserId);
-      updateEntry(normalizedUserId, { isRefreshing: false });
+      if (inflightStatusRequests.get(normalizedUserId) === request) {
+        inflightStatusRequests.delete(normalizedUserId);
+        if (!params.isCurrent || params.isCurrent()) {
+          updateEntry(normalizedUserId, { isRefreshing: false });
+        }
+      }
     });
 
   inflightStatusRequests.set(normalizedUserId, request);
@@ -809,9 +818,12 @@ async function pollSyncRun(params: {
             idToken,
             force: true,
             routeHref: params.routeHref,
-            idTokenProvider: null,
-            pollActiveRun: false,
-          });
+          idTokenProvider: null,
+          pollActiveRun: false,
+          isCurrent: () =>
+            inflightRunPollers.get(normalizedUserId) === controller &&
+            !controller.signal.aborted,
+        });
         } catch (refreshError) {
           if (controller.signal.aborted) return;
           console.warn(
@@ -820,7 +832,6 @@ async function pollSyncRun(params: {
           );
         }
         if (controller.signal.aborted) {
-          clearConnectorStatus(normalizedUserId);
           return;
         }
         const finalRun = refreshed?.latest_run;
@@ -962,11 +973,15 @@ async function pollSyncRun(params: {
       statusError: nextError,
     });
   } finally {
-    inflightRunPollers.delete(normalizedUserId);
-    // clearConnectorStatus intentionally removes the entry. Do not recreate
-    // it from cleanup after its poll controller has been aborted.
-    if (!controller.signal.aborted) {
-      updateEntry(normalizedUserId, { isPolling: false });
+    // Cleanup is generation-scoped. A cleared poll may finish after a new
+    // connection has installed its replacement controller and state.
+    if (inflightRunPollers.get(normalizedUserId) === controller) {
+      inflightRunPollers.delete(normalizedUserId);
+      // clearConnectorStatus intentionally removes the entry. Do not recreate
+      // it from cleanup after its poll controller has been aborted.
+      if (!controller.signal.aborted) {
+        updateEntry(normalizedUserId, { isPolling: false });
+      }
     }
   }
 

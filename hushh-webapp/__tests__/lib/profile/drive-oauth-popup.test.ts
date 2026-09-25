@@ -3,6 +3,7 @@ import {
   isDrivePopupSettlement,
   navigateDriveOAuthPopup,
   readDrivePopupAttempt,
+  waitForOAuthPopup,
   waitForDrivePopup,
 } from "@/lib/profile/drive-oauth-popup";
 
@@ -103,6 +104,31 @@ describe("Drive popup boundary", () => {
       expect(target.close).toHaveBeenCalledOnce();
     },
   );
+  it.each([
+    ["close", "closed"],
+    ["expire", "expired"],
+  ] as const)("reports the bounded %s completion reason", async (kind, reason) => {
+    const target = popup();
+    const onFinish = vi.fn();
+    const currentAttempt = attempt();
+    const result = waitForOAuthPopup({
+      popup: target,
+      expiresAt: currentAttempt.expiresAt,
+      signal: new AbortController().signal,
+      matches: () => false,
+      storageValue: () => null,
+      onFinish,
+    });
+    if (kind === "close") {
+      Object.defineProperty(target, "closed", { value: true });
+      await vi.advanceTimersByTimeAsync(500);
+    } else {
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+
+    await result;
+    expect(onFinish).toHaveBeenCalledExactlyOnceWith(reason);
+  });
   it("rejects malformed expiry without an unbounded watcher", async () => {
     const target = popup();
     await expect(

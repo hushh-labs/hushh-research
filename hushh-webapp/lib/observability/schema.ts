@@ -22,6 +22,7 @@ const ONE_LOCATION_JOURNEY_ACTION_SET = new Set<string>(ONE_LOCATION_JOURNEY_ACT
 const GOVERNED_ACTIONS_BY_EVENT: Partial<Record<ObservabilityEventName, ReadonlySet<string>>> = {
   gmail_connect_started: new Set(GMAIL_CONNECT_STARTED_ACTIONS),
   gmail_connect_result: new Set(GMAIL_CONNECT_RESULT_ACTIONS),
+  gmail_sync_requested: new Set(["manual"]),
   one_memory_action: new Set(ONE_MEMORY_ACTIONS),
   one_wallet_action: new Set(ONE_WALLET_ACTIONS),
   one_calendar_action: new Set(ONE_CALENDAR_ACTIONS),
@@ -33,7 +34,10 @@ const GOVERNED_RESULTS = new Set(["success", "expected_error", "error"]);
 const GOVERNED_RESULTS_BY_EVENT: Partial<Record<ObservabilityEventName, ReadonlySet<string>>> = {
   gmail_connect_started: new Set(["success"]),
   gmail_connect_result: GOVERNED_RESULTS,
+  gmail_disconnect_result: GOVERNED_RESULTS,
+  gmail_sync_requested: new Set(["success"]),
   gmail_sync_result: GOVERNED_RESULTS,
+  gmail_receipts_loaded: GOVERNED_RESULTS,
   one_memory_action: GOVERNED_RESULTS,
   one_wallet_action: GOVERNED_RESULTS,
   one_calendar_action: GOVERNED_RESULTS,

@@ -980,6 +980,7 @@ function OwnerConnectorsPanel({
     const close = () => popup?.close();
     signal.addEventListener("abort", close, { once: true });
     void (async () => {
+      let webPopupFailureCode: "USER_CANCELLED" | "POPUP_TIMEOUT" | null = null;
       try {
         const idToken = await user.getIdToken();
         if (signal.aborted) return;
@@ -1044,6 +1045,10 @@ function OwnerConnectorsPanel({
               isGmailOAuthPopupSettlement(value) &&
               value.attemptId === attempt.attemptId,
             storageValue: readGmailOAuthPopupSettlementFallback,
+            onFinish: (reason) => {
+              if (reason === "closed") webPopupFailureCode = "USER_CANCELLED";
+              else if (reason === "expired") webPopupFailureCode = "POPUP_TIMEOUT";
+            },
           });
         }
         if (!signal.aborted) {
@@ -1051,6 +1056,12 @@ function OwnerConnectorsPanel({
             force: true,
             reconcile: false,
           });
+          if (!status?.connected && webPopupFailureCode) {
+            GmailReceiptsService.recordConsentFailure({
+              code: webPopupFailureCode,
+            });
+            webPopupFailureCode = null;
+          }
           if (!signal.aborted)
             setMailMessage(
               status?.connected
@@ -1059,6 +1070,12 @@ function OwnerConnectorsPanel({
             );
         }
       } catch {
+        if (!signal.aborted && webPopupFailureCode) {
+          GmailReceiptsService.recordConsentFailure({
+            code: webPopupFailureCode,
+          });
+          webPopupFailureCode = null;
+        }
         if (!signal.aborted)
           setMailMessage("Could not finish Mail connection. Try again.");
       } finally {

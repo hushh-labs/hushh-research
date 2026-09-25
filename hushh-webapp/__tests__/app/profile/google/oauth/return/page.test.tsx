@@ -117,6 +117,10 @@ describe("GoogleOAuthReturnPage", () => {
     await waitFor(() =>
       expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"),
     );
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
   it.each([undefined, "contacts", "drive"])(

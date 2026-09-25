@@ -146,13 +146,9 @@ export function CalendarAgentPage({
           access_level: completedAccessLevel ?? current?.access_level ?? null,
           scope_csv: current?.scope_csv ?? "",
         }));
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
       } else if (outcome === "failed") {
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "error" });
         morphyToast.error(message || "Google Calendar could not be connected.");
-      } else {
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
       }
     };
     const onMessage = (event: MessageEvent) => {

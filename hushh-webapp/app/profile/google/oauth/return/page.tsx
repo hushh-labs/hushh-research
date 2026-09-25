@@ -95,13 +95,14 @@ function GoogleOAuthReturnContent() {
       if (terminalOutcomeRecorded.current) return;
       terminalOutcomeRecorded.current = true;
       if (isSameWindowCalendar) clearGoogleOAuthAttempt();
-      if (isSameWindowCalendar) {
+      if (!attempt || attempt.service === "calendar") {
         trackEvent("one_calendar_action", {
           route_id: "one_calendar",
           action: "connected",
           result: outcome === "cancelled" ? "expected_error" : "error",
         });
-      } else if (attempt) {
+      }
+      if (attempt && !isSameWindowCalendar) {
         settleGoogleOAuthPopup(attempt, outcome, text);
       }
     };
@@ -182,17 +183,17 @@ function GoogleOAuthReturnContent() {
         if (terminalOutcomeRecorded.current) return;
         terminalOutcomeRecorded.current = true;
         if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+        trackEvent("one_calendar_action", {
+          route_id: "one_calendar",
+          action: "connected",
+          result: "success",
+        });
         if (attempt && !isSameWindowCalendar) {
           settleGoogleOAuthPopup(attempt, "succeeded");
         } else {
           // Same-window OAuth (for example, a blocked popup on mobile web)
           // has no Calendar page settlement listener. Count it here only
           // after the owner-bound completion confirms the connection.
-          trackEvent("one_calendar_action", {
-            route_id: "one_calendar",
-            action: "connected",
-            result: "success",
-          });
           router.replace(
             active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
           );

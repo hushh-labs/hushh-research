@@ -544,7 +544,7 @@ describe("gmail-connector-store", () => {
     }
   });
 
-  it("does not recreate state or emit after cancellation during the final refresh", async () => {
+  it("does not erase a replacement generation after cancellation during the final refresh", async () => {
     let nowMs = 0;
     let resolveFinalStatus:
       | ((
@@ -574,10 +574,15 @@ describe("gmail-connector-store", () => {
         duplicates_dropped: 0,
         extraction_success_rate: 0,
       } as const;
-      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(async () => {
-        nowMs = 2 * 60 * 1000 + 1;
-        return { run: activeRun };
-      });
+      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(
+        async ({ runId }) => {
+          if (runId === activeRun.run_id) {
+            nowMs = 2 * 60 * 1000 + 1;
+            return { run: activeRun };
+          }
+          return new Promise(() => undefined);
+        },
+      );
       vi.mocked(GmailReceiptsService.reconcile).mockImplementation(
         () =>
           new Promise((resolve) => {
@@ -608,6 +613,31 @@ describe("gmail-connector-store", () => {
       expect(GmailReceiptsService.reconcile).toHaveBeenCalledTimes(1);
 
       clearConnectorStatus("user-final-cancel");
+      const replacementRun = {
+        ...activeRun,
+        run_id: "run-replacement",
+        status: "running" as const,
+      };
+      const replacementStatus = {
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+        last_sync_status: "running",
+        latest_run: replacementRun,
+      };
+      primeConnectorStatus({
+        userId: "user-final-cancel",
+        status: replacementStatus,
+        source: "status",
+        idTokenProvider: async () => "replacement-token",
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
       resolveFinalStatus?.({
         configured: true,
         connected: true,
@@ -628,7 +658,17 @@ describe("gmail-connector-store", () => {
         "gmail_sync_result",
         expect.anything(),
       );
-      expect(getConnectorView("user-final-cancel").status).toBeNull();
+      expect(getConnectorView("user-final-cancel").status).toMatchObject({
+        latest_run: { run_id: "run-replacement" },
+      });
+      primeConnectorStatus({
+        userId: "user-final-cancel",
+        status: replacementStatus,
+        source: "status",
+        idTokenProvider: async () => "replacement-token",
+      });
+      await act(async () => Promise.resolve());
+      expect(GmailReceiptsService.getSyncRun).toHaveBeenCalledTimes(2);
     } finally {
       clearConnectorStatus("user-final-cancel");
       setTimeoutSpy.mockRestore();

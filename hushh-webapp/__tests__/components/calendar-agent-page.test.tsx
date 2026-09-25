@@ -191,13 +191,14 @@ describe("CalendarAgentPage", () => {
         },
       }));
     });
-    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
-      "one_calendar_action",
-      { route_id: "one_calendar", action: "connected", result: "success" },
-    ));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Connect Calendar" }),
+      ).toBeNull(),
+    );
     expect(mocks.trackEvent).not.toHaveBeenCalledWith(
       "one_calendar_action",
-      expect.objectContaining({ result: "expected_error" }),
+      expect.objectContaining({ action: "connected" }),
     );
   });
 

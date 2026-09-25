@@ -106,6 +106,31 @@ describe("observability schema", () => {
     expect(invalid.ok).toBe(false);
     expect(invalid.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
   });
+
+  it.each([
+    ["gmail_disconnect_result", undefined, "invented_result"],
+    ["gmail_sync_requested", "auto", "ok"],
+    ["gmail_receipts_loaded", undefined, "invented_result"],
+  ] as const)(
+    "fatally rejects undeclared %s outcome values",
+    (eventName, action, resultValue) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "system",
+        app_version: "1.1.0",
+        result: resultValue,
+      };
+      if (action) payload.action = action;
+
+      const result = validateAndSanitizeEvent(eventName, payload as never);
+
+      expect(result.ok).toBe(false);
+      expect(result.fatal).toBe(true);
+      expect(result.sanitized).not.toHaveProperty("result");
+      if (action) expect(result.sanitized).not.toHaveProperty("action");
+    },
+  );
   it("accepts metadata-only api payloads", () => {
     const result = validateAndSanitizeEvent("api_request_completed", {
       env: "uat",
