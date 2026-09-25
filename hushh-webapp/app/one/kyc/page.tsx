@@ -388,6 +388,14 @@ export function OneKycWorkspace({
   const auth = useRequireAuth();
   const activeOwnerIdRef = useRef<string | null>(auth.userId);
   activeOwnerIdRef.current = auth.userId;
+  useEffect(() => {
+    activeOwnerIdRef.current = auth.userId;
+    return () => {
+      if (activeOwnerIdRef.current === auth.userId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [auth.userId]);
   const trackKycOutcome = useCallback(
     (
       ownerId: string | null,

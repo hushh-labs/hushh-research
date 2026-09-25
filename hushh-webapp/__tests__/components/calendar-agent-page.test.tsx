@@ -253,6 +253,46 @@ describe("CalendarAgentPage", () => {
     );
   });
 
+  it("suppresses abandoned popup recovery after the owner changes", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") {
+        popupWatcher = handler;
+      }
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    const view = render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    mocks.ownerId = "other-owner";
+    view.rerender(<CalendarAgentPage />);
+    Object.assign(mocks.popup as object, { closed: true });
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
+  });
+
   it("records a Calendar popup timeout as a connection failure", async () => {
     let popupWatcher: (() => void) | null = null;
     vi.spyOn(window, "setInterval").mockImplementation(((

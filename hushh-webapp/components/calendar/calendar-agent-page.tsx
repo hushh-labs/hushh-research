@@ -104,13 +104,16 @@ export function CalendarAgentPage({
   const popupRef = useRef<Window | null>(null);
   const popupStartedAtRef = useRef<number | null>(null);
   const popupAccessLevelRef = useRef<"read" | "manage" | null>(null);
+  const popupOwnerIdRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user || connectionPending) return null;
+    const operationOwnerId = user.uid;
     const next = await GoogleCalendarService.status(
       await user.getIdToken(),
-      user.uid,
+      operationOwnerId,
     );
+    if (activeOwnerIdRef.current !== operationOwnerId) return null;
     setStatus(next);
     return next;
   }, [connectionPending, user]);
@@ -127,11 +130,18 @@ export function CalendarAgentPage({
 
   useEffect(() => {
     const clearAttempt = () => {
+      const attemptOwnerId = popupOwnerIdRef.current;
       expectedPopupAttempt.current = null;
       popupRef.current = null;
       popupStartedAtRef.current = null;
       popupAccessLevelRef.current = null;
-      setBusy(false);
+      popupOwnerIdRef.current = null;
+      if (
+        !attemptOwnerId ||
+        activeOwnerIdRef.current === attemptOwnerId
+      ) {
+        setBusy(false);
+      }
     };
     const settle = async (
       attemptId: string,
@@ -146,7 +156,9 @@ export function CalendarAgentPage({
       }
       consumeStoredGoogleOAuthPopupSettlement(attemptId);
       const completedAccessLevel = popupAccessLevelRef.current;
+      const attemptOwnerId = popupOwnerIdRef.current;
       clearAttempt();
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
       if (outcome === "succeeded") {
         // The owner-bound callback has already verified the completed
         // connection. Keep that terminal result authoritative instead of
@@ -190,8 +202,11 @@ export function CalendarAgentPage({
         expectedPopupAttempt.current,
       );
       const requestedAccessLevel = popupAccessLevelRef.current;
+      const attemptOwnerId = popupOwnerIdRef.current;
       clearAttempt();
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
       const currentStatus = await refresh().catch(() => null);
+      if (activeOwnerIdRef.current !== attemptOwnerId) return;
       if (
         currentStatus?.connected &&
         (requestedAccessLevel !== "manage" ||
@@ -309,7 +324,10 @@ export function CalendarAgentPage({
         userId: operationOwnerId,
         accessLevel: accessLevel,
       });
-      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      if (activeOwnerIdRef.current !== operationOwnerId) {
+        popup?.close();
+        return;
+      }
       if (!popup) {
         if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
           throw new Error(
@@ -323,6 +341,7 @@ export function CalendarAgentPage({
       popupRef.current = popup;
       popupStartedAtRef.current = Date.now();
       popupAccessLevelRef.current = accessLevel;
+      popupOwnerIdRef.current = operationOwnerId;
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
       if (activeOwnerIdRef.current !== operationOwnerId) return;
@@ -337,6 +356,7 @@ export function CalendarAgentPage({
       popupRef.current = null;
       popupStartedAtRef.current = null;
       popupAccessLevelRef.current = null;
+      popupOwnerIdRef.current = null;
       toast.error(
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );

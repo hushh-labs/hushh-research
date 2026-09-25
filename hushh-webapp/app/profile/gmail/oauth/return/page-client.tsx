@@ -203,6 +203,15 @@ export default function ProfileGmailOAuthReturnPageClient({
   const { user, loading } = useAuth();
   const activeOwnerIdRef = useRef<string | null>(user?.uid ?? null);
   activeOwnerIdRef.current = user?.uid ?? null;
+  const renderedOwnerId = user?.uid ?? null;
+  useEffect(() => {
+    activeOwnerIdRef.current = renderedOwnerId;
+    return () => {
+      if (activeOwnerIdRef.current === renderedOwnerId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedOwnerId]);
   const [stage, setStage] = useState<CompleteStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnToSetup, setReturnToSetup] = useState(false);

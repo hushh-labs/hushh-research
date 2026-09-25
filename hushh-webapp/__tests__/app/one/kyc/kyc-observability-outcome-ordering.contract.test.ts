@@ -28,6 +28,7 @@ describe("One KYC observability outcome ordering", () => {
 
   it("routes every KYC terminal outcome through the initiating-owner guard", () => {
     expect(source).toContain("activeOwnerIdRef.current !== ownerId");
+    expect(source).toContain("activeOwnerIdRef.current = null");
     expect(source.match(/trackEvent\("one_kyc_action"/g)).toHaveLength(1);
     expect(source.match(/trackKycOutcome\(operationOwnerId,/g)?.length).toBeGreaterThanOrEqual(10);
   });

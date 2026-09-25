@@ -348,6 +348,48 @@ describe("ProfileGmailOAuthReturnPage", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("suppresses a detached callback outcome after unmount", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      scope_csv: string;
+      auto_sync_enabled: boolean;
+      revoked: boolean;
+    }) => void;
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "unmounted-code";
+      if (key === "state") return "unmounted-state";
+      return null;
+    });
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    const view = render(<ProfileGmailOAuthReturnPage />);
+    await waitFor(() =>
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalled(),
+    );
+
+    view.unmount();
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+      });
+    });
+
+    expect(
+      mocks.gmailReceiptsService.recordConnectCompletion,
+    ).not.toHaveBeenCalled();
+  });
+
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
     const opener = {
       closed: false,
