@@ -1,6 +1,7 @@
 import type { LucideIcon } from "@/components/icons";
 import {
   Database,
+  FileText,
   MapPin,
   Newspaper,
   ShieldCheck,
@@ -10,6 +11,7 @@ import {
 } from "@/components/icons";
 
 import { humanizeConsentScope } from "@/lib/consent/consent-display";
+import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
@@ -139,6 +141,61 @@ function counterpartPerson(
     displayName,
     photoUrl: resolveCounterpartPhotoUrl(metadata),
   };
+}
+
+/**
+ * The action line for a Drive sharing or Drive question row (migration 246).
+ *
+ * The row never carries a file name or the question, only the closed type,
+ * which side of the request this person is on, and the request's status word
+ * at the moment of the event -- so the line says what happened, and the tap
+ * opens the same review a push would.
+ */
+function driveFeedLine(
+  eventType: string,
+  sharedWithMe: boolean,
+  status: string,
+): string {
+  switch (eventType) {
+    case "document_share_request":
+      return "Asked for files from your Drive";
+    case "document_share_review_ready":
+      return "Files are ready for you to review";
+    case "document_share_decided":
+      if (sharedWithMe) {
+        return status === "declined"
+          ? "Declined your file request"
+          : "Is sharing Drive files with you";
+      }
+      return status === "cancelled"
+        ? "Withdrew their file request"
+        : "Getting your shared files";
+    case "document_share_outcome":
+      if (sharedWithMe) {
+        return status === "partial"
+          ? "Shared some Drive files with you"
+          : "Shared Drive files with you";
+      }
+      return status === "partial"
+        ? "Got some of your shared files"
+        : "Now has your shared files";
+    case "document_share_revoked":
+      return sharedWithMe
+        ? "Removed your access to shared files"
+        : "No longer has your shared files";
+    case "document_share_revocation_outcome":
+      return sharedWithMe
+        ? "Changed your access to shared files"
+        : "Some access couldn't be removed";
+    case "document_share_question":
+      return "Asked a question about your Drive";
+    case "document_share_answered":
+      return "Answered your Drive question";
+    case "document_share_declined":
+      return "Declined your Drive question";
+    default:
+      return "";
+  }
 }
 
 /**
@@ -773,6 +830,36 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? "You removed the connection"
             : "Removed your connection",
         href: ROUTES.CONNECT,
+      };
+    }
+    case "document_share_request":
+    case "document_share_review_ready":
+    case "document_share_decided":
+    case "document_share_outcome":
+    case "document_share_revoked":
+    case "document_share_revocation_outcome":
+    case "document_share_question":
+    case "document_share_answered":
+    case "document_share_declined": {
+      const hasWho = who !== "Someone";
+      const selection = documentShareNotificationSelection({
+        type: item.event_type,
+        request_id: metadataString(item.metadata, "request_id"),
+      });
+      return {
+        icon: FileText,
+        domainLabel: "Google Drive",
+        label: hasWho ? who : "Google Drive",
+        person: counterpartPerson(item.metadata, who),
+        description: driveFeedLine(
+          item.event_type,
+          sharedWithMe,
+          metadataString(item.metadata, "user_facing_status"),
+        ),
+        href: buildConsentCenterHref(
+          "pending",
+          selection ? { requestId: selection } : undefined,
+        ),
       };
     }
     default:

@@ -552,6 +552,7 @@ class DriveSuggestionService:
                         job,
                         code="no_ready_files",
                         retryable=owner_selected is None and await self.store.indexing_pending(job),
+                        notify_owner=owner_selected is None,
                     )
                     return "no_ready_files"
                 await reader.require_current()
@@ -706,5 +707,6 @@ class DriveSuggestionService:
                 # A's hand-picked selection is never re-run by the background worker.
                 retryable=owner_selected is None
                 and (not isinstance(error, DriveReadError) or error.retryable),
+                notify_owner=owner_selected is None,
             )
             return "unavailable"

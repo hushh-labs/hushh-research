@@ -450,6 +450,7 @@ class DriveLiveQueryService:
                 request_id=request_id,
                 revision=status["revision"],
                 decision="declined",
+                notify_recipient=False,
             )
         except Exception:  # noqa: BLE001 - the original failure is the one to report
             return

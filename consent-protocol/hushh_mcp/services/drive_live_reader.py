@@ -159,7 +159,13 @@ class DriveLiveReader:
                     require_app_authorized=False,
                     require_genai_eligibility=False,
                 )
-            if actual.version != observed["source_version"] or actual.name != observed["name"]:
+            # A metadata-only review binds file identity, not bytes: nobody read
+            # the content, and granting Viewer on a file changes its Drive
+            # version. Fencing on version made each person's grant fail the
+            # next person's share of the same files.
+            if actual.name != observed["name"] or (
+                not observed.get("metadata_only") and actual.version != observed["source_version"]
+            ):
                 raise DriveReadError("source_changed")
             if observed.get("metadata_only") and not self._in_time_bounds(
                 actual,

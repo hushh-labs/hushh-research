@@ -294,6 +294,31 @@ async def test_bind_matches_uses_current_metadata_without_reading_file_content()
 
 
 @pytest.mark.asyncio
+async def test_metadata_only_binding_survives_a_version_bump_but_not_a_rename():
+    """Sharing a file with one person bumps its Drive version; the next person's
+    share of the same file must still bind. A rename is a different file choice."""
+    reader, adapter, _, _ = fixture()
+
+    def metadata(name, version):
+        return DriveMetadata(
+            "file-1", name, "application/pdf", version, "2026-09-23T10:00:00Z", 100, None
+        )
+
+    adapter.get_share_metadata.return_value = metadata("Recent.pdf", "11")
+    await reader.bind_matches(
+        matches=[{"file_id": "file-1", "name": "Recent.pdf", "mime_type": "application/pdf"}],
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    adapter.get_share_metadata.return_value = metadata("Recent.pdf", "12")
+    await reader.require_current()
+    adapter.get_share_metadata.return_value = metadata("Renamed.pdf", "12")
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_current()
+
+
+@pytest.mark.asyncio
 async def test_bind_matches_excludes_folder_and_changed_date_from_complete_preview():
     reader, adapter, mcp, _ = fixture()
     adapter.get_share_metadata.return_value = DriveMetadata(

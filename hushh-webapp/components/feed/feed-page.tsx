@@ -30,6 +30,7 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -621,6 +622,7 @@ function FeedPageSession({
         {/* No in-body header: the shared top bar owns the single Feed title. */}
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
+            <FeedPushPrompt />
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>

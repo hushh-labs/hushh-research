@@ -121,6 +121,7 @@ class DrivePermissionExecutor:
                 inspect_options = (
                     {
                         "metadata_only": True,
+                        "expected_name": plan.get("file_name"),
                         "time_field": plan["time_field"],
                         "start_time": plan["start_time"],
                         "end_time": plan["end_time"],

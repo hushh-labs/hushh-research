@@ -263,6 +263,8 @@ async def test_a_failed_share_leaves_the_search_shareable(shares):
         )
     # The failed attempt's request is closed; the search itself stays ready.
     sharing.store.decline_or_cancel.assert_awaited_once()
+    # The recipient never heard of this attempt: no "declined your request".
+    assert sharing.store.decline_or_cancel.await_args.kwargs["notify_recipient"] is False
     suggestions.run_one.return_value = "review_ready"
     shared = await queries.share_owner_files(
         user_id="owner", request_id=view["requestId"], file_refs=["f1"]
