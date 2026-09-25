@@ -115,7 +115,9 @@ describe("AgentTurnStreamPanel", () => {
       isStreaming
     />);
     const thinking = screen.getByRole("button", { name: /Thinking summary/i });
+    expect(thinking).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(thinking);
+    expect(thinking).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("I checked the connected capability.")).toBeInTheDocument();
     expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
     expect(screen.queryByText("Activity")).not.toBeInTheDocument();
