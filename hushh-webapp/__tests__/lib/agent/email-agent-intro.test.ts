@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -8,15 +9,44 @@ import {
 
 describe("buildEmailAgentIntroPrompt", () => {
   it("creates the first ordinary Agent Chat prompt for the connected owner", () => {
-    expect(buildEmailAgentIntroPrompt(" me@example.com ")).toBe(
+    const prompt = buildEmailAgentIntroPrompt(" me@example.com ");
+    expect(prompt).toContain(
       "Can you send a mail to 'me@example.com', In the mail explain features of the mail agent.",
     );
+    expect(prompt).toContain(
+      "Strictly follow these email output formatting rules:",
+    );
+    expect(prompt).toContain('Greeting line: "Hi [Name],"');
+    expect(prompt).toContain('Sign-off: always "Best,"');
   });
 });
 
 describe("email agent intro gate", () => {
+  let store: Record<string, string> = {};
+
   beforeEach(() => {
-    window.localStorage.clear();
+    store = {};
+    const mockStorage: Storage = {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => {
+        store[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+      clear: () => {
+        store = {};
+      },
+      key: (index: number) => Object.keys(store)[index] ?? null,
+      get length() {
+        return Object.keys(store).length;
+      },
+    };
+    Object.defineProperty(window, "localStorage", {
+      value: mockStorage,
+      writable: true,
+      configurable: true,
+    });
   });
 
   it("reports unseen for a user who has never opened the agent", () => {
