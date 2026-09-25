@@ -172,6 +172,7 @@ def test_private_oauth_rejects_invalid_operator_return(origin, monkeypatch):
 @pytest.fixture
 def route_client(monkeypatch):
     drive = SimpleNamespace(
+        connection_available=AsyncMock(return_value=True),
         complete=AsyncMock(return_value={"connectorId": "google_drive", "status": "verifying"}),
         complete_native=AsyncMock(
             return_value={"attemptId": "synthetic-attempt", "outcome": "ready"}
@@ -402,6 +403,39 @@ def test_catalog_is_curated_but_connection_status_and_legacy_key_lookup_are_owne
     assert response.status_code == 404
     registry.get_connector.assert_awaited_once_with("custom_other", user_id="verified-owner")
     credentials.store_credential.assert_not_called()
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_drive_catalog_readiness_matches_oauth_configuration(route_client, monkeypatch, configured):
+    client, app, drive = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    drive.connection_available.return_value = configured
+    connector = SimpleNamespace(
+        connector_id="google_drive",
+        display_name="Google Drive",
+        description="Selected files",
+        auth_style="oauth",
+        owner_user_id=None,
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(
+            list_active_connectors=AsyncMock(return_value=[connector]),
+        ),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(
+            list_statuses=AsyncMock(return_value=[]),
+        ),
+    )
+    response = client.get("/api/connectors")
+    assert response.status_code == 200
+    assert response.json()["connectors"][0]["available"] is configured
+    assert response.json()["features"]["google_drive_connection"] is True
+    drive.connection_available.assert_awaited_once()
 
 
 @pytest.mark.parametrize(

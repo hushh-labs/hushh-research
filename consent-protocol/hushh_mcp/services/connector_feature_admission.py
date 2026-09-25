@@ -1,7 +1,8 @@
-"""Shared API/tool admission using the existing hosted runtime configuration.
+"""Admission for staged connector effects, separate from owner/provider grants.
 
-This rollout is UAT-only and fail-closed. Status, recovery and disconnect do not
-use these predicates: turning a feature off cannot strand a connection.
+Connection, selected-file setup and owner-authorized Chat reads are available
+without a reviewer cohort. OAuth configuration, grants and per-call authority
+remain independent checks. Indexing, live Drive and sharing stay staged.
 """
 
 from __future__ import annotations
@@ -19,8 +20,22 @@ FEATURES = {
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
 }
 
+# These are ordinary owner-initiated capabilities, not UAT rollout effects.
+# Keeping their response keys preserves existing clients while removing the
+# environment/cohort dependency from connection and read-only Chat use.
+OWNER_AVAILABLE = frozenset(
+    {
+        "google_drive_connection",
+        "google_drive_picker",
+        "google_drive_chat_reads",
+        "gmail_chat_reads",
+    }
+)
+
 
 def connector_feature_enabled(feature: str, user_id: str) -> bool:
+    if feature in OWNER_AVAILABLE:
+        return bool(user_id and user_id.strip() == user_id)
     environment = os.getenv("ENVIRONMENT", "").strip().lower()
     if environment not in {"uat", "test", "local", "development"}:
         return False

@@ -9,7 +9,7 @@ import pytest
 from hushh_mcp.one_adk import workspace_mcp_tools as tools
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
-from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.external_mcp_client import ExternalMcpError, ExternalMcpToolResult
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.google_calendar_mcp_service import GOOGLE_CALENDAR_READ_TOOLS
 from hushh_mcp.services.google_connection_service import (
@@ -264,7 +264,7 @@ async def test_mismatched_owner_never_reaches_provider(admission):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("disabled_feature", ["google_drive_live"])
-async def test_drive_discovery_does_not_offer_unavailable_sign_in(
+async def test_selected_drive_discovery_offers_real_connection_without_live_mcp(
     admission, monkeypatch, disabled_feature
 ):
     monkeypatch.setattr(
@@ -272,11 +272,38 @@ async def test_drive_discovery_does_not_offer_unavailable_sign_in(
         "connector_feature_enabled",
         lambda feature, _owner: feature != disabled_feature,
     )
+    drive = SimpleNamespace(
+        connection_available=AsyncMock(return_value=True),
+        current_credential=AsyncMock(
+            side_effect=tools.DriveOAuthError("connect_required", status_code=403)
+        ),
+    )
+    monkeypatch.setattr(
+        tools, "get_external_connector_oauth_service", lambda: SimpleNamespace(drive=lambda: drive)
+    )
     result = await tools.discover_workspace_tools("drive", context())
-    assert result == {"status": "unavailable", "message": "Drive reading is not available yet."}
-    assert result.get("provider") is None
+    assert result["status"] == "permission_required" and result["provider"] == "drive"
     admission.discover_for_owner.assert_not_awaited()
     tools.validate_first_party_owner_token.assert_awaited_once()
+
+
+async def test_selected_drive_discovery_keeps_connected_owner_in_chat(admission, monkeypatch):
+    monkeypatch.setattr(
+        tools, "connector_feature_enabled", lambda feature, _: feature != "google_drive_live"
+    )
+    drive = SimpleNamespace(
+        connection_available=AsyncMock(return_value=True),
+        current_credential=AsyncMock(
+            return_value=({"status": "connected"}, {"profile": "selected"})
+        ),
+    )
+    monkeypatch.setattr(
+        tools, "get_external_connector_oauth_service", lambda: SimpleNamespace(drive=lambda: drive)
+    )
+    result = await tools.discover_workspace_tools("drive", context())
+    assert result["status"] == "api_available" and result["provider"] == "drive"
+    assert "MCP" not in str(result)
+    admission.discover_for_owner.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -586,6 +613,37 @@ async def test_discovery_preserves_only_safe_reconnect_state(provider, error, ad
         "message": "Check this connection and its reading permission, then try again.",
     }
     assert "private provider detail" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["gmail", "calendar"])
+async def test_hosted_discovery_failure_keeps_verified_api_read_available(provider, admission):
+    admission.discover_read_tools.side_effect = ExternalMcpError(
+        "private provider detail", code="MCP_UNAVAILABLE"
+    )
+    result = await tools.discover_workspace_tools(provider, context())
+    assert result == {
+        "status": "api_available",
+        "provider": provider,
+        "message": "Use the connected service's existing Chat tools.",
+    }
+    assert "private provider detail" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_hosted_discovery_failure_rejects_changed_grant(admission, monkeypatch):
+    admission.discover_read_tools.side_effect = ExternalMcpError(
+        "provider unavailable", code="MCP_UNAVAILABLE"
+    )
+    monkeypatch.setattr(
+        tools,
+        "_grant_binding",
+        AsyncMock(side_effect=[("owner-a", "gmail", "grant-1"), ("owner-a", "gmail", "grant-2")]),
+    )
+    assert await tools.discover_workspace_tools("gmail", context()) == {
+        "status": "blocked",
+        "message": "The session changed. Try again.",
+    }
 
 
 @pytest.mark.asyncio

@@ -341,6 +341,23 @@ async def test_vault_oauth_expiry_is_rechecked(runtime, monkeypatch):
         assert caught.value.code == "MCP_CREDENTIAL_EXPIRED"
 
 
+async def test_founder_wiki_uses_generic_vault_mcp_path(runtime, monkeypatch):
+    """The Wiki needs no provider-specific dispatcher or application token."""
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    record = {
+        **configuration(),
+        "displayName": "Hussh Wiki",
+        "endpoint": "https://mcp.hushh.ai/mcp",
+        "authentication": {"kind": "oauth", "accessToken": "synthetic", "expiresAt": 4102444800},
+    }
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        assert scope.vault_catalog("owner") == [(record["connectorId"], "Hussh Wiki")]
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.binding.endpoint == record["endpoint"]
+        assert resolved.headers == {"Authorization": "Bearer synthetic"}
+        assert "synthetic" not in repr(resolved)
+
+
 async def test_changed_configuration_cannot_reuse_binding_with_same_revision(runtime, monkeypatch):
     monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
     bindings = []

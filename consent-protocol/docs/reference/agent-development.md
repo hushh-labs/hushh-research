@@ -64,6 +64,37 @@ pod admission policy with their owning topology.
 
 ## Architecture Review Questions
 
+### One Chat connector execution boundary
+
+The existing external connector registry is a catalog of configurations, not a
+permission grant or proof that a tool is callable. One has two execution paths:
+
+- A remote, owner-registered HTTPS MCP server is discovered through the
+  owner-bound `RegisteredMcpToolset`. The ADK toolset validates schemas,
+  connection revision, credentials and exact-call review. Adding a compatible
+  custom server does not require a provider-specific Python tool dispatcher.
+- Google Drive, Gmail and Calendar can use their existing OAuth-backed API
+  services. Their typed Chat reads and reviewed actions retain those services'
+  scope and confirmation checks. An OAuth API capability is not a Google-hosted
+  MCP call, even if its connector appears beside MCP servers in Settings.
+
+Google-hosted Workspace MCP endpoints require Developer Preview admission.
+Do not present a configured endpoint or an OAuth grant as evidence of that
+admission. Connection, callable read capability, consent to share, and action
+approval are separate states. One chooses a sequence from its admitted tools;
+connector output cannot authorize another action or a Memory write. Selected
+Drive files do not imply account-wide Drive search. Gmail sending remains the
+existing editable draft and explicit reviewed-send workflow, not an automatic
+consequence of a read grant. Client-facing Chat and Settings describe provider
+capabilities and connection state, not their underlying transport.
+
+The Founder Wiki at `https://mcp.hushh.ai/mcp` is a custom-connector contract
+example: its HTTPS endpoint and owner-supplied authorization fit the generic
+vault connector path without a Wiki-specific dispatcher. The coding agent's
+Wiki credential is not available to app owners. A live Chat read requires the
+owner to connect it in-app and approve the exact call; synthetic contract
+tests prove compatibility only, not live authorization.
+
 Apply these questions to each orchestration change at the pinned ADK revision:
 
 1. **One decision owner:** Does One remain the only top-level semantic router?

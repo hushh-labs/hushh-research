@@ -774,6 +774,11 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     # 243 or resurrect server-readable custom configuration to render Settings.
     connectors = await registry.list_active_connectors()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
+    drive_available = (
+        await get_external_connector_oauth_service().drive().connection_available()
+        if any(item.connector_id == "google_drive" for item in connectors)
+        else False
+    )
     result = ConnectorsResponse(
         features=connector_features(user_id),
         connectors=[
@@ -794,6 +799,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                     "revocationOutcome", "not_attempted"
                 ),
                 lastErrorCode=statuses.get(connector.connector_id, {}).get("lastErrorCode"),
+                available=drive_available if connector.connector_id == "google_drive" else True,
             )
             for connector in connectors
         ],

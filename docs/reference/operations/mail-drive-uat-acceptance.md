@@ -320,11 +320,16 @@ DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pd
 DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://<exact-backend-origin>
 ```
 
-The feature flags remain independently default-off: `GOOGLE_DRIVE_CONNECTION`,
-`DRIVE_DOCUMENT_INDEXING`, and `DRIVE_DOCUMENT_SHARING` each require explicit activation.
-UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT` or
-`CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are mutually exclusive;
-`*` and `all` remain invalid cohort values, and production cannot enable either mode.
+Drive connection, selected-file setup, and owner-authorized Gmail/Drive Chat reads
+no longer require rollout flags or reviewer-cohort membership. A configured OAuth
+client, registered return URL, explicit Google approval, and current owner grant
+are still required. The connector catalog reports Drive unavailable if the OAuth
+configuration is incomplete. `DRIVE_DOCUMENT_INDEXING`, `DRIVE_DOCUMENT_SHARING`,
+and account-wide live Drive remain independently default-off staged effects.
+Their UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT`
+or `CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are
+mutually exclusive; `*` and `all` remain invalid cohort values, and production
+cannot enable staged effects through either mode.
 Google's OAuth app audience must independently allow the intended Google accounts.
 The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
