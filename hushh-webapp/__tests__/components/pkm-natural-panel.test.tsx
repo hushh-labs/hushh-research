@@ -214,6 +214,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       "utf8",
     );
     expect(source).toContain("memoryOwnerIdRef.current !== ownerId");
+    expect(source).toContain("memoryOwnerIdRef.current = null");
     expect(source.match(/trackEvent\("one_memory_action"/g)).toHaveLength(1);
   });
 

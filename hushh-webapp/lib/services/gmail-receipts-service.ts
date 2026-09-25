@@ -1,5 +1,6 @@
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import {
   buildGmailNudgesPath,
@@ -16,6 +17,15 @@ import {
 // seconds don't each trigger their own network round trip.
 const gmailStatusCacheKey = (userId: string) =>
   `gmail_connection_status_${userId}`;
+
+function trackGmailEventForOwner(
+  userId: string,
+  eventName: Parameters<typeof trackEvent>[0],
+  payload: Parameters<typeof trackEvent>[1],
+): void {
+  if (AuthService.getCurrentUser()?.uid !== userId) return;
+  trackEvent(eventName, payload as never);
+}
 
 export type GmailConnectionState =
   | "disconnected"
@@ -339,13 +349,13 @@ export class GmailReceiptsService {
         );
       }
       const payload = await parseConnectStartResponse(response);
-      trackEvent("gmail_connect_result", {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "start",
         result: "success",
       });
       return payload;
     } catch (error) {
-      trackEvent("gmail_connect_result", {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "start",
         result: "error",
       });
@@ -355,6 +365,7 @@ export class GmailReceiptsService {
 
   static async startNativeConnect(params: {
     idToken: string;
+    userId: string;
     purpose?: "read" | "send";
   }): Promise<GmailNativeConnectStartResponse> {
     trackEvent("gmail_connect_started", {
@@ -379,13 +390,13 @@ export class GmailReceiptsService {
         );
       }
       const payload = await parseNativeConnectStartResponse(response);
-      trackEvent("gmail_connect_result", {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "start",
         result: "success",
       });
       return payload;
     } catch (error) {
-      trackEvent("gmail_connect_result", {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "start",
         result: "error",
       });
@@ -397,6 +408,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
     serverAuthCode: string;
+    purpose?: "read" | "send";
   }): Promise<GmailConnectionStatus> {
     try {
       const response = await ApiService.apiFetch(
@@ -419,13 +431,16 @@ export class GmailReceiptsService {
         );
       }
       const status = await parseConnectionStatus(response);
-      trackEvent("gmail_connect_result", {
+      if (params.purpose === "send" && status.send_permission_granted !== true) {
+        throw new Error("Mail authorization did not grant sending permission.");
+      }
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "complete",
         result: "success",
       });
       return status;
     } catch (error) {
-      trackEvent("gmail_connect_result", {
+      trackGmailEventForOwner(params.userId, "gmail_connect_result", {
         action: "complete",
         result: "error",
       });
@@ -433,15 +448,20 @@ export class GmailReceiptsService {
     }
   }
 
-  static recordConsentFailure(error: unknown): void {
+  static recordConsentFailure(error: unknown, userId?: string): void {
     const code =
       error && typeof error === "object" && "code" in error
         ? String(error.code || "").trim().toUpperCase()
         : "";
-    trackEvent("gmail_connect_result", {
+    const payload = {
       action: "complete",
       result: code === "USER_CANCELLED" ? "expected_error" : "error",
-    });
+    } as const;
+    if (userId) {
+      trackGmailEventForOwner(userId, "gmail_connect_result", payload);
+    } else {
+      trackEvent("gmail_connect_result", payload);
+    }
   }
 
   static recordConnectCompletion(result: "success" | "error"): void {
@@ -480,10 +500,20 @@ export class GmailReceiptsService {
         );
       }
       const status = await parseConnectionStatus(response);
-      if (recordTelemetry) this.recordConnectCompletion("success");
+      if (recordTelemetry) {
+        trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+          action: "complete",
+          result: "success",
+        });
+      }
       return status;
     } catch (error) {
-      if (recordTelemetry) this.recordConnectCompletion("error");
+      if (recordTelemetry) {
+        trackGmailEventForOwner(params.userId, "gmail_connect_result", {
+          action: "complete",
+          result: "error",
+        });
+      }
       throw error;
     }
   }
@@ -505,13 +535,13 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_disconnect_result", { result: "error" });
+      trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "error" });
       throw new Error(
         await extractError(response, "Failed to disconnect Mail."),
       );
     }
 
-    trackEvent("gmail_disconnect_result", { result: "success" });
+    trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "success" });
     return (await response.json()) as GmailConnectionStatus;
   }
 
@@ -571,7 +601,7 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_sync_result", {
+      trackGmailEventForOwner(params.userId, "gmail_sync_result", {
         action: "queue",
         result: "error",
       });
@@ -581,7 +611,7 @@ export class GmailReceiptsService {
     }
 
     const payload = (await response.json()) as GmailSyncQueueResponse;
-    trackEvent("gmail_sync_result", {
+    trackGmailEventForOwner(params.userId, "gmail_sync_result", {
       action: payload.accepted ? "queue" : "already_running",
       result: payload.accepted ? "success" : "expected_error",
     });
@@ -633,7 +663,7 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      trackEvent("gmail_receipts_loaded", {
+      trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
         result: "error",
       });
       throw new Error(
@@ -641,7 +671,7 @@ export class GmailReceiptsService {
       );
     }
 
-    trackEvent("gmail_receipts_loaded", {
+    trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
       result: "success",
     });
     return (await response.json()) as ReceiptListResponse;

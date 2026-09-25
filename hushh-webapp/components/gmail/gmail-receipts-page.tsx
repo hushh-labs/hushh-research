@@ -103,6 +103,7 @@ import {
   isGmailOAuthPopupSettlement,
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
+  persistGmailOAuthPopupAttempt,
   readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
@@ -753,7 +754,7 @@ export default function GmailReceiptsPage({
         if (!callbackSettlement) {
           GmailReceiptsService.recordConsentFailure({
             code: failureCode,
-          });
+          }, user.uid);
         }
         toast.message(
           message ||
@@ -892,6 +893,7 @@ export default function GmailReceiptsPage({
           const idToken = await user.getIdToken();
           const nativeStart = await GmailReceiptsService.startNativeConnect({
             idToken,
+            userId: user.uid,
             purpose,
           });
           if (!nativeStart.configured || !nativeStart.server_client_id) {
@@ -907,14 +909,14 @@ export default function GmailReceiptsPage({
               purpose: nativeStart.purpose,
             }));
           } catch (error) {
-            GmailReceiptsService.recordConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
           if (!serverAuthCode?.trim()) {
             const error = new Error(
               "Google did not return a Mail authorization code.",
             );
-            GmailReceiptsService.recordConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
 
@@ -922,6 +924,7 @@ export default function GmailReceiptsPage({
             idToken,
             userId: user.uid,
             serverAuthCode,
+            purpose,
           });
           await refreshGmailStatus({ force: true });
 
@@ -963,6 +966,11 @@ export default function GmailReceiptsPage({
     if (popup) {
       gmailPopupRef.current = popup;
       setGmailPopupAttempt(attempt);
+    } else if (!persistGmailOAuthPopupAttempt(window, attempt)) {
+      toast.error(
+        "Mail sign-in could not be started safely. Please allow popups or try again.",
+      );
+      return Promise.resolve(false);
     }
 
     setGmailActionBusy("connect");

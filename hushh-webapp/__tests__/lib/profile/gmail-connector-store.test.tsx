@@ -367,6 +367,9 @@ describe("gmail-connector-store", () => {
   });
 
   it("keeps a timed-out active run in a stale running state instead of collapsing to idle", async () => {
+    const owner = renderHook(() =>
+      useGmailConnectorStatus({ userId: "user-timeout", enabled: false }),
+    );
     let nowMs = 0;
     const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
       handler: TimerHandler,
@@ -471,12 +474,16 @@ describe("gmail-connector-store", () => {
       expect(view.isStale).toBe(true);
       clearConnectorStatus("user-timeout");
     } finally {
+      owner.unmount();
       setTimeoutSpy.mockRestore();
       dateNowSpy.mockRestore();
     }
   });
 
   it("records a run that completes during the final polling backoff as success", async () => {
+    const owner = renderHook(() =>
+      useGmailConnectorStatus({ userId: "user-final-refresh", enabled: false }),
+    );
     let nowMs = 0;
     const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
       handler: TimerHandler,
@@ -550,6 +557,7 @@ describe("gmail-connector-store", () => {
       expect(getConnectorView("user-final-refresh").syncingRun).toBe(false);
       clearConnectorStatus("user-final-refresh");
     } finally {
+      owner.unmount();
       setTimeoutSpy.mockRestore();
       dateNowSpy.mockRestore();
     }

@@ -172,6 +172,22 @@ function GoogleOAuthReturnContent() {
       };
     }
     const active = flow.current;
+    const requestedAccessLevel =
+      attempt?.service === "calendar" ? attempt.accessLevel ?? "read" : "read";
+    const isVerifiedCalendarConnection = (connection: {
+      service?: string;
+      connected?: boolean;
+      status?: string;
+      access_level?: string | null;
+    } | null) =>
+      Boolean(
+        connection?.service === "calendar" &&
+          (!attempt || connection.service === attempt.service) &&
+          connection.connected &&
+          connection.status === "connected" &&
+          (requestedAccessLevel !== "manage" ||
+            connection.access_level === "manage"),
+      );
     const settleSuccess = () => {
       if (!current || authority.current.generation !== active.generation)
         return;
@@ -195,12 +211,7 @@ function GoogleOAuthReturnContent() {
       .then((completed) => {
         if (!current || authority.current.generation !== active.generation)
           return;
-        if (
-          completed.service !== "calendar" ||
-          (attempt && completed.service !== attempt.service) ||
-          !completed.connected ||
-          completed.status !== "connected"
-        ) {
+        if (!isVerifiedCalendarConnection(completed)) {
           fail(
             "Google connection could not be verified. Please check connections before trying again.",
           );
@@ -224,15 +235,11 @@ function GoogleOAuthReturnContent() {
             })
             .catch(() => null);
           if (!remainsCurrent()) return;
-          const requestedAccessLevel =
-            attempt?.service === "calendar"
-              ? attempt.accessLevel ?? "read"
-              : "read";
           if (
-            status?.connected &&
-            status.status === "connected" &&
-            (requestedAccessLevel !== "manage" ||
-              status.access_level === "manage")
+            isVerifiedCalendarConnection({
+              service: "calendar",
+              ...status,
+            })
           ) {
             settleSuccess();
             return;

@@ -239,6 +239,25 @@ describe("GoogleOAuthReturnPage", () => {
       { route_id: "one_calendar", action: "connected", result: "error" },
     );
   });
+  it("rejects an immediate read-only result for a manage upgrade", async () => {
+    mocks.readAttempt.mockReturnValue({
+      ...sameWindowAttempt(),
+      accessLevel: "manage",
+    });
+    mocks.completeConnect.mockResolvedValue({
+      ...connected(),
+      access_level: "read",
+    });
+
+    render(<GoogleOAuthReturnPage />);
+
+    expect(await screen.findByText(/could not be verified/)).toBeTruthy();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "error" },
+    );
+  });
   it("does not exchange the code after account change while awaiting identity", async () => {
     const token = pending<string>();
     mocks.getIdToken.mockReturnValue(token.promise);

@@ -123,7 +123,7 @@ function trackGmailSyncOutcomeForOwner(
   userId: string,
   fields: { action: "complete" | "poll"; result: "success" | "expected_error" | "error" },
 ): void {
-  if (activeConnectorOwnerId && activeConnectorOwnerId !== userId) return;
+  if (activeConnectorOwnerId !== userId) return;
   trackEvent("gmail_sync_result", fields);
 }
 const inflightBootstrapStatusPollers = new Map<string, AbortController>();

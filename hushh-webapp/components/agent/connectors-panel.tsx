@@ -987,6 +987,7 @@ function OwnerConnectorsPanel({
         if (native) {
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
+            userId: user.uid,
             purpose: "read",
           });
           if (signal.aborted || !start.configured) return;
@@ -997,26 +998,27 @@ function OwnerConnectorsPanel({
               purpose: start.purpose,
             });
           } catch (error) {
-            GmailReceiptsService.recordConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
           if (signal.aborted) {
             GmailReceiptsService.recordConsentFailure({
               code: "USER_CANCELLED",
-            });
+            }, user.uid);
             return;
           }
           if (!result.serverAuthCode?.trim()) {
             const error = new Error(
               "Google did not return a Mail authorization code.",
             );
-            GmailReceiptsService.recordConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
           await GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
             serverAuthCode: result.serverAuthCode,
+            purpose: "read",
           });
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
@@ -1059,7 +1061,7 @@ function OwnerConnectorsPanel({
           if (!status?.connected && webPopupFailureCode) {
             GmailReceiptsService.recordConsentFailure({
               code: webPopupFailureCode,
-            });
+            }, user.uid);
             webPopupFailureCode = null;
           }
           if (!signal.aborted)
@@ -1073,7 +1075,7 @@ function OwnerConnectorsPanel({
         if (!signal.aborted && webPopupFailureCode) {
           GmailReceiptsService.recordConsentFailure({
             code: webPopupFailureCode,
-          });
+          }, user.uid);
           webPopupFailureCode = null;
         }
         if (!signal.aborted)

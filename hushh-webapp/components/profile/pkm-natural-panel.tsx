@@ -133,8 +133,17 @@ export function PkmNaturalPanel({
     isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt });
   const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
   captureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
-  const memoryOwnerIdRef = useRef<string | null>(user?.uid ?? null);
-  memoryOwnerIdRef.current = user?.uid ?? null;
+  const renderedMemoryOwnerId = user?.uid ?? null;
+  const memoryOwnerIdRef = useRef<string | null>(renderedMemoryOwnerId);
+  memoryOwnerIdRef.current = renderedMemoryOwnerId;
+  useEffect(() => {
+    memoryOwnerIdRef.current = renderedMemoryOwnerId;
+    return () => {
+      if (memoryOwnerIdRef.current === renderedMemoryOwnerId) {
+        memoryOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedMemoryOwnerId]);
   const trackMemoryOutcome = useCallback((
     ownerId: string,
     action: "export_saved" | "detail_edited" | "detail_deleted" | "auto_save_changed" | "capture_prepared" | "capture_saved",

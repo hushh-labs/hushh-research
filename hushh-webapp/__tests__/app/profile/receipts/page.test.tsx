@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => {
       create: vi.fn(),
       open: vi.fn(),
       navigate: vi.fn(),
+      persist: vi.fn(() => true),
       clear: vi.fn(),
       consumeStoredSettlement: vi.fn(() => null),
     },
@@ -289,6 +290,8 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
   },
   navigateGmailOAuthPopup: (...args: unknown[]) =>
     mocks.gmailOAuthPopup.navigate(...args),
+  persistGmailOAuthPopupAttempt: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.persist(...args),
   getGmailOAuthPopupSessionStorage: (target?: Window | null) => {
     try {
       return target?.sessionStorage ?? null;
@@ -1167,7 +1170,7 @@ describe("ProfileReceiptsPage", () => {
       () => {
         expect(
           GmailReceiptsService.recordConsentFailure,
-        ).toHaveBeenCalledWith({ code: "USER_CANCELLED" });
+        ).toHaveBeenCalledWith({ code: "USER_CANCELLED" }, "user-123");
       },
       { timeout: 1_500 },
     );
@@ -1207,9 +1210,10 @@ describe("ProfileReceiptsPage", () => {
 
     await waitFor(
       () => {
-        expect(GmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith({
-          code: "POPUP_TIMEOUT",
-        });
+        expect(GmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+          { code: "POPUP_TIMEOUT" },
+          "user-123",
+        );
       },
       { timeout: 1_500 },
     );
@@ -1352,6 +1356,10 @@ describe("ProfileReceiptsPage", () => {
         );
       });
       expect(mocks.gmailOAuthPopup.navigate).not.toHaveBeenCalled();
+      expect(mocks.gmailOAuthPopup.persist).toHaveBeenCalledWith(
+        window,
+        mocks.gmailOAuthPopup.attempt,
+      );
       expect(mocks.toast.error).not.toHaveBeenCalled();
     } finally {
       (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
@@ -1392,6 +1400,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
+        userId: "user-123",
         purpose: "read",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
@@ -1402,6 +1411,7 @@ describe("ProfileReceiptsPage", () => {
         idToken: "token-abc",
         userId: "user-123",
         serverAuthCode: "native-auth-code",
+        purpose: "read",
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
@@ -1451,7 +1461,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(
         GmailReceiptsService.recordConsentFailure,
-      ).toHaveBeenCalledWith(cancellation);
+      ).toHaveBeenCalledWith(cancellation, "user-123");
     });
     expect(GmailReceiptsService.completeNativeConnect).not.toHaveBeenCalled();
   });
