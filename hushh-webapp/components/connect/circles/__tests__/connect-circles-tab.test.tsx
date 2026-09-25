@@ -592,11 +592,13 @@ describe("ConnectCirclesTab", () => {
     view.rerender(<ConnectCirclesTab currentUserId="second-owner" onStateChange={onStateChange} />);
     await screen.findByText("Circles are unavailable");
     expect(screen.queryByText("Private family")).toBeNull();
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ loading: false, error: expect.any(String), count: 0 }),
+    ));
     for (const [state] of onStateChange.mock.calls) {
       expect(state.ownerId).toBe("second-owner");
       expect(state.circles).toEqual([]);
     }
-    expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ loading: false, error: expect.any(String), count: 0 }));
   });
 
   it("relays renamed circles and member counts even when list length is unchanged", async () => {

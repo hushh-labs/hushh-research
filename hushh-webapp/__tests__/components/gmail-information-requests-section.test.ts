@@ -469,6 +469,7 @@ describe("personal Gmail information-request scope boundary", () => {
     const turnOff = await screen.findByRole("button", {
       name: /^Turn off$/,
     });
+    await waitFor(() => expect(turnOff).toBeEnabled());
     fireEvent.click(turnOff);
 
     expect(await screen.findByText("Turn off monitoring?")).toBeVisible();

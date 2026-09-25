@@ -22,6 +22,11 @@ on:
         required: false
         default: "integration/pr-train"
         type: string
+      build_pod_image:
+        description: "Build the dev-only pod image; does not approve owner installation"
+        required: false
+        default: false
+        type: boolean
       sha:
         description: "Exact CI-green SHA to deploy (blank defaults to head of ref; must be reachable from ref)"
         required: false
@@ -174,22 +179,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-predeploy-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-predeploy-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-predeploy-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-predeploy-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
 
           backend_sha=""
           if [ -n "${backend_revision}" ]; then
@@ -225,6 +226,46 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Validate candidate build capabilities
+        shell: bash
+        env:
+          BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" - <<'PYBUILD'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          import yaml
+          interfaces = [
+              (["bash", "scripts/ci/verify-dev-candidate.sh", "--help"],
+               ("<image-reference>", "<probe-path>")),
+              (["bash", "scripts/ci/cloudrun-retention.sh", "--help"],
+               ("[protected_revision]",)),
+              ([sys.executable, "scripts/ci/verify-cloudrun-revision-provenance.py", "--help"],
+               ("--candidate-revision", "--expected-image-reference", "--candidate-tag")),
+              ([sys.executable, "scripts/ops/verify-env-secrets-parity.py", "--help"],
+               ("--require-voice", "--require-calendar")),
+          ]
+          for command, required in interfaces:
+              result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+              if result.returncode or any(option not in result.stdout for option in required):
+                  raise SystemExit(f"Candidate deployment interface is incompatible: {command[1]}")
+          config = yaml.safe_load(Path("deploy/backend.cloudbuild.yaml").read_text())
+          substitutions = config.get("substitutions") or {}
+          if os.environ["DEPLOY_BACKEND"] == "true":
+              if not {"_SKIP_IMAGE_BUILD", "_IMAGE_REFERENCE"} <= substitutions.keys():
+                  raise SystemExit("Candidate cannot deploy the prebuilt immutable backend image")
+          if os.environ["BUILD_POD_IMAGE"] == "true":
+              if os.environ["DEPLOY_BACKEND"] != "true":
+                  raise SystemExit("Pod image publication requires backend or all deployment scope")
+              ids = {step.get("id") for step in config.get("steps", [])}
+              if not {"build-pod-image", "resolve-pod-image-digest"} <= ids:
+                  raise SystemExit("Candidate does not support explicit pod image publication")
+          PYBUILD
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
@@ -269,6 +310,40 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment "$FE_ENV" \
             > /tmp/dev-frontend-runtime-secret-sync.json
+
+      - name: Build and pin backend image before lifecycle migration
+        id: build-backend-image
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=${image_tag}"
+
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          image_digest="$(gcloud container images describe \
+            "${image_repository}:${image_tag}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --format='value(image_summary.digest)')"
+          if [[ ! "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Backend image build did not resolve an immutable sha256 digest." >&2
+            exit 1
+          fi
+          image_reference="${image_repository}@${image_digest}"
+          # Buildx attestations live in a parent index. Pin its executable child
+          # before migration; Cloud Run must later report this exact digest.
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${image_reference}" \
+            > /tmp/dev-backend-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${image_reference}" \
+            --manifest-json /tmp/dev-backend-image-manifest.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --json-output /tmp/dev-backend-image.json)"
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -353,7 +428,8 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_BUILD_POD_IMAGE=${{ inputs.build_pod_image && 'true' || 'false' }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           # Google connections use the normalized OAuth secret names. Keep the
           # dev lane aligned with backend.cloudbuild.yaml so these optional
@@ -382,11 +458,6 @@ jobs:
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
-      - name: Retain latest backend revisions
-        if: steps.scope.outputs.deploy_backend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
-
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -397,16 +468,11 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=dev,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=dev,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
-
-      - name: Retain latest frontend revisions
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -435,6 +501,38 @@ jobs:
           "${{ steps.candidate-state.outputs.backend_revision }}"
           "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
+      - name: Verify selected candidates before traffic promotion
+        id: verify-candidates
+        shell: bash
+        env:
+          CANDIDATE_TAG: dev-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            bash scripts/ci/verify-dev-candidate.sh \
+              "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_SERVICE }}" \
+              "${{ steps.candidate-state.outputs.backend_revision }}" \
+              "${{ steps.build-backend-image.outputs.image_reference }}" \
+              "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /health
+          fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+            image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+            image_digest="$(gcloud container images describe "${image_repository}:${image_tag}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+            [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            image_reference="${image_repository}@${image_digest}"
+            gcloud auth configure-docker gcr.io --quiet
+            docker buildx imagetools inspect --raw "$image_reference" > /tmp/dev-frontend-manifest.json
+            image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+              --image-reference "$image_reference" --manifest-json /tmp/dev-frontend-manifest.json \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" --json-output /tmp/dev-frontend-image.json)"
+            bash scripts/ci/verify-dev-candidate.sh \
+              "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_SERVICE }}" \
+              "${{ steps.candidate-state.outputs.frontend_revision }}" "$image_reference" \
+              "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /login
+          fi
+
       - name: Promote deployed revisions to dev traffic
         shell: bash
         run: |
@@ -460,22 +558,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-current-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-current-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-current-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-current-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
@@ -529,6 +623,7 @@ jobs:
             --require-market-data \
             --require-gmail \
             --require-one-email \
+            --require-calendar \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -551,6 +646,7 @@ jobs:
             --require-market-data \
             --require-gmail \
             --require-one-email \
+            --require-calendar \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -746,6 +842,7 @@ jobs:
           backend_secret_names = set(
               required.get("backend", [])
               + required.get("gmail", [])
+              + required.get("calendar", [])
               + required.get("one_email", [])
               + required.get("voice", [])
               + required.get("plaid", [])
@@ -758,6 +855,7 @@ jobs:
           backend_runtime_entries = (
               (runtime_contract.get("backend") or [])
               + (runtime_contract.get("backend_gmail") or [])
+              + (runtime_contract.get("backend_calendar") or [])
               + (runtime_contract.get("backend_one_email") or [])
               + (runtime_contract.get("backend_voice") or [])
           )
@@ -898,22 +996,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-final-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-final-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-final-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-final-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
@@ -1020,6 +1115,9 @@ jobs:
             /tmp/dev-runtime-parity-attempt-1.json
             /tmp/dev-runtime-parity-attempt-2.json
             /tmp/dev-backend-provenance.json
+            /tmp/dev-candidate-*.json
+            /tmp/dev-backend-image.json
+            /tmp/dev-frontend-image.json
             /tmp/dev-frontend-provenance.json
             /tmp/dev-db-migration-guard-predeploy.json
             /tmp/dev-db-migration-guard-postdeploy.json
@@ -1099,6 +1197,18 @@ jobs:
             echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Remove this run's candidate tags
+        if: always() && steps.verify-candidates.outcome != 'skipped'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          for service in "${{ env.BACKEND_SERVICE }}" "${{ env.FRONTEND_SERVICE }}"; do
+            gcloud run services update-traffic "$service" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --remove-tags="dev-candidate-${{ github.run_id }}-${{ github.run_attempt }}" --quiet
+          done
+
       - name: Fail workflow when dev release did not end healthy
         if: always()
         shell: bash
@@ -1109,3 +1219,13 @@ jobs:
             echo "Dev release finished with status: $STATUS"
             exit 1
           fi
+
+      - name: Retain latest backend revisions
+        if: steps.scope.outputs.deploy_backend == 'true'
+        continue-on-error: true
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Retain latest frontend revisions
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"

@@ -102,6 +102,28 @@ flowchart LR
   attributable. Auto-deploy exists as a separate GCP-native lane (below), added
   2026-07 at founder request when the cadence demanded it.
 
+## Candidate verification and compatibility
+
+The workflow definition comes from `main`; the selected application SHA must carry
+its own successful canonical CI result. Deploy helpers run from that selected SHA.
+Older compatibility images therefore need the candidate probe, provenance verifier,
+Voice parity option, and protected-revision retention helper before dispatch.
+
+Backend deployment builds an immutable image before any migration. Selected backend
+and frontend candidates must pass exact-image provenance and direct health probes
+before traffic promotion; redirects do not count as health. The captured serving
+revision remains protected from retention cleanup as the rollback target. Migration
+compatibility and recovery evidence must establish that it is a usable target.
+
+`build_pod_image` defaults to `false`. Enabling it builds a dev-only pod image and
+does not approve installation on any owner's pod or publish a stable release.
+Calendar and configured Live voice keys participate in runtime parity. Configuration
+parity does not prove a successful connector operation or live voice session.
+
+Keep the existing Cloud Build trigger path until the governed workflow passes its
+live rehearsal, then disable the competing triggers and record that observed state.
+Existing owner resources and information require preservation throughout this change.
+
 ## GCP-native auto-deploy (Cloud Build triggers)
 
 A companion lane for "commit to `main` and dev updates itself" without any
