@@ -1754,6 +1754,7 @@ export function LocationImmersiveMap({
           tilt: Number(data.tilt) || 0,
         };
       };
+      let cameraGestureSinceSettle = false;
       const publishCameraSettled = (nextCamera: MapNameLabelCamera) => {
         if (!currentInstance()) return;
         if (cameraFrameRef.current !== null) {
@@ -1765,7 +1766,27 @@ export function LocationImmersiveMap({
           cameraSettleTimerRef.current = null;
         }
         pendingCameraRef.current = null;
-        settledCameraRevisionRef.current += 1;
+        const cameraRevision = ++settledCameraRevisionRef.current;
+        const initialFrameCommand = initialFrameCommandRef.current;
+        if (initialFrameCommand) {
+          if (
+            cameraGestureSinceSettle ||
+            initialFrameCommand.generation !==
+              cameraCommandGenerationRef.current
+          ) {
+            // A genuine gesture or a newer explicit camera command owns the
+            // viewport. Retire the automatic first-load fit instead of letting
+            // it move the camera back over that user intent.
+            initialFrameCommandRef.current = null;
+            framedInitialMarkersRef.current = true;
+          } else {
+            // Creation can emit its first idle/bounds report while native marker
+            // or padding writes are still pending. Keep the shared reservation
+            // current so every queued marker pass does not reject it forever.
+            initialFrameCommand.cameraRevision = cameraRevision;
+          }
+        }
+        cameraGestureSinceSettle = false;
         setMapCamera(nextCamera);
         setCameraReported(true);
         setSettledCameraZoom(nextCamera.zoom);
@@ -1834,8 +1855,10 @@ export function LocationImmersiveMap({
       let moveStartedListenerRegistered = false;
       if (boundsListenerRegistered || idleListenerRegistered) {
         try {
-          await map.setOnCameraMoveStartedListener(() => {
-            if (currentInstance()) setCameraMoving(true);
+          await map.setOnCameraMoveStartedListener((event) => {
+            if (!currentInstance()) return;
+            cameraGestureSinceSettle ||= event.isGesture;
+            setCameraMoving(true);
           });
           moveStartedListenerRegistered = true;
         } catch {
@@ -2775,25 +2798,40 @@ export function LocationImmersiveMap({
         : isActiveCheckInOwner
           ? PLACE_ACTIVE_TINT
           : (mapSelfMarker.tint ?? SELF_TINT);
-      const [id] = await map.addCircles([
-        {
-          center: {
-            lat: mapSelfMarker.point.latitude,
-            lng: mapSelfMarker.point.longitude,
-          },
-          radius: selfFallbackRadiusMeters(
-            mapSelfMarker.point.latitude,
-            settledCameraZoom,
-          ),
-          fillColor: tintHex(tint),
-          fillOpacity: SELF_FALLBACK_FILL_OPACITY,
-          strokeColor: "#ffffff",
-          strokeOpacity: SELF_FALLBACK_STROKE_OPACITY,
-          strokeWeight: SELF_FALLBACK_STROKE_WEIGHT,
-          clickable: false,
-          title: isActiveCheckInOwner ? "Your check-in place" : "Your location",
+      const circle: Circle = {
+        center: {
+          lat: mapSelfMarker.point.latitude,
+          lng: mapSelfMarker.point.longitude,
         },
-      ]);
+        radius: selfFallbackRadiusMeters(
+          mapSelfMarker.point.latitude,
+          settledCameraZoom,
+        ),
+        fillColor: tintHex(tint),
+        fillOpacity: SELF_FALLBACK_FILL_OPACITY,
+        strokeColor: "#ffffff",
+        strokeOpacity: SELF_FALLBACK_STROKE_OPACITY,
+        strokeWeight: SELF_FALLBACK_STROKE_WEIGHT,
+        clickable: false,
+        title: isActiveCheckInOwner ? "Your check-in place" : "Your location",
+      };
+      let id: string | undefined;
+      for (let attempt = 0; attempt < 2 && !id; attempt += 1) {
+        try {
+          [id] = await map.addCircles([circle]);
+        } catch (error) {
+          if (attempt > 0) throw error;
+          await Promise.resolve();
+          if (
+            generation !== selfCircleGenerationRef.current ||
+            cancelled ||
+            !rendererReadyRef.current ||
+            mapRef.current !== map
+          ) {
+            return;
+          }
+        }
+      }
 
       if (!id) return;
       if (

@@ -3656,6 +3656,11 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     mapHarness.map.fitBounds.mockClear();
 
+    // Map creation may report its neutral camera while clustering is pending.
+    // That non-gesture report must renew, not permanently stale, the shared
+    // first-frame reservation.
+    await reportCamera();
+
     // Supersede the pass while it is past addMarkers but still waiting on the
     // clustering bridge. The fresh pass must inherit, then consume, the same
     // one-time camera reservation instead of leaving the map at world view.
@@ -4031,6 +4036,9 @@ describe("LocationImmersiveMap reported map defects", () => {
       capturedAt: "2026-07-23T00:00:00.000Z",
       sourcePlatform: "ios",
     });
+    mapHarness.map.addCircles.mockRejectedValueOnce(
+      new Error("transient native circle install failure"),
+    );
 
     await renderReadyMap();
 
@@ -4042,6 +4050,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     const drawnCircles = mapHarness.map.addCircles.mock.calls.flatMap(
       (call) => call[0] as Array<Record<string, unknown>>,
     );
+    expect(mapHarness.map.addCircles.mock.calls.length).toBeGreaterThan(1);
     expect(
       drawnCircles.some((circle) => {
         const center = circle.center as { lat: number };
