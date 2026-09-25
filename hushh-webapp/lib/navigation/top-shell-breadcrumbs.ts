@@ -130,6 +130,8 @@ export function resolveSmsContactsBackAction(
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
+  if (panel === "hosting") return "Hosting";
+  if (panel === "software-updates") return "Software updates";
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
   if (panel === "connected-systems") return "Connected Systems";

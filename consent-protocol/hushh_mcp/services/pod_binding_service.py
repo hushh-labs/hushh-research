@@ -183,6 +183,13 @@ class PodBindingService:
         """Issue the next binding version for one subject. Signed, recorded, audited."""
         row = await self._owner_row(user_id, request_id=f"pod-binding:{device_id}")
         pod_key_id, pod_public_key, url = self._deployment(row)
+        deployment_target = _clean(row.get("deployment_target")) or None
+        if puppy_inference and deployment_target != "user_gcp":
+            raise PodBindingError(
+                "PUPPY_REQUIRES_BYOC_POD",
+                "Puppy inference is available only on the owner's BYOC pod.",
+                status=409,
+            )
         device = self._devices.active_device(user_id=user_id, device_id=device_id)
         if not device:
             raise PodBindingError(
@@ -224,6 +231,7 @@ class PodBindingService:
             version=version,
             issued_at_ms=now_ms,
             expires_at_ms=now_ms + BINDING_TTL_MS,
+            deployment_target=deployment_target,
         )
         envelope = {"binding": binding.to_dict(), "signature": _sign(binding.canonical())}
         await self._registry.record_binding(
@@ -251,6 +259,8 @@ class PodBindingService:
 
     async def latest(self, *, user_id: str, device_id: str) -> Optional[dict[str, Any]]:
         row = await self._owner_row(user_id, request_id=f"pod-binding-read:{device_id}")
+        if not self._devices.active_device(user_id=user_id, device_id=device_id):
+            return None
         record = self._binding_records(row).get(device_id)
         if not isinstance(record, dict) or not isinstance(record.get("envelope"), dict):
             return None

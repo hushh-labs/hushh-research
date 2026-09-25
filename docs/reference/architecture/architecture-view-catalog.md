@@ -479,14 +479,14 @@ sequenceDiagram
   Client->>PKM: Write structured approved facts through PKM path
 ```
 
-## Dynamic View: Private Agent One Pod Provisioning and First Turn
+## Dynamic View: Assigned Pod Provisioning and Standard First Turn
 
 View metadata:
 
 | Field | Value |
 | --- | --- |
 | Stakeholders | platform, security, backend, frontend, operations |
-| Concern | How a person's own compute comes into existence, proves itself, and serves a grounded turn |
+| Concern | How an assigned pod comes into existence, proves itself, and serves a standard grounded turn |
 | Model kind | C4 dynamic / sequence diagram |
 | Source anchors | `consent-protocol/hushh_mcp/services/ai_connection_gate.py`, `consent-protocol/api/routes/one/runtime.py`, `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/api/routes/one/pod_heartbeat.py`, `consent-protocol/api/routes/one/pod_relay.py`, `consent-protocol/hushh_mcp/services/personal_agent_grant_service.py` |
 
@@ -499,15 +499,21 @@ sequenceDiagram
   participant Pod as one-pod-&lt;HusshID&gt;
   participant DB as Postgres
 
-  User->>Web: Connect an AI key
-  Web->>Hub: Validate the connection
-  Hub->>Hub: Verify the key against the provider
-  Note over Hub: Provisioning starts only AFTER the key verifies.<br/>An unverified key produces no pod and no cost.
-  Hub->>DB: Registry row -> connecting
-  Hub->>Run: Create service, internal ingress, zero-role SA
-  Hub->>Run: Bind roles/run.invoker to the hub identity only
-  Run-->>Pod: Start container
-
+  User->>Web: Choose a hosting path
+  Web->>Hub: Read registry and setup-job state
+  Hub->>DB: Resolve deployment_target and pending setup
+  alt no assignment and no setup pending
+    Hub-->>Web: Hussh Shared (no personal pod)
+    Note over Hub,Web: Shared does not provision a pod when model access is connected.
+  else existing BYOC or Hussh Pods assignment
+    User->>Web: Connect a supported AI model
+    Web->>Hub: Validate the connection
+    Hub->>Hub: Verify the connection against its provider
+    Note over Hub: Provision only for the already-assigned pod target,<br/>after model access verifies.
+    Hub->>DB: Registry row -> connecting
+    Hub->>Run: Create service, internal ingress, zero-role SA
+    Hub->>Run: Bind roles/run.invoker to the hub identity only
+    Run-->>Pod: Start container
   Pod->>Pod: Generate the pod keypair in memory
   Pod->>Hub: Heartbeat with ID token
   Note over Hub,Pod: The hub PULLS the public key; the pod never pushes it.<br/>A fleet-shared SA proves "a hussh pod", never WHICH pod,<br/>so a pushed key could be registered against another owner.
@@ -525,14 +531,41 @@ sequenceDiagram
   Hub-->>Pod: Records
   Pod-->>Hub: Streamed answer
   Hub-->>Web: Streamed answer
+  end
 ```
 
-Pod journey rules:
+Assigned-pod journey rules:
 
-- **The AI connection is the gate.** No pod is created for an account whose key has not verified — the compute is not speculative, and a person who never connects a key never costs anything.
+- **Placement and model access are separate.** No assignment plus no pending setup resolves to Hussh Shared. A verified AI connection may start provisioning only for an assigned BYOC or Hussh Pods target.
+- **The AI connection is the provisioning gate.** No assigned pod is created until supported model access verifies.
 - **The pod thinks on the owner's key.** BYOK per turn is what keeps the pod's service account at zero roles: a managed model would need an ambient identity, and that identity would be shared across the fleet.
 - **The pod verifies consent, it cannot mint it.** It carries `CONSENT_ED25519_PUBLIC_KEYS`, the verifying half only, so it can check a token at its own door while holding nothing that could forge one.
 - **Silence means different things at different tiers.** A `warm` pod (minScale ≥ 1) that stops heart-beating is a fault; an `economy` pod (minScale 0) that goes quiet is healthy and scaled to zero. Never draw one liveness rule for both.
+
+## Dynamic View: Puppy Inference Through the Owner's BYOC Relay
+
+The root source accepts Puppy only through an active owner `user_gcp` deployment.
+The app's turn is sent to the pinned pod; the pod checks the signed device binding,
+owner and HusshID, `puppy.inference` scope, and its local device broker. Shared and
+Hussh Pods are refused. The separate Hermes client has not yet implemented signed
+binding discovery and direct connection, so the direct lane below is a source
+contract, not an end-to-end verified product flow. The legacy hub relay remains a
+BYOC-gated compatibility path and does not prove same-pod connectivity.
+
+```mermaid
+flowchart LR
+  App["One app"] -->|pinned owner pod endpoint| Pod["Owner BYOC pod<br/>deployment_target = user_gcp"]
+  Hub["Hussh hub<br/>authenticated owner + device authority"] -->|signed binding with puppy.inference| Device["Trusted Puppy device"]
+  Device -.->|direct WebSocket<br/>client wiring pending| Pod
+  Pod -->|verify owner, HusshID, device scope and local link| Broker["Pod-local Puppy broker"]
+  Broker <--> Device
+  Pod -->|reject Shared or Hussh Pods| Refuse["No fallback inference"]
+  Hub -.->|legacy BYOC-only compatibility| OldRelay["Hub Puppy relay"]
+```
+
+The direct lane's server-side checks and fail-closed behavior are covered by
+source tests. Hermes binding discovery, a real device-to-BYOC socket, installed
+pod image, and live owner/device rehearsal remain unverified.
 
 KYC rule: backend orchestrates workflow metadata and mail/send surfaces; strict client-side zero-knowledge behavior must not turn the backend into a plaintext review-draft store.
 

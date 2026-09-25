@@ -96,6 +96,8 @@ export const ROUTES = {
   PHONE_MANDATE: "/register-phone",
   PROFILE: "/one/profile",
   PROFILE_REGULATORY: "/one/profile/regulatory",
+  PROFILE_HOSTING: "/one/profile/hosting",
+  PROFILE_SOFTWARE_UPDATES: "/one/profile/software-updates",
   PROFILE_ACCOUNT: "/one/profile/account",
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",

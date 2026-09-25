@@ -219,7 +219,8 @@ class McpTurnResources:
                 return await resolve_registered_connection(context, connector_id, curated_only=True)
             return await resolve_registered_connection(context, connector_id)
         if (
-            context.user_id != context.state.get("hussh:user_id")
+            not self._owner
+            or context.user_id != context.state.get("hussh:user_id")
             or context.state.get("temp:one_execution_surface") != "typed_chat"
             or not await validate_first_party_owner_token(
                 context.user_id, resolve_request_secret(context.state.get("hussh:consent_token"))

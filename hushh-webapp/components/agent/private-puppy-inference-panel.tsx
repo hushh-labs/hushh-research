@@ -107,6 +107,11 @@ export function PrivatePuppyInferencePanel({
     try {
       if (!user?.uid || !vaultOwnerToken)
         throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
+      const status = await ApiService.getPersonalAgentStatus();
+      if (status.hostingMode !== "byoc")
+        throw new Error("PUPPY_REQUIRES_BYOC_POD");
+      if (status.state !== "active" || !status.hushhId)
+        throw new Error("PRIVATE_AGENT_UNAVAILABLE");
       if (link?.state !== "live" || !link.device?.id)
         throw new Error("PUPPY_OFFLINE");
       const relayStatus = await ApiService.getPuppyRelayStatus(link.device.id);
@@ -116,23 +121,14 @@ export function PrivatePuppyInferencePanel({
           relayStatus.state === "revoked" ? "PUPPY_REVOKED" : "PUPPY_OFFLINE",
         );
       }
-      const status = await ApiService.getPersonalAgentStatus();
-      if (status.state !== "active" || !status.hushhId)
-        throw new Error("PRIVATE_AGENT_UNAVAILABLE");
-      // Pinned to the owner's pod: the pod's own session admits the device, so no
-      // hub grant is minted and the hub stays out of the turn. Unpinned keeps the
-      // hub-couriered grant exactly as before.
       const pinned = await loadPinnedEndpoint(user.uid).catch(() => null);
-      const runtimeCredential = pinned
-        ? undefined
-        : (await ApiService.issuePuppyInferenceGrant(link.device.id)).token;
+      if (!pinned) throw new Error("PUPPY_REQUIRES_BYOC_POD");
       const response = await ApiService.runPodTurn({
         hushhId: status.hushhId,
         message,
         conversationId: "puppy-private-relay",
         runtimeProvider: "puppy",
         puppyDeviceId: link.device.id,
-        runtimeCredential,
         history: nextTurns.map(({ role, text }) => ({ role, content: text })),
       });
       // Only a model the device actually reported is shown as the model. An
@@ -154,6 +150,8 @@ export function PrivatePuppyInferencePanel({
       setError(
         reason === "PUPPY_OFFLINE"
           ? "Puppy unavailable—open Puppy on your computer and try again."
+          : reason === "PUPPY_REQUIRES_BYOC_POD"
+            ? "Puppy needs your active BYOC pod and its private device relay. Shared and Hussh Pods do not run Puppy inference."
           : reason === "PUPPY_BUSY"
             ? "Puppy is handling another private turn. Try again shortly."
             : reason === "PUPPY_REVOKED"

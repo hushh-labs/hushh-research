@@ -529,3 +529,40 @@ def test_review_mode_non_ascii_configured_passphrase_still_matches(monkeypatch):
 
     assert response.status_code == 200
     assert minted["uid"] == "counterpart_uid_456"
+
+
+def test_review_mode_requested_uid_requires_counterpart_passphrase(monkeypatch):
+    _clear_reviewer_env(monkeypatch)
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    _set_both_pairs(monkeypatch)
+    minted = _install_fake_minter(monkeypatch)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/app-config/review-mode/session",
+        json={
+            "subject": "reviewer",
+            "reviewer_uid": "counterpart_uid_456",
+            "smoke_passphrase": "counterpart-passphrase",
+        },
+    )
+
+    assert response.status_code == 200
+    assert minted["uid"] == "counterpart_uid_456"
+
+
+def test_review_mode_requested_uid_unknown_is_refused(monkeypatch):
+    _clear_reviewer_env(monkeypatch)
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    _set_both_pairs(monkeypatch)
+    minted = _install_fake_minter(monkeypatch)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/app-config/review-mode/session",
+        json={"subject": "reviewer", "reviewer_uid": "unknown_uid_999"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Reviewer identity mismatch"
+    assert minted == {}

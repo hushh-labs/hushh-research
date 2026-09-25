@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 121,
-  "native_required_routes": 103,
+  "total_routes": 123,
+  "native_required_routes": 105,
   "excluded_routes": 18,
   "routes": [
     {
@@ -1423,6 +1423,30 @@
       "route": "/welcome",
       "classification": "excluded-web-only",
       "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
+    },
+    {
+      "route": "/one/profile/hosting",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fhosting",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/hosting",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/software-updates",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsoftware-updates",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/software-updates",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     }
   ]
 }

@@ -28,15 +28,23 @@ from hushh_mcp.services.account_service import (
 )
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.compute_backend import resolve_compute_backend
+from hushh_mcp.services.personal_agent_hosting import resolve_observed_hosting_mode
 from hushh_mcp.services.personal_agent_provisioning_service import (
     UPGRADE_ATTEMPTS_PER_IMAGE,
     PersonalAgentProvisioningService,
     _lease_is_fresh,
+    image_digest,
     is_immutable_image_reference,
     upgrade_release_id,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
+from hushh_mcp.services.pod_release import (
+    configured_release,
+    public_release,
+    upgrade_is_supported,
+    validate_release,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +107,7 @@ def _require_enabled() -> None:
         raise HTTPException(status_code=404, detail="personal agent is not available")
 
 
-async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict, str, str]:
+async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict, str, str, dict]:
     repo = PersonalAgentRegistryRepo()
     row = await repo.get(user_id)
     if row is None or str(row.get("status") or "") != "provisioned":
@@ -113,9 +121,23 @@ async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict,
         raise HTTPException(status_code=409, detail="software update is not yet verified")
     update = describe_pod_update(row, target_image=target_reference)
     if update.get("updateAvailable") is not True:
-        raise HTTPException(status_code=409, detail="your private agent is already up to date")
+        detail = (
+            "your private agent is already up to date"
+            if update.get("updateAvailable") is False
+            else "your private agent version could not be verified"
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    release_metadata = configured_release(target_reference)
+    metadata = row.get("backend_metadata") or {}
+    installed_image = (
+        metadata.get("image_digest") or metadata.get("image") or metadata.get("source_image")
+    )
+    if release_metadata is None or not upgrade_is_supported(release_metadata, installed_image):
+        raise HTTPException(
+            status_code=409, detail="compatibility for this software update is not verified"
+        )
     release_id = upgrade_release_id(row, target_reference)
-    return repo, row, target_reference, release_id
+    return repo, row, target_reference, release_id, release_metadata
 
 
 def _service() -> PersonalAgentProvisioningService:
@@ -287,16 +309,11 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     `runningImage`. ``updateAvailable: false`` is a positive statement that the pod
     is current, and only made when both sides are known.
 
-    Tag equality, not digest equality: the person's copy is a digest in their own
-    registry while the hub's target is a tag, so the honest comparison is the tag
-    the image was built from (the target is already a build SHA, `dev-<sha>`).
-
-    The running tag is the pod's OWN report (``backend_metadata.observed.imageTag``,
-    posted on its heartbeat) when there is one, and the deployed record
-    (``source_image``) when there is not. They live under separate keys so a pod
-    whose process runs older code than its row claims is visible as drift rather
-    than papered over; drift is logged loudly and the pod's word wins, because it
-    is the only signal that says what is running rather than what was deployed.
+    Immutable targets compare provider-recorded digests across registry copies.
+    Tags remain display and legacy diagnostic information. A target digest with
+    no installed digest is unknown, never a positive claim of currency. Provider
+    completion additionally requires the exact owner operation and incarnation
+    receipt; none of these stored facts establishes fresh live reachability.
     """
     metadata = (row or {}).get("backend_metadata")
     if not isinstance(metadata, dict):
@@ -312,7 +329,8 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     # surface said nothing at all while their agent silently failed to update.
     deployed_tag = _image_tag(metadata.get("source_image") or metadata.get("image"))
     running = observed_tag or deployed_tag
-    if observed_tag and deployed_tag and observed_tag != deployed_tag:
+    version_drift = bool(observed_tag and deployed_tag and observed_tag != deployed_tag)
+    if version_drift:
         logger.warning(
             "personal_agent.image_drift hushh_id=%s observed=%s deployed=%s",
             (row or {}).get("hushh_id"),
@@ -322,32 +340,85 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     target_reference = (
         target_image if target_image is not None else os.getenv("HUSSH_ONE_POD_IMAGE")
     )
-    target = _image_tag(target_reference)
-    out: dict = {}
+    target_digest = image_digest(target_reference)
+    installed_digest = image_digest(metadata.get("image_digest") or metadata.get("image"))
+    if installed_digest is None:
+        installed_digest = image_digest(metadata.get("source_image"))
+    target = _image_tag(target_reference) or target_digest
+    running = running or installed_digest
+    release_metadata = configured_release(str(target_reference or ""))
+    out: dict = {"releaseCheckedAt": datetime.now(timezone.utc).isoformat()}
+    if release_metadata is not None:
+        out["availableRelease"] = public_release(release_metadata)
+    if running:
+        out["installedRelease"] = {"version": running}
+        if installed_digest:
+            out["installedRelease"]["imageDigest"] = installed_digest
+        stored_release = metadata.get("installedRelease")
+        if (
+            isinstance(stored_release, dict)
+            and image_digest(stored_release.get("image")) == installed_digest
+        ):
+            try:
+                installed_release = validate_release(
+                    stored_release,
+                    target_image=stored_release["image"],
+                    environment=os.getenv("HUSHH_DEPLOY_ENV", ""),
+                )
+                out["installedRelease"].update(
+                    version=installed_release["descriptor"]["version"],
+                    sourceRevision=installed_release["sourceRevision"],
+                )
+            except (ValueError, TypeError):
+                pass
     if running:
         out["runningImage"] = running
     if target:
         out["targetImage"] = target
+    acknowledgement = metadata.get("upgradeAcknowledgement")
+    approval = metadata.get("upgradeApproval")
+    service_uid = metadata.get("serviceUid")
+    approved_target = str(approval.get("targetImage") or "") if isinstance(approval, dict) else ""
+    installed_release_id = upgrade_release_id(row, approved_target) if approved_target else None
+    if (
+        installed_digest
+        and not version_drift
+        and service_uid
+        and isinstance(acknowledgement, dict)
+        and acknowledgement.get("outcome") == "ready"
+        and acknowledgement.get("serviceUid") == service_uid
+        and acknowledgement.get("podIncarnation") == service_uid
+        and image_digest(acknowledgement.get("image")) == installed_digest
+        and acknowledgement.get("targetDigest") == installed_digest
+        and acknowledgement.get("releaseId") == installed_release_id
+        and isinstance(approval, dict)
+        and image_digest(approved_target) == installed_digest
+        and approval.get("status") == "succeeded"
+        and approval.get("releaseId") == installed_release_id
+        and approval.get("operationId")
+        and acknowledgement.get("operationId") == approval.get("operationId")
+    ):
+        out["installedReleaseVerified"] = True
+        if approval.get("verifiedAt"):
+            out["installedReleaseVerifiedAt"] = str(approval["verifiedAt"])
+        if installed_digest == target_digest:
+            out["updateVerified"] = True
     # The lease is the in-flight signal: it is taken before the copy starts and
     # cleared when the outcome is recorded, so "fresh lease" is "being updated now".
     if _lease_is_fresh(metadata.get("upgradeLease")):
         out["updateInProgress"] = True
     if not (running and target):
         return out
-    out["updateAvailable"] = running != target
+    if target_digest:
+        if not installed_digest or version_drift:
+            return out
+        out["updateAvailable"] = installed_digest != target_digest
+    else:
+        if running == target:
+            # Mutable tag equality cannot establish installed artifact identity.
+            return out
+        out["updateAvailable"] = running != target
     release = upgrade_release_id(row, target_reference or target)
-    if not out["updateAvailable"]:
-        # A matching tag is only a version observation.  Successful owner-approved
-        # updates additionally retain a verified provider acknowledgement; a lease
-        # disappearing or a copied registry tag cannot become a false success.
-        acknowledgement = metadata.get("upgradeAcknowledgement")
-        if (
-            isinstance(acknowledgement, dict)
-            and acknowledgement.get("outcome") == "ready"
-            and isinstance(acknowledgement.get("image"), str)
-            and isinstance(acknowledgement.get("serviceUid"), str)
-        ):
-            out["updateVerified"] = True
     if out["updateAvailable"]:
         # Keep an unverified target visible to operators as a diagnostic, but do
         # not turn it into an owner-actionable offer.
@@ -367,7 +438,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
                         deferred_due = due <= datetime.now(timezone.utc)
                     except ValueError:
                         deferred_due = False
-        out["updateOfferable"] = is_immutable_image_reference(target_reference) and (
+        out["updateOfferable"] = upgrade_is_supported(release_metadata, installed_digest) and (
             not isinstance(metadata.get("upgradeDeferral"), dict)
             or metadata["upgradeDeferral"].get("releaseId") != release
             or deferred_due
@@ -376,7 +447,11 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         deferral = metadata.get("upgradeDeferral")
         update: dict[str, object] = {
             "releaseId": release,
-            "summary": "Keeps your private agent current and preserves its information.",
+            "summary": (
+                release_metadata["descriptor"]["summary"]
+                if release_metadata
+                else "Software update compatibility has not been verified."
+            ),
             "presentationState": "ready",
         }
         if isinstance(deferral, dict) and deferral.get("releaseId") == release:
@@ -435,9 +510,11 @@ async def resolve_personal_agent_status(
     """
     repo = registry or PersonalAgentRegistryRepo()
     row = None
+    registry_read_ok = True
     try:
         row = await repo.get(user_id)
     except Exception as exc:  # fail safe: never break the home on a registry hiccup
+        registry_read_ok = False
         logger.warning(
             "personal_agent.status_read_failed err=%s detail=%s",
             type(exc).__name__,
@@ -497,6 +574,12 @@ async def resolve_personal_agent_status(
     deployment_target = str((row or {}).get("deployment_target") or "").strip()
     if deployment_target:
         result["deploymentTarget"] = deployment_target
+
+    result["hostingMode"] = await resolve_observed_hosting_mode(
+        user_id=user_id,
+        row=row,
+        registry_read_ok=registry_read_ok,
+    )
     credential_mode = str((row or {}).get("model_credential_mode") or "").strip()
     if credential_mode:
         result["credentialMode"] = credential_mode
@@ -548,6 +631,16 @@ async def resolve_personal_agent_status(
     if result.get("state") == "active":
         result.update(describe_pod_update(row))
 
+    if result.get("hostingMode") == "shared":
+        shared_revision = str(os.getenv("HUSHH_DEPLOY_SHA") or "").strip()
+        if len(shared_revision) == 40 and all(
+            char in "0123456789abcdef" for char in shared_revision
+        ):
+            result["installedRelease"] = {
+                "version": "Managed service " + shared_revision[:12],
+                "sourceRevision": shared_revision,
+            }
+
     # A `reason` field belongs here too -- `reserved` covers both "your identity is
     # held, nothing is building yet" and "we are at capacity, your place is queued",
     # and those want different sentences on screen. It is NOT added yet: migration 900
@@ -573,7 +666,7 @@ async def approve_personal_agent_update(
 ) -> dict:
     """Approve one exact release; reconciliation performs the later mutation."""
     _require_enabled()
-    repo, row, target_reference, release_id = await _upgrade_offer(user_id)
+    repo, row, target_reference, release_id, release_metadata = await _upgrade_offer(user_id)
     if not compare_digest(payload.release_id, release_id):
         raise HTTPException(status_code=409, detail="this software update is no longer current")
     existing = (row.get("backend_metadata") or {}).get("upgradeApproval")
@@ -609,6 +702,7 @@ async def approve_personal_agent_update(
             or "unknown"
         ),
         "targetImage": target_reference,
+        "releaseMetadata": release_metadata,
         "approvedAt": now,
     }
     stored = await repo.record_upgrade_approval(user_id=user_id, approval=approval)
@@ -643,7 +737,7 @@ async def defer_personal_agent_update(
 ) -> dict:
     """Defer the current offer for a server-controlled three-day interval."""
     _require_enabled()
-    repo, row, target_reference, release_id = await _upgrade_offer(user_id)
+    repo, row, target_reference, release_id, _release_metadata = await _upgrade_offer(user_id)
     if not compare_digest(payload.release_id, release_id):
         raise HTTPException(status_code=409, detail="this software update is no longer current")
     now = datetime.now(timezone.utc)

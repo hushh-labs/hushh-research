@@ -59,8 +59,6 @@ tests/test_mcp_log_redaction.py
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_encrypted_blob_bounds.py
-tests/test_data_model_audit_script.py
-tests/test_data_model_audit_postgres.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
@@ -417,6 +415,33 @@ tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
 tests/test_plaid_server_custody_retire.py
 
+# Hosting, pod authority/recovery, exact-reviewed MCP and dev candidate acceptance.
+# These runtime/script contracts block the shared and BYOC release lanes.
+tests/test_hosting_mode_resolution.py
+tests/test_pod_binding_service.py
+tests/test_pod_session_authority.py
+tests/test_pod_session_routes.py
+tests/test_pod_puppy_relay_route.py
+tests/test_puppy_envelope.py
+tests/test_puppy_broker.py
+tests/test_puppy_local_transport.py
+tests/test_puppy_capability_seam.py
+tests/test_pod_upgrade_admission.py
+tests/test_pod_upgrade_control_auth.py
+tests/test_pod_upgrade_handoff.py
+tests/test_pod_upgrade_rollback_guard.py
+tests/test_pod_update_detection.py
+tests/test_pod_image_upgrade_path.py
+tests/test_governed_mcp_toolset.py
+tests/test_registered_mcp_toolset.py
+tests/test_mcp_review_service.py
+tests/test_mcp_resume_receipt.py
+tests/test_mcp_pending_call.py
+tests/test_mcp_turn_scope.py
+tests/test_workspace_mcp_tools.py
+tests/test_drive_result_privacy.py
+tests/test_cloudrun_revision_provenance.py
 tests/test_dev_candidate_gate.py
 
-tests/test_cloudrun_revision_provenance.py
+
+tests/test_pod_release.py

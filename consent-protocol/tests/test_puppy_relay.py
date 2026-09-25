@@ -86,6 +86,34 @@ def test_rendezvous_never_reuses_rate_limit_store(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("deployment_target", [None, "gcp", "user_gcp"])
+async def test_legacy_relay_requires_a_provisioned_byoc_owner_and_active_device(
+    monkeypatch: pytest.MonkeyPatch, deployment_target: str | None
+) -> None:
+    class _Registry:
+        async def get(self, _user_id: str) -> dict[str, object]:
+            return {
+                "deployment_target": deployment_target,
+                "status": "provisioned",
+                "backend_metadata": {"url": "https://byoc.example"},
+                "pod_key_id": "pod-key-1",
+            }
+
+    class _Devices:
+        def is_active_device(self, *, user_id: str, device_id: str) -> bool:
+            return user_id == "owner-1" and device_id == "device-1"
+
+    from hushh_mcp.services import personal_agent_registry_repo
+
+    monkeypatch.setattr(personal_agent_registry_repo, "PersonalAgentRegistryRepo", _Registry)
+    monkeypatch.setattr(relay, "TrustedDeviceService", _Devices)
+
+    eligible = await relay._puppy_eligible_byoc_owner("owner-1", "device-1")
+
+    assert eligible is (deployment_target == "user_gcp")
+
+
+@pytest.mark.asyncio
 async def test_global_broker_status_is_offline_without_local_or_rendezvous(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -306,7 +334,11 @@ async def test_the_provider_loop_binds_the_device_link_per_request(
     async def _always_valid(_token, *, expected_scope):
         return True, "", None
 
+    async def _byoc_owner(_user_id, _device_id):
+        return True
+
     monkeypatch.setattr(relay, "validate_token_with_db", _always_valid)
+    monkeypatch.setattr(relay, "_puppy_eligible_byoc_owner", _byoc_owner)
     key = ("owner-rebind", "device-rebind")
     old_device = _FakeWebSocket([])
     await BROKER.register(key, old_device)  # type: ignore[arg-type]

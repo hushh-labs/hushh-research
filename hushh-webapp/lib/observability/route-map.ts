@@ -22,6 +22,8 @@ export const ROUTE_ID_VALUES = [
   "phone_mandate",
   "profile",
   "profile_regulatory",
+  "profile_hosting",
+  "profile_software_updates",
   "profile_account",
   "profile_account_phone",
   "profile_preferences",
@@ -165,6 +167,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
   if (pathname === ROUTES.PROFILE) return "profile";
   if (pathname === ROUTES.PROFILE_REGULATORY) return "profile_regulatory";
+  if (pathname === ROUTES.PROFILE_HOSTING) return "profile_hosting";
+  if (pathname === ROUTES.PROFILE_SOFTWARE_UPDATES) return "profile_software_updates";
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";

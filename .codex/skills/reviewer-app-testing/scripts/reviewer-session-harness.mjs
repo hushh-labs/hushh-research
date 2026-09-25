@@ -395,7 +395,7 @@ export async function createReviewerSessionHarness({
     }
   }
 
-  async function navigateInApp(page, href) {
+  async function navigateInApp(page, href, { requireVaultUnlocked = true } = {}) {
     await page.evaluate((targetHref) => {
       window.dispatchEvent(
         new CustomEvent("app-internal-navigation-requested", {
@@ -408,7 +408,8 @@ export async function createReviewerSessionHarness({
       href,
       { timeout: timeoutMs }
     );
-    await assertVaultContinuity(page, href);
+    if (requireVaultUnlocked) await assertVaultContinuity(page, href);
+    else await assertAuthenticatedContinuity(page, href);
   }
 
   async function openSession(browser, redirect, {

@@ -30,8 +30,10 @@
 set -euo pipefail
 
 # Image selection travels together to remain within Cloud Build's env-entry cap.
-IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
-if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] || [[ -n "${_image_extra}" ]]; then
+IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
+if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] ||
+  [[ "${_BUILD_POD_IMAGE}" != "true" && "${_BUILD_POD_IMAGE}" != "false" ]] ||
+  [[ -n "${_image_extra}" ]]; then
   echo "Invalid image settings." >&2; exit 1
 fi
 
@@ -163,7 +165,7 @@ genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$PROJECT_ID"
   if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-    genai_project_id="hushh-vertex-personal54"
+    genai_project_id="hushh-pda-uat"
   fi
 fi
 append_optional_secret() {
@@ -389,6 +391,7 @@ append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 # to a digest and writes it to the shared workspace. The deploy step consumes that
 # recorded value; it never offers a mutable tag for owner approval.
 pod_image=""
+pod_release_b64=""
 if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
   pod_image_file="/workspace/pod-image-reference"
   if [[ ! -s "$pod_image_file" ]]; then
@@ -400,8 +403,14 @@ if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
     echo "pod image digest record is invalid; refusing mutable pod target" >&2
     exit 1
   fi
+  if [[ ! -s /workspace/pod-release.b64 ]]; then
+    echo "pod release metadata is missing; refusing an unverified release" >&2
+    exit 1
+  fi
+  pod_release_b64="$(tr -d '\r\n' < /workspace/pod-release.b64)"
 fi
 append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
+append_optional_env "HUSSH_ONE_POD_RELEASE_B64" "${pod_release_b64}"
 # The pod's own runtime identity. Created in hushh-pda-dev holding NO project
 # roles: without it Cloud Run would run each pod as the default compute account,
 # which carries project Editor. Empty outside dev, so append_optional_env skips it.
@@ -832,7 +841,7 @@ cmd=(
   "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
   "--allow-unauthenticated"
   "--port=8080"
-  "--memory=1Gi"
+  "--memory=${_CLOUD_RUN_MEMORY}"
   "--cpu=${_CLOUD_RUN_CPU}"
   "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
   "--timeout=3600"

@@ -41,6 +41,7 @@ from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -49,6 +50,7 @@ from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
 )
+from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
@@ -89,12 +91,17 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         if token is not None and firebase_uid != token["user_id"]:
             raise HTTPException(status_code=403, detail="Credential owner mismatch")
     if token is not None:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"},
-        )
+        hosting_mode = await get_owner_hosting_mode(token["user_id"])
+        if hosting_mode == "unknown":
+            raise HTTPException(status_code=503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+        if hosting_mode != "shared":
+            raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
-    if forwarded.get("pkmContext") or forwarded.get("runtimeCredential") or input_data.context:
+    if (
+        forwarded.get("runtimeCredential")
+        or input_data.context
+        or (not token and forwarded.get("pkmContext"))
+    ):
         raise HTTPException(status_code=400, detail="Private context requires the private agent")
     screen_payload = forwarded.get("screenContext")
     screen_context = sanitize_agent_context(
@@ -143,7 +150,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_MCP_APPROVAL: mcp_approval,
         WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),
         STATE_USER_ID: session_user_id,
-        STATE_CONSENT_TOKEN: "",
+        STATE_CONSENT_TOKEN: store_request_secret(str(token["token"])) if token else "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         # This is only an untrusted selection request. The resolver validates
@@ -161,7 +168,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: "",
+        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000])
+        if token
+        else "",
     }
 
 
@@ -246,9 +255,16 @@ _intro_agent = TimedADKAgent.from_app(
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
-    if state.get(STATE_CONSENT_TOKEN):
+    reference = state.get(STATE_CONSENT_TOKEN)
+    if not reference:
+        return _intro_agent
+    if (
+        not isinstance(reference, str)
+        or not reference.startswith("one_secret_ref:")
+        or not resolve_request_secret(reference)
+    ):
         raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
-    return _intro_agent
+    return _agent
 
 
 add_adk_fastapi_endpoint(

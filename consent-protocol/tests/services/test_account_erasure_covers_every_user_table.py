@@ -59,6 +59,7 @@ _DRIVE_SPECIALIZED_TABLES = {
     "drive_share_permission_operations",
     "drive_share_events",
     "drive_share_management_contexts",
+    "drive_share_live_sources",
 }
 
 

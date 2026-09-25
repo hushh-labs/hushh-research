@@ -551,6 +551,14 @@ async def relay_pod_turn(
 ) -> dict:
     """Owner-authorized turn against a person's own pod."""
     _require_enabled()
+    if str(payload.runtime_provider or "").strip().lower() == "puppy":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PUPPY_DIRECT_BYOC_SESSION_REQUIRED",
+                "message": "Puppy inference requires a direct session on the owner's BYOC pod.",
+            },
+        )
     repo = registry or PersonalAgentRegistryRepo()
     auditor = audit or PodAccessAuditService(registry=repo)
 

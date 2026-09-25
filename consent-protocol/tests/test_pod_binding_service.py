@@ -120,6 +120,7 @@ def _row(**overrides) -> dict:
     row = {
         "user_id": USER,
         "hushh_id": OWNER,
+        "deployment_target": "user_gcp",
         "status": "provisioned",
         "pod_key_id": POD_KEY_ID,
         "pod_pubkey": POD_PUBLIC_KEY,
@@ -232,6 +233,20 @@ async def test_role_follows_the_platform_and_puppy_is_a_device_scope(hub_key):
     with pytest.raises(pbs.PodBindingError) as caught:
         await service.issue(user_id=USER, device_id="tdv_odd")
     assert caught.value.code == "TRUSTED_DEVICE_UNSUPPORTED_PLATFORM"
+
+
+async def test_puppy_scope_is_refused_for_non_byoc_pod(hub_key):
+    _, public = _p256_public_b64()
+    service = _service(
+        row=_row(deployment_target="gcp"),
+        devices=_Devices({"tdv_mac": {"platform": "macos", "device_public_key": public}}),
+    )
+
+    with pytest.raises(pbs.PodBindingError) as caught:
+        await service.issue(user_id=USER, device_id="tdv_mac", puppy_inference=True)
+
+    assert caught.value.code == "PUPPY_REQUIRES_BYOC_POD"
+    assert service._registry.bindings == []
 
 
 async def test_refusals_are_exact_and_record_nothing(hub_key):
@@ -412,7 +427,6 @@ class _FakeService:
 
 
 async def test_the_self_enroll_route_enrols_the_app_without_puppy_or_vault_authority(monkeypatch):
-    from fastapi import HTTPException
 
     from api.routes import account
 
@@ -422,14 +436,18 @@ async def test_the_self_enroll_route_enrols_the_app_without_puppy_or_vault_autho
     async def _guard(_uid=None):
         return None
 
+    async def _browser_uid(_authorization):
+        return "uid-1"
+
     _FakeService.calls = []
     monkeypatch.setattr(account, "TrustedDeviceService", _FakeService)
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
     monkeypatch.setattr(account, "_trusted_device_guard", _guard)
+    monkeypatch.setattr(account, "_verify_browser_enrollment_identity", _browser_uid)
 
     result = await account.trusted_device_self_enroll(
         account.TrustedDeviceSelfEnrollRequest(
-            devicePublicKey="AAAA", deviceName="Safari on Mac", platform="web"
+            devicePublicKey="A" * 100, deviceName="Safari on Mac", platform="web"
         ),
         firebase_uid="uid-1",
     )
@@ -437,15 +455,109 @@ async def test_the_self_enroll_route_enrols_the_app_without_puppy_or_vault_autho
     assert _FakeService.calls[0]["user_id"] == "uid-1"
     assert "puppy" not in json.dumps(result) and "vault" not in json.dumps(result)
 
-    with pytest.raises(HTTPException) as caught:
-        await account.trusted_device_self_enroll(
-            account.TrustedDeviceSelfEnrollRequest(
-                devicePublicKey="AAAA", deviceName="x", platform="windows"
-            ),
-            firebase_uid="uid-1",
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        account.TrustedDeviceSelfEnrollRequest(
+            devicePublicKey="A" * 100, deviceName="x", platform="windows"
         )
-    assert caught.value.status_code == 400
-    assert caught.value.detail["code"] == "TRUSTED_DEVICE_UNSUPPORTED_PLATFORM"
+
+
+@pytest.mark.parametrize("deployment_target", [None, "gcp"])
+async def test_legacy_puppy_grant_refuses_non_byoc_placement(monkeypatch, deployment_target):
+    from fastapi import HTTPException
+
+    from api.routes import account
+
+    async def _guard(_uid=None):
+        return None
+
+    class _Registry:
+        async def get(self, user_id):
+            assert user_id == USER
+            return {
+                "deployment_target": deployment_target,
+                "status": "provisioned",
+                "backend_metadata": {"url": POD_URL},
+                "pod_key_id": POD_KEY_ID,
+            }
+
+    class _Devices:
+        def is_active_device(self, *, user_id, device_id):
+            assert (user_id, device_id) == (USER, "device-1")
+            return True
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    monkeypatch.setattr(account, "_trusted_device_guard", _guard)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        _Registry,
+    )
+    monkeypatch.setattr(account, "TrustedDeviceService", _Devices)
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    with pytest.raises(HTTPException) as caught:
+        await account.issue_puppy_inference_grant("device-1", firebase_uid=USER)
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "PUPPY_REQUIRES_BYOC_POD"
+
+
+async def test_legacy_puppy_grant_is_owner_bound_and_only_issued_for_active_byoc(
+    monkeypatch,
+):
+    from api.routes import account
+
+    async def _guard(_uid=None):
+        return None
+
+    class _Registry:
+        async def get(self, user_id):
+            assert user_id == USER
+            return {
+                "deployment_target": "user_gcp",
+                "status": "provisioned",
+                "backend_metadata": {"url": POD_URL},
+                "pod_key_id": POD_KEY_ID,
+            }
+
+    class _Devices:
+        def is_active_device(self, *, user_id, device_id):
+            assert (user_id, device_id) == (USER, "device-1")
+            return True
+
+    class _Token:
+        token = "signed-grant"
+        expires_at = 123456
+
+    class _ConsentDB:
+        async def insert_event(self, **event):
+            assert event["user_id"] == USER
+            assert event["scope"] == "cap.puppy.inference"
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    monkeypatch.setattr(account, "_trusted_device_guard", _guard)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        _Registry,
+    )
+    monkeypatch.setattr(account, "TrustedDeviceService", _Devices)
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr("hushh_mcp.consent.token.issue_token", lambda **_kwargs: _Token())
+    monkeypatch.setattr("hushh_mcp.services.consent_db.ConsentDBService", _ConsentDB)
+
+    result = await account.issue_puppy_inference_grant("device-1", firebase_uid=USER)
+
+    assert result == {
+        "device_id": "device-1",
+        "scope": "cap.puppy.inference",
+        "token": "signed-grant",
+        "expires_at": 123456,
+    }
 
 
 async def test_the_binding_and_endpoint_routes_delegate_to_the_service(monkeypatch):
@@ -453,6 +565,11 @@ async def test_the_binding_and_endpoint_routes_delegate_to_the_service(monkeypat
 
     from api.routes import account
     from api.routes.one import personal_agent
+
+    async def _guard(_uid=None):
+        return None
+
+    monkeypatch.setattr(account, "_trusted_device_guard", _guard)
 
     class _Service:
         def __init__(self, **_kw: Any) -> None:

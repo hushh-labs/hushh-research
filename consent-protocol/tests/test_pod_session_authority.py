@@ -91,6 +91,7 @@ def _binding(subject: Subject, *, version=1, role=None, scopes=None, **overrides
         "environment": ENV,
         "pod_key_id": POD_KEY_ID,
         "pod_public_key": POD_PUBLIC_KEY,
+        "deployment_target": "user_gcp",
         "url": POD_URL,
         "subject_id": subject.subject_id,
         "subject_kind": role or inferred_role,
@@ -421,6 +422,31 @@ async def test_a_scope_the_binding_did_not_grant_is_an_invalid_verdict(tmp_path,
     assert verdict.valid is False and verdict.available is True
     granted = await verify(world.authority.local_token(claims), expected_scope="puppy.inference")
     assert granted.valid is True
+
+
+async def test_puppy_inference_binding_requires_signed_byoc_placement(tmp_path, hub_key):
+    world = World(tmp_path)
+    await world.boot()
+    device = Subject("tdv_mac_1", "macos")
+    binding = _binding(device)
+    binding.pop("deployment_target")
+
+    with pytest.raises(psa.PodSessionRefused) as caught:
+        await world.admit(device, binding)
+
+    assert caught.value.code == "non_byoc_puppy"
+
+
+async def test_legacy_app_binding_without_placement_remains_readable(tmp_path, hub_key):
+    world = World(tmp_path)
+    await world.boot()
+    app = Subject("tdv_app_web_legacy", "web")
+    binding = _binding(app)
+    binding.pop("deployment_target")
+
+    token, claims = await world.admit(app, binding)
+
+    assert world.authority.verify_session(token)["user_id"] == claims["user_id"]
 
 
 async def test_a_tampered_session_is_refused(tmp_path, hub_key):

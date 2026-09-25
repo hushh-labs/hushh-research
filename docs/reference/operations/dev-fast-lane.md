@@ -40,6 +40,26 @@ Canonical visual owner: [Operations Index](./README.md). Companion contracts:
 [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md)
 (environment).
 
+## Candidate pipeline update — 2026-09-24
+
+The governed pipeline prerequisite landed on main as `a4a42abe2` through the
+authorized Admin PR path. Its exact-SHA post-merge smoke passed. The pod
+application candidate has **not** established a live dev acceptance result;
+deploy it only from an exact CI-green application SHA.
+
+The candidate builds and pins the backend before migration, checks each selected
+revision's Ready condition, SHA/run labels and environment, resolved image digest,
+and run-specific tagged URL, then requires HTTP 200 without following redirects.
+[Cloud Run tag updates](https://docs.cloud.google.com/sdk/gcloud/reference/run/services/update-traffic)
+are separate from traffic percentages. Both selected services must pass before
+promotion. Retention follows acceptance and preserves the captured rollback revision.
+An explicit `build_pod_image` input defaults to false; publishing a dev artifact
+does not authorize installation or production stable-channel promotion.
+
+These additions do not yet prove migration recovery, release metadata, changed-SHA
+verification selection, load capacity, or live owner/device acceptance. Their
+current disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
+
 ## The rule in one screen
 
 ```mermaid

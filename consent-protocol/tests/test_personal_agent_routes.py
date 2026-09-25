@@ -8,7 +8,9 @@ the verified-phone precondition, and that the handler forwards the pod key.
 
 from __future__ import annotations
 
+import base64
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -207,6 +209,12 @@ def _update_client(monkeypatch):
     monkeypatch.setenv(
         "HUSSH_ONE_POD_IMAGE",
         "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new@sha256:" + "b" * 64,
+    )
+    release = json.loads((Path(__file__).parent / "fixtures/pod_release.v1.json").read_text())
+    release["image"] = "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new@sha256:" + "b" * 64
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv(
+        "HUSSH_ONE_POD_RELEASE_B64", base64.b64encode(json.dumps(release).encode()).decode()
     )
     row = {
         "user_id": "uid1",
@@ -591,3 +599,19 @@ def test_deprovision_refusal_is_409_and_never_success(monkeypatch):
     assert response.json()["detail"]["code"] == pa.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
     assert "private upstream detail" not in response.text
     assert response.json().get("success") is not True
+
+
+def test_update_approval_refuses_unverified_compatibility(monkeypatch):
+    client, calls = _update_client(monkeypatch)
+    offered = client.get("/api/one/personal-agent/status").json()
+    monkeypatch.delenv("HUSSH_ONE_POD_RELEASE_B64")
+    response = client.post(
+        "/api/one/personal-agent/update/approve",
+        json={
+            "releaseId": offered["update"]["releaseId"],
+            "idempotencyKey": "operation-test-123",
+        },
+    )
+    assert response.status_code == 409
+    assert "compatibility" in response.json()["detail"]
+    assert "approval" not in calls

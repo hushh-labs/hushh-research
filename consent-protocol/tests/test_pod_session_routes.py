@@ -88,6 +88,7 @@ class Subject:
             "hushh_id": OWNER,
             "user_id": USER,
             "environment": "dev",
+            "deployment_target": "user_gcp",
             "pod_key_id": POD_KEY_ID,
             "pod_public_key": POD_PUBLIC_KEY,
             "url": "https://pod.example",
@@ -195,6 +196,20 @@ def test_a_refused_admission_carries_the_exact_code(pod):
     assert result["status"] == 403
     assert result["error"]["detail"]["code"] == "foreign_owner"
     assert pod["store"].subject(app.subject_id).state == "unknown"
+
+
+@pytest.mark.parametrize("placement", [None, "gcp"])
+def test_device_admission_refuses_missing_or_hosted_placement(pod, placement):
+    device = Subject("tdv_mac_refused", "macos")
+    binding = device.binding()
+    if placement is None:
+        binding.pop("deployment_target")
+    else:
+        binding["deployment_target"] = placement
+    result = _admit(pod["client"], device, binding)
+    assert result["status"] == 403
+    assert result["error"]["detail"]["code"] == "non_byoc_puppy"
+    assert pod["store"].subject(device.subject_id).state == "unknown"
 
 
 def test_admission_answers_503_when_no_local_authority_exists(pod):

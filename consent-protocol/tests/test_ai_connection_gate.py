@@ -29,6 +29,14 @@ class _Registry:
         return self._row
 
 
+class _SetupJobs:
+    def __init__(self, row: dict | None = None) -> None:
+        self._row = row
+
+    async def get(self, _user_id: str):
+        return self._row
+
+
 class _Identity:
     def __init__(self, *, verified: bool = True, phone: str = "+15551234567") -> None:
         self._verified = verified
@@ -58,6 +66,7 @@ async def _verify(**kwargs):
         "user_id": "u1",
         "provider": "gemini",
         "registry": _Registry(None),
+        "setup_jobs": _SetupJobs(None),
         "identity": _Identity(),
     }
     defaults.update(kwargs)
@@ -69,7 +78,10 @@ async def _verify(**kwargs):
 
 async def test_a_verified_connection_schedules_provisioning():
     identity = _Identity()
-    result = await _verify(identity=identity)
+    result = await _verify(
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        identity=identity,
+    )
 
     assert result["scheduled"] is True
     assert identity.scheduled[0][0] == "u1"
@@ -80,14 +92,20 @@ async def test_a_verified_connection_schedules_provisioning():
 async def test_the_phone_comes_from_the_verified_identity_not_the_caller():
     """A caller must not be able to name the phone their HusshID is minted from."""
     identity = _Identity(phone="+15559999999")
-    await _verify(identity=identity)
+    await _verify(
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        identity=identity,
+    )
     assert identity.scheduled[0][1] == "+15559999999"
 
 
 async def test_an_unverified_phone_provisions_nothing():
     """An unverified number would mint a HusshID against a phone nobody proved."""
     identity = _Identity(verified=False)
-    result = await _verify(identity=identity)
+    result = await _verify(
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        identity=identity,
+    )
 
     assert result["scheduled"] is False
     assert identity.scheduled == []
@@ -110,11 +128,49 @@ async def test_a_user_who_already_has_a_host_is_not_provisioned_again(status):
 
 
 async def test_a_row_that_is_only_reserved_still_provisions():
-    """`pending` means an identity exists with no host — exactly the case this
-    gate is for."""
+    """A pending row without an assigned host does not opt the person into a pod."""
     identity = _Identity()
     result = await _verify(registry=_Registry({"status": "pending"}), identity=identity)
-    assert result["scheduled"] is True
+    assert result["scheduled"] is False
+    assert result["reason"].startswith("hosting mode is pending")
+    assert identity.scheduled == []
+
+
+async def test_no_pod_assignment_defaults_to_shared_without_provisioning():
+    identity = _Identity()
+    result = await _verify(registry=_Registry(None), identity=identity)
+
+    assert result["scheduled"] is False
+    assert result["reason"] == "Shared runtime does not provision a pod"
+    assert identity.scheduled == []
+
+
+async def test_a_failed_cloud_setup_remains_pending_instead_of_becoming_shared():
+    identity = _Identity()
+    result = await _verify(
+        registry=_Registry(None),
+        setup_jobs=_SetupJobs(
+            {"status": "failed", "stage": "settling_grant", "project_id": "owner-project"}
+        ),
+        identity=identity,
+    )
+
+    assert result["scheduled"] is False
+    assert result["reason"].startswith("hosting mode is pending")
+    assert identity.scheduled == []
+
+
+async def test_setup_job_read_failure_does_not_fall_back_to_shared_or_create_a_pod():
+    class _BrokenJobs:
+        async def get(self, _user_id: str):
+            raise RuntimeError("job store is down")
+
+    identity = _Identity()
+    result = await _verify(setup_jobs=_BrokenJobs(), identity=identity)
+
+    assert result["scheduled"] is False
+    assert "hosting mode is unknown" in result["reason"]
+    assert identity.scheduled == []
 
 
 # -- never break the validation -------------------------------------------------
@@ -134,7 +190,10 @@ async def test_a_scheduler_failure_does_not_raise():
     def _boom(*_args, **_kwargs):
         raise RuntimeError("task loop is gone")
 
-    result = await _verify(scheduler=_boom)
+    result = await _verify(
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        scheduler=_boom,
+    )
     assert result["scheduled"] is False
 
 
@@ -203,7 +262,11 @@ async def test_managed_does_not_provision_while_a_pod_cannot_serve_it(monkeypatc
 
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
     identity = _Identity()
-    result = await _verify(provider="hushh_managed_vertex", identity=identity)
+    result = await _verify(
+        provider="hushh_managed_vertex",
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        identity=identity,
+    )
 
     assert result["scheduled"] is False
     # The refusal used to be the single generic string "pod cannot serve this
@@ -227,7 +290,11 @@ async def test_managed_provisions_once_a_pod_can_serve_it(monkeypatch):
 
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: True)
     identity = _Identity()
-    result = await _verify(provider="hushh_managed_vertex", identity=identity)
+    result = await _verify(
+        provider="hushh_managed_vertex",
+        registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+        identity=identity,
+    )
 
     assert result["scheduled"] is True
     assert identity.scheduled and identity.scheduled[0][2] is True
@@ -241,7 +308,13 @@ async def test_byok_never_depends_on_the_managed_switch(monkeypatch):
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
     identity = _Identity()
 
-    assert (await _verify(provider="gemini", identity=identity))["scheduled"] is True
+    assert (
+        await _verify(
+            provider="gemini",
+            registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+            identity=identity,
+        )
+    )["scheduled"] is True
 
 
 @pytest.mark.parametrize("provider", ["HUSHH_MANAGED_VERTEX", "  hushh_managed_vertex  "])
@@ -256,7 +329,13 @@ async def test_the_managed_provider_is_matched_case_and_space_insensitively(monk
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
     identity = _Identity()
 
-    assert (await _verify(provider=provider, identity=identity))["scheduled"] is False
+    assert (
+        await _verify(
+            provider=provider,
+            registry=_Registry({"deployment_target": "gcp", "status": "unprovisioned"}),
+            identity=identity,
+        )
+    )["scheduled"] is False
     assert identity.scheduled == []
 
 

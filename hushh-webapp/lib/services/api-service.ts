@@ -1756,6 +1756,23 @@ export class ApiService {
     return response.json();
   }
 
+  static async selectSharedHosting(): Promise<{
+    hostingMode: "shared";
+    nextStep: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/shared/select", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    return response.json();
+  }
+
   static async selectManagedGeminiRuntime(): Promise<{
     status: "ready";
     model: string;
@@ -1983,11 +2000,15 @@ export class ApiService {
         },
         body: JSON.stringify({
           subject,
-          reviewer_uid: options?.reviewerUid || undefined,
           smoke_passphrase:
             typeof options?.smokePassphrase === "string" &&
             options.smokePassphrase.trim().length > 0
               ? options.smokePassphrase
+              : undefined,
+          reviewer_uid:
+            typeof options?.reviewerUid === "string" &&
+            options.reviewerUid.trim().length > 0
+              ? options.reviewerUid.trim()
               : undefined,
         }),
       });
@@ -3573,6 +3594,7 @@ export class ApiService {
     cloudProject?: string | null;
     cloudRegion?: string | null;
     deploymentTarget?: string | null;
+    hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown";
     credentialMode?: string | null;
     runningImage?: string | null;
     targetImage?: string | null;
@@ -3582,6 +3604,16 @@ export class ApiService {
     updateFailed?: boolean;
     updateError?: string | null;
     updateVerified?: boolean;
+    installedReleaseVerified?: boolean;
+    installedReleaseVerifiedAt?: string;
+    releaseCheckedAt?: string;
+    installedRelease?: { version: string; sourceRevision?: string; imageDigest?: string };
+    availableRelease?: {
+      version: string;
+      summary: string;
+      releasedAt: string;
+      notes: { improvements: string[]; fixes: string[]; security: string[] };
+    };
     update?: {
       releaseId: string;
       summary: string;
@@ -3733,6 +3765,9 @@ export class ApiService {
       input.signal,
     );
     if (direct) return direct;
+    if (input.runtimeProvider === "puppy") {
+      throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
+    }
 
     const response = await ApiService.apiFetch(
       `/api/one/u/${encodeURIComponent(input.hushhId)}/turn`,

@@ -76,15 +76,18 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
     if connector is None or not connector.is_active:
         return False
     if connector.owner_user_id == owner:
-        return connector.transport_kind == "mcp"
-    return connector.owner_user_id is None and (
-        (
-            connector.connector_id == "google_drive"
-            and connector.transport_kind in {"mcp", "google_drive_rest"}
-        )
-        or (
-            connector.connector_id in {"google_gmail", "google_calendar"}
-            and connector.transport_kind == "mcp"
+        return bool(connector.transport_kind == "mcp")
+    return bool(
+        connector.owner_user_id is None
+        and (
+            (
+                connector.connector_id == "google_drive"
+                and connector.transport_kind in {"mcp", "google_drive_rest"}
+            )
+            or (
+                connector.connector_id in {"google_gmail", "google_calendar"}
+                and connector.transport_kind == "mcp"
+            )
         )
     )
 
@@ -204,7 +207,7 @@ def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
         raise ExternalMcpError(
             "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
         ) from None
-    if not Draft202012Validator(schema).is_valid(arguments):
+    if not isinstance(arguments, dict) or not Draft202012Validator(schema).is_valid(arguments):
         raise ExternalMcpError(
             "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
         )

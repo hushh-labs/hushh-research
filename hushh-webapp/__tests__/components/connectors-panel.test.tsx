@@ -308,8 +308,9 @@ describe("supported connector catalog", () => {
       render(panel());
       // The row moves from Available to Connected once the overview arrives;
       // click the connected row, not the detached pre-overview one.
-      await screen.findByText("Search your Drive");
-      fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+      const connected = screen.getByRole("region", { name: "Connected" });
+      const driveRow = await within(connected).findByRole("button", { name: "Google Drive" });
+      fireEvent.click(driveRow);
     };
 
     it("lets a live Drive owner turn on preparing requests while away", async () => {

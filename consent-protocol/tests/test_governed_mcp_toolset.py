@@ -678,3 +678,12 @@ async def test_http_body_diagnostics_block_before_credentials(harness, monkeypat
     assert error.value.code == "MCP_UNSAFE_TELEMETRY"
     h.resolve.assert_not_called()
     h.session.list_tools.assert_not_called()
+
+
+@pytest.mark.parametrize("arguments", [[], ["value"], "value", 1, None])
+def test_review_arguments_require_an_object_even_for_a_permissive_schema(arguments):
+    from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+
+    with pytest.raises(ExternalMcpError) as error:
+        validated_mcp_arguments({}, arguments)
+    assert error.value.code == "MCP_ARGUMENTS_INVALID"

@@ -170,6 +170,7 @@ async def test_the_hosted_door_writes_the_same_setup_marker(monkeypatch):
     from this one.
     """
     from api.routes.one import runtime as runtime_routes
+    from hushh_mcp.services import hosted_tier_guard
 
     marked: list[str] = []
 
@@ -180,6 +181,9 @@ async def test_the_hosted_door_writes_the_same_setup_marker(monkeypatch):
         return True
 
     monkeypatch.setattr(runtime_routes, "_write_cloud_setup_marker", _fake_marker)
+    monkeypatch.setattr(
+        hosted_tier_guard, "require_hosted_pod_creates_permitted", lambda *_args: None
+    )
 
     class _Repo:
         set_hosted_cloud = staticmethod(_fake_set_hosted_cloud)
@@ -207,11 +211,15 @@ async def test_the_hosted_door_makes_the_claim_the_tier_actually_earns(monkeypat
     its own copy of it.
     """
     from api.routes.one import runtime as runtime_routes
+    from hushh_mcp.services import hosted_tier_guard
 
     async def _noop(user_id: str) -> None:
         return None
 
     monkeypatch.setattr(runtime_routes, "_write_cloud_setup_marker", _noop)
+    monkeypatch.setattr(
+        hosted_tier_guard, "require_hosted_pod_creates_permitted", lambda *_args: None
+    )
 
     class _Repo:
         @staticmethod
@@ -230,6 +238,37 @@ async def test_the_hosted_door_makes_the_claim_the_tier_actually_earns(monkeypat
     assurance = response.assurance.lower()
     assert "does not read" in assurance
     assert "cannot read" not in assurance
+
+
+async def test_disabled_hosted_tier_refuses_direct_server_selection(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.routes.one import runtime as runtime_routes
+    from hushh_mcp.services import hosted_tier_guard
+
+    async def _must_not_write(**_kwargs):
+        raise AssertionError("hosted selection wrote a pod assignment while disabled")
+
+    class _Repo:
+        set_hosted_cloud = staticmethod(_must_not_write)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        _Repo,
+    )
+
+    def _refuse(*_args):
+        raise hosted_tier_guard.HostedTierNotPermittedError("disabled")
+
+    monkeypatch.setattr(hosted_tier_guard, "require_hosted_pod_creates_permitted", _refuse)
+
+    with pytest.raises(HTTPException) as failure:
+        await runtime_routes.select_hosted_cloud.__wrapped__(  # type: ignore[attr-defined]
+            request=None, firebase_uid="u1"
+        )
+
+    assert failure.value.status_code == 404
+    assert failure.value.detail["code"] == "HOSTED_PODS_UNAVAILABLE"
 
 
 # --------------------------------------------------------------------------- #

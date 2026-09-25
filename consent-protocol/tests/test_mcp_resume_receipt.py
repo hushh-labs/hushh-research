@@ -123,10 +123,12 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(monkey
         vault.side_effect = HTTPException(status_code=403)
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     request = Request(
         {
             "type": "http",
-            "headers": [(b"authorization", b"Bearer synthetic")],
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
         }
     )
     run = _input()
@@ -160,7 +162,14 @@ async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(mon
         vault.side_effect = HTTPException(status_code=403)
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
+        }
+    )
     run = _input()
     run.forwarded_props = {"mcpConfigurations": []}
     if unlocked:

@@ -422,6 +422,7 @@ export class PkmWriteCoordinator {
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
     confirmation: PkmWriteAuthorization;
+    idempotencyScope?: string;
     beforeEffect?: () => Promise<void>;
     mayPublish?: () => boolean;
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
@@ -479,6 +480,7 @@ export class PkmWriteCoordinator {
           scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
+          idempotencyScope: params.idempotencyScope,
         });
         const syncCheckpoint = buildSyncCheckpoint({
           source: "prepared_domain",

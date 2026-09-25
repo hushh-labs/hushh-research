@@ -247,8 +247,14 @@ async def confirm_review(
 
 
 async def prepare_pending_review(
-    *, token, connector_id, conversation_id, tool_name, pending_handle, configuration=None
-):
+    *,
+    token: dict[str, Any],
+    connector_id: str,
+    conversation_id: str,
+    tool_name: str,
+    pending_handle: str,
+    configuration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Preview the already-issued native call; never issue another directive."""
     session = await EncryptedAdkSessionService().get_session(
         app_name="hussh_one",

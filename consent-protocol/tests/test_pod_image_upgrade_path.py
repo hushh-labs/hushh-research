@@ -1381,6 +1381,32 @@ async def test_upgrade_acknowledgement_is_persisted_before_provider_continues(se
 
 
 @pytest.mark.asyncio
+async def test_successful_upgrade_preserves_persisted_provider_acknowledgement(service_env):
+    import asyncio
+
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    receipts = []
+
+    class AcknowledgingBackend(FakeUpgradingBackend):
+        async def upgrade(self, spec):
+            receipt = {"version": 1, "attemptId": spec.upgrade_attempt_id, "generation": 4}
+            await asyncio.to_thread(spec.on_upgrade_ack, receipt)
+            receipts.append(
+                dict(registry.rows["uid-1"]["backend_metadata"]["upgradeAcknowledgement"])
+            )
+            return await super().upgrade(spec)
+
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=AcknowledgingBackend()
+    )
+    await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    stored = registry.rows["uid-1"]["backend_metadata"]
+    assert stored["upgradeAcknowledgement"] == {**receipts[0], "outcome": "ready"}
+    assert "upgradeLease" not in stored
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("persistence_fails", [False, True])
 async def test_byoc_upgrade_polls_only_after_durable_acknowledgement(copy_log, persistence_fails):
     from dataclasses import replace

@@ -98,6 +98,9 @@ steps:
           --file consent-protocol/Dockerfile.pod \
           --push \
           consent-protocol
+        docker buildx imagetools inspect --raw \
+          gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG} \
+          > /workspace/pod-image-manifest.json
 
     id: "build-pod-image"
 
@@ -131,7 +134,18 @@ steps:
           echo "pod image digest was not observable after push" >&2
           exit 1
         fi
-        printf '%s@%s\n' "${pod_tag%:*}" "$pod_digest" > /workspace/pod-image-reference
+        python3 scripts/ci/resolve-cloud-run-image.py \
+          --image-reference "${pod_tag%:*}@$pod_digest" \
+          --manifest-json /workspace/pod-image-manifest.json \
+          --sha "${_DEPLOY_SHA}" --json-output /workspace/pod-image-provenance.json \
+          > /workspace/pod-image-reference
+        python3 scripts/deploy/assemble-pod-release.py \
+          --descriptor deploy/pod-release.json \
+          --image-reference-file /workspace/pod-image-reference \
+          --source-sha "${_DEPLOY_SHA}" --environment dev \
+          --run-id "${_GITHUB_RUN_ID}" --output /workspace/pod-release.json
+        gcloud storage cp /workspace/pod-release.json \
+          "gs://${PROJECT_ID}_cloudbuild/pod-releases/${_DEPLOY_SHA}/${_GITHUB_RUN_ID}/release.json"
     id: "resolve-pod-image-digest"
 
   # Step 3a: Validate the runtime identity + managed-Vertex IAM prerequisites.

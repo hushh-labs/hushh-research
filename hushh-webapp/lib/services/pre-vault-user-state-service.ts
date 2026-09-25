@@ -495,16 +495,12 @@ export class PreVaultUserStateService {
   }
 
   /**
-   * Has this person connected their own cloud, and has hushh PROVEN it can reach it?
+   * Has the server recorded a valid agent-home choice?
    *
-   * There is deliberately no `markOneCloudReady` beside `markOneRuntimeChoice`. The AI
-   * choice is a preference the client legitimately asserts; a cloud is an
-   * infrastructure fact hushh must verify, so this marker is written SERVER-SIDE by
-   * `POST /api/one/runtime/byoc/project/save` only after it has minted a token against
-   * the person's bootstrap account. A cloud marker a client could set would be a gate
-   * that does nothing -- the person would pass the step without hushh being able to
-   * build anything in their project, and the failure would surface much later, during
-   * provisioning, in their own cloud.
+   * The marker is written by an authenticated server flow: BYOC writes it only after
+   * proving project access, while Shared records an explicit no-pod choice after the
+   * server confirms there is no existing or pending pod assignment. Hussh Pods retains
+   * its own gated selection flow. A client cannot mark the prerequisite complete alone.
    */
   static hasOneCloudProject(
     state: PreVaultUserState | null | undefined,

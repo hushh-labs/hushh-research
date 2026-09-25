@@ -148,10 +148,11 @@ class PodBindingV1:
     version: int
     issued_at_ms: int
     expires_at_ms: int
+    deployment_target: str | None = None
     kind: str = BINDING_KIND
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "kind": self.kind,
             "hushh_id": self.hushh_id,
             "user_id": self.user_id,
@@ -169,6 +170,11 @@ class PodBindingV1:
             "issued_at_ms": self.issued_at_ms,
             "expires_at_ms": self.expires_at_ms,
         }
+        # Older signed v1 records omitted this field. Preserve their canonical
+        # bytes while including the verified placement on newly issued bindings.
+        if self.deployment_target is not None:
+            payload["deployment_target"] = self.deployment_target
+        return payload
 
     def canonical(self) -> str:
         return canonical_json(self.to_dict())
@@ -212,6 +218,13 @@ class PodBindingV1:
                     "malformed", f"binding field {name} is an integer", status=400
                 )
             values[name] = value
+        deployment_target = raw.get("deployment_target")
+        if deployment_target is not None:
+            if deployment_target not in {"user_gcp", "gcp"}:
+                raise PodSessionRefused(
+                    "malformed", "binding deployment target is unsupported", status=400
+                )
+            values["deployment_target"] = deployment_target
         if values["version"] < 1:
             raise PodSessionRefused("malformed", "a binding version starts at 1", status=400)
         return cls(scopes=tuple(scopes), **values)
@@ -376,6 +389,10 @@ class PodSessionAuthority:
             raise PodSessionRefused("foreign_environment", "the binding names another environment")
         if binding.pod_key_id != self._pod_key_id or binding.pod_public_key != self._pod_public_key:
             raise PodSessionRefused("foreign_deployment", "the binding names another pod")
+        if SCOPE_PUPPY_INFERENCE in binding.scopes and binding.deployment_target != "user_gcp":
+            raise PodSessionRefused(
+                "non_byoc_puppy", "Puppy inference bindings require the owner's BYOC pod"
+            )
         expected_role = role_for_platform(binding.platform)
         if binding.role not in {ROLE_DEVICE, ROLE_APP} or binding.role != expected_role:
             raise PodSessionRefused("forged_role", "the role does not follow from the platform")

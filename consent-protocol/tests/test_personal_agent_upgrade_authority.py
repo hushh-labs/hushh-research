@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,8 +56,16 @@ def _row(*, approval: dict | None = None, lease: str | None = None) -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def release_environment(monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+
+
 def _approval(row: dict, target: str = NEW_IMAGE, *, status: str = "approved") -> dict:
+    release = json.loads((Path(__file__).parent / "fixtures/pod_release.v1.json").read_text())
+    release["image"] = target
     return {
+        "releaseMetadata": release,
         "version": 1,
         "status": status,
         "releaseId": upgrade_release_id(row, target),
@@ -221,6 +231,35 @@ async def test_nonterminal_or_wrong_digest_provider_result_keeps_the_lease(monke
 
 async def _no_cloud():
     return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata_case", ["missing", "unsupported", "wrong_image"])
+async def test_new_upgrade_requires_compatibility_before_cloud_access(monkeypatch, metadata_case):
+    from hushh_mcp.services import personal_agent_provisioning_service as pas
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
+
+    async def unexpected_cloud_access(*args, **kwargs):
+        pytest.fail("An incompatible release must be refused before cloud access")
+
+    monkeypatch.setattr(pas, "resolve_user_cloud", unexpected_cloud_access)
+    approval = _approval(_row())
+    if metadata_case == "missing":
+        approval.pop("releaseMetadata")
+    elif metadata_case == "unsupported":
+        approval["releaseMetadata"]["supportedUpgradeDigests"] = []
+    else:
+        approval["releaseMetadata"]["image"] = OTHER_IMAGE
+    registry = _ExecutionRegistry(_row(approval=approval))
+    service = PersonalAgentProvisioningService(registry=registry)
+
+    with pytest.raises(pas.PersonalAgentUpgradeNotApprovedError, match="compatibility"):
+        await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
+
+    assert registry.writes == []
+    assert "upgradeLease" not in registry.row["backend_metadata"]
 
 
 class _ExecutionRegistry(_RecoveryRegistry):

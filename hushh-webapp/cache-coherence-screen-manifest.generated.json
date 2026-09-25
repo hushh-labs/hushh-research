@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 140,
-    "physical_page_count": 139,
-    "route_contract_count": 140,
-    "surface_map_count": 139,
+    "total_screens": 142,
+    "physical_page_count": 141,
+    "route_contract_count": 142,
+    "surface_map_count": 142,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 47,
-      "vault-backed": 55,
+      "vault-backed": 57,
       "hidden flow": 17,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -25,9 +25,7 @@
       "public/static": 1
     },
     "pages_missing_route_contract": [],
-    "routes_missing_surface_map": [
-      "/one/setup/cloud"
-    ]
+    "routes_missing_surface_map": []
   },
   "rules": [
     "fresh cache renders immediately without a full-page loader",
@@ -3612,6 +3610,51 @@
       "findings": []
     },
     {
+      "route": "/one/profile/hosting",
+      "page_file": "app/one/profile/hosting/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fhosting",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/profile/integrations",
       "page_file": "app/one/profile/integrations/page.tsx",
       "route_contract_mode": "redirect",
@@ -4459,6 +4502,51 @@
       ]
     },
     {
+      "route": "/one/profile/software-updates",
+      "page_file": "app/one/profile/software-updates/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsoftware-updates",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/profile/support",
       "page_file": "app/one/profile/support/page.tsx",
       "route_contract_mode": "standard",
@@ -4794,7 +4882,7 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
-      "surface_map_present": false,
+      "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
@@ -6287,5 +6375,5 @@
       ]
     }
   ],
-  "content_sha256": "0e89276829019bdce442f0b0535e940bc7433662072db0faf68f1ee82f1ce310"
+  "content_sha256": "2d04687de61f2d2965b7577d8b069d3f773aece110d9eab1672d75b3d9473c33"
 }

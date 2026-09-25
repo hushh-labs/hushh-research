@@ -20,7 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.one_adk import mcp_review_service
@@ -261,7 +261,7 @@ async def begin_private_mcp_oauth(
                     client_id=body.registeredClient.clientId,
                     client_secret=body.registeredClient.clientSecret,
                     token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
-                    redirect_uris=[redirect_uri],
+                    redirect_uris=[AnyUrl(redirect_uri)],
                 )
                 if body.registeredClient
                 else None

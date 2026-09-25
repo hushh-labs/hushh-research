@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache, partial
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from google.adk.tools.tool_context import ToolContext
+
+if TYPE_CHECKING:
+    from hushh_mcp.one_adk.governed_mcp_toolset import ResolvedMcpConnection
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
@@ -114,7 +117,9 @@ def _drive_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, A
     )
 
 
-async def resolve_native_drive_connection(tool_context: ToolContext):
+async def resolve_native_drive_connection(
+    tool_context: ToolContext,
+) -> ResolvedMcpConnection:
     """Adapt the existing live grant to the shared native MCP core, without dispatch."""
     from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
 
@@ -181,7 +186,7 @@ def _gmail_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, A
 
 async def resolve_native_workspace_connection(
     tool_context: ToolContext, provider: Literal["gmail", "calendar"]
-):
+) -> ResolvedMcpConnection:
     """Adapt existing owner grants to native ADK MCP without another dispatcher."""
     from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
 

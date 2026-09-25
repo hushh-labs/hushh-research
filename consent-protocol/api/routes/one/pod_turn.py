@@ -306,7 +306,9 @@ async def _puppy_link_available(hushh_id: str, device_id: str) -> bool:
     return bool(await BROKER.available((hushh_id, device_id)))
 
 
-async def _require_local_puppy_admission(session: dict, device_id: str) -> None:
+async def _require_local_puppy_admission(
+    session: dict, device_id: str, *, user_id: str, hushh_id: str
+) -> None:
     """A local Puppy turn needs an enrolled, un-revoked, inference-scoped, linked device."""
     from hushh_mcp.services.pod_authority_store import active_authority_store  # noqa: PLC0415
     from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
@@ -316,12 +318,18 @@ async def _require_local_puppy_admission(session: dict, device_id: str) -> None:
 
     store = active_authority_store()
     status = store.subject(device_id) if store is not None else None
+    binding = status.trust.binding if status is not None and status.trust is not None else {}
     trusted = (
         status is not None
         and status.state == "trusted"
         and status.trust is not None
         and status.trust.role == ROLE_DEVICE
-        and SCOPE_PUPPY_INFERENCE in (status.trust.binding.get("scopes") or [])
+        and SCOPE_PUPPY_INFERENCE in (binding.get("scopes") or [])
+        and binding.get("deployment_target") == "user_gcp"
+        and str(binding.get("user_id") or "") == user_id
+        and str(binding.get("hushh_id") or "") == hushh_id
+        and str(session.get("user_id") or "") == user_id
+        and str(session.get("hushh_id") or "") == hushh_id
     )
     if not trusted:
         logger.info("pod_turn.puppy_device_not_trusted")
@@ -400,8 +408,21 @@ async def run_pod_turn(
     # Keep the no-argument manifest resolver injectable for existing pod tests
     # and callers; an explicit Puppy target is the only payload-dependent path.
     provider, model = _resolve_model(payload) if payload.runtime_provider else _resolve_model()
-    if session is not None and provider == "puppy":
-        await _require_local_puppy_admission(session, str(payload.puppy_device_id or ""))
+    if provider == "puppy":
+        if session is None:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "PUPPY_DIRECT_BYOC_SESSION_REQUIRED",
+                    "message": "Puppy inference requires a direct session on the owner's BYOC pod.",
+                },
+            )
+        await _require_local_puppy_admission(
+            session,
+            str(payload.puppy_device_id or ""),
+            user_id=user_id,
+            hushh_id=str(session.get("hushh_id") or ""),
+        )
         if not str(payload.runtime_credential or "").strip():
             # The session IS the Puppy authority on the local path; the marker keeps
             # every existing non-empty credential check honest without a hub grant.

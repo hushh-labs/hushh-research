@@ -45,6 +45,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getByocSetupStatus: vi.fn(),
+    getPersonalAgentStatus: vi.fn(),
     suggestByocProject: vi.fn().mockResolvedValue(null),
     saveByocProject: vi.fn(),
     selectHostedCloud: vi.fn(),
@@ -89,6 +90,9 @@ gcloud services enable "storage.googleapis.com" --project="$PROJECT_ID"`;
 describe("the manual authorization lane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
+      hostingMode: "byoc",
+    });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({
       status: "none",
       stage: "",

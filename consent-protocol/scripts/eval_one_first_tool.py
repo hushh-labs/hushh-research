@@ -51,6 +51,7 @@ decrypted readback, or an entire multi-turn workflow.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import math
@@ -234,16 +235,28 @@ def _canonical_roster() -> list[Any]:
     """Wrap the built roster the way `LlmAgent.canonical_tools` does.
 
     Bare callables become `FunctionTool`; `BaseTool` instances (AgentTool,
-    the wrapped google_search) pass through. The model string is a dummy so
+    the wrapped google_search) pass through. Native toolsets resolve without an
+    owner context, so private registrations are not admitted by this harness.
+    The model string is a dummy so
     nothing here consults the model registry or credentials.
     """
     from google.adk.tools import BaseTool, FunctionTool
+    from google.adk.tools.base_toolset import BaseToolset
+
+    async def resolve_toolset(toolset: BaseToolset) -> list[Any]:
+        try:
+            return await toolset.get_tools_with_prefix(readonly_context=None)
+        finally:
+            await toolset.close()
 
     agent = _agent_tree().build_one_text_agent(
         model="eval-first-tool-dummy-model", allow_workspace_tools=True
     )
     roster: list[Any] = []
     for entry in agent.tools:
+        if isinstance(entry, BaseToolset):
+            roster.extend(asyncio.run(resolve_toolset(entry)))
+            continue
         if isinstance(entry, BaseTool):
             roster.append(entry)
             continue

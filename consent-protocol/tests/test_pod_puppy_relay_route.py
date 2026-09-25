@@ -115,7 +115,7 @@ async def pod(tmp_path, monkeypatch, hub_key):
     app.include_router(pod_puppy_relay.router)
     app.add_middleware(PodIngressPolicy)
 
-    async def admit(device: Device, *, scopes=None, version=1):
+    async def admit(device: Device, *, scopes=None, version=1, deployment_target="user_gcp"):
         role = psa.role_for_platform(device.platform)
         now = int(time.time() * 1000)
         binding = {
@@ -139,6 +139,7 @@ async def pod(tmp_path, monkeypatch, hub_key):
             "version": version,
             "issued_at_ms": now,
             "expires_at_ms": now + 86_400_000,
+            "deployment_target": deployment_target,
         }
         signature = token_signing.sign_payload(
             psa.canonical_json(binding), hmac_key="x", require_asymmetric=True
@@ -231,6 +232,14 @@ async def test_a_device_enrolled_without_the_inference_scope_is_refused(pod):
         with _connect(pod, token):
             pass
     assert caught.value.code == 1008
+
+
+async def test_a_puppy_scope_signed_for_a_non_byoc_pod_is_refused(pod):
+    device = Device()
+    with pytest.raises(psa.PodSessionRefused) as caught:
+        await pod["admit"](device, deployment_target="gcp")
+
+    assert caught.value.code == "non_byoc_puppy"
 
 
 async def test_a_hello_for_another_device_or_another_role_closes_the_socket(pod):

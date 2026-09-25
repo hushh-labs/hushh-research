@@ -21,10 +21,9 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 /**
  * `/one/setup/cloud` — where a person's private agent gets somewhere to live.
  *
- * This is the first root-setup step, before AI access, because the order is the
- * product: once someone's own project exists, their own project's Vertex ADC serves
- * their agent, and supplying an AI key becomes the exception rather than the front
- * door. Asking for a key first taught people the opposite.
+ * This step chooses the hosting placement independently of AI provider access.
+ * Shared is the default when the server confirms no pod assignment or pending
+ * setup; BYOC and the gated Hussh Pods path are explicit alternatives.
  *
  * `ByocCloudCard` was written, finished and never mounted anywhere. This page is the
  * mount, and the only thing it adds is the half the card could not have: naming a
@@ -125,10 +124,7 @@ export function ByocCloudSetupPage() {
     ReturnType<typeof ApiService.getByocAuthorizationInstructions>
   > | null>(null);
   const [copied, setCopied] = useState(false);
-  // Which door this person is taking. Null means they have not chosen, which is
-  // a real third state and not the same as having chosen their own cloud — the
-  // page used to assume BYOC by construction, so someone who arrived with a
-  // Google account and nothing else had no way through this step at all.
+  // Which alternative this person is taking from a confirmed Shared state.
   const [choice, setChoice] = useState<"own" | "hosted" | null>(null);
   // The hosted door is closed for maintenance (founder direction, 2026-09-02):
   // the card stays visible so the choice is still honest, but it cannot be
@@ -140,6 +136,12 @@ export function ByocCloudSetupPage() {
   const [hosted, setHosted] = useState<Awaited<
     ReturnType<typeof ApiService.selectHostedCloud>
   > | null>(null);
+  const [sharedChosen, setSharedChosen] = useState(false);
+  const [sharedSaving, setSharedSaving] = useState(false);
+  const [hostingMode, setHostingMode] = useState<
+    "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | null
+  >(null);
+  const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
   const [job, setJob] = useState<Awaited<
@@ -152,12 +154,8 @@ export function ByocCloudSetupPage() {
   const [checked, setChecked] = useState(false);
   const [checkTimedOut, setCheckTimedOut] = useState(false);
 
-  // "Checking your cloud..." must END. It is a truthful sentence for a few
-  // seconds and a dead end after that: on 2026-09-02 a returning person's
-  // session refresh stalled, the status call never left the browser, and this
-  // line stayed on screen with nothing to click. Past the ceiling the naming
-  // form shows (always a truthful fallback) with a note, and anything already
-  // set up is still kept server-side.
+  // "Checking your agent home..." must end. If placement or setup state cannot
+  // be read, the page offers refresh and keeps every existing assignment intact.
   // The manual lane's content. Fetched only once a project is recorded and the grant
   // is not yet proven, which is exactly when this screen asks for it -- and skipped
   // entirely on the one-click path, where the person never sees a script at all.
@@ -180,13 +178,46 @@ export function ByocCloudSetupPage() {
   }, [saved]);
 
   useEffect(() => {
-    if (!user?.uid || checked) return;
+    if (!user?.uid) return;
+    if (checked && hostingStatusChecked) {
+      setCheckTimedOut(false);
+      return;
+    }
     const ceiling = setTimeout(() => {
       setCheckTimedOut(true);
       setChecked(true);
     }, CLOUD_CHECK_TIMEOUT_MS);
     return () => clearTimeout(ceiling);
-  }, [user?.uid, checked]);
+  }, [user?.uid, checked, hostingStatusChecked]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    void ApiService.getPersonalAgentStatus()
+      .then((status) => {
+        if (cancelled) return;
+        const mode = status.hostingMode ?? "unknown";
+        setHostingMode(mode);
+        setHostingStatusChecked(true);
+        if (mode === "byoc" && status.cloudProject) {
+          setExisting({
+            projectId: status.cloudProject,
+            rationale: "Your BYOC pod assignment is still active.",
+          });
+        } else if (mode === "byoc") {
+          setChoice("own");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHostingMode("unknown");
+          setHostingStatusChecked(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -200,22 +231,23 @@ export function ByocCloudSetupPage() {
         setJob(status.status === "none" ? null : status);
         setChecked(true);
         if (status.status === "recorded") {
-          // The durable marker just landed server-side; refresh the shared
-          // bootstrap so this page, the hub, and every other surface flip to
-          // the truth without a reload.
-          await PreVaultUserStateService.bootstrapState(user.uid, {
-            force: true,
-          }).catch(() => undefined);
-          if (cancelled) return;
-          const suggestion = await ApiService.suggestByocProject().catch(
-            () => null,
-          );
-          if (cancelled) return;
-          if (suggestion) {
-            setExisting({
-              projectId: suggestion.projectId,
-              rationale: suggestion.rationale ?? "",
-            });
+          if (hostingMode === "byoc") {
+            // The durable marker just landed server-side; refresh the shared
+            // bootstrap and restore the BYOC project shown to the person.
+            await PreVaultUserStateService.bootstrapState(user.uid, {
+              force: true,
+            }).catch(() => undefined);
+            if (cancelled) return;
+            const suggestion = await ApiService.suggestByocProject().catch(
+              () => null,
+            );
+            if (cancelled) return;
+            if (suggestion) {
+              setExisting({
+                projectId: suggestion.projectId,
+                rationale: suggestion.rationale ?? "",
+              });
+            }
           }
           return;
         }
@@ -241,10 +273,10 @@ export function ByocCloudSetupPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [user?.uid]);
+  }, [user?.uid, hostingMode]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || hostingMode !== "byoc") return;
     let cancelled = false;
     void (async () => {
       try {
@@ -268,7 +300,7 @@ export function ByocCloudSetupPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [user?.uid, hostingMode]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -369,6 +401,27 @@ export function ByocCloudSetupPage() {
     }
   }, [user?.uid]);
 
+  const chooseShared = useCallback(async () => {
+    setError(null);
+    setSharedSaving(true);
+    try {
+      const result = await ApiService.selectSharedHosting();
+      setHostingMode(result.hostingMode);
+      setSharedChosen(true);
+      if (user?.uid) {
+        await PreVaultUserStateService.bootstrapState(user.uid, {
+          force: true,
+        }).catch(() => undefined);
+      }
+    } catch {
+      setError(
+        "We could not confirm that no pod is assigned yet. Your existing setup is unchanged; refresh and try again.",
+      );
+    } finally {
+      setSharedSaving(false);
+    }
+  }, [user?.uid]);
+
   // A cloud is "done" here either because THIS session just proved it, or
   // because the durable marker says a prior session did, or because the person
   // chose to have hussh host it (which needs no proof — there is nothing to
@@ -376,7 +429,8 @@ export function ByocCloudSetupPage() {
   const connectedNow = saved?.authorized === true;
   const connectedBefore = existing !== null && !switching;
   const hostedChosen = hosted !== null;
-  const authorized = connectedNow || connectedBefore || hostedChosen;
+  const authorized =
+    connectedNow || connectedBefore || hostedChosen || sharedChosen || hostingMode === "hussh_pods";
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -403,7 +457,7 @@ export function ByocCloudSetupPage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Where your agent lives"
-          description="Your own Google Cloud project, or hosted by hussh. Either way it is your agent, and you can move it later."
+          description="Choose Hussh Shared with no personal pod, BYOC in your Google Cloud, or Hussh Pods when available. Existing pod assignments stay in place."
           accent="neutral"
         />
         {checkTimedOut && !authorized ? (
@@ -412,8 +466,8 @@ export function ByocCloudSetupPage() {
             data-testid="byoc-cloud-check-timed-out"
             aria-live="polite"
           >
-            We couldn&rsquo;t confirm your cloud just now. You can continue; anything
-            already set up is kept.
+            We couldn&rsquo;t confirm your agent home. Your existing setup is unchanged;
+            refresh to check before choosing a hosting option.
           </p>
         ) : null}
       </AppPageHeaderRegion>
@@ -445,13 +499,13 @@ export function ByocCloudSetupPage() {
               Try again
             </button>
           </div>
-        ) : !checked && !authorized ? (
+        ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
             className="text-sm text-[var(--app-text-secondary)]"
             data-testid="byoc-cloud-checking"
             aria-live="polite"
           >
-            Checking your cloud…
+            Checking your agent home…
           </p>
         ) : connectedBefore && !connectedNow ? (
           // The revisit state: their cloud is already recorded and proven.
@@ -478,6 +532,46 @@ export function ByocCloudSetupPage() {
               Switch project
             </button>
           </div>
+        ) : hostingMode === "pending" ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="hosting-mode-pending"
+            aria-live="polite"
+          >
+            <p className="text-sm font-semibold">Your pod setup is still in progress</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              Keep the current setup. We will show the available choice after its status is confirmed.
+            </p>
+          </div>
+        ) : hostingMode === "hussh_pods" ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="hussh-pods-assigned"
+          >
+            <p className="text-sm font-semibold">Hussh Pods is assigned to your account</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              Your existing pod remains in place. New Hussh Pods assignments are currently paused.
+            </p>
+          </div>
+        ) : hostingMode === "unknown" || hostingMode === null ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="hosting-mode-unknown"
+            aria-live="polite"
+          >
+            <p className="text-sm font-semibold">We couldn&rsquo;t confirm your agent home</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              Your existing or in-progress setup is unchanged. Refresh to check its status before choosing a hosting option.
+            </p>
+            <button
+              type="button"
+              className="text-sm underline underline-offset-4"
+              onClick={() => window.location.reload()}
+              data-testid="hosting-mode-refresh"
+            >
+              Refresh status
+            </button>
+          </div>
         ) : hostedChosen ? (
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
@@ -501,23 +595,78 @@ export function ByocCloudSetupPage() {
           </div>
         ) : choice === "own" ? (
           <ByocCloudCard onProjectNamed={handleProjectNamed} />
-        ) : (
-          // The choice, and the reason this page stopped assuming one. Both
-          // doors write the same durable marker, so neither is a lesser path
-          // through setup — the difference is who owns the compute, and it is
-          // reversible in one click either way.
-          <div className="space-y-3" data-testid="cloud-tier-choice">
+        ) : hostingMode === "shared" || sharedChosen ? (
+          <div className="space-y-3" data-testid="shared-hosting-selected">
+            <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">
+              <p className="text-sm font-semibold">Hussh Shared</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Shared uses Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires BYOC or an available Hussh Pods assignment.
+              </p>
+              <button
+                type="button"
+                className="rounded-full border border-[var(--app-border)] px-3 py-1.5 text-sm disabled:opacity-60"
+                onClick={() => void chooseShared()}
+                disabled={sharedSaving || sharedChosen}
+                data-testid="cloud-tier-shared-continue"
+              >
+                {sharedChosen ? "Hussh Shared selected" : sharedSaving ? "Saving…" : "Continue with Hussh Shared"}
+              </button>
+            </div>
             <button
               type="button"
               className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
               onClick={() => setChoice("own")}
               data-testid="cloud-tier-own"
             >
-              <p className="text-sm font-semibold">Your own Google Cloud</p>
+              <p className="text-sm font-semibold">BYOC — your own Google Cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Your project, your compute, your bill. hussh cannot read your
-                agent, because the keys never leave it and the project is not
-                ours.
+                Your project, compute, and bill. The private agent runs in your cloud.
+              </p>
+            </button>
+            <button
+              type="button"
+              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left disabled:opacity-60"
+              onClick={() => void chooseHosted()}
+              disabled={hostedSaving || hostedUnderMaintenance}
+              aria-disabled={hostedUnderMaintenance || undefined}
+              data-testid="cloud-tier-hosted"
+            >
+              <p className="text-sm font-semibold">
+                {hostedSaving ? "Setting that up…" : hostedUnderMaintenance ? "Hussh Pods · unavailable" : "Hussh Pods"}
+              </p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                A dedicated pod on Hussh infrastructure. New assignments are paused while this option is under maintenance.
+              </p>
+            </button>
+          </div>
+        ) : (
+          // Offer a hosting choice only when the server confirms no pod is
+          // assigned or being provisioned. Existing and in-progress placements
+          // render above and are never switched by this selection UI.
+          <div className="space-y-3" data-testid="cloud-tier-choice">
+            <button
+              type="button"
+              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
+              onClick={() => void chooseShared()}
+              disabled={sharedSaving}
+              data-testid="cloud-tier-shared"
+            >
+              <p className="text-sm font-semibold">
+                {sharedSaving ? "Saving…" : "Hussh Shared · default without a pod"}
+              </p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Use Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires BYOC or an available Hussh Pods assignment.
+              </p>
+            </button>
+            <button
+              type="button"
+              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
+              onClick={() => setChoice("own")}
+              data-testid="cloud-tier-own"
+            >
+              <p className="text-sm font-semibold">BYOC — your own Google Cloud</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Your Google Cloud project hosts the pod and pays its usage. Hussh uses the authorization you grant to provision it.
               </p>
             </button>
             <button
@@ -533,13 +682,13 @@ export function ByocCloudSetupPage() {
                 {hostedSaving
                   ? "Setting that up…"
                   : hostedUnderMaintenance
-                    ? "Host it with hussh · under maintenance"
-                    : "Host it with hussh"}
+                    ? "Hussh Pods · unavailable"
+                    : "Hussh Pods"}
               </p>
               <p className="text-sm text-[var(--app-text-secondary)]">
                 {hostedUnderMaintenance
-                  ? "Hosted pods are being worked on right now and cannot be chosen. Use your own Google Cloud today; this door reopens on its own, and you can move between the two later."
-                  : "Your own instance on hussh\u2019s infrastructure, sealed with keys only your agent holds. hussh does not read it, and you can move it to your own cloud any time, with everything it has learned."}
+                  ? "New Hussh Pods assignments are paused while this option is under maintenance. Existing pod assignments stay in place."
+                  : "A dedicated pod on Hussh-operated infrastructure."}
               </p>
             </button>
           </div>
@@ -655,7 +804,7 @@ export function ByocCloudSetupPage() {
                   ) : null}
                 </details>
               </>
-            ) : (
+        ) : (
               <p className="text-xs text-[var(--app-text-secondary)]">
                 Preparing the script for {saved.projectId}…
               </p>

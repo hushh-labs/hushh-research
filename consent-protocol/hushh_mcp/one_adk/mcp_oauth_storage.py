@@ -15,6 +15,7 @@ import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import cast
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -146,7 +147,7 @@ class McpOAuthCallback:
         self._state: str | None = None
         self._issuer: str | None = None
         self._require_issuer = False
-        self._future = asyncio.get_running_loop().create_future()
+        self._future: asyncio.Future[tuple[str, str]] = asyncio.get_running_loop().create_future()
 
     def bind_redirect(self, url: str, *, issuer: str, require_issuer: bool) -> None:
         if self._state is not None or self._future.done() or not self._is_current():
@@ -202,6 +203,10 @@ class McpOAuthCallback:
 
 
 class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
+    _admitted_metadata: OAuthMetadata | None
+    _admitted_endpoints: dict[str, str]
+    _advertised_issuer: str | None
+    _registered_issuer: str | None
     """SDK OAuth restricted to setup, never an authorization retry around a write.
 
     The owning connection workflow binds issuer/callback continuity and uses
@@ -213,7 +218,9 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
 
     def create_http_client(self) -> httpx.AsyncClient:
         """Caller closes the client; no environment proxies or automatic redirects."""
-        return create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
+        return cast(
+            httpx.AsyncClient, create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
+        )
 
     async def use_registered_client(
         self, client_info: OAuthClientInformationFull, *, issuer: str
@@ -258,9 +265,12 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
 
         async def bound_redirect(url: str) -> None:
             self._check_sdk_metadata()
+            issuer = self._advertised_issuer
+            if issuer is None:
+                raise McpOAuthConnectError()
             callback.bind_redirect(
                 url,
-                issuer=self._advertised_issuer,
+                issuer=issuer,
                 require_issuer=getattr(self, "_require_callback_issuer", False),
             )
             await redirect(url)

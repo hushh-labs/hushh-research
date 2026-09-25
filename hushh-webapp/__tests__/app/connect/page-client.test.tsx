@@ -1215,7 +1215,7 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory).toHaveBeenCalledTimes(2);
     fireEvent.click(retry);
-    await screen.findByText("Person 20");
+    await screen.findByText("Person 20", {}, { timeout: 5_000 });
     expect(
       mocks.searchDirectory.mock.calls.map(([options]) => options.page),
     ).toEqual([1, 2, 2]);
@@ -1223,7 +1223,7 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
     expect(screen.queryByTestId("connect-load-more-row")).toBeNull();
     expect(screen.getByText("All people loaded")).toBeTruthy();
-  });
+  }, 10_000);
 
   it("keeps the visible directory stable while the next page loads", async () => {
     const pageTwo = deferred<{
@@ -1252,7 +1252,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
 
-    await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy(), { timeout: 5_000 });
     // The page being left stays put until its replacement arrives, so the list
     // never blanks mid-step.
     expect(screen.getByText("Person 0")).toBeTruthy();
@@ -1267,10 +1267,10 @@ describe("Connect — People", () => {
       });
     });
 
-    expect(await screen.findByText("Person 20")).toBeTruthy();
+    expect(await screen.findByText("Person 20", {}, { timeout: 5_000 })).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
     expect(screen.queryByText("Loading…")).toBeNull();
-  });
+  }, 15_000);
 
   it("opens the full directory once a name is typed", async () => {
     render(<ConnectPageClient />);

@@ -66,9 +66,9 @@ that cannot complete.
 
 Current inventory policy:
 
-- 103 routes are native-required and must pass on iOS and Android: 98
+- 104 routes are native-required and must pass on iOS and Android: 99
   functional routes and 5 callback routes.
-- 17 routes are explicit exclusions: `/blog`, `/blog/[slug]`, `/circle/join`,
+- 18 routes are explicit exclusions: `/blog`, `/blog/[slug]`, `/circle/join`,
   `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
   `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
   `/one/profile/integrations`, `/one/profile/pkm-agent-lab`, `/one/puppy`,

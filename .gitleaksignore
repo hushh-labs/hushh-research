@@ -18,3 +18,8 @@
 5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/services/test_information_request_service.py:generic-api-key:26
 5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/routes/test_agent_chat_history_descriptors.py:generic-api-key:282
 5ad438a65c80c09c62fbf43daeb999a2baa3ff71:consent-protocol/tests/routes/test_agent_chat_history_descriptors.py:generic-api-key:326
+
+# Identical previously reviewed public AAGUID and wrapping-algorithm fixtures,
+# introduced under a second integrated history commit; no credential values.
+fae8592b2e3d34dfe554eda4ea3f272ef45a356e:consent-protocol/tests/test_webauthn_aal.py:generic-api-key:16
+fae8592b2e3d34dfe554eda4ea3f272ef45a356e:consent-protocol/tests/test_personal_agent_registry_repo.py:generic-api-key:94

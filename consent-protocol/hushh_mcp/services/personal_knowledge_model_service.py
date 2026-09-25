@@ -2741,7 +2741,14 @@ class PersonalKnowledgeModelService:
                     "expected_content_revision": current_version,
                     "next_content_revision": next_version,
                     "segments": normalized_segments,
-                    "manifest": manifest_row,
+                    # Receipt identity binds the request, not the wall clock of
+                    # each server attempt. These two fields are always generated
+                    # during normalization; all authored fields remain bound.
+                    "manifest": {
+                        key: value
+                        for key, value in manifest_row.items()
+                        if key not in {"last_structured_at", "last_content_at"}
+                    },
                     "paths": path_rows,
                     "scopes": scope_rows,
                     "summary": discovery_summary,

@@ -22,6 +22,29 @@ Verify the running release, readiness and memory/authority continuity before
 reporting success. Keep the automatic sweep disabled until the deployed hub
 enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
+### Release metadata and compatibility
+
+The dev build reads the reviewed version, summary, changelog and supported
+predecessor digests from `deploy/pod-release.json`. The existing build recipe
+resolves the executable image digest and assembles metadata with the exact source
+revision and workflow run through `scripts/deploy/assemble-pod-release.py`. It
+archives that metadata with the build and configures `HUSSH_ONE_POD_RELEASE_B64`
+alongside `HUSSH_ONE_POD_IMAGE`. This is governed deployment provenance, not an
+independent cryptographic signature.
+
+An empty `supportedUpgradeDigests` list offers no installation path for existing
+pods. Add a predecessor only after proving its migration, encrypted recovery and
+update continuity. Missing, mismatched or incompatible metadata refuses a new
+upgrade before cloud access. A durable operation already in progress retains
+its original approval and recovery path when a newer release is published.
+
+Settings and Feed use the same status and approval contracts. Installed release
+metadata follows the provider's recorded digest; publishing a new offer does not
+erase the previous installation's verification. Shared accounts see their managed
+service version without pod installation controls. The authored dev release and
+its source tests do not establish a completed live update rehearsal or authorize
+publication through the production stable channel.
+
 ### Model project ownership
 
 The owner pod uses Vertex in its own cloud project through its native runtime

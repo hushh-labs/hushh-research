@@ -132,9 +132,13 @@ async def test_intro_refuses_private_payload_and_client_tools(no_secret_storage,
 @pytest.mark.parametrize(
     "header", ["Bearer HCT:synthetic", "Bearer  HCT:synthetic", "  HCT:synthetic  "]
 )
-async def test_owner_credentials_cannot_admit_a_shared_personal_turn(
-    monkeypatch, no_secret_storage, header
+@pytest.mark.parametrize(
+    "mode,code", [("byoc", 409), ("hussh_pods", 409), ("pending", 409), ("unknown", 503)]
+)
+async def test_owner_credentials_respect_server_hosting_placement(
+    monkeypatch, no_secret_storage, header, mode, code
 ):
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value=mode))
     monkeypatch.setattr(
         agent_chat,
         "require_vault_owner_token",
@@ -145,8 +149,11 @@ async def test_owner_credentials_cannot_admit_a_shared_personal_turn(
             request({"authorization": header}),
             incoming(forwarded_props={"pkmContext": "synthetic-private"}),
         )
-    assert failure.value.status_code == 409
-    assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert failure.value.status_code == code
+    expected = (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )
+    assert failure.value.detail["code"] == expected
     no_secret_storage.assert_not_called()
 
 
@@ -214,6 +221,7 @@ async def test_private_state_cannot_select_full_runner_directly():
 
 
 def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="byoc"))
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -293,3 +301,25 @@ def test_proposal_ingress_cannot_execute_on_shared_hub(
         if getattr(r, "path_regex", None) and r.path_regex.fullmatch(path) and method in r.methods
     ]
     assert len(matching) == 1
+
+
+async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeypatch):
+    from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(
+        agent_chat,
+        "require_vault_owner_token",
+        AsyncMock(
+            return_value={"user_id": "owner-a", "token": "synthetic-owner-capability"},
+        ),
+    )
+    data = incoming(
+        state={STATE_USER_ID: "forged-owner"},
+        forwarded_props={"pkmContext": "synthetic-scoped-context"},
+    )
+    assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
+    assert data.state[STATE_USER_ID] == "owner-a"
+    assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
+    assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
+    assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"

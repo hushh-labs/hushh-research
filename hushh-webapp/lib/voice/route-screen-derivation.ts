@@ -357,6 +357,12 @@ export function deriveVoiceRouteScreen(
     // settles on Chat's connector panel.
     return { screen: "profile_connectors", subview: null };
   }
+  if (normalizedPath === ROUTES.PROFILE_HOSTING) {
+    return { screen: "profile_hosting", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) {
+    return { screen: "profile_software-updates", subview: null };
+  }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");

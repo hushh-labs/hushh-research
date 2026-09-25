@@ -33,6 +33,7 @@ function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
 export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access: Access;
   onPrepareRecovery?: (input: { attemptId: string; reason: DriveChatRecoveryReason; customConnector?: CustomConnectorRecoveryReference }) => Promise<"ready" | "busy" | "unavailable">;
 }) {
+  const { userId, vaultKey, vaultOwnerToken } = access;
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, Array<{ id: string; name: string; revision: string }>>>({});
@@ -53,7 +54,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
 
   useEffect(() => {
     let active = true;
-    const accessForLoad = { userId: access.userId, vaultKey: access.vaultKey, vaultOwnerToken: access.vaultOwnerToken };
+    const accessForLoad = { userId, vaultKey, vaultOwnerToken };
     const owner = snapshotValidatedAuthSessionOwner();
     const epoch = snapshotVaultSessionEpoch();
     const current = () => Boolean(active && owner?.userId === accessForLoad.userId &&
@@ -61,7 +62,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     lifetime.current = current;
     inFlight.current = false;
     setBusy(false); setCatalogs({}); setAuthRequired({}); setRemoving(null);
-    setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
+    setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(accessForLoad, true).then(records => {
       if (!current()) return;
       setItems(records.map(savedConnector));
@@ -70,7 +71,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       setStatus("ready");
     }).catch(() => { if (current()) setStatus("failed"); });
     return () => { active = false; refreshAbort.current?.abort(); };
-  }, [access.userId, access.vaultKey, access.vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
   const save = async () => {
     if (inFlight.current || !lifetime.current()) return;

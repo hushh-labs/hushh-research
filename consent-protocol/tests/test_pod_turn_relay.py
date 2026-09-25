@@ -141,6 +141,16 @@ async def test_the_pod_is_called_with_a_pkm_read_grant_the_hub_minted():
     assert pod.calls[0]["headers"]["X-Consent-Token"] == "standing-pkm-read"
 
 
+async def test_hub_turn_refuses_puppy_before_minting_grants_or_contacting_a_pod():
+    pod = _Pod()
+    with pytest.raises(HTTPException) as exc:
+        await _turn(payload=PodTurnRelayRequest(message="hi", runtimeProvider="puppy"), session=pod)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "PUPPY_DIRECT_BYOC_SESSION_REQUIRED"
+    assert pod.calls == []
+
+
 async def test_a_caller_supplied_token_is_impossible_by_construction():
     """There is no request field for it. The only token a browser holds is
     `vault.owner` -- the master grant -- so accepting one would let the client

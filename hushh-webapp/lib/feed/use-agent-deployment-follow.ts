@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   decideFollow,
@@ -118,23 +118,11 @@ export function readUpdateStatus(
     | null
     | undefined,
 ): AgentUpdateStatus {
-  const hasUpdateSignal = Boolean(
-    res &&
-      (typeof res.updateAvailable === "boolean" ||
-        typeof res.updateOfferable === "boolean" ||
-        typeof res.updateInProgress === "boolean" ||
-        typeof res.updateFailed === "boolean" ||
-        typeof res.updateVerified === "boolean" ||
-        Boolean(res.runningImage) ||
-        Boolean(res.targetImage) ||
-        Boolean(res.update)),
-  );
   return {
-    available: typeof res?.updateAvailable === "boolean" ? res.updateAvailable : null,
-    // An absent response is unknown, so it must not manufacture an actionable
-    // offer. Once the hub positively reports an update, an omitted offerable
-    // flag retains the legacy ready behavior; an explicit false remains quiet.
-    offerable: hasUpdateSignal ? res?.updateOfferable !== false : false,
+    available:
+      typeof res?.updateAvailable === "boolean" ? res.updateAvailable : null,
+    // Only explicit server authority makes an observed release actionable.
+    offerable: res?.updateOfferable === true,
     inProgress: res?.updateInProgress === true,
     failed: res?.updateFailed === true,
     error: res?.updateError ? String(res.updateError) : null,
@@ -144,7 +132,9 @@ export function readUpdateStatus(
     summary: res?.update?.summary ? String(res.update.summary) : null,
     presentationState: res?.update?.presentationState ?? null,
     remindAt: res?.update?.remindAt ? String(res.update.remindAt) : null,
-    operationId: res?.update?.operationId ? String(res.update.operationId) : null,
+    operationId: res?.update?.operationId
+      ? String(res.update.operationId)
+      : null,
     verified: res?.updateVerified === true,
   };
 }
@@ -172,7 +162,8 @@ function reportUpdateTask(
         taskId,
         kind: DEPLOYMENT_TASK_KIND,
         title: "Updating your private agent",
-        description: "A verified update is being installed after your current work finishes.",
+        description:
+          "A verified update is being installed after your current work finishes.",
         routeHref: "/one/feed",
         visibility: "passive",
         groupLabel: "Private agent",
@@ -184,18 +175,21 @@ function reportUpdateTask(
       AppBackgroundTaskService.failTask(
         taskId,
         "Update did not finish",
-        "Your private agent is still running its previous build.",
+        "Check your private agent’s status before trying again.",
       );
       return;
     }
     if (update.verified) {
-      AppBackgroundTaskService.completeTask(taskId, "Your private agent is up to date.");
+      AppBackgroundTaskService.completeTask(
+        taskId,
+        "Your private agent is up to date.",
+      );
       return;
     }
     AppBackgroundTaskService.failTask(
       taskId,
       "Update could not be verified",
-      "Your private agent is still running its previous build.",
+      "Check your private agent’s status before trying again.",
     );
   } catch {
     // A progress indicator must never break the thing it reports on.
@@ -269,7 +263,17 @@ export function useAgentDeploymentFollow(options?: {
   resolved: boolean;
   /** The software-update half of the status; `NO_UPDATE` until the endpoint answers. */
   update: AgentUpdateStatus;
+  status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>> | null;
+  refresh: () => void;
 } {
+  const [status, setStatus] = useState<Awaited<
+    ReturnType<typeof ApiService.getPersonalAgentStatus>
+  > | null>(null);
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const refresh = useCallback(
+    () => setRefreshRevision((value) => value + 1),
+    [],
+  );
   const enabled = options?.enabled ?? true;
   const userId = options?.userId ?? null;
   const [state, setState] = useState<AgentDeploymentState | null>(null);
@@ -306,11 +310,30 @@ export function useAgentDeploymentFollow(options?: {
   const consecutiveFailuresRef = useRef<number>(0);
 
   useEffect(() => {
+    setStatus(null);
+    setState(null);
+    setResolved(false);
+    setFollowing(false);
+    setHushhId(null);
+    setHealth(null);
+    setCloud(null);
+    setDeploymentTarget(null);
+    setUpdate(NO_UPDATE);
+    previousRef.current = null;
+    updateInProgressRef.current = false;
+    updateMovingRef.current = false;
+    consecutiveFailuresRef.current = 0;
+    startedAtRef.current = Date.now();
     if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    const streaming = process.env.NEXT_PUBLIC_POD_LIFECYCLE_STREAM === "1";
+    let reading = false;
     const tick = async () => {
+      if (cancelled || reading) return;
+      reading = true;
+      if (timer) clearTimeout(timer);
       let next: string | null = null;
       try {
         const res = await ApiService.getPersonalAgentStatus();
@@ -321,6 +344,7 @@ export function useAgentDeploymentFollow(options?: {
           // The endpoint answered. From here `state === null` means "no agent",
           // not "not looked yet", and the chat router may act on it.
           setResolved(true);
+          setStatus(res);
           // Set outside the transition branch below: these are properties of the
           // agent, not of a state CHANGE. A pod that is already `active` when the
           // page loads never transitions, and keying its address off a transition
@@ -332,7 +356,9 @@ export function useAgentDeploymentFollow(options?: {
               ? {
                   project: String(res.cloudProject),
                   region: res?.cloudRegion ? String(res.cloudRegion) : null,
-                  credentialMode: res?.credentialMode ? String(res.credentialMode) : null,
+                  credentialMode: res?.credentialMode
+                    ? String(res.credentialMode)
+                    : null,
                 }
               : null,
           );
@@ -351,6 +377,7 @@ export function useAgentDeploymentFollow(options?: {
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;
+        if (!cancelled) setStatus(null);
         // A few transient failures are not a state change: keep the last known value
         // and try again -- guessing here would make the UI disagree with the backend.
         // But a PERSISTENT failure is different, and retaining `active` through it is
@@ -380,6 +407,7 @@ export function useAgentDeploymentFollow(options?: {
           next = previousRef.current;
         }
       }
+      reading = false;
       if (cancelled) return;
 
       const decision = decideFollow({
@@ -401,7 +429,7 @@ export function useAgentDeploymentFollow(options?: {
         // The step actually advanced. Tell every feed surface at once.
         dispatchFeedStateChanged();
       }
-      if (decision.follow) {
+      if (decision.follow && (!streaming || updateMovingRef.current)) {
         timer = setTimeout(() => void tick(), decision.intervalMs);
       }
     };
@@ -414,16 +442,23 @@ export function useAgentDeploymentFollow(options?: {
     // restores this exact loop untouched. The follower only ever REFINES what
     // the poll would have shown; terminal verdicts still come from frames, and
     // frames still come from the registry row.
-    if (process.env.NEXT_PUBLIC_POD_LIFECYCLE_STREAM === "1") {
+    if (streaming) {
+      // Lifecycle frames omit hosting and release metadata; read the same status
+      // projection on entry and transitions, polling only while an update moves.
+      void tick();
       const abort = new AbortController();
       // The ceiling survives the transport swap. decideFollow bounds the poll
       // path; the follower is bounded the same way, from the same constant, so
       // a forgotten tab cannot hold segments open forever. Same-mount restarts
       // of the clock are acceptable here for the same reason they are on the
       // poll path: the effect keys deliberately exclude `state`.
-      const ceiling = setTimeout(() => abort.abort(), DEPLOYMENT_FOLLOW_CEILING_MS);
+      const ceiling = setTimeout(
+        () => abort.abort(),
+        DEPLOYMENT_FOLLOW_CEILING_MS,
+      );
       void (async () => {
-        const { followPodLifecycle } = await import("@/lib/streaming/pod-lifecycle-client");
+        const { followPodLifecycle } =
+          await import("@/lib/streaming/pod-lifecycle-client");
         setFollowing(true);
         try {
           await followPodLifecycle({
@@ -441,6 +476,7 @@ export function useAgentDeploymentFollow(options?: {
               if (frame.hushhId) setHushhId(frame.hushhId);
               if (frame.health) setHealth(frame.health);
               if (raw !== previousRef.current) {
+                void tick();
                 const deployment = raw as AgentDeploymentState;
                 setState(deployment);
                 previousRef.current = raw;
@@ -463,6 +499,7 @@ export function useAgentDeploymentFollow(options?: {
       return () => {
         cancelled = true;
         clearTimeout(ceiling);
+        if (timer) clearTimeout(timer);
         abort.abort();
       };
     }
@@ -473,14 +510,26 @@ export function useAgentDeploymentFollow(options?: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // `enabled` and `userId` only. Re-running on `state` would restart the clock
+    // Only owner, enablement, or an explicit refresh restarts this effect.
+    // Re-running on `state` would restart the clock
     // that the ceiling is measured against, and a follow that can restart its own
     // deadline has no ceiling at all. `userId` is different in kind: a change
     // there means a different person, and that SHOULD start a fresh follow with
     // a fresh deadline and its own background-task card.
-  }, [enabled, userId]);
+  }, [enabled, userId, refreshRevision]);
 
-  return { state, following, hushhId, health, cloud, deploymentTarget, resolved, update };
+  return {
+    state,
+    following,
+    hushhId,
+    health,
+    cloud,
+    deploymentTarget,
+    resolved,
+    update,
+    status,
+    refresh,
+  };
 }
 
 export { DEPLOYMENT_POLL_INTERVAL_MS };

@@ -50,7 +50,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import re
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -88,6 +88,18 @@ from hushh_mcp.services.pod_lifecycle_log import (
 from hushh_mcp.services.pod_lifecycle_log import (
     append_sync,
     substrate_progress,
+)
+from hushh_mcp.services.pod_release import (
+    approved_release,
+    configured_release,
+    record_installed_release,
+    upgrade_is_supported,
+)
+from hushh_mcp.services.pod_release import (
+    image_digest as image_digest,
+)
+from hushh_mcp.services.pod_release import (
+    is_immutable_image_reference as is_immutable_image_reference,
 )
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
@@ -135,7 +147,6 @@ class PersonalAgentUpgradeNotApprovedError(PermissionError):
 UPGRADE_APPROVAL_VERSION = 1
 _UPGRADE_APPROVAL_ACTIVE_STATUSES = frozenset({"approved", "scheduled", "updating"})
 _UPGRADE_APPROVAL_UNRESOLVED_STATUSES = frozenset({"blocked"})
-_IMAGE_DIGEST_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 
 
 def pod_incarnation(row: Optional[dict]) -> Optional[str]:
@@ -158,17 +169,6 @@ def pod_incarnation(row: Optional[dict]) -> Optional[str]:
     )
     normalized = str(value or "").strip()
     return normalized if normalized and normalized.lower() != "unknown" else None
-
-
-def image_digest(reference: object) -> Optional[str]:
-    """Extract a valid OCI ``sha256`` digest from a reference or digest field."""
-    text = str(reference or "").strip()
-    if _IMAGE_DIGEST_RE.fullmatch(text):
-        return text
-    if "@" not in text:
-        return None
-    digest = text.rsplit("@", 1)[1].strip()
-    return digest if _IMAGE_DIGEST_RE.fullmatch(digest) else None
 
 
 def _approval_operation_id(approval: object) -> Optional[str]:
@@ -236,14 +236,6 @@ def upgrade_release_id(row: Optional[dict], target_image: str) -> str:
     hushh_id = str((row or {}).get("hushh_id") or "").strip()
     payload = "|".join((hushh_id, incarnation, str(target_image or "").strip()))
     return "rel_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
-
-
-_IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-fA-F]{64}$")
-
-
-def is_immutable_image_reference(reference: object) -> bool:
-    """Whether an image reference is pinned to a complete OCI digest."""
-    return bool(_IMMUTABLE_IMAGE_RE.fullmatch(str(reference or "").strip()))
 
 
 def upgrade_approval_matches(
@@ -829,6 +821,7 @@ class PersonalAgentProvisioningService:
             reservation = await self._registry.claim_provision(observed=observed, intent=intent)
             phase = "reserved"
             substrate_receipt: Optional[dict[str, Any]] = None
+            provision_release = configured_release(str(os.getenv("HUSSH_ONE_POD_IMAGE") or ""))
 
             async def _record(
                 status: str,
@@ -845,6 +838,7 @@ class PersonalAgentProvisioningService:
                 metadata: dict[str, Any] = {}
                 if handle is not None:
                     metadata.update(handle.backend_metadata or {})
+                    metadata = record_installed_release(metadata, provision_release)
                     fields.update(
                         external_agent_id=handle.external_agent_id,
                         a2a_route=handle.a2a_route,
@@ -1371,6 +1365,11 @@ class PersonalAgentProvisioningService:
                     out.append(row)  # Observation only; upgrade_pod refuses new admission.
                 continue
             built_from = running_image(row)
+            if personal_agent_upgrade_approval_required() and not upgrade_is_supported(
+                approved_release(metadata.get("upgradeApproval"), target),
+                metadata.get("image_digest") or built_from,
+            ):
+                continue
             if not built_from or built_from == target:
                 continue
             marker = metadata.get("upgrade") or {}
@@ -1480,6 +1479,9 @@ class PersonalAgentProvisioningService:
                     "verifiedAt": datetime.now(timezone.utc).isoformat(),
                 }
             updated.update(handle_metadata)
+            release_metadata = approved_release(approval, target_image)
+            if release_metadata is not None:
+                updated["installedRelease"] = release_metadata
             updated.pop("observed", None)
             updated.pop("upgrade", None)
             if receipt.get("hubRevision"):
@@ -1563,6 +1565,15 @@ class PersonalAgentProvisioningService:
             raise PersonalAgentUpgradeNotApprovedError(
                 "owner approval for this release and pod incarnation is required"
             )
+
+        if personal_agent_upgrade_approval_required() and held is None:
+            release_metadata = approved_release(metadata.get("upgradeApproval"), current_image)
+            if not upgrade_is_supported(
+                release_metadata, metadata.get("image_digest") or running_image(row)
+            ):
+                raise PersonalAgentUpgradeNotApprovedError(
+                    "verified compatibility metadata for this installed image is required"
+                )
 
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
         if cloud is not None and cloud.blocks_provisioning:
@@ -1732,6 +1743,7 @@ class PersonalAgentProvisioningService:
                 raise RuntimeError("image upgrade result publication lost authority")
 
         owner_loop = asyncio.get_running_loop()
+        persisted_acknowledgement: dict[str, Any] | None = None
 
         def persist_acknowledgement(receipt: dict[str, Any]) -> None:
             # Called off-loop. A late receipt may survive erasure admission, but
@@ -1754,11 +1766,13 @@ class PersonalAgentProvisioningService:
                 )
 
             async def persist() -> None:
+                nonlocal persisted_acknowledgement
                 try:
                     await publish_upgrade(
                         backend_metadata={**claimed_metadata, "upgradeAcknowledgement": bound},
                         retain_lease=True,
                     )
+                    persisted_acknowledgement = dict(bound)
                 except RuntimeError:
                     retain = getattr(self._registry, "retain_erasure_upgrade_ack", None)
                     if retain is not None and await retain(
@@ -1905,6 +1919,13 @@ class PersonalAgentProvisioningService:
                 raise RuntimeError("upgrade provider returned a different image digest")
 
         new_meta = {**old_meta, **handle_metadata}
+        if persisted_acknowledgement is not None:
+            # Preserve the exact operation receipt already durably published by
+            # this attempt; old_meta predates the provider callback.
+            new_meta["upgradeAcknowledgement"] = {
+                **persisted_acknowledgement,
+                "outcome": "ready",
+            }
         approval = new_meta.get("upgradeApproval")
         if isinstance(approval, dict) and approval.get("operationId"):
             new_meta["upgradeApproval"] = {
@@ -1913,6 +1934,9 @@ class PersonalAgentProvisioningService:
                 "operationState": "succeeded",
                 "verifiedAt": datetime.now(timezone.utc).isoformat(),
             }
+        release_metadata = approved_release(approval, current_image)
+        if release_metadata is not None:
+            new_meta["installedRelease"] = release_metadata
         new_meta.pop("upgrade", None)
         # `observed` is the OLD pod's report of what it was running, and that pod has
         # just been replaced. Carrying it through leaves source_image=new beside

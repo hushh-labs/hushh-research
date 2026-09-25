@@ -377,7 +377,40 @@ async def _admit(websocket: WebSocket) -> tuple[str, str, str] | None:
     agent = str(claims.agent_id)
     if not agent.startswith("device:") or not agent.removeprefix("device:"):
         return None
-    return str(claims.user_id), agent.removeprefix("device:"), token
+    user_id = str(claims.user_id)
+    device_id = agent.removeprefix("device:")
+    if not await _puppy_eligible_byoc_owner(user_id, device_id):
+        return None
+    return user_id, device_id, token
+
+
+async def _puppy_eligible_byoc_owner(user_id: str, device_id: str) -> bool:
+    """Recheck both owner device and current pod placement for legacy hub sockets."""
+    try:
+        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+            PersonalAgentRegistryRepo,
+        )
+
+        row = await PersonalAgentRegistryRepo().get(user_id)
+        if not isinstance(row, dict):
+            return False
+        metadata = row.get("backend_metadata")
+        pod_url = str(metadata.get("url") or "").strip() if isinstance(metadata, dict) else ""
+        if (
+            str(row.get("deployment_target") or "").strip() != "user_gcp"
+            or str(row.get("status") or "").strip() != "provisioned"
+            or not pod_url.startswith("https://")
+            or not str(row.get("pod_key_id") or "").strip()
+        ):
+            return False
+        return await asyncio.to_thread(
+            TrustedDeviceService().is_active_device,
+            user_id=user_id,
+            device_id=device_id,
+        )
+    except Exception:  # noqa: BLE001 - placement or device uncertainty refuses inference
+        logger.info("puppy_relay.byoc_admission_unavailable")
+        return False
 
 
 async def _close_pubsub(pubsub: Any | None) -> None:
@@ -520,12 +553,12 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
             valid, _reason, _claims = await validate_token_with_db(
                 token, expected_scope=ConsentScope.CAP_PUPPY_INFERENCE.value
             )
-            if not valid:
+            if not valid or not await _puppy_eligible_byoc_owner(key[0], key[1]):
                 await websocket.send_json(
                     {
                         "type": "relay.error",
                         "code": "PUPPY_REVOKED",
-                        "message": "inference grant is no longer active",
+                        "message": "Puppy inference authority or BYOC placement is no longer active",
                     }
                 )
                 return
@@ -620,7 +653,7 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
                     valid, _reason, _claims = await validate_token_with_db(
                         token, expected_scope=ConsentScope.CAP_PUPPY_INFERENCE.value
                     )
-                    if not valid:
+                    if not valid or not await _puppy_eligible_byoc_owner(key[0], key[1]):
                         await websocket.send_json(
                             {
                                 "type": "inference.error",

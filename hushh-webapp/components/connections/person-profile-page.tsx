@@ -979,7 +979,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <PageHeader
                   title="Shared with you"
-                  description="End-to-end encrypted information shared with your account. Unlock your vault to view it."
+                  description="Information this person has granted to your account. Values stay encrypted until you unlock your vault."
                 />
 
                 {allGrants.length > 1 ? (
@@ -1195,6 +1195,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
+                  grantedIds: grantedScopeRefs,
                   onToggleMany: (ids, select) =>
                     setSelectedScopeRefs((current) => toggleRequestScopes(
                       allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,

@@ -1,11 +1,11 @@
 /**
- * "Checking your cloud..." must end.
+ * "Checking your agent home..." must end.
  *
  * It is a truthful sentence for a few seconds and a dead end after that. On
  * 2026-09-02 a returning person's session refresh stalled, the status call never
  * left the browser, and this line stayed on screen with nothing to click. Past
- * the ceiling the page must show the naming form (always a truthful fallback)
- * with a note, and must stay quiet about the note once the status does arrive.
+ * the ceiling the page must show an explicit status retry and must not offer a
+ * new pod choice while existing placement is unknown.
  */
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,9 +40,11 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getByocSetupStatus: vi.fn(),
+    getPersonalAgentStatus: vi.fn(),
     suggestByocProject: vi.fn().mockResolvedValue(null),
     saveByocProject: vi.fn(),
     selectHostedCloud: vi.fn(),
+    selectSharedHosting: vi.fn(),
     beginByocAuthorize: vi.fn(),
   },
 }));
@@ -68,18 +70,23 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 const mockStatus = vi.mocked(ApiService.getByocSetupStatus);
+const mockAgentStatus = vi.mocked(ApiService.getPersonalAgentStatus);
 
 describe("ByocCloudSetupPage — the checking ceiling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockStatus.mockReset();
+    mockAgentStatus.mockReset();
+    mockAgentStatus.mockResolvedValue({ hostingMode: "shared" } as never);
+    mockStatus.mockResolvedValue({ status: "none" } as never);
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("stops saying 'Checking' at the ceiling and shows the way forward", async () => {
+  it("stops saying 'Checking' at the ceiling without offering a tier on unknown status", async () => {
     mockStatus.mockReturnValue(new Promise(() => {})); // the stalled session: never answers
+    mockAgentStatus.mockReturnValue(new Promise(() => {}));
     render(<ByocCloudSetupPage />);
 
     expect(screen.getByTestId("byoc-cloud-checking")).toBeTruthy();
@@ -91,9 +98,10 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
 
     expect(screen.queryByTestId("byoc-cloud-checking")).toBeNull();
     expect(screen.getByTestId("byoc-cloud-check-timed-out")).toBeTruthy();
-    // The person can act: the tier choice (the same node the first-run driver
-    // asserts on) is on screen, not a spinner.
-    expect(screen.getByTestId("cloud-tier-choice")).toBeTruthy();
+    expect(screen.getByTestId("hosting-mode-unknown")).toBeTruthy();
+    expect(screen.getByTestId("hosting-mode-refresh")).toBeTruthy();
+    expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
+    expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
   });
 
   it("never shows the note when the status arrives in time", async () => {
@@ -109,5 +117,43 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
       await vi.advanceTimersByTimeAsync(CLOUD_CHECK_TIMEOUT_MS + 1);
     });
     expect(screen.queryByTestId("byoc-cloud-check-timed-out")).toBeNull();
+  });
+
+  it("shows Shared as the no-pod default and keeps Hussh Pods gated", async () => {
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("shared-hosting-selected")).toBeTruthy();
+    expect(screen.getByTestId("cloud-tier-own")).toBeTruthy();
+    expect((screen.getByTestId("cloud-tier-hosted") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/without a dedicated pod/i)).toBeTruthy();
+  });
+
+  it("keeps a provisioning assignment on its pending screen", async () => {
+    mockAgentStatus.mockResolvedValue({ hostingMode: "pending" } as never);
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("hosting-mode-pending")).toBeTruthy();
+    expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
+  });
+
+  it("does not offer a tier when placement lookup fails", async () => {
+    mockAgentStatus.mockRejectedValue(new Error("status unavailable"));
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("hosting-mode-unknown")).toBeTruthy();
+    expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
+    expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
   });
 });

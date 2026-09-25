@@ -171,7 +171,7 @@ def test_pod_service_account_is_the_zero_role_identity(config: dict):
 
 def test_kill_switch_has_a_declared_default(config: dict):
     """An undeclared substitution makes `gcloud builds submit` reject the build."""
-    assert config["substitutions"]["_BUILD_POD_IMAGE"] == "true"
+    assert config["substitutions"]["_BUILD_POD_IMAGE"] == "false"
 
 
 def test_pod_image_repository_is_distinct_from_the_hub_image(pod_step: dict):

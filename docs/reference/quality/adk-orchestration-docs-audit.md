@@ -14,7 +14,283 @@ flowchart LR
 The [One agent hierarchy](../one/one-agent-hierarchy.md) maps the runtime owners.
 This audit records revision-specific implementation and verification beneath that map.
 
-**Review basis:** 2026-09-23 local pod integration, refreshed through pod base `812deaae16c26eccf4b80509021931d5cc467952`, remote ADK `b48a85d5bcff39f225e421bf033b38480c02ce7c` (contained in main), local ADK reviewer change `53aa5386dd3ac63eaf36ddbbf9c9ab1338f954f1`, and remote main `c7586798aef46797db8fda528fda164ba3daf8da`. The final source revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
+**Earlier promoted baseline:** 2026-09-24 integration candidate `5e0ade416f8b76fb81b472e762258401fb0d1250`, containing pod branch start `4dd42848c1d7f213e3bf5bab3cb45f38ab83f9c1`, refreshed `origin/main` `75c3528bd499c99d6e8830e19e5c25a41db79e1d`, remote ADK `1748f5684a7a06906b61ea3170e682b122cc120f`, and local ADK `2f2d0399021efba757906b476266908f938e8c48`; all four are verified ancestors. This candidate was fast-forwarded onto the original pod branch, `claude/hushh-infrastructure-analysis-7o991c`. After restoring the combined dirty work, its snapshot excluding this report matched `69eefa31f445d9fa840ffa874229d6acba932c7a`; the pre-promotion root hashes also passed. The hosting and Puppy source changes and preserved pod work remain uncommitted. Source checks do not establish per-environment rollout, device acceptance, migration execution, or cleanup.
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md).
+Topology audit ownership: [Runtime topology maintenance](../architecture/runtime-topology-maintenance.md).
+This report records revision-bound evidence; it does not establish deployment acceptance.
+
+## Current integration checkpoint — 2026-09-24
+
+The existing pod branch is at `7d38d0d67`, containing remote main
+`a4a42abe2`, local committed ADK `de2498bd1`, and the earlier pod baseline
+`5e0ade416`. Before the final two-commit ADK refresh, the restored working set
+matched 187 of 188 changed candidate paths byte for byte; this report was the
+one intentional root-only edit. Of the 141 saved root files, 84 retain their
+bytes in the working tree, 52 were
+reconciled with the newer candidate, and five were archived with their bytes
+intact: two migration-243 drafts and three local evidence files. ADK already
+owns migration 243, so the active profile bridge is migration 245. The two
+root-only fixture scripts remain in the working tree. The ADK worktree's
+uncommitted edits remain separate. The final ADK refresh preserved 187 of 190
+saved working files byte for byte and merged its three overlapping MCP files.
+
+The latest committed ADK delta adds reviewed draft continuation after connector
+reads. Its one overlapping projection file was restored from a saved patch after
+the merge; the prior redacted receipt behavior remains in the working tree.
+The combined external-read and governed MCP checks passed 162 tests, and the
+two affected MCP modules passed mypy. The earlier committed ADK delta passed
+75 focused backend and 76 focused web
+tests; the combined account, PKM, profile and Drive set passed 157 backend
+tests. TypeScript, documentation, diagram, governance, schema alignment, and
+the production web build passed on the candidate. The complete local CI run
+is **not green**: full Vitest attempts under heavy host CPU contention had
+timing failures in unrelated interaction suites. Focused serial reruns passed,
+including 243 tests across nine affected files and 278 tests across two large
+suites. The web CI command now bounds worker count and permits a local override;
+this still needs a complete terminal CI result on the final working state.
+After promotion, the root branch passed 167 focused backend tests, 189 focused
+web tests, 130 hosting/Puppy/update authority tests, TypeScript, skill lint,
+and the full documentation/link/diagram gate. The final governed MCP/Workspace
+integration passed another 128 focused backend tests. These bounded checks do
+not replace the incomplete canonical CI run.
+
+The main-defined dev pipeline prerequisite landed through the explicitly
+authorized Admin PR path and passed exact-SHA post-merge smoke. Its updated
+workflow was merged into this pod branch; 24 focused Cloud Build, candidate,
+and release-classification checks plus 104 Connect tests passed. The preceding
+190-file working set was snapshotted and restored: 187 files remain byte-identical,
+and three overlapping files were reconciled with main. No governed dev
+deployment, migration, pod image publication,
+owner upgrade, or live acceptance is claimed. Live environment inspection found
+the intended protected hub edge and distributed abuse budget incomplete; capacity
+and rollback need an environment-specific rehearsal. The direct BYOC Puppy device
+client and a verified supported predecessor for owner-approved pod updates also
+remain launch blockers.
+
+The blocking backend manifest now lists each database-audit suite once. Four
+unreferenced, one-off local reviewer scripts were preserved in the private
+operator archive and removed from the candidate; their useful acceptance
+conditions belong in the existing evaluation and release records rather than
+another permanent test harness.
+
+## Fresh integration continuation — 2026-09-24
+
+The first isolated continuation candidate was `baff32e57`, containing main
+`377287dee13c9d71c4799811fb443101f07a7d47` and ADK
+`e8e1dda79a85ebbc3a8aab910abba05fc065eb56`. The original pod branch remains at
+`5e0ade416f8b76fb81b472e762258401fb0d1250`; no application promotion is claimed.
+The candidate also rehearses 26 changed/new root paths against the hash-verified
+original working snapshot. Independent root and ADK edits remain untouched.
+
+- Preserved both source-bound Gmail delivery and saved-draft behavior, strict
+  native Drive result validation and empty-search compatibility, and combined
+  authored One guidance. Generated registries, capabilities and topology were
+  regenerated from their owners.
+- Resolved the uncommitted profile bridge's migration-number collision with ADK
+  by assigning it 245 in the candidate. Release manifests and schema contracts
+  align at 245; this does not mean an environment applied those migrations.
+- Pod update status compares immutable digests across registry copies. Mutable
+  tag equality, missing installed digests and conflicting heartbeat tags do not
+  establish currency. Exact owner-operation/incarnation/provider receipts are
+  required for verified completion. Successful replacement now retains its
+  already persisted acknowledgement. The focused update/admission/handoff/
+  rollback set passed 139 tests; this is not a live update rehearsal.
+- The complete `./bin/hushh ci --include-advisory` run passed on the
+  `6d4677b45` snapshot with 162 hash-verified changed paths: 9,642 frontend
+  tests and 6,152 backend tests passed (three and 201 skips respectively).
+  Documentation, generated contracts and governance passed. Earlier connector
+  expectation and native Drive typing failures were corrected before that run.
+  The newer ADK merge passed 134 focused MCP/privacy tests and 72 frontend
+  configuration/persistence tests. Its optional-owner typing failure was fixed
+  with an explicit owner guard. The subsequent backend gate passed 6,197 tests
+  with 201 skips before the later combined run below.
+- The refreshed `baff32e57` candidate subsequently passed complete canonical CI
+  including advisories: 9,696 frontend tests, 6,214 backend tests and 521 voice
+  tests passed (three frontend and 201 backend skips). All 176 recorded working
+  paths retained their hashes through that run. Two integrated React effect
+  dependencies were corrected before the passing run. This remains source
+  verification, not dev acceptance.
+- New ADK primitives preserve outcome-only durable MCP history and refuse writes
+  after failed encrypted-settings reads. The latest source now connects the
+  encrypted connector catalog to Chat ingress and review through a single-use
+  owner/thread-bound reference; explicit empty catalogs prevent legacy custom
+  registry fallback. OAuth refresh tokens are excluded from the turn projection.
+  The nine-commit integration passed 213 focused backend tests, 132 frontend
+  tests and mypy, including real in-memory MCP SDK messages. Current main's
+  Drive retry and regional timeout fixes then merged without conflicts.
+  Remote custom OAuth and live browser/provider
+  acceptance remain unverified. All 169 non-overlapping preserved paths matched
+  their pre-merge hashes; six overlapping paths were reconciled explicitly.
+- A later isolated merge `9fe5ce0e47788a47d02ae412fa23c943b5e0db21` brings in
+  12 further committed ADK connector/OAuth changes through
+  `b7dbbf227689187336c9355aed0749b6741ef527`. The ongoing uncommitted
+  ADK work is outside this revision. The Settings conflict retained both
+  owner/vault session resets and OAuth Chat recovery. Of 170 pre-merge hashed
+  candidate files, 168 remained byte-identical; only the two intentionally
+  overlapping files changed. Focused OAuth/MCP checks passed 90 backend and
+  60 frontend tests; documentation verification passed. The subsequent
+  `./bin/hushh ci --include-advisory` run completed successfully on this
+  merge plus the preserved working set: 9,720 frontend, 6,220 backend and
+  521 voice tests passed (three frontend and 201 backend skips), with the
+  subtree advisory completed. The first two attempts exposed a React effect
+  lint warning and nine OAuth typing errors; both were corrected before the
+  successful run. Live provider/browser acceptance remains unverified.
+- The rehearsed profile bridge now refuses fixture provenance outside an explicit
+  local fixture database and rejects retained contact details, including encoded
+  URL paths. Existing-entity updates must reference a frozen assessment candidate;
+  HusshOne still owns identity assessment and returned IDs. Claim preparation and
+  PKM writes use the same canonical domain resolver. Explicit legacy `scan` remains
+  supported; unknown protocol values fail closed. The focused boundary checks
+  include a real PostgreSQL UPSERT rehearsal.
+- A compatibility bridge based on the observed legacy dev source passed 4,218
+  backend tests with 193 skips after its deployment interfaces were added.
+  Its later commit `c7982672cd6ac2518269ad087ae7ef457f97a7aa` passed the full
+  [GitHub CI run](https://github.com/hushh-labs/hushh-research/actions/runs/36079360736),
+  including native iOS; manual-run branch freshness and PR-only checks were
+  intentionally skipped. This is source verification, not live acceptance.
+  The separate main pipeline prerequisite rejects missing candidate helpers before
+  secret synchronization or migrations, pins the image before migration, verifies
+  candidate health/provenance before traffic promotion, and protects the captured
+  rollback revision. [PR #7070](https://github.com/hushh-labs/hushh-research/pull/7070)
+  passed its required checks but still awaits review; no pipeline landing or
+  live application deployment is claimed.
+- Retirement direction is already authorized. Preserve original consent-to-Item
+  linkage before disconnecting Items; backup completion alone is not restoration
+  proof. The existing account-deletion fence does not quiesce all legacy Plaid
+  requests/workers. A verified compatible bridge or complete maintenance barrier
+  is still required before migration 239. Environment evidence stays in the
+  private operational audit.
+- Dev release metadata now binds reviewed notes, source revision, workflow run
+  and immutable image. Installation requires an explicitly supported predecessor;
+  the authored descriptor currently permits none. New incompatible approvals
+  are refused before cloud access while durable recovery retains its original
+  release. Focused metadata/authority checks passed 36 tests and settings passed
+  seven. These checks do not establish published images or live continuity.
+- A dev backup was restored to an isolated task-owned database. Read-only
+  protected-record digests and original consent-to-Item linkage matched the
+  source. This bounded restore check does not prove full application recovery;
+  it does not authorize running migration 239 before legacy-runtime quiescence.
+- The compatibility bridge's release and dev-extra migrations replayed on that
+  restored database, preserving the four protected record sets' digests. Its
+  dev schema guard passed afterward. The serving database was not modified.
+- Three affected Wiki articles were corrected and read back: One ADK, Connected
+  Systems and One App Shell. Full Wiki public-safety lint checked 564 pages with
+  zero errors; 36 warnings and 439 informational findings remain dated in the
+  private editorial audit. Lint does not establish universal claim freshness or
+  external-link availability.
+- Direct BYOC Puppy client implementation, actual two-device acceptance,
+  provenance-bound release publication/update continuity, hub edge and measured
+  capacity remain open. Neither these source tests nor earlier green CI establish
+  dev, UAT or production readiness.
+
+## Earlier dev readiness integration checkpoint — 2026-09-24
+
+The earlier isolated candidate was detached at `c4e83ec66153d4cf63c76f3c9f459d2d6ee83f16`,
+including ADK through `0b0b3a546dfb4b5d9200b4b7d2f6e63573ec712c` over the earlier
+`cae394479` integration of the preserved pod
+HEAD `5e0ade416f8b76fb81b472e762258401fb0d1250`, local ADK snapshot
+`4dfe1a7c953b10f121f98b303676c94a51536f73`, and refreshed main
+`f3569d646c402ef7c65edb87c366fc9738eb52b8`. The pod worktree's existing changes were
+rehearsed over that candidate. The original branch and independent ADK worktree
+remain unchanged by this checkpoint. The implementation below is uncommitted
+candidate work, except the restored pod-image build steps included in the merge.
+
+- Restored explicitly requested dev pod-image builds; publication remains off by
+  default. Build and Cloud Build argument contracts passed (44 tests).
+- Shared Chat admission uses authenticated owner identity and server-observed
+  placement. Assigned/pending pods retain private-runtime routing; unknown
+  placement refuses admission. Chat, hosting and MCP resume checks passed (87 tests).
+- Added Hosting and Software updates to the existing owner settings hierarchy.
+  Missing update eligibility no longer implies permission to install. Status is
+  fetched with lifecycle streaming and cleared on owner changes. Frontend typecheck,
+  26 update/navigation tests and eight Settings/status tests passed.
+- Canonical local CI first stopped at two history secret-scan findings. Both were
+  byte-identical to already reviewed public fixtures (a FIDO identifier and a
+  wrapping-algorithm label); only those commit-specific fingerprints were excluded.
+  Subsequent doc and generated-route failures were corrected. Disk exhaustion
+  during dependency installation was resolved by retiring eight inactive worktrees
+  after preserving unique files and retaining their branches. The full frontend
+  suite then passed 9,618 tests (three skipped). Route IDs, voice screen mappings
+  and stale capability graph projections were corrected. Two ADK return types and
+  two outdated contract assertions were fixed; 74 focused tests and the backend
+  mypy check passed. Complete canonical CI passed on the restored `cae394479`
+  snapshot (9,618 frontend and 5,625 backend tests passed, with declared skips;
+  PKM upgrade gate passed). The refreshed `c4e83ec` snapshot then passed the
+  expanded canonical CI run: 9,619 frontend tests and 6,040 backend tests passed
+  (three frontend and 199 backend skips), plus the PKM upgrade gate.
+  The original branch/HEAD are unchanged. Its 113 original hashes matched before
+  seven later concurrent profile-discovery edits; those newer versions were separately
+  preserved and must be rehearsed before promotion.
+- The dev pipeline candidate now builds/pins the backend before migration, checks
+  selected non-serving revisions and nonredirect HTTP health before promotion,
+  retains bounded candidate reports, and protects the rollback revision during
+  post-acceptance retention. Calendar parity and its rollback classification were
+  restored alongside supported voice configuration checks. A combined focused
+  run passed 154 tests; the account-deletion workflow suite separately passed.
+  Docs verification passed. This does not prove migration recovery or live health.
+- The independent ADK worktree advanced to
+  `4dfe1a7c953b10f121f98b303676c94a51536f73` during execution. Those three native MCP
+  review commits are now merged into the isolated candidate. The merge guard passed
+  with pod-image building preserved; the subsequent focused ADK/Chat/MCP run passed
+  126 tests. Candidate work was restored from a named checkpoint; the original
+  worktrees were not modified. Frontend typecheck and 90 focused navigation,
+  Settings, status and MCP review tests passed after the merge. Docs and runtime
+  topology checks passed, as did `git diff --check`. Refresh branch and dirty-file
+  evidence again before promotion.
+
+The blocking backend manifest now includes 25 existing suites for hosting,
+pod identity/session/Puppy, upgrade admission and recovery, exact-reviewed MCP,
+and dev candidate provenance. Collection alone had not exercised these contracts.
+The first-tool evaluation harness now resolves native toolsets through the installed
+ADK API with no owner context and closes them; its 41 tests passed.
+The added set passed 410 tests; device-route fixtures now carry signed BYOC
+placement and reject missing or hosted placement over HTTP. This is automated
+contract evidence, not live device or update-continuity acceptance.
+
+Execution prerequisites still pending: an explicitly identified dev owner/pod
+plus two real Puppy devices, and a schema-compatible dev transition. No push,
+main merge, deployment or owner upgrade was performed at this checkpoint.
+Authorized affected Wiki corrections were read back; historical decisions and
+private visibility were preserved. The detached candidate and named stash
+`5f92631b46700c73e455d588ff0088a8f1ef1b23` retain work until verified promotion;
+they are not disposable before their unique work is preserved.
+
+| Acceptance lane | Current disposition | Required evidence |
+|---|---|---|
+| Source/main | Isolated snapshot CI passed; not ready for application promotion | Rehearse newer root edits; complete release and device contracts |
+| Dev | No deployment in this checkpoint | Governed pipeline prerequisite, exact candidate deployment and live acceptance |
+| UAT | Not assessed as ready | Deployed schema/configuration comparison and acceptance of landed SHA |
+| Production | Not assessed as ready | Separate release decision, capacity, recovery and stable-channel acceptance |
+
+Open blockers include provenance-bound release notes and compatibility, immutable
+image update detection, owner-approved update continuity, the Hermes direct BYOC
+relay adapter and real two-device rehearsal, and hub capacity/edge evidence.
+The refreshed Wiki inventory retains 563 content-page dispositions plus the
+existing private audit, with no inventory additions. Affected internal links were
+checked, and edited articles were read back. Settings reports missing verified release
+metadata as unverified. No production release or owner upgrade is implied.
+
+### Migration and rollback boundary
+
+A disposable local PostgreSQL rehearsal passed the existing tombstone/stale-writer
+test. A separate bounded migration-239 rehearsal refused live Items and records
+in all six protected tables without deleting their rows, then applied and replayed
+after the synthetic Items were removed. These fixtures do not establish full-schema,
+full-account, provider cleanup or live-environment acceptance.
+
+The read-only dev provenance check identifies an older serving source that still
+issues unconditional deletes against tables removed by migration 239. The live dev inventory also contains records that migration 239 is required to
+preserve by refusing the transition; their retirement/retention decision is pending.
+A compatible
+bridge must preserve pre-migration cleanup, tolerate post-migration absence without
+cached existence errors, and retire table-backed legacy Plaid/funding entrypoints
+and workers. Verify both schemas and bind evidence to the bridge image before
+using it as a rollback target. Keep the existing deletion fence and activation
+contract; never treat recreation of empty tables as recovery of records or Items.
+Private environment identifiers and evidence remain in the existing private audit.
 
 ## Shared MCP transport checkpoint — 2026-09-24
 
@@ -227,10 +503,54 @@ flowchart LR
 | Cloud Build environment | Fixed in inspected source | The deploy script accepts a bounded packed Drive secret setting so the backend build step stays below Cloud Build's 100-entry environment limit. The image build contract test passed; no image was built or deployed here. |
 | Native parity reports | Follow-up required | Static parity validation passed, but the report-verification command found stale generated report artifacts. Refresh them through the native parity workflow before treating those artifacts as current. |
 | Runtime model claims | Repo defaults verified; deployment selection varies | [`model_catalog.py`](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py) lists `gemini-3.8-flash` and `gemini-3.7-flash`; manifests can use `gemini-default`, and [`live_compatibility.py`](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py) documents Live model compatibility. Voice model selection is environment/configuration dependent. These sources do not support describing One as entirely model-agnostic or proving a deployed model selection. |
-| Pod refresh toward main | Source integrated; rollout unverified | The pod candidate contains the 2026-09-23 main Drive drawer changes and the local ADK reviewer identity capture. The capability graph now records the previous pod workflow revision as an additive predecessor. Shared-runtime `/health/ready` checks dependencies; the private pod reports process readiness without hub database credentials. The reviewed pod ingress allowlist includes upgrade routes behind the machine wall. Source and focused contract checks do not prove a deployed pod image or recovery rehearsal. |
+| Pod refresh toward main | Source ancestry verified; rollout unverified | The integration candidate contains refreshed main, remote ADK, and local ADK revisions listed above; each source SHA is an ancestor of the candidate. This verifies local Git ancestry only. It does not verify a serving image, environment rollout, or recovery rehearsal. |
+| Migration 240–242 and erasure | Release contract verified locally; rollout unverified | Profile discovery is migration 240, Drive live sharing is 241, and the refreshed-main Drive live-query request contract is 242. The candidate's UAT and production contracts are exact at v242, and dev is at least v242. `drive_share_live_sources` is removed through the existing request-scoped Drive erasure helper; the erasure inventory test covers the current table set. The release verifier and full backend suite pass; no database migration execution was performed. |
+| Hosting placement and existing accounts | Shared default is source-verified; user rollout unverified | The candidate resolves an account with no pod assignment and no pending setup to Hussh Shared only after registry and setup-job reads succeed. `user_gcp` means BYOC; `gcp` means Hussh Pods, whose new assignment remains gated. Existing assignments and pending setup are preserved. Model credentials do not assign or provision a pod. No user records were bulk-migrated. |
+| Puppy placement and device relay | Backend source is BYOC-gated; device integration unverified | The candidate issues Puppy inference scope only for a registry-confirmed `user_gcp` deployment and binds the signed device grant to the owner and pod. Direct pod turns require that binding and the pod-local device broker; Shared and Hussh Pods are refused. The legacy hub relay remains as a compatibility path and is not proof that both devices connect to the same private pod relay. The Hermes client still lacks verified signed-binding discovery and direct BYOC endpoint connection, so end-to-end Puppy is not established. |
 | Reviewer and native test contracts | Corrected in candidate | First-run reviewer authentication now uses an owner-bound authenticated state without injecting a vault passphrase; established-vault continuity still requires unlock. The harness installs its read-only guard before navigation and suppresses only listed analytics collection hosts. Native test artifact output resolves absolute or relative selected directories. These checks are local, not a live browser or device rehearsal. |
 | Drive work-drain deploy settings | Restored in source; rollout unverified | The UAT workflow's four scheduler substitutions again reach the backend deploy script through one validated Cloud Build entry, under the 100-entry step limit. The script forwards the flag and OIDC identity to the runtime. Contract tests passed; no Cloud Build or scheduler run was performed. |
 | Account deletion production release | Source integrated; rollout unverified | The refreshed main production workflow and cleanup scheduler contract are present in the pod candidate. The user-table inventory now distinguishes executed deletes, checked FK cascades, and the specialized Drive cleanup path; focused account tests and the local PostgreSQL Drive erasure scenarios passed. These establish source behavior, not a completed production migration, scheduler setup, or full-environment erasure rehearsal. |
+
+## Verification update (2026-09-24)
+
+The newest `origin/main` tip (`75c3528bd499c99d6e8830e19e5c25a41db79e1d`) arrived during the first validation pass. It adds Drive live-query consent and migration 242. The candidate was refreshed, the API service timeout conflict was resolved to preserve explicit request timeouts and the 180-second Drive query allowance, and the release and topology projections were regenerated or reconciled from their owners.
+
+The final candidate passed the blocking checks in stage form: secret and governance checks; full frontend typecheck, lint, build, and Vitest (9,555 passed, 3 skipped); voice and native parity (521 voice tests, 18 plugin contracts); backend quality checks and the full protocol suite (5,470 passed, 198 skipped; Bandit reported zero medium/high findings); the 88-test frontend and 91-test backend integration bundle; and the MCP package tests plus packed-runtime verification. The release-contract verifier reported production and UAT at v242, with dev at least v242. The first `./bin/hushh ci` wrapper invocation was terminated during Vitest (exit 143); each blocking stage was then rerun against the refreshed candidate. No push, deploy, migration execution, or live Puppy device rehearsal occurred.
+
+The frontend CI helper now supplies the documented dummy `BACKEND_URL` during build, so a local build does not depend on a developer's ambient backend setting. The helper's production build passed with that default.
+
+## Current integration checkpoint (2026-09-24)
+
+The pod branch `claude/hushh-infrastructure-analysis-7o991c` now contains main
+`81c60be360ad` and the local ADK head `1767d4351` through merges
+`9d62c2c6f` and `7a96ceed7`. Main's Drive cancellation migration
+retains number 243. Private MCP registration and ADK Chat action authority moved
+to 244 and 245. This scoped pod candidate leaves the separate public-profile
+discovery work uncommitted in the root worktree; its release manifest and three
+schema projections report head 245. Generated agent, capability, location-card, and topology contracts
+were rebuilt from their owning sources. This is source order, not evidence that
+any environment applied these migrations.
+
+Main's governed dev pipeline prerequisite and secret-range correction landed
+through exact-head Admin PRs #7070 and #7072; both main post-merge smoke runs
+passed. The root worktree's ongoing edits were snapshotted before integration and
+restored: 163 of 179 files were byte-identical after the main merge; 16 differed
+where main's Drive work, renumbered migrations, or generated projections
+intersected them. The subsequent ADK merge preserved 176 of 180 snapshotted
+files byte-for-byte; four were reconciled with committed MCP work or regenerated
+topology. Focused ADK/backend checks passed 111 and focused web connector checks
+passed 61. The complete `./bin/hushh ci` must be repeated on this latest state;
+the earlier run was stopped after its stale Connectors test helper was fixed.
+No application candidate
+has been pushed or deployed to dev.
+
+A direct BYOC Puppy client is implemented and focused-tested in the local Hussh
+One checkout at `da16f4eef8` (22 relay tests passed). The current dev service
+recognizes an existing trusted dev device and returns an owner pod endpoint, but
+its binding route returned HTTP 404. The client therefore cannot complete direct
+admission against the serving dev revision yet. This check did not establish a
+live two-device relay or permit re-enrollment as a workaround. Keep the dev
+deployment and physical-device acceptance gates open.
 
 ## Follow-up ownership
 
@@ -238,6 +558,7 @@ flowchart LR
 - **Plaid retry, vault sync, and grant boundaries:** use the existing vault/PKM and IAM/consent owner workflows for single-use exchange recovery, Item-scoped projection keys, concurrent cursor/retention behavior, and summary export inspection. Preserve sealed records during any key migration.
 - **Plaid retirement rollout:** verify migration 239 through [`data-model-audit`](../../../.codex/workflows/data-model-audit/workflow.json), then prove migration and environment cleanup/disconnection through [`uat-scoped-deploy`](../../../.codex/workflows/uat-scoped-deploy/workflow.json) and the repo-operations owner. Evidence required: migration ledger and environment-specific cleanup results. Until then, retirement is present in inspected source, not a completed rollout.
 - **Mail/Drive acceptance:** keep the acceptance record open until live rollout and the end-to-end two-account document-sharing journey pass.
+- **Hosting and Puppy rollout:** carry the Shared default and preservation rules through the account-status UI and provisioning checks; verify the selected mode against live owner registry state before rollout. Complete Hermes signed-binding discovery and direct BYOC pod-relay connection, then test owner/device/pod mismatch refusal with two devices. Keep the legacy hub relay distinct until client migration is verified.
 - **Main promotion:** complete full branch and restored-work checks, refresh real native parity reports through the mobile workflow, and verify the serving pod image and recovery before proposing a main merge. Source ancestry alone is not deployment evidence.
 
 ## Canonical evidence

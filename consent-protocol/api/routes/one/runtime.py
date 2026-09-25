@@ -677,6 +677,11 @@ async def _write_cloud_setup_marker(user_id: str) -> None:
         logger.warning("one_cloud_choice.marker_write_failed", exc_info=True)
 
 
+class SharedHostingSelectResponse(BaseModel):
+    hostingMode: str
+    nextStep: str
+
+
 class HostedCloudSelectResponse(BaseModel):
     deploymentTarget: str
     # The claim the hosted tier is allowed to make, returned by the server so the
@@ -698,15 +703,27 @@ async def select_hosted_cloud(
     both routes write the same two registry columns and the same setup marker, and
     splitting them across files is how two writers of one column drift apart.
 
-    There is nothing to authorize and nothing to prove here, which is the entire
-    point of the door: someone who arrives with a Google account and nothing else
-    can finish onboarding. What they get is the same pod image, their own instance,
-    sealed with keys only that pod holds -- and a one-click migration into their own
-    project whenever they want it. The claim is "hussh does not read this pod, and
-    here is the path to where it structurally cannot"; it is never "hussh cannot
-    read this pod", which only the user-owned targets earn.
+    There is nothing to authorize and nothing to prove here: someone who arrives
+    with a Google account and nothing else can finish onboarding. The result is a
+    dedicated pod on Hussh-operated infrastructure. Do not imply BYOC custody or
+    private-agent guarantees for this deployment target.
     """
+    from hushh_mcp.services.hosted_tier_guard import (
+        HostedTierNotPermittedError,
+        require_hosted_pod_creates_permitted,
+    )
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        require_hosted_pod_creates_permitted("Hussh Pods selection")
+    except HostedTierNotPermittedError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "HOSTED_PODS_UNAVAILABLE",
+                "message": "Hussh Pods are not available right now.",
+            },
+        ) from exc
 
     repo = PersonalAgentRegistryRepo()
 
@@ -746,10 +763,47 @@ async def select_hosted_cloud(
     return HostedCloudSelectResponse(
         deploymentTarget="gcp",
         assurance=(
-            "Your agent runs as its own instance on hussh's infrastructure, sealed with "
-            "keys only it holds. hussh does not read it."
+            "Your agent runs as its own instance on Hussh infrastructure. Hussh does not read it."
         ),
         migratable=True,
+        nextStep="Choose how your agent reaches a model next.",
+    )
+
+
+@router.post("/shared/select", response_model=SharedHostingSelectResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def select_shared_hosting(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> SharedHostingSelectResponse:
+    """Confirm the stateless Shared default when no pod is assigned or pending."""
+    from api.routes.one.personal_agent import resolve_personal_agent_status
+
+    status = await resolve_personal_agent_status(user_id=firebase_uid)
+    mode = str(status.get("hostingMode") or "unknown")
+    if mode != "shared":
+        if mode == "unknown":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "HOSTING_STATUS_UNAVAILABLE",
+                    "message": "We could not confirm your current pod setup. Try again.",
+                },
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "POD_ASSIGNMENT_PRESERVED",
+                "message": (
+                    "Your existing or in-progress pod setup is unchanged. Finish or move it "
+                    "through its dedicated setup flow before choosing Shared."
+                ),
+            },
+        )
+
+    await _write_cloud_setup_marker(firebase_uid)
+    return SharedHostingSelectResponse(
+        hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",
     )
 

@@ -65,6 +65,18 @@ This document is the floor. Workflow verification bundles, the premise gate, and
 - **Per feature:** Integration + Documentation before calling the feature complete.
 - **Per release:** the full list is the floor; `pre-pr-readiness` and `release-readiness` workflow bundles add the deploy-specific gates on top.
 
+### Focused tests and evaluation scenarios
+
+Write one scenario for each distinct behavior or authority boundary: starting
+state, action, expected result, and the failure or retry that could violate it.
+Place it in the owning test or evaluation harness and run the smallest check
+that exercises the real contract. Keep cross-surface scenarios only when they
+prove a boundary a unit test cannot. Reuse fixtures and remove duplicate
+manifest entries or obsolete compatibility scenarios once the live boundary is
+gone. A model evaluation needs a measurable outcome and a recorded sample;
+source-string assertions and mock-only success are not substitutes for runtime
+behavior.
+
 ## Red flags
 
 - "It's done, I just haven't run it yet" — unverified work is not done

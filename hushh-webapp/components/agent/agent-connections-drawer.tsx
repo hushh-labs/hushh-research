@@ -102,7 +102,7 @@ export function AgentConnectionsDrawer({
     // The transcript becomes inert in this commit. Move focus now so an
     // immediate Escape cannot land on the old, inert trigger before a RAF.
     if (mode === "chats") focused()[0]?.focus({ preventScroll: true });
-  }, [open, triggerRef]);
+  }, [open, mode, triggerRef]);
   useEffect(() => {
     if (open) return;
     // Passive closed-state effect runs after sibling inert attributes clear.

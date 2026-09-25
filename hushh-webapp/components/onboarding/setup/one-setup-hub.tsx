@@ -201,8 +201,8 @@ export function OneSetupHub() {
       setPrereqSnapshot(project(cached));
       // Stale-while-revalidate: the cached record can predate a prerequisite
       // completed on another surface. The founder-hit case (2026-08-21): the
-      // one-click cloud flow finished and this checklist kept demanding
-      // "Connect your cloud first" from a cache written before the save.
+      // one-click BYOC flow finished and this checklist kept demanding an
+      // agent-home choice from a cache written before the save.
       // Render the cache instantly, confirm it in the background, and update
       // only when the truth differs.
       void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
@@ -619,13 +619,13 @@ export function OneSetupHub() {
           );
         }
       }
-      // Distinct messages per missing step, deliberately. "Set up your cloud" and
+      // Distinct messages per missing step, deliberately. "Choose an agent home" and
       // "Choose AI access" are different next actions, and one string covering both
       // is how a gate stops telling a person what to do and becomes noise.
       if (!cloudConfirmed) {
         return {
           status: "blocked" as const,
-          summary: "Connect your own cloud before continuing.",
+          summary: "Choose where your agent lives before continuing.",
         };
       }
       if (!phoneConfirmed) {
@@ -718,7 +718,7 @@ export function OneSetupHub() {
     : allReady
       ? "Add more any time."
       : !cloudComplete
-        ? "Connect your cloud first."
+        ? "Choose where your agent lives first."
         : !runtimeChoiceComplete
           ? "Choose your AI first."
           : `${remaining} left.`;
@@ -818,12 +818,9 @@ export function OneSetupHub() {
               </div>
             ) : null}
             <div className={styles.flatChecklist}>
-              {/* The cloud comes first and stays first. Where the agent lives
-                  decides everything after it (which AI can be chosen, where
-                  records go), so this group is pinned at the top in both
-                  states instead of sinking into "Complete" once connected, and
-                  the capability lists below appear only once the cloud is in
-                  place (founder direction, 2026-09-02). */}
+              {/* The hosting choice comes first and stays first. It determines
+                  whether the agent uses Shared or a pod, so keep this group
+                  above the later AI and capability choices. */}
               <SettingsGroup
                 title="Start here"
                 testId="one-setup-foundation"
@@ -832,14 +829,14 @@ export function OneSetupHub() {
                 <SetupNavigationTile
                   id="cloud"
                   title={
-                    cloudComplete ? "Your cloud" : "Where your agent lives"
+                    cloudComplete ? "Agent home" : "Where your agent lives"
                   }
                   description={
                     cloudComplete
-                      ? "Your private agent runs in your own Google Cloud project."
+                      ? "Your agent's hosting choice is saved."
                       : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Your own Google Cloud project, or hosted by hussh for now. You can move it later."
+                        : "Choose Hussh Shared, your own Google Cloud, or Hussh Pods when available."
                   }
                   href={ROUTES.ONE_SETUP_CLOUD}
                   voiceControlId="one_setup_tile_cloud"
@@ -864,7 +861,7 @@ export function OneSetupHub() {
                       ? "Verified. Your agent's record is minted from this number."
                       : cloudComplete
                         ? "Your agent's record is minted from your verified number."
-                        : "After your cloud."
+                        : "After choosing where your agent lives."
                   }
                   href={buildPhoneMandateRoute(ROUTES.ONE_SETUP)}
                   voiceControlId="one_setup_tile_phone"
@@ -875,7 +872,7 @@ export function OneSetupHub() {
                       ? "Verified"
                       : cloudComplete
                         ? "Required"
-                        : "After your cloud"
+                        : "After agent home"
                   }
                   statusTone={
                     phoneVerified
@@ -897,7 +894,7 @@ export function OneSetupHub() {
                         ? "Your pod's AI, or your own key."
                         : cloudComplete
                           ? "Verify your phone first, then choose."
-                          : "Connect your cloud first, then choose."
+                          : "Choose where your agent lives first, then choose."
                   }
                   href={ROUTES.ONE_SETUP_CONNECTIONS}
                   voiceControlId="one_setup_tile_connections"
@@ -910,7 +907,7 @@ export function OneSetupHub() {
                         ? "Required"
                         : cloudComplete
                           ? "After your phone"
-                          : "After your cloud"
+                          : "After agent home"
                   }
                   // The one row that blocks the exit. A muted grey "Required"
                   // reads like every other trailing label, so it gets the
@@ -1000,7 +997,7 @@ export function OneSetupHub() {
                 purpose={"Finish setup and protect what you save."}
                 supportingText={
                   !cloudComplete
-                    ? "Connect your cloud first."
+                    ? "Choose where your agent lives first."
                     : !runtimeChoiceComplete
                       ? "Choose your AI first."
                       : "Set up the rest later."

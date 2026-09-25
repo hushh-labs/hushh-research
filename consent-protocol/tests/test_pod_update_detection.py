@@ -57,9 +57,9 @@ def test_a_pod_behind_the_target_has_an_update_available() -> None:
     assert out["update"]["releaseId"].startswith("rel_")
 
 
-def test_a_pod_at_the_target_is_positively_current() -> None:
+def test_matching_mutable_tags_do_not_prove_currency() -> None:
     out = describe_pod_update(_row(source_image=TARGET), target_image=TARGET)
-    assert out["updateAvailable"] is False
+    assert "updateAvailable" not in out
     assert "updateVerified" not in out
 
     out = describe_pod_update(
@@ -73,7 +73,7 @@ def test_a_pod_at_the_target_is_positively_current() -> None:
         ),
         target_image=TARGET,
     )
-    assert out["updateVerified"] is True
+    assert "updateVerified" not in out
 
 
 def test_deferred_offer_keeps_its_server_deadline() -> None:
@@ -101,7 +101,7 @@ def test_deferred_offer_keeps_its_server_deadline() -> None:
     )
     assert out["update"] == {
         "releaseId": release,
-        "summary": "Keeps your private agent current and preserves its information.",
+        "summary": "Software update compatibility has not been verified.",
         "presentationState": "deferred",
         "remindAt": reminder,
     }
@@ -120,13 +120,17 @@ def test_deferred_offer_keeps_its_server_deadline() -> None:
 
 def test_no_lane_target_means_the_field_is_absent_not_false() -> None:
     out = describe_pod_update(_row(source_image=DEPLOYED_OLD), target_image="")
-    assert out == {"runningImage": "dev-aaaaaaaaa"}
+    assert out["runningImage"] == "dev-aaaaaaaaa"
+    assert out["installedRelease"] == {"version": "dev-aaaaaaaaa"}
+    assert "targetImage" not in out and "updateAvailable" not in out
     assert "updateAvailable" not in out and "targetImage" not in out
 
 
 def test_nothing_recorded_means_nothing_claimed() -> None:
     assert describe_pod_update({"backend_metadata": None}, target_image=TARGET) == {}
-    assert describe_pod_update(_row(), target_image=TARGET) == {"targetImage": "dev-bbbbbbbbb"}
+    unknown = describe_pod_update(_row(), target_image=TARGET)
+    assert unknown["targetImage"] == "dev-bbbbbbbbb"
+    assert "installedRelease" not in unknown and "updateAvailable" not in unknown
 
 
 def test_the_pods_own_report_wins_over_the_deployed_record(caplog) -> None:
@@ -306,4 +310,65 @@ def test_a_user_owned_pod_still_prefers_its_own_key() -> None:
     fallback.
     """
     both = {"backend_metadata": {"source_image": TARGET, "image": DEPLOYED_OLD}}
-    assert describe_pod_update(both, target_image=TARGET)["updateAvailable"] is False
+    assert "updateAvailable" not in describe_pod_update(both, target_image=TARGET)
+
+
+@pytest.mark.parametrize("same", [True, False])
+def test_digest_identity_survives_registry_copy_and_identical_tags(same):
+    target = "hub/pod:release@sha256:" + "b" * 64
+    installed = "owner/pod:release@sha256:" + ("b" if same else "a") * 64
+    out = describe_pod_update(_row(image=installed), target_image=target)
+    assert out["updateAvailable"] is (not same)
+
+
+def test_unknown_installed_digest_cannot_be_called_current():
+    out = describe_pod_update(
+        _row(source_image=TARGET), target_image=TARGET + "@sha256:" + "b" * 64
+    )
+    assert "updateAvailable" not in out
+    assert "updateVerified" not in out
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [None, "serviceUid", "podIncarnation", "targetDigest", "releaseId", "operationId", "image"],
+)
+def test_update_verification_requires_exact_provider_and_owner_receipts(tamper):
+    from hushh_mcp.services.personal_agent_provisioning_service import upgrade_release_id
+
+    digest = "sha256:" + "b" * 64
+    target = "hub/pod@" + digest
+    row = _row(image="owner/pod@" + digest, serviceUid="pod-uid")
+    release = upgrade_release_id(row, target)
+    row["backend_metadata"].update(
+        upgradeApproval={
+            "status": "succeeded",
+            "releaseId": release,
+            "operationId": "operation-1",
+            "targetImage": target,
+        },
+        upgradeAcknowledgement={
+            "outcome": "ready",
+            "serviceUid": "pod-uid",
+            "podIncarnation": "pod-uid",
+            "image": "owner/pod@" + digest,
+            "targetDigest": digest,
+            "releaseId": release,
+            "operationId": "operation-1",
+        },
+    )
+    if tamper:
+        row["backend_metadata"]["upgradeAcknowledgement"][tamper] = "mismatch"
+    out = describe_pod_update(row, target_image=target)
+    assert out.get("updateVerified", False) is (tamper is None)
+
+
+def test_conflicting_heartbeat_does_not_claim_provider_record_is_current():
+    digest = "sha256:" + "b" * 64
+    out = describe_pod_update(
+        _row(image="owner/pod@" + digest, source_image=TARGET, observed={"imageTag": "dev-older"}),
+        target_image=TARGET + "@" + digest,
+    )
+    assert out["runningImage"] == "dev-older"
+    assert "updateAvailable" not in out
+    assert "updateVerified" not in out

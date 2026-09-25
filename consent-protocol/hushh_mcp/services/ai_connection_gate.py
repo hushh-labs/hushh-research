@@ -52,6 +52,7 @@ async def on_ai_connection_verified(
     provider: str,
     transport: str = "",
     registry: Any = None,
+    setup_jobs: Any = None,
     identity: Any = None,
     scheduler: Any = None,
 ) -> dict:
@@ -76,12 +77,67 @@ async def on_ai_connection_verified(
             return {"scheduled": False, "reason": "personal agent is off"}
         if not provision_on_ai_connection():
             return {"scheduled": False, "reason": "ai-connection trigger is off"}
+        repo = registry
+        if repo is None:
+            from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+                PersonalAgentRegistryRepo,
+            )
+
+            repo = PersonalAgentRegistryRepo()
+
+        try:
+            row = await repo.get(normalized)
+        except Exception as exc:  # noqa: BLE001 - unread placement is never Shared
+            logger.warning("ai_connection_gate.hosting_status_unavailable %s", type(exc).__name__)
+            return {
+                "scheduled": False,
+                "reason": f"hosting status unavailable: {type(exc).__name__}",
+            }
+
+        status = str((row or {}).get("status") or "").strip()
+        if status in _ALREADY_HAS_A_HOST:
+            return {"scheduled": False, "reason": f"host already {status}"}
+
+        setup_job = None
+        setup_job_read_ok = True
+        if not str((row or {}).get("deployment_target") or "").strip():
+            try:
+                jobs = setup_jobs
+                if jobs is None:
+                    from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+                        ByocSetupJobRepo,
+                    )
+
+                    jobs = ByocSetupJobRepo()
+                setup_job = await jobs.get(normalized)
+            except Exception as exc:  # noqa: BLE001 - failed job read is not Shared proof
+                setup_job_read_ok = False
+                logger.warning("ai_connection_gate.hosting_job_unavailable %s", type(exc).__name__)
+
+        from hushh_mcp.services.personal_agent_hosting import (  # noqa: PLC0415
+            resolve_hosting_mode,
+        )
+
+        hosting_mode = resolve_hosting_mode(
+            row=row,
+            registry_read_ok=True,
+            setup_job=setup_job,
+            setup_job_read_ok=setup_job_read_ok,
+        )
+        if hosting_mode == "shared":
+            return {"scheduled": False, "reason": "Shared runtime does not provision a pod"}
+        if hosting_mode in {"pending", "unknown"}:
+            return {
+                "scheduled": False,
+                "reason": f"hosting mode is {hosting_mode}; pod provisioning is not authorized",
+            }
+
         # THIS person's target, not the deployment's. A BYOC person's connection must
         # be judged against their own project, where Vertex ADC is theirs, rather than
         # against hushh's fleet flag -- which is a different tier's question entirely.
         from hushh_mcp.services.user_cloud_service import resolve_user_cloud  # noqa: PLC0415
 
-        cloud = await resolve_user_cloud(normalized, repo=registry)
+        cloud = await resolve_user_cloud(normalized, repo=repo, registry_row=row)
         if cloud is not None and cloud.is_user_owned and not cloud.is_ready_to_provision:
             # They chose their own cloud and have not yet let hushh in. Refusing is the
             # ordering rule in its load-bearing form: without it, a person who started
@@ -121,21 +177,6 @@ async def on_ai_connection_verified(
                 "reason": access.reason,
                 "activation": access.activation,
             }
-
-        repo = registry
-        if repo is None:
-            from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
-                PersonalAgentRegistryRepo,
-            )
-
-            repo = PersonalAgentRegistryRepo()
-
-        row = await repo.get(normalized)
-        status = str((row or {}).get("status") or "").strip()
-        if status in _ALREADY_HAS_A_HOST:
-            # The common case on a re-validate. Not an error, and not worth a
-            # warning -- the UI probes this endpoint freely by design.
-            return {"scheduled": False, "reason": f"host already {status}"}
 
         # The phone is read SERVER-SIDE from the verified identity, never from the
         # request. A caller must not be able to name the phone their agent is

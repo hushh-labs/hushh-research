@@ -45,6 +45,8 @@ export type ConsentScopeNestedListProps = {
   /** Selection is owned by the caller, so the request payload stays its business. */
   selection?: {
     selectedIds: ReadonlySet<string>;
+    /** Scopes that are already active/granted; rendered preselected, locked, and badged. */
+    grantedIds?: ReadonlySet<string>;
     /** Called with a whole branch at once, so a group row can be taken in one tap. */
     onToggleMany: (ids: readonly string[], select: boolean) => void;
   };
@@ -98,16 +100,21 @@ export function ConsentScopeNestedList({
   const branchIds = (segment: string) =>
     consentScopeItemsUnder(items, [...pathStack, segment]).map((item) => item.id);
 
+  const isSelected = (id: string) =>
+    Boolean(selection?.grantedIds?.has(id) || selection?.selectedIds.has(id));
+
   const allSelected = (ids: readonly string[]) =>
-    ids.length > 0 && ids.every((id) => selection?.selectedIds.has(id));
+    ids.length > 0 && ids.every((id) => isSelected(id));
 
   const selectedCountIn = (ids: readonly string[]) =>
-    ids.filter((id) => selection?.selectedIds.has(id)).length;
+    ids.filter((id) => isSelected(id)).length;
 
   const renderLeafRow = (item: ConsentScopeItem, key: string) => {
-    const selected = Boolean(selection?.selectedIds.has(item.id));
-    // A wildcard is one authority-bearing choice, but selecting it also marks
-    // the visible children so narrowing one child can drop the broad choice.
+    const isGranted = Boolean(selection?.grantedIds?.has(item.id));
+    const selected = isGranted || Boolean(selection?.selectedIds.has(item.id));
+    const disabled = item.disabled || isGranted;
+    // Selecting an authored wildcard marks its visible descendants. A later
+    // child removal can then retire the broad selection safely.
     const toggleIds = item.wildcard
       ? consentScopeItemsUnder(items, [item.domainKey, ...item.pathSegments]).map((child) => child.id)
       : [item.id];
@@ -117,30 +124,45 @@ export function ConsentScopeNestedList({
         title={item.label}
         density="compact"
         description={item.description || undefined}
-        disabled={item.disabled}
+        disabled={disabled}
         stackTrailingOnMobile
         chevron={Boolean(onOpenItem)}
         onClick={
-          onOpenItem
-            ? () => onOpenItem(item)
-            : selection
-              ? () => selection.onToggleMany(toggleIds, !selected)
-              : undefined
+          isGranted
+            ? undefined
+            : onOpenItem
+              ? () => onOpenItem(item)
+              : selection
+                ? () => selection.onToggleMany(toggleIds, !selected)
+                : undefined
         }
         ariaLabel={item.label}
         trailing={
           renderTrailing ? (
             renderTrailing(item)
           ) : selection ? (
-            <input
-              type="checkbox"
-              checked={selected}
-              onChange={() => selection.onToggleMany(toggleIds, !selected)}
-              disabled={item.disabled}
-              aria-label={item.label}
-              className="h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]"
-              data-testid={`${testIdPrefix}-toggle-${item.id}`}
-            />
+            <span className="flex items-center gap-2">
+              {isGranted ? (
+                <span
+                  className="rounded-full bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                  data-testid={`${testIdPrefix}-badge-granted-${item.id}`}
+                >
+                  Granted
+                </span>
+              ) : null}
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={() => !disabled && selection.onToggleMany(toggleIds, !selected)}
+                disabled={disabled}
+                aria-label={item.label}
+                className={cn(
+                  "h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]",
+                  isGranted && "cursor-not-allowed opacity-60",
+                )}
+                data-testid={`${testIdPrefix}-toggle-${item.id}`}
+              />
+            </span>
           ) : item.badge ? (
             <span className="text-xs text-muted-foreground">{item.badge}</span>
           ) : undefined
@@ -225,6 +247,9 @@ export function ConsentScopeNestedList({
             const ids = branchIds(entry.segment);
             const everything = allSelected(ids);
             const chosen = selectedCountIn(ids);
+            const branchFullyGranted =
+              ids.length > 0 && ids.every((id) => selection?.grantedIds?.has(id));
+            const ungrantedIds = ids.filter((id) => !selection?.grantedIds?.has(id));
 
             return (
               <SettingsRow
@@ -244,16 +269,23 @@ export function ConsentScopeNestedList({
                       <input
                         type="checkbox"
                         checked={everything}
+                        disabled={branchFullyGranted}
                         // A partly-chosen branch is neither on nor off, and
                         // showing it as off would quietly misreport what the
                         // person has already agreed to.
                         ref={(node) => {
                           if (node) node.indeterminate = chosen > 0 && !everything;
                         }}
-                        onChange={() => selection.onToggleMany(ids, !everything)}
+                        onChange={() => {
+                          if (branchFullyGranted) return;
+                          selection.onToggleMany(ungrantedIds, !everything);
+                        }}
                         onClick={(event) => event.stopPropagation()}
                         aria-label={`Everything in ${entry.label}`}
-                        className="h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]"
+                        className={cn(
+                          "h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]",
+                          branchFullyGranted && "cursor-not-allowed opacity-60",
+                        )}
                         data-testid={`${testIdPrefix}-group-toggle-${entry.key}`}
                       />
                     ) : null}

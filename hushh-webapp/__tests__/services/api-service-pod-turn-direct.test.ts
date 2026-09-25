@@ -171,6 +171,21 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(ownerPodMocks.currentPodSession).not.toHaveBeenCalled();
   });
 
+  it("refuses Puppy when no matching BYOC pod is pinned and never falls back to the hub", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
+
+    await expect(
+      ApiService.runPodTurn({
+        hushhId: "ha1_owner",
+        message: "hello",
+        runtimeProvider: "puppy",
+        puppyDeviceId: "tdv_mac_1",
+      }),
+    ).rejects.toThrow("PUPPY_DIRECT_BYOC_REQUIRED");
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(ownerPodMocks.currentPodSession).not.toHaveBeenCalled();
+  });
+
   it("names a direct refusal instead of falling back to the hub", async () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);

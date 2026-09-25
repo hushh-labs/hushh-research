@@ -91,14 +91,23 @@ sorted):
 }
 ```
 
-### 3.2 Verify the binding on the device (recommended, not required by the pod)
+### 3.2 Verify the binding before connecting
 
 The signature is Ed25519 over the canonical JSON of `binding`:
 `json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` encoded
 UTF-8. Public keys are the map the hub publishes as `CONSENT_ED25519_PUBLIC_KEYS`
 (`{kid: base64 raw 32 bytes}`); the `kid` is the middle segment of the signature. A
-device that cannot verify should still store the binding; the pod verifies it on
-admission and refuses a bad one with an exact code.
+device must obtain those public keys through an authenticated, trusted bootstrap
+and verify the binding before trusting its pod endpoint or sending device proof.
+Missing trust material, invalid signatures, owner/device/environment mismatch,
+expiry or a stale incarnation must refuse the connection. Pod-side admission
+verification remains a separate required check. An unverified binding may not
+become an active relay configuration.
+
+Implementation checkpoint (2026-09-24): the inspected Hermes relay still uses the
+compatibility hub protocol. This device-side trust/bootstrap and direct sealed
+relay contract remains work to implement and prove on two real devices; this
+specification is not evidence that the adapter has shipped.
 
 ### 3.3 Pin the endpoint
 

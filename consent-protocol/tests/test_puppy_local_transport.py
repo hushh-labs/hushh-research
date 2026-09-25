@@ -1,10 +1,4 @@
-"""Puppy inference over the pod's own broker, and when the factory chooses it.
-
-The transport speaks the same frame vocabulary as the hub relay transport and
-normalises the same way; only the wire differs. Selection is the load-bearing
-part: a pod with a linked device dials no hub, a device still on the hub keeps the
-hub path, and a hub process never sees the local transport at all.
-"""
+"""Puppy inference is admitted only over the owner's direct BYOC pod broker."""
 
 from __future__ import annotations
 
@@ -16,7 +10,6 @@ from hushh_mcp.runtime_providers import factory
 from hushh_mcp.runtime_providers import puppy_local_transport as local
 from hushh_mcp.runtime_providers.puppy_transport import (
     PuppyRelayProtocolError,
-    PuppyRelayTransport,
     PuppyRelayUnavailable,
 )
 from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
@@ -195,29 +188,29 @@ def pod_env(monkeypatch):
     pb.BROKER._links.clear()
 
 
-def test_a_hub_process_never_selects_the_local_transport(monkeypatch):
+def test_a_hub_process_refuses_puppy_even_when_a_hub_relay_is_configured(monkeypatch):
     monkeypatch.delenv("HUSSH_POD_MODE", raising=False)
     monkeypatch.setenv("PUPPY_INFERENCE_RELAY_URL", "wss://hub.example/api/one/puppy/relay")
     assert local.select_puppy_transport(device_id="tdv_mac_1") is None
-    client = factory.build_runtime_client("puppy", "grant", puppy_device_id="tdv_mac_1")
-    assert type(client) is PuppyRelayTransport
+    with pytest.raises(PuppyRelayUnavailable, match="BYOC pod"):
+        factory.build_runtime_client("puppy", "grant", puppy_device_id="tdv_mac_1")
 
 
-def test_a_pod_with_no_hub_relay_serves_locally_even_before_the_device_links(pod_env):
-    chosen = local.select_puppy_transport(device_id="tdv_mac_1")
-    assert isinstance(chosen, local.PuppyLocalBrokerTransport)
-    assert chosen.key == KEY
-    client = factory.build_runtime_client("puppy", "pod-session:sid", puppy_device_id="tdv_mac_1")
-    assert isinstance(client, local.PuppyLocalBrokerTransport)
+def test_a_byoc_pod_refuses_until_the_device_has_a_direct_link(pod_env, monkeypatch):
+    monkeypatch.setenv("PUPPY_INFERENCE_RELAY_URL", "wss://hub.example/api/one/puppy/relay")
+    assert local.select_puppy_transport(device_id="tdv_mac_1") is None
+    with pytest.raises(PuppyRelayUnavailable, match="BYOC pod"):
+        factory.build_runtime_client("puppy", "pod-session:sid", puppy_device_id="tdv_mac_1")
 
 
 async def test_a_linked_device_wins_over_a_configured_hub_relay(pod_env, monkeypatch):
     monkeypatch.setenv("PUPPY_INFERENCE_RELAY_URL", "wss://hub.example/api/one/puppy/relay")
-    assert local.select_puppy_transport(device_id="tdv_mac_1") is None  # still on the hub
     socket = _Socket()
     await pb.BROKER.register(KEY, send=socket.send, close=socket.close, epoch=1)
     chosen = local.select_puppy_transport(device_id="tdv_mac_1")
     assert isinstance(chosen, local.PuppyLocalBrokerTransport)
+    client = factory.build_runtime_client("puppy", "pod-session:sid", puppy_device_id="tdv_mac_1")
+    assert isinstance(client, local.PuppyLocalBrokerTransport)
 
 
 def test_the_owners_configuration_can_turn_the_broker_off(pod_env):

@@ -33,16 +33,16 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "cloudComplete && phoneVerified && runtimeChoiceComplete",
     );
-    // The reorder itself, asserted on the rendered order rather than on intent.
+    // The source order keeps agent home before phone and AI access.
     // Broken on purpose: move the cloud tile below AI access and this goes red.
     // The phone sits between them: the agent's record is minted from it.
-    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+    expect(source.indexOf('cloudComplete ? "Agent home"')).toBeLessThan(
       source.indexOf('title="Verify your phone"'),
     );
     expect(source.indexOf('title="Verify your phone"')).toBeLessThan(
       source.indexOf('title="Choose your AI"'),
     );
-    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+    expect(source.indexOf('cloudComplete ? "Agent home"')).toBeLessThan(
       source.indexOf('title="Choose your AI"'),
     );
     expect(source).toContain(
@@ -111,7 +111,7 @@ describe("One setup hub terminal action contract", () => {
       'statusTone={cloudComplete ? undefined : "required"}',
     );
     expect(hub).toContain("phoneVerified && !runtimeChoiceComplete");
-    expect(hub).toContain('"After your cloud"');
+    expect(hub).toContain('"After agent home"');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');

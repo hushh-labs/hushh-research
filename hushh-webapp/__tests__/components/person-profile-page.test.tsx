@@ -131,7 +131,28 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter: ({ children }: { children: ReactNode }) => <footer>{children}</footer>,
   DialogHeader: ({ children }: { children: ReactNode }) => <header>{children}</header>,
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
+  DialogPortal: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogOverlay: () => <div data-testid="dialog-overlay" />,
 }));
+
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({
+    open,
+    title,
+    description,
+  }: {
+    open: boolean;
+    title: string;
+    description: string;
+  }) =>
+    open ? (
+      <div data-testid="vault-unlock-dialog">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    ) : null,
+}));
+
 
 vi.mock("@/components/ui/textarea", () => ({
   Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
@@ -665,7 +686,7 @@ describe("PersonProfilePage request catalog tools", () => {
 
       const value = await screen.findByTestId("person-profile-grant-value");
       expect(value).toHaveTextContent("Pune");
-      expect(screen.getByText(/End-to-end encrypted information shared with your account/)).toBeInTheDocument();
+      expect(screen.getByText(/Information this person has granted to your account/)).toBeInTheDocument();
       expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -1042,5 +1063,57 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
+  });
+
+  it("marks already-granted scopes as preselected, locked with Granted badge, and excludes them from review count", async () => {
+    const scopes = manyScopes(3);
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: scopes,
+        grants: [
+          {
+            scopeRef: scopes[0].scopeRef,
+            label: scopes[0].label,
+            domain: scopes[0].domain,
+            requestId: "req-already-granted",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+          },
+        ],
+      }),
+    );
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    // Drill into the Professional area where scope-0 and scope-2 reside
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+
+    // Look for Granted badge for the already-granted scope
+    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Granted");
+    const grantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[0].scopeRef}`) as HTMLInputElement;
+    expect(grantedCheckbox.checked).toBe(true);
+    expect(grantedCheckbox.disabled).toBe(true);
+
+    // Review request button should be disabled because 0 ungranted scopes are selected
+    const reviewBtn = screen.getByRole("button", { name: /^Review request/ });
+    expect(reviewBtn).toBeDisabled();
+
+    // Selecting an ungranted scope (scope-2 is also in Professional) enables Review request with count 1
+    const ungrantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`);
+    fireEvent.click(ungrantedCheckbox);
+    expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
+  });
+
+  it("scrolls to shared section and prompts vault unlock when visiting with ?section=shared while vault is locked", async () => {
+    mocks.search = "section=shared";
+    mocks.isVaultUnlocked = false;
+    mocks.vaultKey = null;
+    mocks.vaultOwnerToken = null;
+    const scrolled = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrolled;
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Shared with you" });
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(await screen.findByText("Unlock your private agent to reveal information shared with you.")).toBeInTheDocument();
   });
 });

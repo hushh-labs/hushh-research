@@ -35,6 +35,16 @@ _PRIVATE_DRAFT_TOOLS = frozenset({"open_gmail_email_draft", "open_gmail_informat
 
 def redacted_read_receipt(response: Any) -> dict[str, Any]:
     receipt: dict[str, Any] = {"content_redacted": True}
+    if isinstance(response, dict):
+        status = response.get("status")
+        if status in {"ok", "blocked", "unavailable"}:
+            receipt.update(
+                {
+                    "status": status,
+                    "private_result": "not_retained",
+                    "truncated": response.get("truncated") is True,
+                }
+            )
     try:
         structured = SpecialistReadResult.model_validate(response.get("structured"))
     except (AttributeError, ValueError):

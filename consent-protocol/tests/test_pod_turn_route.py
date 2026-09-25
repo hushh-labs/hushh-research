@@ -927,14 +927,14 @@ async def local_authority(tmp_path, monkeypatch):
                 self._key.sign(payload.encode(), ec.ECDSA(hashes.SHA256()))
             ).decode()
 
-    async def admit(subject_id, platform, *, version=1, scopes=None):
+    async def admit(subject_id, platform, *, version=1, scopes=None, user_id="uid-turn"):
         subject = Subject(subject_id, platform)
         role = psa.role_for_platform(platform)
         now = int(time.time() * 1000)
         binding = {
             "kind": psa.BINDING_KIND,
             "hushh_id": "ha1_turn_owner",
-            "user_id": "uid-turn",
+            "user_id": user_id,
             "environment": "dev",
             "pod_key_id": "podk_turn",
             "pod_public_key": base64.b64encode(b"K" * 32).decode(),
@@ -952,6 +952,7 @@ async def local_authority(tmp_path, monkeypatch):
             "version": version,
             "issued_at_ms": now,
             "expires_at_ms": now + 86_400_000,
+            "deployment_target": "user_gcp",
         }
         signature = token_signing.sign_payload(
             psa.canonical_json(binding), hmac_key="x", require_asymmetric=True
@@ -1125,6 +1126,33 @@ async def test_a_local_puppy_turn_needs_an_enrolled_and_linked_device(
         await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
     assert exc.value.status_code == 409
     assert not seen
+
+
+async def test_a_local_puppy_turn_refuses_a_device_binding_for_another_owner(
+    enabled, monkeypatch, local_authority
+):
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda payload=None: ("puppy", "local"))
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    await local_authority["admit"]("tdv_mac_1", "macos", user_id="uid-other")
+    kwargs = _local_turn_kwargs(authority, claims)
+    payload = PodTurnRequest(message="hi", runtime_provider="puppy", puppy_device_id="tdv_mac_1")
+    seen = []
+
+    async def _run(**_kwargs):
+        seen.append(True)
+        yield _Event("token", "should not run")
+
+    async def _linked(_owner, _device):
+        return True
+
+    monkeypatch.setattr(pod_turn, "_puppy_link_available", _linked)
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "PUPPY_OFFLINE"
+    assert seen == []
 
 
 async def test_hub_path_tests_are_unchanged_by_the_local_door(enabled, monkeypatch):

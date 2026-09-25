@@ -17,7 +17,10 @@ import {
   UPDATE_POLL_INTERVAL_MS,
   decideFollow,
 } from "@/lib/feed/deployment-progress-policy";
-import { NO_UPDATE, readUpdateStatus } from "@/lib/feed/use-agent-deployment-follow";
+import {
+  NO_UPDATE,
+  readUpdateStatus,
+} from "@/lib/feed/use-agent-deployment-follow";
 
 describe("readUpdateStatus", () => {
   it("keeps absent as unknown, never as false", () => {
@@ -33,7 +36,7 @@ describe("readUpdateStatus", () => {
     });
     expect(update).toEqual({
       available: true,
-      offerable: true,
+      offerable: false,
       inProgress: false,
       failed: false,
       error: null,
@@ -46,6 +49,18 @@ describe("readUpdateStatus", () => {
       operationId: null,
       verified: false,
     });
+  });
+
+  it("requires explicit server eligibility before offering an install", () => {
+    expect(readUpdateStatus({ updateAvailable: true }).offerable).toBe(false);
+    expect(
+      readUpdateStatus({ updateAvailable: true, updateOfferable: false })
+        .offerable,
+    ).toBe(false);
+    expect(
+      readUpdateStatus({ updateAvailable: true, updateOfferable: true })
+        .offerable,
+    ).toBe(true);
   });
 
   it("only treats a matching running target as verified completion", () => {
@@ -82,7 +97,9 @@ describe("decideFollow while an update moves", () => {
     expect(decision.follow).toBe(true);
     expect(decision.reason).toBe("update_moving");
     expect(decision.intervalMs).toBe(UPDATE_POLL_INTERVAL_MS);
-    expect(UPDATE_POLL_INTERVAL_MS).toBeGreaterThan(DEPLOYMENT_POLL_INTERVAL_MS);
+    expect(UPDATE_POLL_INTERVAL_MS).toBeGreaterThan(
+      DEPLOYMENT_POLL_INTERVAL_MS,
+    );
   });
 
   it("still stops on a settled pod when nothing is moving", () => {

@@ -5,8 +5,8 @@ as ``PuppyRelayTransport``; only the wire changes. Frames go to and come from
 ``puppy_broker.BROKER``, which holds the one persistent device socket the relay
 route accepted, so a turn no longer opens a fresh WebSocket per request through
 the hub. Selection lives here too (``select_puppy_transport``), keyed on pod mode,
-the owner's configuration record and whether a device is actually linked, so the
-hub-relayed path keeps working for a pod whose device still dials the hub.
+the owner's configuration record and whether a device is actually linked. A
+configured hub relay never substitutes for the direct device-to-BYOC-pod link.
 
 An offline device or a fenced incarnation surfaces as ``PuppyRelayUnavailable``,
 the typed refusal the runtime already knows. There is no fallback to another
@@ -133,11 +133,12 @@ def relay_url_configured() -> bool:
 
 
 def select_puppy_transport(*, device_id: Optional[str]) -> Optional[PuppyLocalBrokerTransport]:
-    """The owner-direct transport, or None when the hub relay is the right door.
+    """The owner-direct transport, or None when direct BYOC admission is absent.
 
-    Local when this process is a pod, the owner's configuration keeps the in-pod
-    broker on, and either the device is linked to THIS pod or there is no hub relay
-    to fall back to. A device that still dials the hub keeps the hub path.
+    Local only when this process is the owner's pod, Puppy is enabled there, and
+    the device is linked to this pod's broker. The calling route also verifies the
+    signed BYOC device binding and owner/pod identity. A missing direct link is a
+    refusal; it never falls back to a hub relay or another inference target.
     """
     from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
     from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
@@ -148,7 +149,7 @@ def select_puppy_transport(*, device_id: Optional[str]) -> Optional[PuppyLocalBr
         return None
     from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
 
-    if not BROKER.is_linked((owner, device)) and relay_url_configured():
+    if not BROKER.is_linked((owner, device)):
         return None
     incarnation = None
     try:
