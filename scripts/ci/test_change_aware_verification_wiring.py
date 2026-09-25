@@ -80,6 +80,29 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         '"analytics_smoke": {',
     )
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    candidate_step = content.split(
+        "      - name: Resolve zero-traffic frontend analytics candidate", 1
+    )[1].split("      - name: Set up Node runtime for UAT analytics verification", 1)[0]
+    secret_removal = candidate_step.index("--remove-secrets=BACKEND_URL,DEVELOPER_API_URL")
+    literal_binding = candidate_step.index('--update-env-vars="BACKEND_URL=')
+    assert (
+        'gcloud run services update "${{ env.FRONTEND_SERVICE }}"'
+        in candidate_step[secret_removal:literal_binding]
+    ), "Cloud Run requires separate updates to switch a secret-backed variable to a literal"
+    restore_step = content.split("      - name: Restore canonical frontend backend bindings", 1)[1].split(
+        "      - name: Promote deployed revisions to UAT traffic", 1
+    )[0]
+    assert "--no-traffic" in restore_step
+    assert "--remove-env-vars=BACKEND_URL,DEVELOPER_API_URL" in restore_step
+    assert "--update-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest" in restore_step
+    assert "Canonical secret binding missing" in restore_step
+    rollback_step = content.split("      - name: Resolve rollback targets from predeploy traffic", 1)[1].split(
+        "      - name: Resolve UAT verification plan", 1
+    )[0]
+    assert 'backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in rollback_step
+    assert 'frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"' in rollback_step
+    assert 'if [ -z "${backend_revision}" ]; then' in rollback_step
+    assert 'if [ -z "${frontend_revision}" ]; then' in rollback_step
     assert '--set-tags="analytics-candidate=' not in content
     assert "id: promote-paired-backend" not in content
     assert (
