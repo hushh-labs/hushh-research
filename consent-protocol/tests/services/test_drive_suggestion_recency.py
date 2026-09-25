@@ -31,6 +31,113 @@ def test_live_search_plan_accepts_bounded_date_only_and_uses_one_utc_instant():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("foreground", [False, True])
+async def test_recent_file_request_skips_planner_and_binds_metadata(monkeypatch, foreground):
+    job = content_job("files modified in last two days")
+    job["purpose"].update(periodStart=None, periodEnd=None)
+    job["foreground"] = foreground
+    document_id = str(uuid4())
+    source_ref = "document:" + "b" * 32
+    source = {
+        "document_id": document_id,
+        "file_id": "recent-file-1",
+        "name": "Recent.pdf",
+        "source_version": "3",
+        "connection_generation": 1,
+        "metadata_only": True,
+        "_live": True,
+    }
+    match = {"file_id": source["file_id"], "name": source["name"]}
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [match], "truncated": False}),
+        bind_matches=AsyncMock(
+            return_value={
+                "untrusted_external_content": [
+                    {
+                        "document_ref": document_id,
+                        "source_ref": source_ref,
+                        "name": source["name"],
+                        "text": "Verified file metadata only",
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
+        read_matches=AsyncMock(side_effect=AssertionError("content read")),
+        require_current=AsyncMock(),
+        _rows=[source],
+    )
+    store = content_store(job)
+    planner = AsyncMock(side_effect=AssertionError("planner reached"))
+    interpreter = AsyncMock(side_effect=AssertionError("interpreter reached"))
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        search_planner=planner,
+        interpreter=interpreter,
+        candidate_selector=selector,
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock() if foreground else None,
+    )
+
+    assert await service.run_one(user_id="owner", request_id=job["request_id"]) == "review_ready"
+
+    expected_bounds = {
+        "time_field": "modifiedTime",
+        "start_time": "2026-09-18T12:30:00Z",
+        "end_time": "2026-09-20T12:30:00Z",
+    }
+    assert reader.find.await_args.kwargs == {
+        "query": [],
+        "file_kind": "any",
+        "shared_with_me": False,
+        "recent": True,
+        **expected_bounds,
+    }
+    assert reader.bind_matches.await_args.kwargs == {
+        "matches": [match],
+        "truncated": False,
+        **expected_bounds,
+    }
+    coverage = store.prepare_review.await_args.kwargs["coverage"]
+    assert coverage["coverage_status"] == "complete"
+    assert coverage["selection"]["stage"] == "skipped_file_activity_window"
+    assert store.prepare_review.await_args.kwargs["live_sources"] == [source]
+    assert ("foreground" in store.prepare_review.await_args.kwargs) is foreground
+    assert ("foreground" in store.claim_preparation.await_args.kwargs) is foreground
+    planner.assert_not_awaited()
+    interpreter.assert_not_awaited()
+    selector.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("foreground", [False, True])
+async def test_recent_file_request_with_separate_card_dates_keeps_planner(foreground):
+    job = content_job("files modified in last two days")
+    job["foreground"] = foreground
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [], "truncated": False}),
+        bind_matches=AsyncMock(return_value={"untrusted_external_content": [], "truncated": False}),
+    )
+    planner = AsyncMock(
+        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+    )
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=content_store(job),
+        search_planner=planner,
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock() if foreground else None,
+    )
+
+    assert await service.run_one(user_id="owner", request_id=job["request_id"]) == "no_ready_files"
+    planner.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("truncated", [False, True])
 @pytest.mark.parametrize("time_field", ["modifiedTime", "createdTime"])
 @pytest.mark.parametrize("with_card_dates", [False, True])

@@ -53,6 +53,16 @@ def _emit(on_stage, stage: PreparationStage) -> None:
         logger.debug("drive_suggestion.stage_callback_failed type=%s", type(error).__name__)
 
 
+def _emit_progress(on_progress, completed: int, total: int) -> None:
+    """Owner-only file counts; a display callback cannot fail preparation."""
+    if on_progress is None:
+        return
+    try:
+        on_progress(completed, total)
+    except Exception as error:  # noqa: BLE001 - a UI callback must not fail the run
+        logger.debug("drive_suggestion.progress_callback_failed type=%s", type(error).__name__)
+
+
 MAX_SOURCE_REFS = 8
 
 
@@ -264,6 +274,51 @@ class LiveSearchPlan(BaseModel):
         return _utc_text(start), _utc_text(end)
 
 
+# A complete, explicit file-activity listing can use Drive metadata without
+# first asking a model to infer intent. Content, title and calendar questions
+# keep the existing planner and its typed result validation.
+_SIMPLE_FILE_ACTIVITY = re.compile(
+    r"(?:(?:which|what)\s+(?:my\s+|the\s+)?(?:drive\s+)?files?\s+(?:were|was)\s+|"
+    r"(?:show\s+(?:me\s+)?|list\s+|find\s+|request\s+)?"
+    r"(?:my\s+|the\s+)?(?:drive\s+)?files?\s+)"
+    r"(?P<action>modified|created)\s+(?:in|within|during)\s+(?:the\s+)?"
+    r"(?:last|past)\s+(?P<days>[1-9]|[12]\d|3[01]|one|two|three|four|five|"
+    r"six|seven|eight|nine|ten)\s+days?\s*[?.!]?",
+    re.IGNORECASE,
+)
+_DAY_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def simple_file_activity_plan(message: str) -> LiveSearchPlan | None:
+    """Return a validated metadata plan only for an exact recent-file request."""
+    match = _SIMPLE_FILE_ACTIVITY.fullmatch(message.strip())
+    if match is None:
+        return None
+    days = match["days"].lower()
+    return LiveSearchPlan.model_validate(
+        {
+            "mode": "find",
+            "relative_days": _DAY_WORDS[days] if days in _DAY_WORDS else int(days),
+            "file_time_field": "createdTime"
+            if match["action"].lower() == "created"
+            else "modifiedTime",
+            "time_intent": "file_activity",
+            "sort": "recent",
+        }
+    )
+
+
 # Room for one regional failover after a Vertex 429 on the global endpoint,
 # within the 160 s preparation budget. At 20 s, a 429 at 23:43Z on UAT
 # cancelled the suggestions turn mid-failover (2026-09-25).
@@ -376,7 +431,9 @@ class DriveSuggestionService:
             store=DriveSuggestionRetrievalStore(db=self.store.db, cipher=self.store.cipher),
         )
 
-    async def run_one(self, *, user_id, request_id, owner_selected=None, on_stage=None):
+    async def run_one(
+        self, *, user_id, request_id, owner_selected=None, on_stage=None, on_progress=None
+    ):
         """Prepare one review. owner_selected: files A chose from B's answered
         question; they are bound by metadata only, with no planner, model or read.
         """
@@ -439,17 +496,24 @@ class DriveSuggestionService:
                         now_utc = requested_at.astimezone(UTC)
                     else:
                         raise ValueError("invalid request timestamp")
-                    plan = await plan_live_search(
-                        self.search_planner,
-                        prompt=json.dumps(
-                            {
-                                "document_request": job["purpose"],
-                                "current_time_utc": now_utc.isoformat(timespec="seconds"),
-                            },
-                            ensure_ascii=False,
-                        ),
-                        user_id=user_id,
+                    # A separate card date range may change the intended
+                    # search, so those requests still need the planner.
+                    card_dates = job["purpose"].get("periodStart") or job["purpose"].get(
+                        "periodEnd"
                     )
+                    plan = simple_file_activity_plan(query) if not card_dates else None
+                    if plan is None:
+                        plan = await plan_live_search(
+                            self.search_planner,
+                            prompt=json.dumps(
+                                {
+                                    "document_request": job["purpose"],
+                                    "current_time_utc": now_utc.isoformat(timespec="seconds"),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            user_id=user_id,
+                        )
                     await self._require_current(job)
                     requested_period = bool(
                         job["purpose"].get("periodStart") or job["purpose"].get("periodEnd")
@@ -557,7 +621,17 @@ class DriveSuggestionService:
                         stage = "read_file_content"
                         _emit(on_stage, "checking")
                         retrieved = await reader.read_matches(
-                            matches=matches, truncated=found["truncated"]
+                            matches=matches,
+                            truncated=found["truncated"],
+                            **(
+                                {
+                                    "on_progress": lambda completed, total: _emit_progress(
+                                        on_progress, completed, total
+                                    )
+                                }
+                                if on_progress is not None
+                                else {}
+                            ),
                         )
                 else:
                     stage = "search_files"

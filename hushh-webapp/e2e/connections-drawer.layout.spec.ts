@@ -44,7 +44,9 @@ test.beforeAll(async () => {
           "@/lib/services/gmail-receipts-service",
           "next/navigation",
         ].map((find) => ({
-          find,
+          // Vite string aliases also match subpaths. Keep the Capacitor
+          // boundary mock exact so imports such as /stream use the real module.
+          find: find === "@/lib/capacitor" ? /^@\/lib\/capacitor$/ : find,
           replacement: path.join(
             root,
             "e2e/fixtures/connections-boundaries.tsx",

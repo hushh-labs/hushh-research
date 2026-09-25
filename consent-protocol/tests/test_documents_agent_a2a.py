@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -470,6 +470,42 @@ def live_service(monkeypatch, source, plan, **changes):
         search_planner=AsyncMock(return_value=plan),
         **changes,
     )
+
+
+async def test_thirty_owner_listing_sources_cross_documents_bridge_without_model_reads(monkeypatch):
+    source = reader()
+    today = datetime.now(UTC).date()
+    source.find.return_value = {
+        "matches": [
+            {
+                "file_id": f"standup-{index}",
+                "name": f"Standup sync notes - {(today - timedelta(days=index + 1)).isoformat()}",
+                "mime_type": "application/vnd.google-apps.document",
+                "created_time": f"{today - timedelta(days=index + 1)}T12:00:00Z",
+                "modified_time": f"{today - timedelta(days=index + 1)}T12:00:00Z",
+                "source_ref": "document:" + f"{index:032d}",
+                "open_url": f"https://drive.google.com/open?id=standup-{index}",
+            }
+            for index in range(30)
+        ],
+        "truncated": False,
+    }
+    service = live_service(
+        monkeypatch,
+        source,
+        None,
+        candidate_selector=AsyncMock(side_effect=AssertionError("selector reached")),
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="share me all my last 30 days standup sync notes i need all 30")
+    )
+    assert response.structured.status == "ok"
+    assert response.structured.metadata_only is True
+    assert len(response.structured.sources) == 30
+    assert response.text.count("[Open in Drive]") == 30
+    service.search_planner.assert_not_awaited()
+    source.read_matches.assert_not_awaited()
 
 
 async def test_read_mode_reads_only_selected_files_in_model_order(monkeypatch):

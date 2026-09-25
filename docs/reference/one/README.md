@@ -14,6 +14,7 @@ flowchart TD
   ontology["Agent Ontology"]
   feed["Feed Notification Model"]
   gmail["Owner-Approved Gmail Email"]
+  drive["Drive Connection And Sharing"]
   wallet["Wallet (formerly Cards)"]
 
   root --> voice
@@ -25,6 +26,7 @@ flowchart TD
   root --> ontology
   root --> feed
   root --> gmail
+  root --> drive
   root --> wallet
 ```
 
@@ -62,3 +64,4 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
 - [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.
+- [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.

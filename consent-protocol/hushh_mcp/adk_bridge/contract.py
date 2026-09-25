@@ -157,7 +157,9 @@ class SpecialistReadResult(BaseModel):
         "invalid_argument",
         "unavailable",
     ]
-    sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=25)
+    # The owner-only Drive title/date listing can return up to 60 files. Keep
+    # the bridge bound aligned so a successful 30-file search reaches One.
+    sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
     truncated: bool = False
     metadata_only: bool = False
 

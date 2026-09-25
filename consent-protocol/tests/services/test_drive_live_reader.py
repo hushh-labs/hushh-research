@@ -1,5 +1,6 @@
 """Live preparation works without a selected file or indexed chunk."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -162,25 +163,116 @@ async def test_find_returns_video_and_folder_without_reading_content_or_index():
 @pytest.mark.asyncio
 async def test_find_caps_results_within_the_last_page():
     reader, adapter, mcp, _ = fixture()
-    mcp.read_tool.side_effect = [
-        ExternalMcpToolResult(
-            False,
-            {
-                "files": [
-                    {"id": f"file-{page}-{index}", "title": f"File {page}-{index}"}
-                    for index in range(8)
-                ],
-                "nextPageToken": f"page-{page + 1}",
-            },
-            False,
-        )
-        for page in range(4)
-    ]
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [{"id": f"file-{index}", "title": f"File {index}"} for index in range(25)],
+            "nextPageToken": "more-results",
+        },
+        False,
+    )
     found = await reader.find(query=["File"])
     assert len(found["matches"]) == 25
     assert found["truncated"] is True
-    assert mcp.read_tool.await_count == 4
+    assert mcp.read_tool.await_count == 1
+    assert mcp.read_tool.await_args.kwargs["arguments"]["pageSize"] == 25
     adapter.get_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_opt_in_pages_past_default_cap_without_content_reads():
+    reader, adapter, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        assert tool_name == "search_files"
+        assert arguments["pageSize"] == 25
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, min(offset + 25, 35))
+        ]
+        return ExternalMcpToolResult(
+            False,
+            {"files": files, "nextPageToken": str(offset + 25) if offset + 25 < 35 else None},
+            False,
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=100)
+    assert len(result["matches"]) == 35
+    assert result["truncated"] is False
+    assert mcp.read_tool.await_count == 2
+    adapter.get_metadata.assert_not_awaited()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_opt_in_reports_truncation_at_explicit_cap():
+    reader, _, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, offset + 25)
+        ]
+        return ExternalMcpToolResult(
+            False, {"files": files, "nextPageToken": str(offset + 25)}, False
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=30)
+    assert len(result["matches"]) == 30
+    assert result["truncated"] is True
+    assert mcp.read_tool.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_cancellation_stops_the_next_page_without_releasing_results():
+    reader, _, mcp, _ = fixture()
+    next_page_started = asyncio.Event()
+    next_page_cancelled = asyncio.Event()
+
+    async def page(*, user_id, tool_name, arguments):
+        if "pageToken" not in arguments:
+            return ExternalMcpToolResult(
+                False,
+                {
+                    "files": [
+                        {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+                        for index in range(25)
+                    ],
+                    "nextPageToken": "next",
+                },
+                False,
+            )
+        next_page_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            next_page_cancelled.set()
+            raise
+
+    mcp.read_tool.side_effect = page
+    task = asyncio.create_task(reader.find(query=["standup"], max_results=100))
+    try:
+        await asyncio.wait_for(next_page_started.wait(), timeout=1)
+    finally:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert next_page_cancelled.is_set()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_results", [0, 101, True, 25.0])
+async def test_owner_listing_rejects_invalid_caps_before_provider_call(max_results):
+    reader, _, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["standup"], max_results=max_results)
+    mcp.read_tool.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -446,6 +538,162 @@ async def test_unreadable_files_are_reported_with_a_reason():
     assert result["truncated"] is True
     assert len(result["untrusted_external_content"]) == 1
     assert len(reader._rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_reads_overlap_by_two_but_publish_in_search_order():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    release = asyncio.Event()
+    two_started = asyncio.Event()
+    started: list[str] = []
+    active = 0
+    max_active = 0
+
+    async def read(*, user_id, tool_name, arguments):
+        nonlocal active, max_active
+        file_id = arguments["fileId"]
+        started.append(file_id)
+        active += 1
+        max_active = max(max_active, active)
+        if len(started) == 2:
+            two_started.set()
+        try:
+            await release.wait()
+            return ExternalMcpToolResult(False, {"fileContent": file_id}, False)
+        finally:
+            active -= 1
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    task = asyncio.create_task(
+        reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p))
+    )
+    try:
+        await asyncio.wait_for(two_started.wait(), timeout=1)
+        assert started == ["file-1", "file-2"]
+        assert max_active == 2
+    finally:
+        release.set()
+    result = await asyncio.wait_for(task, timeout=1)
+    assert [item["name"] for item in result["untrusted_external_content"]] == [
+        item["name"] for item in matches
+    ]
+    assert [row["file_id"] for row in reader._rows] == [item["file_id"] for item in matches]
+    assert max_active == 2
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+
+
+@pytest.mark.asyncio
+async def test_fatal_live_read_cancels_sibling_and_keeps_no_partial_observations():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+    started: list[str] = []
+
+    async def read(*, user_id, tool_name, arguments):
+        file_id = arguments["fileId"]
+        started.append(file_id)
+        if file_id == "file-1":
+            await sibling_started.wait()
+            raise DriveReadError("source_changed")
+        if file_id == "file-2":
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+        raise AssertionError("third read must not start after a fatal error")
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await asyncio.wait_for(
+            reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p)),
+            timeout=1,
+        )
+    assert sibling_cancelled.is_set()
+    assert started == ["file-1", "file-2"]
+    assert reader._rows == []
+    assert progress == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_live_read_drains_active_siblings_and_clears_partial_rows():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    both_waiting = asyncio.Event()
+    waiting: set[str] = set()
+    cancelled: set[str] = set()
+
+    async def read(*, user_id, tool_name, arguments):
+        file_id = arguments["fileId"]
+        if file_id == "file-1":
+            return ExternalMcpToolResult(False, {"fileContent": file_id}, False)
+        waiting.add(file_id)
+        if waiting == {"file-2", "file-3"}:
+            both_waiting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.add(file_id)
+            raise
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    task = asyncio.create_task(
+        reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p))
+    )
+    try:
+        await asyncio.wait_for(both_waiting.wait(), timeout=1)
+        assert len(reader._rows) == 1
+        assert reader._rows[0]["file_id"] == "file-1"
+    finally:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert cancelled == {"file-2", "file-3"}
+    assert reader._rows == []
+    assert progress == [(1, 3)]
+
+
+@pytest.mark.asyncio
+async def test_access_loss_after_content_is_fatal_not_an_unreadable_file():
+    reader, _, _, fence = fixture()
+    fence.side_effect = [None, None, DriveReadError("source_unavailable")]
+    with pytest.raises(DriveReadError, match="source_unavailable"):
+        await reader.read_matches(matches=[{"file_id": "file-1", "name": "March statement.pdf"}])
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_unreadable_progress_is_count_only_and_callback_failure_is_nonfatal():
+    reader, _, matches = three_file_reader(
+        {
+            "file-1": {"fileContent": "Readable"},
+            "file-2": {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+            "file-3": {"fileContent": "Readable too"},
+        }
+    )
+    progress: list[tuple[int, int]] = []
+
+    def report(completed: int, total: int) -> None:
+        progress.append((completed, total))
+        if completed == 2:
+            raise RuntimeError("UI closed")
+
+    result = await reader.read_matches(matches=matches, on_progress=report)
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+    assert [item["name"] for item in result["untrusted_external_content"]] == [
+        matches[0]["name"],
+        matches[2]["name"],
+    ]
+    assert result["unreadable"][0]["name"] == matches[1]["name"]
 
 
 @pytest.mark.asyncio
