@@ -15,6 +15,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    native_registration_admitted,
     resolve_registered_connection,
 )
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
@@ -137,6 +138,76 @@ async def test_curated_drive_resolver_uses_live_adapter_not_generic_credential(
     adapter.assert_awaited_once_with(h.context)
     h.credentials.open_credential.assert_not_called()
     h.lifecycle.read.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "connector_id,provider",
+    [("google_gmail", "gmail"), ("google_calendar", "calendar")],
+)
+async def test_curated_workspace_resolves_through_existing_grant_owner(
+    registry_harness, monkeypatch, connector_id, provider
+):
+    from hushh_mcp.one_adk import workspace_mcp_tools
+
+    h = registry_harness
+    definition = h.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = connector_id
+    definition.auth_style = "oauth"
+    definition.mcp_endpoint = (
+        "https://gmailmcp.googleapis.com/mcp/v1"
+        if provider == "gmail"
+        else "https://calendarmcp.googleapis.com/mcp/v1"
+    )
+    resolved = ResolvedMcpConnection(
+        McpConnectionBinding("owner", connector_id, 1, 1, definition.mcp_endpoint),
+        {"Authorization": "Bearer synthetic"},
+    )
+    adapter = AsyncMock(return_value=resolved)
+    monkeypatch.setattr(workspace_mcp_tools, "resolve_native_workspace_connection", adapter)
+    assert native_registration_admitted(definition, "owner")
+    assert await resolve_registered_connection(h.context, connector_id) is resolved
+    adapter.assert_awaited_once_with(h.context, provider)
+    h.credentials.open_credential.assert_not_called()
+    h.lifecycle.read.assert_not_called()
+
+
+def test_curated_workspace_requires_exact_mcp_transport(registry_harness):
+    definition = registry_harness.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = "google_gmail"
+    definition.transport_kind = "google_drive_rest"
+    assert not native_registration_admitted(definition, "owner")
+
+
+@pytest.mark.parametrize("failure", ["endpoint", "auth_style"])
+async def test_curated_workspace_rejects_registry_policy_drift(
+    registry_harness, monkeypatch, failure
+):
+    from hushh_mcp.one_adk import workspace_mcp_tools
+
+    h = registry_harness
+    definition = h.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = "google_calendar"
+    definition.mcp_endpoint = "https://calendarmcp.googleapis.com/mcp/v1"
+    definition.auth_style = "oauth"
+    resolved = ResolvedMcpConnection(
+        McpConnectionBinding(
+            "owner", "google_calendar", 1, 1, "https://calendarmcp.googleapis.com/mcp/v1"
+        ),
+        {"Authorization": "Bearer synthetic"},
+    )
+    adapter = AsyncMock(return_value=resolved)
+    monkeypatch.setattr(workspace_mcp_tools, "resolve_native_workspace_connection", adapter)
+    if failure == "endpoint":
+        definition.mcp_endpoint = "https://example.com/mcp"
+    else:
+        definition.auth_style = "api_key"
+    with pytest.raises(ExternalMcpError) as error:
+        await resolve_registered_connection(h.context, "google_calendar")
+    assert error.value.code == "MCP_CONNECTION_CHANGED"
+    h.credentials.open_credential.assert_not_called()
 
 
 @pytest.mark.parametrize("failure", ["owner", "token", "hidden", "revoked", "expired"])

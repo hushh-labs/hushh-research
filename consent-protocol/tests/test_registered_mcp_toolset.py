@@ -2,10 +2,12 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from google.adk.tools.mcp_tool.mcp_tool import McpTool
 
+from hushh_mcp.one_adk import mcp_turn_scope as turn_module
 from hushh_mcp.one_adk import registered_mcp_toolset as module
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
@@ -128,6 +130,21 @@ async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
         assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
 
 
+@pytest.mark.parametrize("connector_id", ["google_gmail", "google_calendar"])
+async def test_curated_workspace_uses_same_native_discovery_and_approval(registry, connector_id):
+    registration = definition(connector_id, owner=None)
+    registry.list_active_connectors.return_value = [registration]
+    async with mcp_turn_scope("thread") as scope:
+        tool = SimpleNamespace(name=f"mcp_{connector_id}", description="Read")
+        scope.acquire = AsyncMock(
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == [tool.name]
+        assert scope.acquire.await_args.args[1] == connector_id
+        assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
+
+
 async def test_vault_catalog_replaces_private_db_definitions(registry):
     registry.list_active_connectors.return_value = [definition("legacy_private")]
     record = {
@@ -154,6 +171,85 @@ async def test_vault_catalog_replaces_private_db_definitions(registry):
         scope.acquire = AsyncMock()
         assert await module.RegisteredMcpToolset().get_tools(context()) == []
         scope.acquire.assert_not_awaited()
+
+
+async def test_vault_connector_joins_native_discovery_review_refresh_and_disable(
+    registry, monkeypatch
+):
+    """No provider dispatcher or private DB registration participates in this path."""
+    record = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "00000000-0000-4000-8000-000000000001",
+        "displayName": "Synthetic app",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {
+            "kind": "api_key",
+            "header": "X-API-Key",
+            "value": "synthetic-secret",
+        },
+    }
+    registry.list_active_connectors.return_value = []
+    monkeypatch.setattr(
+        turn_module, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    authorize = AsyncMock(return_value={"status": "review_required"})
+    monkeypatch.setattr(module, "review_or_resume_call", authorize)
+    native_call = AsyncMock(return_value={"content": [], "structuredContent": {"count": 1}})
+    monkeypatch.setattr(McpTool, "_run_async_impl", native_call)
+
+    first_page = SimpleNamespace(
+        tools=[SimpleNamespace(name="search", inputSchema={"type": "object"})],
+        nextCursor="second",
+    )
+    second_page = SimpleNamespace(
+        tools=[SimpleNamespace(name="summarize", inputSchema={"type": "object"})],
+        nextCursor=None,
+    )
+    session = SimpleNamespace(
+        list_tools=AsyncMock(side_effect=lambda **kwargs: second_page if kwargs else first_page)
+    )
+    manager = SimpleNamespace(
+        create_session=AsyncMock(return_value=session),
+        _begin_session_use=Mock(),
+        _end_session_use=Mock(),
+        close=AsyncMock(),
+    )
+    original_acquire = turn_module.McpTurnResources.acquire
+    acquired = []
+
+    async def acquire(self, *args, **kwargs):
+        toolset = await original_acquire(self, *args, **kwargs)
+        toolset._mcp_session_manager = manager
+        acquired.append(toolset)
+        return toolset
+
+    monkeypatch.setattr(turn_module.McpTurnResources, "acquire", acquire)
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    async with mcp_turn_scope("thread", owner_id="owner", configurations=[record]):
+        tools = await module.RegisteredMcpToolset().get_tools(candidate)
+        assert len(tools) == 2
+        assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
+        assert all(tool.name.startswith("mcp_") for tool in tools)
+        assert await tools[0].run_async(args={}, tool_context=candidate) == {
+            "status": "review_required"
+        }
+        native_call.assert_not_awaited()
+        authorize.return_value = None
+        assert (await tools[0].run_async(args={}, tool_context=candidate))["status"] == "ok"
+        native_call.assert_awaited_once()
+        acquired[0].refresh()
+        assert (await tools[0].run_async(args={}, tool_context=candidate))["error"] == (
+            "MCP_CATALOG_CHANGED"
+        )
+    assert registry.list_active_connectors.await_args.kwargs == {"user_id": None}
+
+    async with mcp_turn_scope(
+        "thread", owner_id="owner", configurations=[{**record, "enabled": False}]
+    ):
+        assert await module.RegisteredMcpToolset().get_tools(candidate) == []
 
 
 async def test_disconnected_connector_does_not_hide_working_connector(registry):

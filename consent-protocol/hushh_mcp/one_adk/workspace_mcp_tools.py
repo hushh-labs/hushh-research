@@ -20,7 +20,10 @@ from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
-from hushh_mcp.services.google_calendar_mcp_service import GoogleCalendarMcpService
+from hushh_mcp.services.google_calendar_mcp_service import (
+    GOOGLE_CALENDAR_MCP_ENDPOINT,
+    GoogleCalendarMcpService,
+)
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
@@ -31,7 +34,12 @@ from hushh_mcp.services.google_drive_mcp_service import (
     GoogleDriveMcpService,
     _search_metadata,
 )
-from hushh_mcp.services.google_gmail_mcp_service import GoogleGmailMcpService
+from hushh_mcp.services.google_gmail_mcp_service import (
+    GOOGLE_GMAIL_MCP_ENDPOINT,
+    GoogleGmailMcpService,
+    _metadata_result,
+    _narrowed_capability,
+)
 
 WorkspaceProvider = Literal["drive", "gmail", "calendar"]
 WORKSPACE_CHAT_ADMISSION_STATE = "temp:hussh:workspace_chat_admission"
@@ -157,6 +165,68 @@ async def resolve_native_drive_connection(tool_context: ToolContext):
         raise ExternalMcpError(
             "Drive connection unavailable.", code="MCP_CONNECTION_CHANGED"
         ) from None
+
+
+def _gmail_catalog(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # The provider's read scope also permits message bodies. Advertise only
+    # schema-constrained metadata modes before the model can select a tool.
+    narrowed = [item for tool in tools if (item := _narrowed_capability(tool))]
+    return _trusted_catalog("gmail", narrowed)
+
+
+def _gmail_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    metadata, more_available = _metadata_result(tool_name, payload)
+    return {**metadata, "more_available": more_available}
+
+
+async def resolve_native_workspace_connection(
+    tool_context: ToolContext, provider: Literal["gmail", "calendar"]
+):
+    """Adapt existing owner grants to native ADK MCP without another dispatcher."""
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
+
+    owner = await _owner(tool_context, provider)
+    if owner is None:
+        raise ExternalMcpError("Connection unavailable.", code="MCP_OWNER_MISMATCH")
+    try:
+        before = await _grant_binding(owner, provider)
+        if before is None:
+            raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
+        token = (
+            await GmailReceiptsService().get_read_access_token(user_id=owner)
+            if provider == "gmail"
+            else await get_google_connection_service().access_token(
+                user_id=owner, service="calendar", access_level="read"
+            )
+        )
+        if (
+            not isinstance(token, str)
+            or not token.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in token)
+        ):
+            raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
+        if (
+            await _owner(tool_context, provider) != owner
+            or await _grant_binding(owner, provider) != before
+        ):
+            raise ExternalMcpError("Connection changed.", code="MCP_CONNECTION_CHANGED")
+        connector_id = "google_gmail" if provider == "gmail" else "google_calendar"
+        endpoint = (
+            GOOGLE_GMAIL_MCP_ENDPOINT if provider == "gmail" else GOOGLE_CALENDAR_MCP_ENDPOINT
+        )
+        return ResolvedMcpConnection(
+            McpConnectionBinding(owner, connector_id, 1, 1, endpoint, before),
+            {"Authorization": f"Bearer {token}"},
+            catalog_policy=_gmail_catalog
+            if provider == "gmail"
+            else partial(_trusted_catalog, "calendar"),
+            result_policy=_gmail_result_policy if provider == "gmail" else None,
+        )
+    except ExternalMcpError:
+        raise
+    except Exception:
+        # Provider exceptions may include private response bodies or tokens.
+        raise ExternalMcpError("Connection unavailable.", code="MCP_CONNECTION_CHANGED") from None
 
 
 @lru_cache(maxsize=3)
