@@ -55,6 +55,9 @@ For failed AG-UI turns, timing logs and reviewer rehearsals retain only an
 allowlisted error category (`connector`, `database`, `runtime`, `model`,
 `other`, or `untyped`). Never retain the raw `RUN_ERROR` message or code as a
 diagnostic; either may contain provider or owner information.
+The installed AG-UI adapter's warning/error text and tracebacks are redacted
+at its logger boundary; use the bounded timing category rather than raw SDK
+exceptions for live failure triage.
 For resumed snapshots, collect private call identities before projecting messages;
 a result may precede its call and no start event may have been observed. The live
 model-turn object remains unchanged. This redaction does not authorize a tool,

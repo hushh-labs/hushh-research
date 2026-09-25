@@ -37,10 +37,19 @@ logger = logging.getLogger(__name__)
 
 
 class _NoModelTextPreview(logging.Filter):
-    """The installed AG-UI adapter logs model text previews at INFO."""
+    """Keep adapter previews and exception bodies out of hosted logs."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.getMessage().startswith("[ADK_EVENT]"):
+        if record.levelno >= logging.WARNING:
+            # The installed adapter interpolates raw provider exceptions and
+            # attaches tracebacks. Its own severity plus our bounded turn
+            # timing category are sufficient for diagnosis.
+            record.msg = "[ADK_BRIDGE] details=[redacted]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            record.stack_info = None
+        elif record.getMessage().startswith("[ADK_EVENT]"):
             record.msg = "[ADK_EVENT] content=[redacted]"
             record.args = ()
         return True

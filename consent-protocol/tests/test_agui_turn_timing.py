@@ -312,6 +312,28 @@ def test_error_class_discards_untrusted_code_and_message(code, expected):
     assert agui_turn_timing._error_class(code) == expected
 
 
+def test_bridge_logger_discards_provider_exception_and_traceback():
+    try:
+        raise RuntimeError("private provider response")
+    except RuntimeError:
+        import sys
+
+        exception = sys.exc_info()
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "Background execution error: private provider response",
+        (),
+        exception,
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == "[ADK_BRIDGE] details=[redacted]"
+    assert record.exc_info is None
+    assert "private provider response" not in logging.Formatter().format(record)
+
+
 @pytest.mark.asyncio
 async def test_consumer_closing_early_marks_client_disconnect(monkeypatch, caplog):
     monkeypatch.setattr(ADKAgent, "run", _scripted_run(_normal_script()))
