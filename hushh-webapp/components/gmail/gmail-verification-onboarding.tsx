@@ -253,7 +253,7 @@ export function GmailVerificationOnboarding({
               <Button
                 type="button"
                 size="icon"
-                variant="ghost"
+                variant="none"
                 tabIndex={-1}
                 aria-hidden="true"
                 className="h-8 w-8 shrink-0 text-muted-foreground group-hover:text-foreground"
