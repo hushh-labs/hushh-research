@@ -397,6 +397,14 @@ function stopDriveCompilationProgress(
     : event);
 }
 
+function clearDriveCompilationFromMessages(messages: AgentMessage[]): AgentMessage[] {
+  if (!messages.some((message) => message.driveCompilation)) return messages;
+  return messages.map((message) => message.driveCompilation
+    ? { ...message, driveCompilation: undefined,
+        streamEvents: stopDriveCompilationProgress(message.streamEvents) }
+    : message);
+}
+
 type AgentPkmActivity = {
   id: string;
   text: string;
@@ -2441,10 +2449,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     driveCompilationAbortRef.current?.abort();
     driveCompilationAbortRef.current = null;
     compiledDriveMarkdownRef.current.clear();
-    setMessages((current) => current.map((message) => message.driveCompilation
-      ? { ...message, driveCompilation: undefined,
-          streamEvents: stopDriveCompilationProgress(message.streamEvents) }
-      : message));
+    setMessages(clearDriveCompilationFromMessages);
   }, [hasChatAccess, user?.uid]);
 
   useEffect(() => () => {
@@ -2456,6 +2461,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     driveCompilationAbortRef.current?.abort();
     driveCompilationAbortRef.current = null;
     compiledDriveMarkdownRef.current.clear();
+    setMessages(clearDriveCompilationFromMessages);
   }, [conversationId]);
   const handleEnableGmailSend = useCallback(async () => {
     if (!user?.uid || !user?.getIdToken) return;
@@ -3213,10 +3219,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const controller = new AbortController();
     driveCompilationAbortRef.current = controller;
     compiledDriveMarkdownRef.current.clear();
-    setMessages((current) => current.map((message) => message.driveCompilation
-      ? { ...message, driveCompilation: undefined,
-          streamEvents: stopDriveCompilationProgress(message.streamEvents) }
-      : message));
+    setMessages(clearDriveCompilationFromMessages);
     const ownerId = user.uid;
     const eventId = `owner-compile:${messageId}`;
     let lastProgress: DriveBatchProgress = {
