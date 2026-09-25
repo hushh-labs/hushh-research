@@ -248,6 +248,12 @@ export default function ProfileGmailOAuthReturnPageClient({
     if (oauthError) {
       const oauthErrorDescription =
         liveErrorDescription || initialErrorDescription;
+      GmailReceiptsService.recordConsentFailure({
+        code:
+          oauthError.toLowerCase() === "access_denied"
+            ? "USER_CANCELLED"
+            : oauthError,
+      });
       setStage("error");
       setError(
         oauthErrorDescription ||

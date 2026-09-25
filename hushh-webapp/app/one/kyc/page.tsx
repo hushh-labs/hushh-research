@@ -1628,6 +1628,9 @@ export function OneKycWorkspace({
       try {
         const withRequests = await ensureConsentRequestsForWorkflow(workflow);
         const requestIds = workflowConsentRequestIds(withRequests);
+        if (requestIds.length === 0) {
+          throw new Error("No access request is ready for this request yet.");
+        }
         if (requestIds.length === 1) {
           const requestId = requestIds[0];
           if (!requestId) {

@@ -802,19 +802,26 @@ async function pollSyncRun(params: {
       ) {
         let refreshed: GmailConnectionStatus | null = null;
         try {
+          const idToken = await params.idTokenProvider();
+          if (controller.signal.aborted) return;
           refreshed = await fetchStatusFromNetwork({
             userId: normalizedUserId,
-            idToken: await params.idTokenProvider(),
+            idToken,
             force: true,
             routeHref: params.routeHref,
             idTokenProvider: null,
             pollActiveRun: false,
           });
         } catch (refreshError) {
+          if (controller.signal.aborted) return;
           console.warn(
             "[gmail-connector-store] Failed to refresh Gmail status after poll timeout:",
             refreshError,
           );
+        }
+        if (controller.signal.aborted) {
+          clearConnectorStatus(normalizedUserId);
+          return;
         }
         const finalRun = refreshed?.latest_run;
         if (

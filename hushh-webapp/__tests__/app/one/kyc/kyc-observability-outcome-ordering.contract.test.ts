@@ -20,4 +20,9 @@ describe("One KYC observability outcome ordering", () => {
     expect(source).toContain("Access was approved, but the latest workflow status could not refresh.");
     expect(source).toContain("Access was denied, but the latest workflow status could not refresh.");
   });
+
+  it("does not report a denial when no consent request exists", () => {
+    expect(source).toContain("if (requestIds.length === 0)");
+    expect(source).toContain("No access request is ready for this request yet.");
+  });
 });

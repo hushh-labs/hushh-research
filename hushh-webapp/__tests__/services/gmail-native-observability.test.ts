@@ -80,7 +80,7 @@ describe("native Gmail observability", () => {
     [{ code: "USER_CANCELLED" }, "expected_error"],
     [new Error("native SDK failed"), "error"],
   ] as const)("records native consent failures as a terminal outcome", (error, result) => {
-    GmailReceiptsService.recordNativeConsentFailure(error);
+    GmailReceiptsService.recordConsentFailure(error);
 
     expect(mocks.trackEvent.mock.calls).toEqual([
       ["gmail_connect_result", { action: "complete", result }],

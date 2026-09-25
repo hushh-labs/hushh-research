@@ -893,14 +893,14 @@ export default function GmailReceiptsPage({
               purpose: nativeStart.purpose,
             }));
           } catch (error) {
-            GmailReceiptsService.recordNativeConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error);
             throw error;
           }
           if (!serverAuthCode?.trim()) {
             const error = new Error(
               "Google did not return a Mail authorization code.",
             );
-            GmailReceiptsService.recordNativeConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error);
             throw error;
           }
 

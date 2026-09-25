@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => {
       startConnect: vi.fn(),
       startNativeConnect: vi.fn(),
       completeNativeConnect: vi.fn(),
-      recordNativeConsentFailure: vi.fn(),
+      recordConsentFailure: vi.fn(),
       syncNow: vi.fn(),
     },
     hushhAuth: {
@@ -1359,7 +1359,7 @@ describe("ProfileReceiptsPage", () => {
 
     await waitFor(() => {
       expect(
-        GmailReceiptsService.recordNativeConsentFailure,
+        GmailReceiptsService.recordConsentFailure,
       ).toHaveBeenCalledWith(cancellation);
     });
     expect(GmailReceiptsService.completeNativeConnect).not.toHaveBeenCalled();

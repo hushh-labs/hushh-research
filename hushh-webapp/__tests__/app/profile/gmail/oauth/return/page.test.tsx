@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   gmailReceiptsService: {
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
+    recordConsentFailure: vi.fn(),
   },
   beginGmailOAuthCompletion: vi.fn(),
   failGmailOAuthCompletion: vi.fn(),
@@ -449,6 +450,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith({
+      code: "USER_CANCELLED",
+    });
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
     expect(screen.getByText("Mail connection needs attention")).toBeTruthy();
   });

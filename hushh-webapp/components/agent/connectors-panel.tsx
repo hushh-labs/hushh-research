@@ -996,11 +996,11 @@ function OwnerConnectorsPanel({
               purpose: start.purpose,
             });
           } catch (error) {
-            GmailReceiptsService.recordNativeConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error);
             throw error;
           }
           if (signal.aborted) {
-            GmailReceiptsService.recordNativeConsentFailure({
+            GmailReceiptsService.recordConsentFailure({
               code: "USER_CANCELLED",
             });
             return;
@@ -1009,7 +1009,7 @@ function OwnerConnectorsPanel({
             const error = new Error(
               "Google did not return a Mail authorization code.",
             );
-            GmailReceiptsService.recordNativeConsentFailure(error);
+            GmailReceiptsService.recordConsentFailure(error);
             throw error;
           }
           await GmailReceiptsService.completeNativeConnect({

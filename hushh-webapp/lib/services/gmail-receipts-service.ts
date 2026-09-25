@@ -410,7 +410,7 @@ export class GmailReceiptsService {
     }
   }
 
-  static recordNativeConsentFailure(error: unknown): void {
+  static recordConsentFailure(error: unknown): void {
     const code =
       error && typeof error === "object" && "code" in error
         ? String(error.code || "").trim().toUpperCase()

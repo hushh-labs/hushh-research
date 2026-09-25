@@ -544,6 +544,98 @@ describe("gmail-connector-store", () => {
     }
   });
 
+  it("does not recreate state or emit after cancellation during the final refresh", async () => {
+    let nowMs = 0;
+    let resolveFinalStatus:
+      | ((
+          status: Awaited<ReturnType<typeof GmailReceiptsService.reconcile>>,
+        ) => void)
+      | null = null;
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      _timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof handler === "function") queueMicrotask(() => handler(...args));
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout);
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    try {
+      const activeRun = {
+        run_id: "run-final-cancel",
+        user_id: "user-final-cancel",
+        trigger_source: "connect",
+        sync_mode: "bootstrap",
+        status: "running",
+        listed_count: 1,
+        filtered_count: 1,
+        synced_count: 0,
+        extracted_count: 0,
+        duplicates_dropped: 0,
+        extraction_success_rate: 0,
+      } as const;
+      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(async () => {
+        nowMs = 2 * 60 * 1000 + 1;
+        return { run: activeRun };
+      });
+      vi.mocked(GmailReceiptsService.reconcile).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveFinalStatus = resolve;
+          }),
+      );
+
+      primeConnectorStatus({
+        userId: "user-final-cancel",
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          scope_csv: "gmail.readonly",
+          auto_sync_enabled: true,
+          revoked: false,
+          last_sync_status: "running",
+          latest_run: activeRun,
+        },
+        source: "status",
+        idTokenProvider: async () => "id-token",
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(GmailReceiptsService.reconcile).toHaveBeenCalledTimes(1);
+
+      clearConnectorStatus("user-final-cancel");
+      resolveFinalStatus?.({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+        last_sync_status: "completed",
+        latest_run: { ...activeRun, status: "completed" },
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(trackEventMock).not.toHaveBeenCalledWith(
+        "gmail_sync_result",
+        expect.anything(),
+      );
+      expect(getConnectorView("user-final-cancel").status).toBeNull();
+    } finally {
+      clearConnectorStatus("user-final-cancel");
+      setTimeoutSpy.mockRestore();
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it("does not emit an error or recreate state when polling is intentionally cleared", async () => {
     let rejectRun: ((reason?: unknown) => void) | null = null;
     vi.mocked(GmailReceiptsService.getSyncRun).mockImplementationOnce(
