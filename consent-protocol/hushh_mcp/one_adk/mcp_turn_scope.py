@@ -188,6 +188,22 @@ class McpTurnResources:
             if record["enabled"]
         ]
 
+    def setup_catalog(self, owner_id: str) -> list[dict[str, str]]:
+        """Return only display metadata for the authenticated owner's setup UI."""
+        if self._closed or owner_id != self._owner or not self.has_vault_configurations:
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        entries = []
+        for record in self._configurations.values():
+            auth = record["authentication"]
+            if not record["enabled"]:
+                status = "disabled"
+            elif auth["kind"] == "oauth" and auth["expiresAt"] <= time.time():
+                status = "reconnect_needed"
+            else:
+                status = "saved"
+            entries.append({"name": record["displayName"], "status": status})
+        return sorted(entries, key=lambda entry: entry["name"].casefold())
+
     async def resolve_connection(self, context: Any, connector_id: str) -> ResolvedMcpConnection:
         if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")

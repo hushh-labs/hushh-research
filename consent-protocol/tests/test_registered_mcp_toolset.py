@@ -173,6 +173,52 @@ async def test_vault_catalog_replaces_private_db_definitions(registry):
         scope.acquire.assert_not_awaited()
 
 
+async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_metadata(monkeypatch):
+    record = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "00000000-0000-4000-8000-000000000001",
+        "displayName": "Synthetic app",
+        "endpoint": "https://private.example/mcp",
+        "enabled": True,
+        "authentication": {
+            "kind": "oauth",
+            "accessToken": "synthetic-private-token",
+            "expiresAt": 1,
+        },
+    }
+    authority = AsyncMock(return_value=True)
+    monkeypatch.setattr(module, "validate_first_party_owner_token", authority)
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    async with mcp_turn_scope("thread", owner_id="owner", configurations=[record]):
+        result = await module.inspect_private_connectors(candidate)
+        assert result == {
+            "status": "setup_available",
+            "provider": "custom",
+            "saved": [{"name": "Synthetic app", "status": "reconnect_needed"}],
+        }
+        assert "private.example" not in str(result)
+        assert "synthetic-private-token" not in str(result)
+        authority.assert_awaited_once_with("owner", "synthetic-owner-token")
+        candidate.state["hussh:conversation_id"] = "other-thread"
+        assert (await module.inspect_private_connectors(candidate))["status"] == "blocked"
+        candidate.state["hussh:conversation_id"] = "thread"
+        candidate.user_id = "other"
+        assert (await module.inspect_private_connectors(candidate))["status"] == "blocked"
+    assert (await module.inspect_private_connectors(context()))["status"] == "unavailable"
+
+
+async def test_private_connector_setup_does_not_claim_an_unavailable_vault_catalog(monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=False))
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    async with mcp_turn_scope("thread", owner_id="owner", configurations=[]):
+        assert (await module.inspect_private_connectors(candidate))["status"] == "blocked"
+    async with mcp_turn_scope("thread"):
+        assert (await module.inspect_private_connectors(candidate))["status"] == "unavailable"
+
+
 async def test_vault_connector_joins_native_discovery_review_refresh_and_disable(
     registry, monkeypatch
 ):

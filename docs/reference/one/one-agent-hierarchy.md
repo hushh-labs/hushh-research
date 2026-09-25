@@ -117,6 +117,10 @@ credential adapters for curated Drive, Gmail, and Calendar registrations.
 Gmail's admitted schema and result are metadata-only; Calendar uses its
 existing owner-specific read grant. Each native call rechecks the current
 owner and grant, and application review remains separate from discovery.
+An owner-checked `inspect_private_connectors` tool offers the existing in-chat
+Connectors action when a private connector has no callable tools yet. It reads
+only request-scoped vault configuration labels and setup states; a saved label
+does not establish a live connection or execution authority.
 The older `discover_workspace_tools` / `read_workspace_tool` entrypoints remain
 model-facing compatibility paths until live provider parity is verified; they
 are not a second credential authority. Source admission does not establish an

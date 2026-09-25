@@ -98,7 +98,10 @@ from hushh_mcp.one_adk.external_read_boundary import (
     before_external_read_tool,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
-from hushh_mcp.one_adk.registered_mcp_toolset import RegisteredMcpToolset
+from hushh_mcp.one_adk.registered_mcp_toolset import (
+    RegisteredMcpToolset,
+    inspect_private_connectors,
+)
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.selected_drive_status import inspect_selected_drive_files
 from hushh_mcp.one_adk.specialist_availability import (
@@ -2229,7 +2232,14 @@ def _one_roster_tools(
         AgentTool(agent=_build_wallet_agent(model=specialist_model)),
     )
     if allow_workspace_tools and not pod_mode():
-        tools.extend([discover_workspace_tools, read_workspace_tool, RegisteredMcpToolset()])
+        tools.extend(
+            [
+                discover_workspace_tools,
+                read_workspace_tool,
+                inspect_private_connectors,
+                RegisteredMcpToolset(),
+            ]
+        )
     return tools
 
 

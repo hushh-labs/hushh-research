@@ -90,4 +90,26 @@ describe("connector read receipts", () => {
       { provider: "drive" },
     )).toBeNull();
   });
+
+  it("projects only a generic setup action for the owner's private connectors", () => {
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ name: "PRIVATE CONNECTOR NAME", status: "saved" }],
+    });
+    expect(result).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "custom",
+      status: "manage_available",
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTOR NAME");
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", provider: "custom",
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", result: { status: "setup_available", provider: "custom" },
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("other_tool", {
+      status: "setup_available", provider: "custom",
+    })).toBeNull();
+  });
 });

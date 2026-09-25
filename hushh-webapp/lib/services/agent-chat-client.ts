@@ -602,6 +602,8 @@ export async function streamAgentChat(input: {
         toolCallName === "read_workspace_tool";
       const safeArgs = workspaceConnectorTool
         ? { provider: toolCallArgs.provider }
+        : toolCallName === "inspect_private_connectors"
+          ? {}
         : toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
           ? {}
           : toolCallArgs;
@@ -627,7 +629,8 @@ export async function streamAgentChat(input: {
       }
       const workspaceConnectorTool =
         toolName === "discover_workspace_tools" ||
-        toolName === "read_workspace_tool";
+        toolName === "read_workspace_tool" ||
+        toolName === "inspect_private_connectors";
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
       if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
@@ -662,11 +665,13 @@ export async function streamAgentChat(input: {
         );
         const payload = toolPayload(event.toolCallId, toolName, safeArgs);
         payload.execution = "server";
-        payload.message = "One checked a Google Workspace connector.";
+        payload.message = toolName === "inspect_private_connectors"
+          ? "One checked your connectors."
+          : "One checked a connected app.";
         payload.raw = {
           protocol: "ag-ui",
           toolName,
-          provider: safeArgs.provider,
+          ...(toolName === "inspect_private_connectors" ? {} : { provider: safeArgs.provider }),
         };
         handlers.onToolResult?.(payload);
         if (experience) {

@@ -18,12 +18,12 @@ export type ConnectorReadExperience = {
 export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
   "one.workspace_connector_setup.v1" as const;
 
-export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar";
+export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar" | "custom";
 
 export type WorkspaceConnectorSetupExperience = {
   type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
   provider: WorkspaceConnectorProvider;
-  status: "connect_required";
+  status: "connect_required" | "manage_available";
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -52,6 +52,19 @@ export function parseWorkspaceConnectorSetup(
   value: unknown,
   toolArguments?: unknown,
 ): WorkspaceConnectorSetupExperience | null {
+  if (toolName === "inspect_private_connectors") {
+    const outer = parseRecord(value);
+    const result = outer && (typeof outer.status === "string" ? outer : [outer.result, outer.content, outer.data]
+      .map(parseRecord)
+      .find((candidate) => candidate?.status) ?? outer);
+    return result?.status === "setup_available" && result.provider === "custom"
+      ? {
+        type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+        provider: "custom",
+        status: "manage_available",
+      }
+      : null;
+  }
   if (toolName !== "discover_workspace_tools" && toolName !== "read_workspace_tool") {
     return null;
   }
