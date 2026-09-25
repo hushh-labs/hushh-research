@@ -172,7 +172,10 @@ export function CalendarAgentPage({
         void settle(value.attemptId, value.outcome, value.message);
       }
     };
-    const recoverAbandonedPopup = async (message: string) => {
+    const recoverAbandonedPopup = async (
+      message: string,
+      failureResult: "expected_error" | "error",
+    ) => {
       if (!expectedPopupAttempt.current) return;
       const requestedAccessLevel = popupAccessLevelRef.current;
       clearAttempt();
@@ -186,7 +189,7 @@ export function CalendarAgentPage({
         morphyToast.success("Google Calendar connected.");
         return;
       }
-      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: failureResult });
       morphyToast.error(message);
     };
     const popupWatcher = window.setInterval(() => {
@@ -196,6 +199,7 @@ export function CalendarAgentPage({
       if (popup.closed) {
         void recoverAbandonedPopup(
           "The Google Calendar window closed before the connection finished. You can try again.",
+          "expected_error",
         );
         return;
       }
@@ -203,6 +207,7 @@ export function CalendarAgentPage({
         popup.close();
         void recoverAbandonedPopup(
           "Calendar connection is taking too long. Check your connection and try again.",
+          "error",
         );
       }
     }, 500);

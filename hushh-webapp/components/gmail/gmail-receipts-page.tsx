@@ -711,7 +711,10 @@ export default function GmailReceiptsPage({
       setGmailActionBusy((current) => (current === "connect" ? null : current));
     };
 
-    const settleClosedPopup = async (message?: string) => {
+    const settleClosedPopup = async (
+      message?: string,
+      failureCode = "USER_CANCELLED",
+    ) => {
       const intent = readOnboardingConnectorIntent();
       const status = await refreshGmailStatus({
         force: true,
@@ -744,7 +747,7 @@ export default function GmailReceiptsPage({
         toast.success("Mail connected. You can finish setup when ready.");
       } else {
         GmailReceiptsService.recordConsentFailure({
-          code: "USER_CANCELLED",
+          code: failureCode,
         });
         toast.message(
           message ||
@@ -842,6 +845,7 @@ export default function GmailReceiptsPage({
       clearAttempt();
       void settleClosedPopup(
         "Mail is taking longer than expected. Check your connection and try again.",
+        "POPUP_TIMEOUT",
       );
     }, 500);
 

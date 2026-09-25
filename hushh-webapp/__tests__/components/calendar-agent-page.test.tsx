@@ -248,6 +248,52 @@ describe("CalendarAgentPage", () => {
     );
   });
 
+  it("records a Calendar popup timeout as a connection failure", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    await waitFor(() => expect(popupWatcher).not.toBeNull());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    now.mockReturnValue(121_001);
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "expected_error" }),
+    );
+  });
+
   it("keeps a verified scheduling upgrade at manage access", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
