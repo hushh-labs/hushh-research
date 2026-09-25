@@ -45,6 +45,7 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
     class _Response:
         def __init__(self, payload: dict[str, object]) -> None:
             self._payload = payload
+            self.status_code = 200
 
         def json(self) -> dict[str, object]:
             return self._payload
@@ -103,14 +104,20 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
 
 
 def _run_verifier_with_ria(
-    monkeypatch, tmp_path, ria_payload: dict[str, object]
+    monkeypatch,
+    tmp_path,
+    ria_payload: dict[str, object],
+    *,
+    proposal_status: int = 200,
+    proposal_detail: str = "AGENT_PRIVATE_RUNTIME_REQUIRED",
 ) -> tuple[int, dict]:
     """Drive the verifier end to end with one configurable RIA Stage-1 answer."""
     verifier = _load_verifier()
 
     class _Response:
-        def __init__(self, payload: dict[str, object]) -> None:
+        def __init__(self, payload: dict[str, object], status_code: int = 200) -> None:
             self._payload = payload
+            self.status_code = status_code
 
         def json(self) -> dict[str, object]:
             return self._payload
@@ -134,6 +141,8 @@ def _run_verifier_with_ria(
             if path == "/api/kai/gmail/status/uat-user":
                 return _Response({"configured": True, "connected": False})
             if path == "/api/one/action-proposals":
+                if proposal_status != 200:
+                    return _Response({"detail": {"code": proposal_detail}}, proposal_status)
                 return _Response({"commands": []})
             if path == "/api/ria/onboarding/verify-name":
                 return _Response(ria_payload)
@@ -202,3 +211,33 @@ def test_healthy_release_reports_no_degradation(monkeypatch, tmp_path) -> None:
     assert code == 0
     assert report["status"] == "healthy"
     assert report["degraded"] == []
+
+
+def test_shared_runtime_private_boundary_is_healthy_without_claiming_recovery(
+    monkeypatch, tmp_path
+) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=409,
+    )
+
+    check = next(item for item in report["checks"] if item["name"] == "location_command_recovery")
+    assert code == 0
+    assert check["ok"] is True
+    assert check["private_runtime_required"] is True
+    assert check["recovery_verified"] is False
+
+
+def test_other_proposal_conflict_still_blocks(monkeypatch, tmp_path) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=409,
+        proposal_detail="UNRELATED_CONFLICT",
+    )
+
+    assert code == 1
+    assert "location_command_recovery" in report["failures"]
