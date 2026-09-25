@@ -39,6 +39,39 @@ it("does not enable adding when the vault catalog cannot be read", async () => {
   expect(screen.getByRole("button", { name: "Add connector" })).toBeDisabled();
 });
 
+it("does not carry a cancelled OAuth registration into another connector", async () => {
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.click(screen.getByText("OAuth client settings (if provided by your server)"));
+  fireEvent.change(screen.getByLabelText("Authorization server issuer"), { target: { value: "https://auth.example" } });
+  fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "old-client" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New server" } });
+  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://new.example/mcp" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce());
+  expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1]).not.toHaveProperty("oauthRegistration");
+});
+
+it("clears a hidden client secret when switching back to public OAuth", async () => {
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.click(screen.getByText("OAuth client settings (if provided by your server)"));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Public server" } });
+  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Authorization server issuer"), { target: { value: "https://auth.example" } });
+  fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "public-client" } });
+  fireEvent.change(screen.getByLabelText("Token authentication"), { target: { value: "client_secret_post" } });
+  fireEvent.change(screen.getByLabelText("Client secret"), { target: { value: "synthetic-secret" } });
+  fireEvent.change(screen.getByLabelText("Token authentication"), { target: { value: "none" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce());
+  expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1].oauthRegistration).toEqual({
+    issuer: "https://auth.example", clientId: "public-client", tokenEndpointAuthMethod: "none",
+  });
+});
+
 it("cancels OAuth rather than leave Chat when encrypted draft recovery is busy", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const }, oauthRegistration: {
     issuer: "https://auth.example", clientId: "synthetic-client", clientSecret: "synthetic-secret", tokenEndpointAuthMethod: "client_secret_post" as const,

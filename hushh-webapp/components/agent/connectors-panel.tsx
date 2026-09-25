@@ -1469,23 +1469,23 @@ function OwnerConnectorsPanel({
                     : "Not connected"}
               </p>
               <div className="flex flex-wrap gap-2">
-                {(!hasDriveGrant ||
+                {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
                   drive?.status === "error") && (
                   <Button
                     size="compact"
                     className={touch}
-                    disabled={driveBusy || loading || !canConnectDrive}
+                    disabled={driveBusy || loading}
                     onClick={() => startDrive("live")}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
                 )}
-                {overview?.features.google_drive_live === true &&
+                {canConnectDrive &&
                   drive?.status === "connected" && drive?.profile !== "live" && (
                     <Button
                       className={touch}
-                      disabled={driveBusy || loading || !canConnectDrive}
+                      disabled={driveBusy || loading}
                       onClick={() => startDrive("live")}
                     >
                       Reconnect Drive

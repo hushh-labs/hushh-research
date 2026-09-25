@@ -118,9 +118,8 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Connection status unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
     expect(screen.queryByText("Drive connection is unavailable in this session. Try again later.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Connect Drive" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Connect Drive" })).not.toHaveClass("min-h-[50px]");
   });
 
   it("opens the requested provider directly from the Settings catalog", async () => {

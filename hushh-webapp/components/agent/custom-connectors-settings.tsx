@@ -64,7 +64,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         revision: crypto.randomUUID(), displayName: name.trim(), endpoint: endpoint.trim(), enabled: true,
         ...(oauthIssuer || oauthClientId || oauthClientSecret ? { oauthRegistration: {
           issuer: oauthIssuer.trim(), clientId: oauthClientId.trim(),
-          ...(oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
+          ...(oauthAuthMethod !== "none" && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
           tokenEndpointAuthMethod: oauthAuthMethod,
         } } : {}),
         authentication: credential ? { kind: "api_key", header: "Authorization", value: credential } : { kind: "none" },
@@ -73,7 +73,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, null, current);
       if (!current()) return;
       setItems(previous => [...previous, { connectorId: saved.connectorId, displayName: saved.displayName, revision: saved.revision, enabled: saved.enabled }]);
-      setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false);
+      setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false);
     })();
     morphyToast.promise(operation, {
       loading: "Saving connector…", success: "Connector settings saved.",
@@ -204,14 +204,14 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         <div className="space-y-3 pb-3">
           <label className="block space-y-1">Authorization server issuer<Input type="url" placeholder="https://accounts.example.com" maxLength={2048} value={oauthIssuer} onChange={event => setOauthIssuer(event.target.value)} /></label>
           <label className="block space-y-1">Client ID<Input maxLength={8192} autoComplete="off" value={oauthClientId} onChange={event => setOauthClientId(event.target.value)} /></label>
-          <label className="block space-y-1">Token authentication<select className="flex min-h-11 w-full rounded-[var(--app-input-radius)] border border-input bg-background px-3" value={oauthAuthMethod} onChange={event => setOauthAuthMethod(event.target.value as typeof oauthAuthMethod)}><option value="none">Public client</option><option value="client_secret_post">Client secret in request</option><option value="client_secret_basic">Client secret in header</option></select></label>
+          <label className="block space-y-1">Token authentication<select className="flex min-h-11 w-full rounded-[var(--app-input-radius)] border border-input bg-background px-3" value={oauthAuthMethod} onChange={event => { const method = event.target.value as typeof oauthAuthMethod; setOauthAuthMethod(method); if (method === "none") setOauthClientSecret(""); }}><option value="none">Public client</option><option value="client_secret_post">Client secret in request</option><option value="client_secret_basic">Client secret in header</option></select></label>
           {oauthAuthMethod !== "none" ? <label className="block space-y-1">Client secret<Input type="password" autoComplete="off" maxLength={8192} value={oauthClientSecret} onChange={event => setOauthClientSecret(event.target.value)} /></label> : null}
         </div>
       </details>
       <p className="text-xs text-muted-foreground">Use a trusted server. Settings are encrypted in your vault. Each tool call requires review; saving does not sign you in.</p>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="standard" effect="fade" disabled={busy}>Save connector</Button>
-        <Button type="button" size="standard" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setEditing(false); }}>Cancel</Button>
+        <Button type="button" size="standard" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); }}>Cancel</Button>
       </div>
     </form> : <Button size="standard" variant="none" effect="fade" disabled={status !== "ready"} onClick={() => setEditing(true)}>Add connector</Button>}
     <AlertDialog open={Boolean(removing)} onOpenChange={open => { if (!open && !busy) setRemoving(null); }}>
