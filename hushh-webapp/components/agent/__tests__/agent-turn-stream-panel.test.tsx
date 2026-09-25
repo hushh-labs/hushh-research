@@ -243,6 +243,32 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
+  it("keeps real progress visible when owner compilation runs after the chat turn", () => {
+    const searching = driveBatchProgressToVisibleStreamEvent(
+      { phase: "searching", completed: 0, total: 0, failed: 0 }, "owner-compile", 1_700_001,
+    );
+    const { container, rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[searching]} responseText="Drive matches found."
+        isStreaming={false} driveCompilation={{ status: "running" }} />,
+    );
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+    const fetching = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 0, total: 0, failed: 0 }, "owner-compile", 1_700_002,
+    );
+    rerender(<AgentTurnStreamPanel streamEvents={[fetching]} responseText="Drive matches found."
+      isStreaming={false} driveCompilation={{ status: "running" }} />);
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+
+    const checked = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 1, total: 30, failed: 0 }, "owner-compile", 1_700_003,
+    );
+    rerender(<AgentTurnStreamPanel streamEvents={[checked]} responseText="Drive matches found."
+      isStreaming={false} driveCompilation={{ status: "running" }} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(100 / 30));
+  });
+
   it("offers compilation only for an owner-authorized metadata receipt", () => {
     const onCompileDriveNotes = vi.fn();
     const onDownloadDriveNotes = vi.fn();

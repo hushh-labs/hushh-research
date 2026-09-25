@@ -221,6 +221,9 @@ export function AgentTurnStreamPanel({
   const currentBatchProgress = [...streamEvents].reverse().find((event) =>
     event.status === "running" && event.batchProgress,
   )?.batchProgress;
+  // The owner starts a compilation from a completed chat turn. Keep its meter
+  // active while the separate authenticated Drive stream is running.
+  const batchIsStreaming = isStreaming || driveCompilation?.status === "running";
   const preparingPrivateMemory = streamEvents.some(
     (event) =>
       event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID &&
@@ -240,12 +243,13 @@ export function AgentTurnStreamPanel({
     <AppStreamPanel
       title="One activity"
       progressItems={[...progressItems, ...specialistItems]}
-      progressValue={isStreaming && currentBatchProgress
+      progressValue={batchIsStreaming && currentBatchProgress
         ? driveBatchProgressPercent(currentBatchProgress)
         : null}
       progressIndeterminate={Boolean(
-        isStreaming && currentBatchProgress &&
+        batchIsStreaming && currentBatchProgress &&
         (currentBatchProgress.phase === "searching" ||
+          (currentBatchProgress.phase === "fetching" && currentBatchProgress.total === 0) ||
           currentBatchProgress.phase === "summarizing" ||
           currentBatchProgress.phase === "finalizing"),
       )}
