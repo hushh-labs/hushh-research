@@ -17,12 +17,16 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("token_failure", [False, True, "callback_timeout"])
+@pytest.mark.parametrize(
+    "token_failure",
+    [False, True, "callback_timeout", "issuer_mismatch", "private_token_endpoint", "missing_pkce"],
+)
 async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
     caplog, token_failure
 ):
     storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
     redirect = {}
+    visited = []
 
     async def navigate(url):
         redirect.update(parse_qs(urlsplit(url).query))
@@ -33,6 +37,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
         return "synthetic-code", redirect["state"][0]
 
     def respond(request):
+        visited.append(request.url.path)
         if request.url.path == "/mcp":
             if request.headers.get("authorization") == "Bearer synthetic-access":
                 return httpx.Response(200, json={"ok": True})
@@ -55,15 +60,26 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
             return httpx.Response(
                 200,
                 json={
-                    "issuer": "https://auth.example",
+                    "issuer": "https://other.example"
+                    if token_failure == "issuer_mismatch"
+                    else "https://auth.example",
                     "authorization_endpoint": "https://auth.example/authorize",
-                    "token_endpoint": "https://auth.example/token",
+                    "token_endpoint": "https://127.0.0.1/token"
+                    if token_failure == "private_token_endpoint"
+                    else "https://auth.example/token",
                     "registration_endpoint": "https://auth.example/register",
                     "response_types_supported": ["code"],
-                    "code_challenge_methods_supported": ["S256"],
+                    "code_challenge_methods_supported": []
+                    if token_failure == "missing_pkce"
+                    else ["S256"],
                 },
             )
         if request.url.path == "/register":
+            assert token_failure not in {
+                "issuer_mismatch",
+                "private_token_endpoint",
+                "missing_pkce",
+            }
             return httpx.Response(
                 201,
                 json={
@@ -112,6 +128,15 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                 assert "synthetic-private-token-body" not in str(error.value)
                 if token_failure is True:
                     assert "MCP OAuth protocol event" in caplog.text
+                    assert "/token" in visited
+                if token_failure in {"issuer_mismatch", "private_token_endpoint", "missing_pkce"}:
+                    assert any("/.well-known/" in path for path in visited)
+                    assert "/register" not in visited
+                    assert "/token" not in visited
+                    assert not redirect
+                if token_failure == "callback_timeout":
+                    assert redirect
+                    assert "/token" not in visited
                 assert storage._closed
                 assert "synthetic-private-token-body" not in caplog.text
                 assert "synthetic-code" not in caplog.text

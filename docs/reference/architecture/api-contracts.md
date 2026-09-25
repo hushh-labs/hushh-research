@@ -1137,7 +1137,12 @@ Callback and protected-resource/issuer discovery integration still need owner-bo
 vault custody and endpoint protection. `ConnectOnlyMcpOAuthProvider` now restricts
 OAuth retries to setup/read-only protocol methods, redacts the installed SDK's
 auth logger messages and tracebacks, sanitizes propagated errors and bounds the
-live flow by the attempt deadline. Failure, cancellation and generator abandonment
+live flow by the attempt deadline. It compares the authorization metadata's issuer
+to the exact advertised issuer before SDK URL normalization, requires S256 and
+validates public HTTPS endpoint syntax before registration or authorization.
+Metadata changes clear previously admitted endpoints; metadata GETs cannot carry
+Authorization/Cookie headers, and credential POSTs use admitted endpoints only.
+Failure, cancellation and generator abandonment
 clear the temporary storage. The synthetic tests exercise these boundaries, not
 a public callback API. Before activation, bind callback owner/attempt/issuer,
 bound discovery response bodies and fail closed on lost worker continuity.

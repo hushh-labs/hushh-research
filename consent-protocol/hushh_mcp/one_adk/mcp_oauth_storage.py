@@ -137,6 +137,46 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     that has not yet established the authorization server/token endpoint.
     """
 
+    def _admit_metadata_response(self, outgoing: httpx.Request, response: httpx.Response) -> None:
+        if (
+            outgoing.method != "GET"
+            or str(outgoing.url) == self.context.server_url
+            or response.status_code != 200
+        ):
+            return
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise McpOAuthConnectError()
+        if "authorization_servers" in payload:
+            servers = payload["authorization_servers"]
+            if not isinstance(servers, list) or not servers or not isinstance(servers[0], str):
+                raise McpOAuthConnectError()
+            validate_mcp_endpoint(servers[0])
+            # Preserve the exact advertised issuer, before SDK URL normalization.
+            self._advertised_issuer = servers[0]
+            self._admitted_endpoints = {}
+        elif "issuer" in payload:
+            issuer = getattr(self, "_advertised_issuer", None)
+            if issuer is None or payload["issuer"] != issuer:
+                raise McpOAuthConnectError()
+            if "S256" not in (payload.get("code_challenge_methods_supported") or []):
+                raise McpOAuthConnectError()
+            endpoints = {}
+            for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+                value = payload.get(key)
+                if value is None and key == "registration_endpoint":
+                    continue
+                if not isinstance(value, str):
+                    raise McpOAuthConnectError()
+                validate_mcp_endpoint(value)
+                endpoints[key] = value
+            self._admitted_endpoints = endpoints
+
+    async def _perform_authorization_code_grant(self):
+        if not getattr(self, "_admitted_endpoints", None):
+            raise McpOAuthConnectError()
+        return await super()._perform_authorization_code_grant()
+
     async def async_auth_flow(self, request: httpx.Request):
         storage = self.context.storage
         if not isinstance(storage, EphemeralMcpOAuthStorage):
@@ -169,8 +209,23 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                 while True:
                     storage._check()
                     validate_mcp_endpoint(str(outgoing.url))
+                    if outgoing is not request:
+                        if outgoing.method == "POST":
+                            endpoints = getattr(self, "_admitted_endpoints", {})
+                            if str(outgoing.url) not in {
+                                endpoints.get("token_endpoint"),
+                                endpoints.get("registration_endpoint"),
+                            }:
+                                raise McpOAuthConnectError()
+                        elif (
+                            outgoing.method != "GET"
+                            or "authorization" in outgoing.headers
+                            or "cookie" in outgoing.headers
+                        ):
+                            raise McpOAuthConnectError()
                     response = yield outgoing
                     storage._check()
+                    self._admit_metadata_response(outgoing, response)
                     try:
                         outgoing = await flow.asend(response)
                     except StopAsyncIteration:
