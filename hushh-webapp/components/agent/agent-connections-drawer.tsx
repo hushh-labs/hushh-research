@@ -183,14 +183,14 @@ export function AgentConnectionsDrawer({
       {connectorHost && createPortal(connections, connectorHost)}
       {presentationReady && (isMobile ? (
         <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <SheetContent {...connectorContentProps} side="bottom" className="h-[85dvh] gap-0 p-0">
+          <SheetContent {...connectorContentProps} side="bottom" contentDragDismiss={false} className="h-[85dvh] gap-0 overflow-hidden p-0">
             <SheetTitle className="sr-only">Connectors</SheetTitle>
             <div ref={attachConnectorHost} className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </SheetContent>
         </Sheet>
       ) : (
         <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <DialogContent {...connectorContentProps} className="h-[min(34rem,85dvh)] gap-0 overflow-hidden p-0 sm:max-w-[28rem]" srDescription="Manage your connected apps.">
+          <DialogContent {...connectorContentProps} className="h-[min(34rem,85dvh)] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
             <DialogTitle className="sr-only">Connectors</DialogTitle>
             <div ref={attachConnectorHost} className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </DialogContent>

@@ -53,6 +53,7 @@ const SHEET_CONSUMERS = [
   "components/app-ui/settings-ui.tsx",
   "components/onboarding/AuthLegalDialog.tsx",
   "components/agent/puppy-resource-monitor.tsx",
+  "components/agent/agent-connections-drawer.tsx",
 ] as const;
 
 describe("the shared bottom sheet stays shared", () => {
@@ -72,7 +73,7 @@ describe("the shared bottom sheet stays shared", () => {
     const optOuts = SHEET_CONSUMERS.filter((consumer) =>
       /contentDragDismiss=\{false\}/.test(sourceOf(consumer)),
     );
-    // Both are the same shape: a fixed frame — a header, then a
+    // These are the same shape: a fixed frame — a header, then a
     // `flex-1 overflow-y-auto` body — whose own `scrollTop` is therefore
     // pinned at 0, so every downward drag inside it would engage the
     // dismissal and `preventDefault()` the scroll it was trying to make.
@@ -84,6 +85,7 @@ describe("the shared bottom sheet stays shared", () => {
     expect(optOuts).toEqual([
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
+      "components/agent/agent-connections-drawer.tsx",
     ]);
   });
 
