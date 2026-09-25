@@ -184,6 +184,14 @@ async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str 
     feature = {"drive": "google_drive_chat_reads", "gmail": "gmail_chat_reads"}.get(provider)
     if feature and not connector_feature_enabled(feature, owner):
         return None
+    # The Chat read flag is not permission to offer an OAuth flow that this
+    # environment has not admitted. Keep discovery in step with the Connect
+    # surface so One cannot promise a Drive sign-in that cannot start.
+    if provider == "drive" and not (
+        connector_feature_enabled("google_drive_connection", owner)
+        and connector_feature_enabled("google_drive_live", owner)
+    ):
+        return None
     token = resolve_request_secret(tool_context.state.get("hussh:consent_token"))
     return owner if await validate_first_party_owner_token(owner, token) else None
 
