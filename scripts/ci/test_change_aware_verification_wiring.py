@@ -98,16 +98,36 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
 
 def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
     path = "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs"
+    helper = "hushh-webapp/scripts/testing/analytics-collect-delivery.mjs"
+    # GA4 beacons end in requestfailed net::ERR_ABORTED after a 204 and never
+    # emit requestfinished, so both settle events classify by the GA4 response.
     require(
         path,
-        'page.on("requestfinished", async (request) => {',
-        'status: response?.ok() ? "finished" : "failed"',
-        'page.on("requestfailed", (request) => {',
+        'from "./analytics-collect-delivery.mjs"',
+        'page.on("requestfinished", (request) =>',
+        'page.on("requestfailed", (request) =>',
+        "const response = await request.response().catch(() => null);",
+        "status = classifyCollectSettlement({",
+        "undeliveredCollectEvents(",
+    )
+    require(
+        helper,
+        'BEACON_POST_RESPONSE_ABORT = "net::ERR_ABORTED"',
+        "responseStatus >= 200 && responseStatus < 300",
+        'if (!acknowledged) return "failed";',
         'entry.status === "finished"',
         'candidate.status === "failed"',
+        "candidate.requestId === entry.requestId",
     )
     content = (ROOT / path).read_text(encoding="utf-8")
     assert 'page.on("response",' not in content
+    assert "__HUSHH_ANALYTICS_COLLECT_EVENTS__" not in content
+    # The login redirect (/kai -> /one/kai) must land before the first in-app
+    # navigation, or it overwrites /one/kai?tab=portfolio and the gate flakes.
+    require(path, 'const loginRedirectLandingPath = "/one/kai";')
+    settle = content.index("await waitForLoginRedirectToSettle(page);")
+    assert content.index("await waitForReviewerVaultBootstrap(page);") < settle
+    assert settle < content.index('await navigateInApp(page, "/one/kai?tab=portfolio");')
     require(
         path,
         '"page_view"',
@@ -120,7 +140,6 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'payload.result === "success" && Boolean(payload.portfolio_source)',
         'portfolio_source: portfolioEvent.payload.portfolio_source',
         'requestId: getAnalyticsRequestId(request)',
-        'candidate.requestId === entry.requestId',
         'entry_surface: activationEvent.payload.entry_surface',
     )
     assert 'payload.journey === "investor" && payload.step === "entered"' not in content

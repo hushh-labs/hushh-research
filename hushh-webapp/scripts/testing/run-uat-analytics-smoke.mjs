@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 import {
+  classifyCollectSettlement,
+  undeliveredCollectEvents,
+} from "./analytics-collect-delivery.mjs";
+import {
   defaultReviewerIdentityEnvFiles,
   resolveReviewerTestIdentity,
   sanitizeConfiguredValue,
@@ -289,6 +293,19 @@ async function assertVaultStillUnlocked(page, routeLabel) {
   }
 }
 
+// `/login?redirect=/kai` resolves to the Finance dashboard via `/kai`. The
+// reviewer unlock can finish before that redirect lands; navigating first lets
+// the late redirect overwrite the URL, so wait for it to settle.
+const loginRedirectLandingPath = "/one/kai";
+
+async function waitForLoginRedirectToSettle(page) {
+  await page.waitForFunction(
+    (landingPath) => window.location.pathname === landingPath,
+    loginRedirectLandingPath,
+    { timeout: defaultTimeoutMs },
+  );
+}
+
 async function navigateInApp(page, href) {
   const dispatched = await page.evaluate((targetHref) => {
     window.dispatchEvent(
@@ -349,30 +366,39 @@ page.on("request", (request) => {
   }
 });
 
-page.on("requestfinished", async (request) => {
+async function recordCollectSettlement(request, settledBy) {
+  const collectEvents = parseAnalyticsCollectRequests(request).filter(
+    (collect) => collect.eventName,
+  );
+  if (collectEvents.length === 0) return;
   const response = await request.response().catch(() => null);
-  for (const collect of parseAnalyticsCollectRequests(request)) {
-    if (!collect.eventName) continue;
+  const httpStatus = response?.status() ?? 0;
+  const failureText =
+    settledBy === "requestfailed"
+      ? request.failure()?.errorText || "unknown"
+      : undefined;
+  const status = classifyCollectSettlement({
+    settledBy,
+    responseStatus: httpStatus,
+    failureText,
+  });
+  for (const collect of collectEvents) {
     analyticsCollectEvents.push({
       ...collect,
       requestId: getAnalyticsRequestId(request),
-      status: response?.ok() ? "finished" : "failed",
-      httpStatus: response?.status() ?? 0,
+      status,
+      httpStatus,
+      ...(failureText ? { failureText } : {}),
     });
   }
-});
+}
 
-page.on("requestfailed", (request) => {
-  for (const collect of parseAnalyticsCollectRequests(request)) {
-    if (!collect.eventName) continue;
-    analyticsCollectEvents.push({
-      ...collect,
-      requestId: getAnalyticsRequestId(request),
-      status: "failed",
-      failureText: request.failure()?.errorText || "unknown",
-    });
-  }
-});
+page.on("requestfinished", (request) =>
+  recordCollectSettlement(request, "requestfinished"),
+);
+page.on("requestfailed", (request) =>
+  recordCollectSettlement(request, "requestfailed"),
+);
 
 function parseAnalyticsCollectRequests(request) {
   const url = request.url();
@@ -435,80 +461,25 @@ function isAnalyticsCollectUrl(rawUrl) {
 }
 
 async function waitForAnalyticsCollectEvents(requiredEvents) {
-  await page.waitForFunction(
-    ({ expectedMeasurementId: measurementId, requiredEvents }) => {
-      const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-      return requiredEvents.every(({ eventName, params }) =>
-        observed.some(
-          (entry) =>
-            entry.measurementId === measurementId &&
-            entry.eventName === eventName &&
-            Object.entries(params).every(
-              ([key, value]) => entry[key] === value,
-            ) &&
-            entry.status === "finished" &&
-            !observed.some(
-              (candidate) =>
-                candidate.requestId === entry.requestId &&
-                candidate.status === "failed",
-            ),
-        ),
-      );
-    },
-    {
+  const deadline = Date.now() + defaultTimeoutMs;
+  let missing = requiredEvents;
+  while (Date.now() < deadline) {
+    missing = undeliveredCollectEvents(
+      analyticsCollectEvents,
       expectedMeasurementId,
       requiredEvents,
-    },
-    { timeout: defaultTimeoutMs },
+    );
+    if (missing.length === 0) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(
+    `GA collect delivery (2xx) not proven for: ${missing
+      .map(({ eventName }) => eventName)
+      .join(", ")}`,
   );
 }
 
 try {
-  await page.addInitScript(() => {
-    window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ = [];
-  });
-  const mirrorCollectEvent = async (entry) => {
-    await page
-      .evaluate((value) => {
-        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ =
-          window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__.push(value);
-      }, entry)
-      .catch(() => {});
-  };
-  page.on("request", (request) => {
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: "requested",
-      });
-    }
-  });
-  page.on("requestfinished", async (request) => {
-    const response = await request.response().catch(() => null);
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: response?.ok() ? "finished" : "failed",
-        httpStatus: response?.status() ?? 0,
-      });
-    }
-  });
-  page.on("requestfailed", (request) => {
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: "failed",
-      });
-    }
-  });
-
   await page.goto(`${appOrigin}/login?redirect=${encodeURIComponent("/kai")}`, {
     waitUntil: "domcontentloaded",
   });
@@ -519,6 +490,7 @@ try {
   });
   await clickIfVisible(reviewerButton);
   await waitForReviewerVaultBootstrap(page);
+  await waitForLoginRedirectToSettle(page);
 
   await navigateInApp(page, "/one/kai?tab=portfolio");
   const routeViewEvent = await waitForAnalyticsEvent(
