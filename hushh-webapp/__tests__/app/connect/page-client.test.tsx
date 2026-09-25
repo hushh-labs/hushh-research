@@ -343,6 +343,7 @@ describe("Location command connection prerequisite",()=>{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.searchDirectory.mockReset();
   mocks.user = {uid:"me",getIdToken:async()=>"id-token"};
   mocks.getPersonContext.mockReset();
   mocks.routerReplace.mockImplementation((href:string)=>{mocks.searchParams=new URLSearchParams(href.split("?")[1] || "");});
@@ -1202,8 +1203,8 @@ describe("Connect — People", () => {
       .mockResolvedValueOnce({ items: EVERYONE.slice(19, 40), hasMore: false });
     render(<ConnectPageClient />);
     await screen.findByText("Person 0");
-    act(() => {
-      enter();
+    await waitFor(() => {
+      act(() => expect(enter()).toBe(true));
     });
     const retry = await screen.findByRole("button", {
       name: "Retry loading people",
