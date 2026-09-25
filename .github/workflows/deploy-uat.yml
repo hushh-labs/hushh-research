@@ -950,11 +950,86 @@ jobs:
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve zero-traffic frontend analytics candidate
+        id: frontend-analytics-candidate
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="${{ steps.candidate-state.outputs.frontend_revision }}"
+          gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --set-tags="analytics-candidate=${revision}"
+          candidate_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json | python3 -c '
+          import json, sys
+          service = json.load(sys.stdin)
+          matches = [
+              item for item in ((service.get("status") or {}).get("traffic") or [])
+              if item.get("tag") == "analytics-candidate"
+          ]
+          if len(matches) != 1 or matches[0].get("revisionName") != sys.argv[1]:
+              raise SystemExit("Frontend analytics candidate tag did not resolve to the expected revision")
+          url = str(matches[0].get("url") or "").strip()
+          if not url.startswith("https://"):
+              raise SystemExit("Frontend analytics candidate URL is unavailable")
+          print(url)
+          ' "${revision}")"
+          echo "url=${candidate_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node runtime for UAT analytics verification
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install UAT analytics smoke dependencies
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        working-directory: hushh-webapp
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+
+      - name: Verify governed analytics transport on zero-traffic UAT candidate
+        id: verify-analytics-uat
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        shell: bash
+        working-directory: hushh-webapp
+        env:
+          UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}
+        run: |
+          set -euo pipefail
+          reviewer_uid="$(gcloud secrets versions access latest \
+            --secret=REVIEWER_UID \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          reviewer_passphrase="$(gcloud secrets versions access latest \
+            --secret=REVIEWER_VAULT_PASSPHRASE \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::$reviewer_uid"
+          echo "::add-mask::$reviewer_passphrase"
+          export REVIEWER_UID="$reviewer_uid"
+          export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
+          npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
+
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+            && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
+            echo "Analytics smoke failed; keeping all candidate revisions at zero traffic."
+            exit 0
+          fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
@@ -1015,12 +1090,17 @@ jobs:
           backend_revision, backend_url = serving_state(
               "/tmp/uat-backend-promoted-service.json",
               "${{ steps.candidate-state.outputs.backend_revision }}",
-              "${{ steps.scope.outputs.deploy_backend }}" == "true",
+              "${{ steps.scope.outputs.deploy_backend }}" == "true"
+              and (
+                  "${{ steps.scope.outputs.deploy_frontend }}" != "true"
+                  or "${{ steps.verify-analytics-uat.outcome }}" == "success"
+              ),
           )
           frontend_revision, frontend_url = serving_state(
               "/tmp/uat-frontend-promoted-service.json",
               "${{ steps.candidate-state.outputs.frontend_revision }}",
-              "${{ steps.scope.outputs.deploy_frontend }}" == "true",
+              "${{ steps.scope.outputs.deploy_frontend }}" == "true"
+              and "${{ steps.verify-analytics-uat.outcome }}" == "success",
           )
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"backend_revision={backend_revision}\n")
@@ -1293,6 +1373,7 @@ jobs:
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
           PKM_EVALUATOR_OUTCOME: ${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}
           VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
@@ -1358,6 +1439,11 @@ jobs:
           passkey_associations_success = (
               not passkey_associations_required
               or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
+          )
+          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true" and browser_authority_ready
+          analytics_smoke_success = (
+              not analytics_smoke_required
+              or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
           )
 
           blocking: list[str] = []
@@ -1451,6 +1537,10 @@ jobs:
               append_unique(blocking, ["passkey_domain_association_failed"])
               frontend_failure = True
 
+          if not analytics_smoke_success:
+              append_unique(blocking, ["analytics_transport_failed"])
+              frontend_failure = True
+
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
 
@@ -1511,6 +1601,11 @@ jobs:
                   "required": passkey_associations_required,
                   "outcome": os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME", ""),
                   "success": passkey_associations_success,
+              },
+              "analytics_smoke": {
+                  "required": analytics_smoke_required,
+                  "outcome": os.environ.get("ANALYTICS_SMOKE_OUTCOME", ""),
+                  "success": analytics_smoke_success,
               },
               "candidate_pkm_evaluator": {
                   "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,

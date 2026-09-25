@@ -22,13 +22,16 @@ const appOrigin = (
   "https://uat.one.hushh.ai"
 ).replace(/\/$/, "");
 const expectedMeasurementId =
-  sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_EXPECTED_MEASUREMENT_ID) ||
-  "G-H1KGXGZTCF";
+  sanitizeConfiguredValue(
+    process.env.UAT_ANALYTICS_SMOKE_EXPECTED_MEASUREMENT_ID,
+  ) || "G-H1KGXGZTCF";
 const forbiddenMeasurementIds = new Set(
-  String(process.env.UAT_ANALYTICS_SMOKE_FORBIDDEN_MEASUREMENT_IDS || "G-2PCECPSKCR")
+  String(
+    process.env.UAT_ANALYTICS_SMOKE_FORBIDDEN_MEASUREMENT_IDS || "G-2PCECPSKCR",
+  )
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean)
+    .filter(Boolean),
 );
 const fixturePolicy =
   "reuse the existing reviewer test fixture; if seeded portfolio or recommendation state is stale, repair that fixture instead of creating another user or environment";
@@ -42,10 +45,13 @@ try {
 }
 const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const smokeUserId = reviewerIdentity.reviewerUid;
-const smokeTicker = sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_TICKER) || "AAPL";
-const defaultTimeoutMs = Number(process.env.UAT_ANALYTICS_SMOKE_TIMEOUT_MS || 120_000);
+const smokeTicker =
+  sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_TICKER) || "AAPL";
+const defaultTimeoutMs = Number(
+  process.env.UAT_ANALYTICS_SMOKE_TIMEOUT_MS || 120_000,
+);
 const analysisTimeoutMs = Number(
-  process.env.UAT_ANALYTICS_SMOKE_ANALYSIS_TIMEOUT_MS || 420_000
+  process.env.UAT_ANALYTICS_SMOKE_ANALYSIS_TIMEOUT_MS || 420_000,
 );
 
 function fail(message) {
@@ -61,8 +67,8 @@ function fail(message) {
         fixturePolicy,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
   process.exit(1);
 }
@@ -94,12 +100,18 @@ function validateRequiredParams(eventName, payload) {
   if (eventName === "growth_funnel_step_completed") {
     required.push("step");
   }
-  const missing = required.filter((key) => payload[key] === undefined || payload[key] === "");
+  const missing = required.filter(
+    (key) => payload[key] === undefined || payload[key] === "",
+  );
   if (missing.length > 0) {
-    throw new Error(`${eventName} missing required param(s): ${missing.join(", ")}`);
+    throw new Error(
+      `${eventName} missing required param(s): ${missing.join(", ")}`,
+    );
   }
   if (payload.platform !== "web") {
-    throw new Error(`${eventName} platform is ${payload.platform}, expected web`);
+    throw new Error(
+      `${eventName} platform is ${payload.platform}, expected web`,
+    );
   }
   if (payload.env !== "uat") {
     throw new Error(`${eventName} env is ${payload.env}, expected uat`);
@@ -121,7 +133,7 @@ async function installAnalyticsCapture(page) {
     {
       expectedUserId: smokeUserId,
       vaultPassphrase: reviewerPassphrase,
-    }
+    },
   );
 }
 
@@ -146,7 +158,8 @@ async function getSmokeState(page) {
         continue;
       }
       if (args[0] === "event" && typeof args[1] === "string") {
-        const payload = args[2] && typeof args[2] === "object" ? { ...args[2] } : {};
+        const payload =
+          args[2] && typeof args[2] === "object" ? { ...args[2] } : {};
         events.push({
           event: args[1],
           source: "dataLayer_gtag_args",
@@ -186,16 +199,23 @@ async function waitForMeasurementId(page) {
       return captured.has(expected);
     },
     expectedMeasurementId,
-    { timeout: defaultTimeoutMs }
+    { timeout: defaultTimeoutMs },
   );
 }
 
-async function waitForAnalyticsEvent(page, eventName, predicate = () => true, timeout = defaultTimeoutMs) {
+async function waitForAnalyticsEvent(
+  page,
+  eventName,
+  predicate = () => true,
+  timeout = defaultTimeoutMs,
+) {
   const deadline = Date.now() + timeout;
   let lastSeenCount = 0;
   while (Date.now() < deadline) {
     const state = await getSmokeState(page);
-    const candidates = state.events.filter((entry) => entry.event === eventName);
+    const candidates = state.events.filter(
+      (entry) => entry.event === eventName,
+    );
     lastSeenCount = candidates.length;
     const match = candidates.find((entry) => predicate(entry.payload));
     if (match) {
@@ -207,7 +227,7 @@ async function waitForAnalyticsEvent(page, eventName, predicate = () => true, ti
   throw new Error(
     lastSeenCount > 0
       ? `${eventName} appeared, but not with the expected payload`
-      : `${eventName} did not appear within ${timeout} ms`
+      : `${eventName} did not appear within ${timeout} ms`,
   );
 }
 
@@ -223,7 +243,9 @@ async function clickRequired(locator, label) {
   try {
     await locator.waitFor({ state: "visible", timeout: defaultTimeoutMs });
   } catch (error) {
-    throw new Error(`${label} did not become visible within ${defaultTimeoutMs} ms`);
+    throw new Error(
+      `${label} did not become visible within ${defaultTimeoutMs} ms`,
+    );
   }
   await locator.click();
   return true;
@@ -239,18 +261,27 @@ async function waitForReviewerVaultBootstrap(page) {
       );
     },
     smokeUserId,
-    { timeout: defaultTimeoutMs }
+    { timeout: defaultTimeoutMs },
   );
 }
 
 async function assertVaultStillUnlocked(page, routeLabel) {
-  const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
+  const unlockVisible = await page
+    .locator("#unlock-passphrase")
+    .isVisible()
+    .catch(() => false);
   if (unlockVisible) {
-    throw new Error(`${routeLabel} relocked the vault after same-session navigation`);
+    throw new Error(
+      `${routeLabel} relocked the vault after same-session navigation`,
+    );
   }
-  const bootstrapState = await page.evaluate(() => window.__HUSHH_NATIVE_TEST__?.bootstrapState || "");
+  const bootstrapState = await page.evaluate(
+    () => window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
+  );
   if (bootstrapState && bootstrapState !== "vault_unlocked") {
-    throw new Error(`${routeLabel} reviewer vault bootstrap state is ${bootstrapState}`);
+    throw new Error(
+      `${routeLabel} reviewer vault bootstrap state is ${bootstrapState}`,
+    );
   }
 }
 
@@ -259,7 +290,7 @@ async function navigateInApp(page, href) {
     window.dispatchEvent(
       new CustomEvent("app-internal-navigation-requested", {
         detail: { href: targetHref, scroll: false },
-      })
+      }),
     );
     return true;
   }, href);
@@ -267,9 +298,10 @@ async function navigateInApp(page, href) {
     throw new Error(`failed to dispatch Next client navigation for ${href}`);
   }
   await page.waitForFunction(
-    (targetHref) => `${window.location.pathname}${window.location.search}` === targetHref,
+    (targetHref) =>
+      `${window.location.pathname}${window.location.search}` === targetHref,
     href,
-    { timeout: defaultTimeoutMs }
+    { timeout: defaultTimeoutMs },
   );
   await assertVaultStillUnlocked(page, href);
 }
@@ -296,10 +328,14 @@ page.on("request", (request) => {
   }
 });
 
-page.on("requestfinished", (request) => {
-  for (const collect of parseAnalyticsCollectRequests(request)) {
+page.on("response", (response) => {
+  for (const collect of parseAnalyticsCollectRequests(response.request())) {
     if (!collect.eventName) continue;
-    analyticsCollectEvents.push({ ...collect, status: "finished" });
+    analyticsCollectEvents.push({
+      ...collect,
+      status: response.ok() ? "finished" : "failed",
+      httpStatus: response.status(),
+    });
   }
 });
 
@@ -339,7 +375,9 @@ function parseAnalyticsCollectRequests(request) {
         bodyEvents.push({ measurementId, eventName: bodyEventName });
       }
     }
-    return bodyEvents.length > 0 ? bodyEvents : [{ measurementId, eventName: "" }];
+    return bodyEvents.length > 0
+      ? bodyEvents
+      : [{ measurementId, eventName: "" }];
   } catch {
     return [];
   }
@@ -350,7 +388,8 @@ function isAnalyticsCollectUrl(rawUrl) {
     const parsed = new URL(rawUrl);
     const host = parsed.hostname.toLowerCase();
     return (
-      (host.endsWith("google-analytics.com") || host.endsWith("analytics.google.com")) &&
+      (host.endsWith("google-analytics.com") ||
+        host.endsWith("analytics.google.com")) &&
       parsed.pathname.includes("collect")
     );
   } catch {
@@ -363,20 +402,27 @@ async function waitForAnalyticsCollectEvents(eventNames) {
   await page.waitForFunction(
     ({ expectedMeasurementId: measurementId, requiredEvents }) => {
       const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-      return requiredEvents.every((eventName) =>
-        observed.some(
-          (entry) =>
-            entry.measurementId === measurementId &&
-            entry.eventName === eventName &&
-            (entry.status === "requested" || entry.status === "finished")
-        )
+      return requiredEvents.every(
+        (eventName) =>
+          observed.some(
+            (entry) =>
+              entry.measurementId === measurementId &&
+              entry.eventName === eventName &&
+              entry.status === "finished",
+          ) &&
+          !observed.some(
+            (entry) =>
+              entry.measurementId === measurementId &&
+              entry.eventName === eventName &&
+              entry.status === "failed",
+          ),
       );
     },
     {
       expectedMeasurementId,
       requiredEvents: [...required],
     },
-    { timeout: defaultTimeoutMs }
+    { timeout: defaultTimeoutMs },
   );
 }
 
@@ -385,11 +431,13 @@ try {
     window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ = [];
   });
   const mirrorCollectEvent = async (entry) => {
-    await page.evaluate((value) => {
-      window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ =
-        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-      window.__HUSHH_ANALYTICS_COLLECT_EVENTS__.push(value);
-    }, entry).catch(() => {});
+    await page
+      .evaluate((value) => {
+        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ =
+          window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
+        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__.push(value);
+      }, entry)
+      .catch(() => {});
   };
   page.on("request", (request) => {
     for (const collect of parseAnalyticsCollectRequests(request)) {
@@ -397,10 +445,20 @@ try {
       void mirrorCollectEvent({ ...collect, status: "requested" });
     }
   });
-  page.on("requestfinished", (request) => {
+  page.on("response", (response) => {
+    for (const collect of parseAnalyticsCollectRequests(response.request())) {
+      if (!collect.eventName) continue;
+      void mirrorCollectEvent({
+        ...collect,
+        status: response.ok() ? "finished" : "failed",
+        httpStatus: response.status(),
+      });
+    }
+  });
+  page.on("requestfailed", (request) => {
     for (const collect of parseAnalyticsCollectRequests(request)) {
       if (!collect.eventName) continue;
-      void mirrorCollectEvent({ ...collect, status: "finished" });
+      void mirrorCollectEvent({ ...collect, status: "failed" });
     }
   });
 
@@ -409,43 +467,47 @@ try {
   });
   await waitForMeasurementId(page);
 
-  const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
+  const reviewerButton = page.getByRole("button", {
+    name: /continue as reviewer/i,
+  });
   await clickIfVisible(reviewerButton);
   await waitForReviewerVaultBootstrap(page);
 
   const growthEvent = await waitForAnalyticsEvent(
     page,
     "growth_funnel_step_completed",
-    (payload) => payload.journey === "investor" && payload.step === "entered"
+    (payload) => payload.journey === "investor" && payload.step === "entered",
   );
 
   await navigateInApp(page, "/kai/portfolio");
   const portfolioEvent = await waitForAnalyticsEvent(
     page,
     "portfolio_viewed",
-    (payload) => payload.result === "success"
+    (payload) => payload.result === "success",
   );
 
   await navigateInApp(
     page,
-    `/kai/analysis?ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`
+    `/kai/analysis?ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
   );
-  const startButton = page.getByRole("button", {
-    name: /start debate|start analysis|run debate|run analysis|begin debate|begin analysis/i,
-  }).first();
+  const startButton = page
+    .getByRole("button", {
+      name: /start debate|start analysis|run debate|run analysis|begin debate|begin analysis/i,
+    })
+    .first();
   await clickRequired(startButton, "analysis start command");
 
   const recommendationEvent = await waitForAnalyticsEvent(
     page,
     "recommendation_viewed",
     (payload) => payload.result === "success",
-    analysisTimeoutMs
+    analysisTimeoutMs,
   );
   const activationEvent = await waitForAnalyticsEvent(
     page,
     "investor_activation_completed",
     (payload) => payload.journey === "investor",
-    defaultTimeoutMs
+    defaultTimeoutMs,
   );
   await waitForAnalyticsCollectEvents([
     "growth_funnel_step_completed",
@@ -463,9 +525,13 @@ try {
   if (!measurementIds.has(expectedMeasurementId)) {
     throw new Error(`measurement ID ${expectedMeasurementId} was not observed`);
   }
-  const leaked = [...measurementIds].filter((id) => forbiddenMeasurementIds.has(id));
+  const leaked = [...measurementIds].filter((id) =>
+    forbiddenMeasurementIds.has(id),
+  );
   if (leaked.length > 0) {
-    throw new Error(`forbidden production measurement ID(s) observed: ${leaked.join(", ")}`);
+    throw new Error(
+      `forbidden production measurement ID(s) observed: ${leaked.join(", ")}`,
+    );
   }
 
   console.log(
@@ -482,13 +548,16 @@ try {
                 (entry) =>
                   entry.measurementId === expectedMeasurementId &&
                   entry.eventName &&
-                  entry.status !== "failed"
+                  entry.status !== "failed",
               )
-              .map((entry) => entry.eventName)
+              .map((entry) => entry.eventName),
           ),
         ].sort(),
         observedGaCollectStatuses: analyticsCollectEvents
-          .filter((entry) => entry.measurementId === expectedMeasurementId && entry.eventName)
+          .filter(
+            (entry) =>
+              entry.measurementId === expectedMeasurementId && entry.eventName,
+          )
           .map((entry) => ({
             eventName: entry.eventName,
             status: entry.status,
@@ -502,11 +571,14 @@ try {
         },
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 } catch (error) {
-  const state = await getSmokeState(page).catch(() => ({ events: [], measurementIds: [] }));
+  const state = await getSmokeState(page).catch(() => ({
+    events: [],
+    measurementIds: [],
+  }));
   const reason = error instanceof Error ? error.message : String(error);
   console.error(
     JSON.stringify(
@@ -517,7 +589,9 @@ try {
         reason,
         classification: classifySmokeFailure(reason),
         fixturePolicy,
-        observedEventNames: [...new Set((state.events || []).map((entry) => entry.event))],
+        observedEventNames: [
+          ...new Set((state.events || []).map((entry) => entry.event)),
+        ],
         observedMeasurementIds: [
           ...new Set([
             ...(state.measurementIds || []),
@@ -529,13 +603,13 @@ try {
           ...new Set(
             analyticsCollectEvents
               .filter((entry) => entry.measurementId === expectedMeasurementId)
-              .map((entry) => `${entry.eventName}:${entry.status}`)
+              .map((entry) => `${entry.eventName}:${entry.status}`),
           ),
         ].sort(),
       },
       null,
-      2
-    )
+      2,
+    ),
   );
   process.exitCode = 1;
 } finally {

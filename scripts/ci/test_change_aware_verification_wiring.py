@@ -57,6 +57,31 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     )
 
 
+def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
+    require(
+        ".github/workflows/deploy-uat.yml",
+        "id: frontend-analytics-candidate",
+        "id: verify-analytics-uat",
+        "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
+        "npm run smoke:analytics:uat",
+        "Analytics smoke failed; keeping all candidate revisions at zero traffic.",
+        "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
+        'append_unique(blocking, ["analytics_transport_failed"])',
+        '"analytics_smoke": {',
+    )
+
+
+def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
+    require(
+        "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs",
+        'page.on("response", (response) => {',
+        'status: response.ok() ? "finished" : "failed"',
+        'page.on("requestfailed", (request) => {',
+        'entry.status === "finished"',
+        'entry.status === "failed"',
+    )
+
+
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
     """Keep the CapabilityGraph compiler out of ambient runner Python."""
 
@@ -87,6 +112,8 @@ def main() -> int:
         test_ci_and_queue_pass_selector_decision_to_integration,
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
+        test_uat_frontend_release_blocks_on_real_analytics_smoke,
+        test_uat_analytics_smoke_requires_successful_collect_responses,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
         test_web_targeted_layout_check_tracks_people_fixture_inputs,
     )

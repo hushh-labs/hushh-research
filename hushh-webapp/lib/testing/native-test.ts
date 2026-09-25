@@ -9,8 +9,9 @@ declare global {
       autoReviewerLogin?: boolean;
       /**
        * Narrow exception for the governed UAT analytics smoke. It allows the
-       * real app event path to reach UAT GA4 only on uat.one.hushh.ai; all
-       * normal reviewer automation and every production host stay blocked.
+       * real app event path to reach UAT GA4 only on the canonical UAT host or
+       * its governed zero-traffic Cloud Run candidate; all normal reviewer
+       * automation and every production host stay blocked.
        */
       allowUatAnalyticsSmokeTelemetry?: boolean;
       reviewerAuthMode?: "local_credentials" | "custom_token";
@@ -199,9 +200,12 @@ export function shouldDisableExternalTelemetryForAutomation(
   hostname: string = typeof window !== "undefined" ? window.location.hostname : "",
 ): boolean {
   if (!isAutomatedReviewerSession(config)) return false;
+  const governedUatAnalyticsHost =
+    hostname === "uat.one.hushh.ai" ||
+    /^analytics-candidate---hushh-webapp-[a-z0-9]+-uc\.a\.run\.app$/.test(hostname);
   const allowGovernedUatSmoke =
     typeof window !== "undefined" &&
-    hostname === "uat.one.hushh.ai" &&
+    governedUatAnalyticsHost &&
     window.__HUSHH_NATIVE_TEST__?.allowUatAnalyticsSmokeTelemetry === true;
   return !allowGovernedUatSmoke;
 }
