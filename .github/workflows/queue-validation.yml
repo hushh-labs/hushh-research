@@ -46,7 +46,7 @@ jobs:
           fi
           git fetch origin "$BASE_REF" --quiet || true
           if git rev-parse "origin/$BASE_REF" >/dev/null 2>&1; then
-            LOG_OPTS="--ancestry-path origin/$BASE_REF..${{ github.sha }}"
+            LOG_OPTS="origin/$BASE_REF..${{ github.sha }}"
           else
             LOG_OPTS="${{ github.sha }}"
           fi
@@ -57,7 +57,7 @@ jobs:
             && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
             && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
             && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
-            LOG_OPTS="--ancestry-path ${BASE_SHA}..${HEAD_SHA}"
+            LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
           fi
 
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"

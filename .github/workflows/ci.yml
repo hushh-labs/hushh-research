@@ -56,17 +56,17 @@ jobs:
             git fetch origin "$DEFAULT_BRANCH" --quiet || true
             if git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
               SCAN_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" "${{ github.sha }}")" || return 1
-              echo "--ancestry-path ${SCAN_BASE}..${{ github.sha }}"
+              echo "${SCAN_BASE}..${{ github.sha }}"
             else
               echo "${{ github.sha }}"
             fi
           }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            LOG_OPTS="--ancestry-path ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+            LOG_OPTS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
           elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
             if git rev-parse "${{ github.event.before }}" >/dev/null 2>&1 && git merge-base --is-ancestor "${{ github.event.before }}" "${{ github.sha }}"; then
-              LOG_OPTS="--ancestry-path ${{ github.event.before }}..${{ github.sha }}"
+              LOG_OPTS="${{ github.event.before }}..${{ github.sha }}"
             else
               LOG_OPTS="$(resolve_from_default_branch)"
             fi
@@ -77,7 +77,7 @@ jobs:
               && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
               && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
               && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
-              LOG_OPTS="--ancestry-path ${BASE_SHA}..${HEAD_SHA}"
+              LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
             else
               LOG_OPTS="$(resolve_from_default_branch)"
             fi
