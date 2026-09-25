@@ -115,6 +115,11 @@ try {
     { expectedPrompt: prompt, forbidden: forbiddenText, baselineCount: baselineAssistantTurns },
     { timeout: timeoutMs },
   );
+  const finalStatus = await page.locator('[data-message-role="assistant"]').last()
+    .getAttribute("data-message-status");
+  if (finalStatus !== "done") {
+    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"}`);
+  }
 
   const result = await page.evaluate((forbidden) => {
     const body = document.body.innerText;
@@ -165,6 +170,17 @@ try {
     await page.getByRole("dialog", { name: "Connectors" }).waitFor({
       state: "visible", timeout: timeoutMs,
     });
+    if (scenario === "private_connector_setup") {
+      const custom = page.getByRole("region", { name: "Custom connectors" });
+      await custom.waitFor({ state: "visible", timeout: 15_000 });
+      const add = custom.getByRole("button", { name: "Add connector" });
+      await add.waitFor({ state: "visible", timeout: 15_000 });
+      if (!await add.isEnabled()) throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
+      await add.click();
+      await custom.getByRole("textbox", { name: "Server address" }).waitFor({
+        state: "visible", timeout: 15_000,
+      });
+    }
   }
   const createdIds = [...await conversationIds(ownerToken)]
     .filter((id) => !baselineConversationIds.has(id));
