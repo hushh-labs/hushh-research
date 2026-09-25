@@ -136,9 +136,10 @@ class RegisteredMcpToolset(BaseToolset):
                             )
                             labeled_tools.append(labeled_tool)
                         return labeled_tools
-                    except ExternalMcpError:
+                    except Exception:
                         # A disconnected/revoked provider must not disable other
-                        # connectors. Settings remains the owning status surface.
+                        # connectors. Provider diagnostics may include private
+                        # details; Settings remains the owning status surface.
                         return []
 
             async with asyncio.TaskGroup() as group:

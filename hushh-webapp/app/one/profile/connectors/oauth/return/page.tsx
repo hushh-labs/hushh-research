@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 
 import { ROUTES } from "@/lib/navigation/routes";
@@ -228,7 +229,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
           code: details.code, state: details.state, issuer: details.issuer }, signal: controller.signal, isEffectCurrent: current });
       const saved = await saveCustomConnectorOAuthResult({ userId: user.uid, vaultKey, vaultOwnerToken },
         connector.connectorId, connector.revision, result,
-        { confirmedByUser: true, surface: "web", source: "connector_oauth_return" }, current);
+        { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_oauth_return" }, current);
       savedSuccessfully = true;
       onPhase("saved");
       try {

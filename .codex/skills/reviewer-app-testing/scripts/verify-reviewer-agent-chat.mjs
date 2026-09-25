@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
 import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
+import { installConsentStreamProbe } from "./consent-rehearsal-stream-probe.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -44,6 +45,11 @@ const browser = await reviewer.chromium.launch({
 let session;
 let ownerToken = "";
 let baselineConversationIds = new Set();
+const startedAt = performance.now();
+let bootstrapAt = startedAt;
+let sentAt = startedAt;
+let settledAt = startedAt;
+let phase = "bootstrap";
 
 async function conversationIds(token) {
   const response = await fetch(
@@ -73,6 +79,8 @@ async function driveAdmission(token) {
 
 try {
   session = await reviewer.openSession(browser, "/");
+  bootstrapAt = performance.now();
+  phase = "conversation";
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
   if (scenario === "drive_connector_setup") {
@@ -95,9 +103,12 @@ try {
   );
   baselineConversationIds = await conversationIds(ownerToken);
   await page.getByTestId("agent-chat-composer-textarea").waitFor({ state: "visible" });
+  await page.evaluate(installConsentStreamProbe);
   const baselineAssistantTurns = await page.locator('[data-message-role="assistant"]').count();
   await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
   await page.getByRole("button", { name: "Send message" }).click();
+  sentAt = performance.now();
+  phase = "turn";
 
   await page.getByTestId("agent-chat-self-avatar").last().waitFor({ state: "visible" });
   await page.waitForFunction(
@@ -118,8 +129,14 @@ try {
   const finalStatus = await page.locator('[data-message-role="assistant"]').last()
     .getAttribute("data-message-status");
   if (finalStatus !== "done") {
-    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"}`);
+    const failure = await page.evaluate(() => {
+      const stream = window.__consentRehearsalStreams?.at(-1);
+      return stream?.runError ? stream.runErrorClass || "untyped" : "no_run_error";
+    });
+    throw new Error(`AGENT_CHAT_TURN_NOT_DONE status=${finalStatus ?? "missing"} error_class=${failure}`);
   }
+  settledAt = performance.now();
+  phase = "post_turn_ui";
 
   const result = await page.evaluate((forbidden) => {
     const body = document.body.innerText;
@@ -175,8 +192,13 @@ try {
       await custom.waitFor({ state: "visible", timeout: 15_000 });
       const add = custom.getByRole("button", { name: "Add connector" });
       await add.waitFor({ state: "visible", timeout: 15_000 });
-      if (!await add.isEnabled()) throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
-      await add.click();
+      try {
+        // The vault-backed catalog can render its button before it finishes
+        // loading. Playwright waits for the actual enabled/hit-test state.
+        await add.click({ timeout: 20_000 });
+      } catch {
+        throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
+      }
       await custom.getByRole("textbox", { name: "Server address" }).waitFor({
         state: "visible", timeout: 15_000,
       });
@@ -188,9 +210,15 @@ try {
     throw new Error("Agent Chat did not create exactly one fresh conversation.");
   }
   session.capture.assertNoCriticalApiFailures("agent chat prompt round-trip");
+  phase = "complete";
   process.stdout.write(
-    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1\n`,
+    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1 bootstrap_ms=${Math.round(bootstrapAt - startedAt)} turn_ms=${Math.round(settledAt - sentAt)} post_turn_ms=${Math.round(performance.now() - settledAt)} total_ms=${Math.round(performance.now() - startedAt)}\n`,
   );
+} catch (error) {
+  process.stderr.write(
+    `[reviewer-app-testing] FAIL phase=${phase} elapsed_ms=${Math.round(performance.now() - startedAt)}\n`,
+  );
+  throw error;
 } finally {
   await session?.context.close().catch(() => undefined);
   await browser.close().catch(() => undefined);

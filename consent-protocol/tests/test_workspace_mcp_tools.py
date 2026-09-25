@@ -273,8 +273,35 @@ async def test_drive_discovery_does_not_offer_unavailable_sign_in(
         lambda feature, _owner: feature != disabled_feature,
     )
     result = await tools.discover_workspace_tools("drive", context())
-    assert result["status"] == "blocked"
+    assert result == {"status": "unavailable", "message": "Drive reading is not available yet."}
     assert result.get("provider") is None
+    admission.discover_for_owner.assert_not_awaited()
+    tools.validate_first_party_owner_token.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_disabled_drive_read_does_not_call_provider(admission, monkeypatch):
+    monkeypatch.setattr(
+        tools,
+        "connector_feature_enabled",
+        lambda feature, _owner: feature != "google_drive_live",
+    )
+    result = await tools.read_workspace_tool("drive", "search_files", {}, context())
+    assert result == {"status": "unavailable", "message": "Drive reading is not available yet."}
+    admission.read_tool.assert_not_awaited()
+    tools.validate_first_party_owner_token.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_disabled_drive_discovery_does_not_disclose_rollout_to_wrong_owner(
+    admission, monkeypatch
+):
+    monkeypatch.setattr(tools, "connector_feature_enabled", lambda *_: False)
+    request = context()
+    request.user_id = "other-owner"
+    result = await tools.discover_workspace_tools("drive", request)
+    assert result["status"] == "blocked"
+    assert "Drive reading" not in str(result)
     admission.discover_for_owner.assert_not_awaited()
 
 

@@ -7,6 +7,7 @@ from ag_ui.core import (
     BaseEvent,
     EventType,
     MessagesSnapshotEvent,
+    RunErrorEvent,
     RunFinishedEvent,
     StateDeltaEvent,
     StateSnapshotEvent,
@@ -129,6 +130,22 @@ def test_raw_provider_event_is_not_a_secondary_reasoning_channel():
     )
     assert public_event(event).raw_event is None
     assert event.raw_event == {"thought": "private"}
+
+
+@pytest.mark.parametrize("head", [HEAD_ONE, HEAD_INTRO])
+async def test_bridge_error_message_and_code_never_reach_chat_wire(monkeypatch, head):
+    secret = "private connector result and credential"
+    original = RunErrorEvent(
+        message=secret,
+        code=secret,
+        raw_event={"exception": secret},
+    )
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run([(0, original)]))
+    projected = [event async for event in _agent(head).run(_input())]
+    assert len(projected) == 1
+    assert projected[0].code == "AGENT_ERROR"
+    assert secret not in projected[0].model_dump_json()
+    assert original.message == secret
 
 
 def test_one_builders_keep_reasoning_internal():

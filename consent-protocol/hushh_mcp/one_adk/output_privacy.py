@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ag_ui.core import BaseEvent, MessagesSnapshotEvent, StateDeltaEvent, StateSnapshotEvent
+from ag_ui.core import (
+    BaseEvent,
+    MessagesSnapshotEvent,
+    RunErrorEvent,
+    StateDeltaEvent,
+    StateSnapshotEvent,
+)
 
 _PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
 
@@ -27,6 +33,16 @@ def public_event(event: BaseEvent) -> BaseEvent | None:
     event_type = getattr(event.type, "value", event.type)
     if str(event_type).startswith("REASONING_"):
         return None
+    if isinstance(event, RunErrorEvent):
+        # The installed bridge builds this event from str(exception). Neither
+        # its message nor its code is safe to forward to browser diagnostics.
+        return event.model_copy(
+            update={
+                "message": "One couldn't finish that request. Please try again.",
+                "code": "AGENT_ERROR",
+                "raw_event": None,
+            }
+        )
     if isinstance(event, StateSnapshotEvent):
         return event.model_copy(
             update={"snapshot": _public_state(event.snapshot), "raw_event": None}

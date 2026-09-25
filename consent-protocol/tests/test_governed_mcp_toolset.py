@@ -565,6 +565,51 @@ async def test_older_overlapping_discovery_cannot_replace_fresh_catalog(harness)
     assert h.toolset._catalog_digest == fresh_digest
 
 
+async def test_identical_overlapping_discoveries_keep_both_callers(harness):
+    h = harness
+    started, release = asyncio.Event(), asyncio.Event()
+    catalog = h.session.list_tools.return_value
+    calls = 0
+
+    async def discover():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            await release.wait()
+        return catalog
+
+    h.session.list_tools.side_effect = discover
+    first = asyncio.create_task(h.toolset.get_tools(h.context))
+    await started.wait()
+    try:
+        second = await h.toolset.get_tools(h.context)
+    finally:
+        release.set()
+    original = await first
+    assert [tool.name for tool in original] == [tool.name for tool in second]
+    assert original[0].epoch == second[0].epoch == h.toolset.catalog_epoch
+
+
+async def test_parallel_reviewed_calls_do_not_invalidate_same_catalog(harness):
+    h = harness
+    h.approve.return_value = None
+    tool = (await h.toolset.get_tools(h.context))[0]
+    catalog = h.session.list_tools.return_value
+
+    async def discover():
+        await asyncio.sleep(0)
+        return catalog
+
+    h.session.list_tools.side_effect = discover
+    results = await asyncio.gather(
+        tool.run_async(args={"q": "first"}, tool_context=h.context),
+        tool.run_async(args={"q": "second"}, tool_context=h.context),
+    )
+    assert all(result["status"] == "ok" for result in results)
+    assert h.native.await_count == 2
+
+
 async def test_provider_error_payload_is_not_published(harness):
     h = harness
     h.approve.return_value = None

@@ -317,9 +317,14 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None
-        if epoch != self.catalog_epoch or sequence != self._discovery_sequence:
-            raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
         revision = _digest({"admitted": catalog, "provider": discovered})
+        if epoch != self.catalog_epoch or (
+            sequence != self._discovery_sequence and revision != self._catalog_digest
+        ):
+            # An older discovery may finish after a newer one. It is still
+            # usable when both observed the exact same provider and admitted
+            # catalog; only a changed revision or explicit refresh is stale.
+            raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
         if self._catalog_digest is not None and self._catalog_digest != revision:
             self.refresh()
         self._catalog_digest = revision

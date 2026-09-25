@@ -149,7 +149,7 @@ export function assertConfirmationReview(summary, currentStructuredText, expecte
 export function assertStreamProof(proof, expectedParkedAction = null) {
   requireEvidence(proof?.httpOk === true, "CHAT_HTTP_FAILURE");
   requireEvidence(proof.settled === true, "STREAM_NOT_SETTLED");
-  requireEvidence(!proof.runError, "STREAM_RUN_ERROR");
+  requireEvidence(!proof.runError, `STREAM_RUN_ERROR_${proof.runErrorClass || "untyped"}`);
   requireEvidence(!proof.malformed, "STREAM_MALFORMED_EVENT");
   const parked = expectedParkedAction && proof.aborted && proof.parkedActions.includes(expectedParkedAction);
   requireEvidence(proof.finished || parked, "STREAM_NOT_FINISHED");

@@ -36,9 +36,17 @@ probe_vertex_prediction_access() {
 from __future__ import annotations
 
 import os
+import ssl
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+try:
+    import certifi
+except ImportError:
+    tls_context = ssl.create_default_context()
+else:
+    tls_context = ssl.create_default_context(cafile=certifi.where())
 
 project, location, model = sys.argv[1:]
 url = (
@@ -58,11 +66,12 @@ request = Request(
     },
 )
 try:
-    status = urlopen(request, timeout=8).status
+    status = urlopen(request, timeout=8, context=tls_context).status
 except HTTPError as exc:
     status = exc.code
-except (URLError, OSError):
-    print("network_error")
+except (URLError, OSError) as exc:
+    reason = getattr(exc, "reason", exc)
+    print("tls_ca_unavailable" if isinstance(reason, ssl.SSLCertVerificationError) else "network_error")
     raise SystemExit(0)
 
 if status in {200, 400, 422}:
@@ -233,8 +242,8 @@ check_local_backend_interpreter() {
   # macOS resolves virtualenv symlinks to the framework Python binary in
   # `ps`, so command-path inspection falsely rejects a correctly launched
   # uvicorn worker. Ask the live process for the dependency-only health proof
-  # instead: an old system interpreter reports ADK 1.x (or lacks this field),
-  # while the pinned process reports the 2.4 contract without a model call.
+  # instead: an incompatible interpreter reports false (or lacks this field),
+  # while the pinned process reports compatibility without a model call.
   local runtime_compatible
   runtime_compatible="$(python3 - <<'PY'
 import json
@@ -250,11 +259,11 @@ PY
 )"
 
   if [ "$runtime_compatible" = "true" ]; then
-    add_check "backend_runtime_interpreter" "pass" "Live backend proves the pinned Google ADK 2.4 runtime contract"
+    add_check "backend_runtime_interpreter" "pass" "Live backend reports a compatible pinned Google ADK runtime"
   elif [ "$runtime_compatible" = "unavailable" ]; then
     add_check "backend_runtime_interpreter" "warn" "Backend listener exists but its runtime contract could not be read"
   else
-    add_check "backend_runtime_interpreter" "fail" "Local backend is missing the pinned Google ADK 2.4 runtime contract; restart with ./bin/hushh backend --mode local --reload"
+    add_check "backend_runtime_interpreter" "fail" "Local backend does not report a compatible pinned Google ADK runtime; restart with ./bin/hushh backend --mode local --reload"
     SOURCE_READY=false
   fi
 }
@@ -476,6 +485,9 @@ case "$PROFILE" in
             quota_exhausted)
               add_check "managed_vertex_adc" "fail" "Vertex ADC reached a managed Gemini quota limit"
               SOURCE_READY=false
+              ;;
+            tls_ca_unavailable)
+              add_check "managed_vertex_adc" "warn" "Python could not validate the Vertex TLS certificate; repair the local CA bundle (for example, install certifi) and retry"
               ;;
             *)
               add_check "managed_vertex_adc" "warn" "Could not verify Vertex prediction access (${vertex_probe}); retry after checking network and Vertex service health"

@@ -259,10 +259,8 @@ async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str 
     feature = {"drive": "google_drive_chat_reads", "gmail": "gmail_chat_reads"}.get(provider)
     if feature and not connector_feature_enabled(feature, owner):
         return None
-    # Live reading has its own admission. A disabled *new-connection* flag must
-    # not strand an existing verified grant, so do not test that flag here.
-    if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
-        return None
+    # Provider rollout is not authentication. Check it after owner validation
+    # so an admitted owner gets an honest unavailable state, not a session block.
     token = resolve_request_secret(tool_context.state.get("hussh:consent_token"))
     return owner if await validate_first_party_owner_token(owner, token) else None
 
@@ -378,6 +376,8 @@ async def discover_workspace_tools(
     owner = await _owner(tool_context, provider)
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
+    if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
+        return {"status": "unavailable", "message": "Drive reading is not available yet."}
     try:
         # Live Drive MCP owns its OAuth profile and connection-generation
         # checks. Do not require a parallel legacy Google service grant.
@@ -433,6 +433,8 @@ async def read_workspace_tool(
     owner = await _owner(tool_context, provider)
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
+    if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
+        return {"status": "unavailable", "message": "Drive reading is not available yet."}
     try:
         # GoogleDriveMcpService rechecks its verified live OAuth generation
         # before and after the provider call; legacy grants are not authority.

@@ -145,6 +145,25 @@ async def test_curated_workspace_uses_same_native_discovery_and_approval(registr
         assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
 
 
+async def test_one_connector_discovery_failure_does_not_abort_other_connectors(registry):
+    registry.list_active_connectors.return_value = [
+        definition("broken"),
+        definition("healthy"),
+    ]
+    async with mcp_turn_scope("thread") as scope:
+        tool = SimpleNamespace(name="mcp_healthy", description="Read")
+
+        async def acquire(_context, connector_id, **_kwargs):
+            if connector_id == "broken":
+                raise RuntimeError("private provider diagnostic")
+            return SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
+
+        scope.acquire = AsyncMock(side_effect=acquire)
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == ["mcp_healthy"]
+        assert "private provider diagnostic" not in repr(discovered)
+
+
 async def test_vault_catalog_replaces_private_db_definitions(registry):
     registry.list_active_connectors.return_value = [definition("legacy_private")]
     record = {

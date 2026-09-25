@@ -21,7 +21,7 @@ from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, cast
 
-from ag_ui.core import BaseEvent, EventType, RunAgentInput
+from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
 from ag_ui_adk import ADKAgent
 
 from hushh_mcp.one_adk.drive_result_privacy import (
@@ -36,11 +36,55 @@ from hushh_mcp.one_adk.output_privacy import public_event
 logger = logging.getLogger(__name__)
 
 
+def _bridge_failure_kind(exc_info: Any) -> str:
+    """Classify an exception without logging provider-controlled class names."""
+    if not isinstance(exc_info, tuple) or not exc_info:
+        return "unknown"
+    error_type = exc_info[0]
+    if not isinstance(error_type, type):
+        return "unknown"
+    if issubclass(error_type, TimeoutError):
+        return "timeout"
+    if issubclass(error_type, ConnectionError):
+        return "connection"
+    if issubclass(error_type, PermissionError):
+        return "permission"
+    if issubclass(error_type, ValueError):
+        return "validation"
+    if issubclass(error_type, KeyError):
+        return "missing_key"
+    return "other"
+
+
+def _bridge_failure_phase(message: Any) -> str:
+    """Recognize only fixed bridge log prefixes, never emit raw log text."""
+    if not isinstance(message, str):
+        return "other"
+    if message.startswith("Background execution error:"):
+        return "background"
+    if message.startswith("Error in new execution:"):
+        return "execution"
+    if message.startswith("Error handling tool results:"):
+        return "tool_results"
+    return "other"
+
+
 class _NoModelTextPreview(logging.Filter):
-    """The installed AG-UI adapter logs model text previews at INFO."""
+    """Keep adapter previews and exception bodies out of hosted logs."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.getMessage().startswith("[ADK_EVENT]"):
+        if record.levelno >= logging.WARNING:
+            # The installed adapter interpolates raw provider exceptions and
+            # attaches tracebacks. Retain only fixed phase and exception-kind
+            # labels; never emit provider-controlled messages or class names.
+            phase = _bridge_failure_phase(record.msg)
+            kind = _bridge_failure_kind(record.exc_info)
+            record.msg = f"[ADK_BRIDGE] phase={phase} kind={kind} details=[redacted]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            record.stack_info = None
+        elif record.getMessage().startswith("[ADK_EVENT]"):
             record.msg = "[ADK_EVENT] content=[redacted]"
             record.args = ()
         return True
@@ -49,6 +93,20 @@ class _NoModelTextPreview(logging.Filter):
 _bridge_logger = logging.getLogger("ag_ui_adk.adk_agent")
 if not any(isinstance(item, _NoModelTextPreview) for item in _bridge_logger.filters):
     _bridge_logger.addFilter(_NoModelTextPreview())
+
+
+class _NoEndpointPayload(_NoModelTextPreview):
+    """The installed SSE endpoint logs full serialized events at DEBUG."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            return False
+        return super().filter(record)
+
+
+_endpoint_logger = logging.getLogger("ag_ui_adk.endpoint")
+if not any(isinstance(item, _NoEndpointPayload) for item in _endpoint_logger.filters):
+    _endpoint_logger.addFilter(_NoEndpointPayload())
 
 HEAD_ONE = "one"
 HEAD_INTRO = "intro"
@@ -81,6 +139,21 @@ def _ms_since(started_at: float, at: float | None) -> int | None:
     return round((at - started_at) * 1000)
 
 
+def _error_class(code: Any) -> str:
+    """Classify a protocol error without retaining its untrusted message/code."""
+    if not isinstance(code, str):
+        return "untyped"
+    if code.startswith("MCP_"):
+        return "connector"
+    if code.startswith("DATABASE_"):
+        return "database"
+    if code.startswith("AGENT_RUNTIME_"):
+        return "runtime"
+    if code in {"MODEL_ERROR", "RESOURCE_EXHAUSTED"}:
+        return "model"
+    return "other"
+
+
 @dataclass
 class TurnTiming:
     """Counters for one AG-UI run. Holds no identifying records by construction."""
@@ -105,6 +178,7 @@ class TurnTiming:
     tool_schema_chars_peak: int | None = None
     history_items_peak: int | None = None
     outcome: str = OUTCOME_FINISHED
+    error_class: str = "none"
     terminal_observed: bool = False
 
     def begin_model_call(self, request: Any) -> None:
@@ -167,6 +241,7 @@ class TurnTiming:
         if event_type == EventType.RUN_ERROR:
             self.terminal_observed = True
             self.outcome = OUTCOME_ERROR
+            self.error_class = _error_class(getattr(event, "code", None))
         elif event_type == EventType.RUN_FINISHED:
             self.terminal_observed = True
         if event_type != EventType.TOOL_CALL_START:
@@ -185,7 +260,7 @@ class TurnTiming:
             "first_model_call_ms=%s model_calls=%s model_call_total_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
-            "events=%s tool_calls=%s specialist_calls=%s outcome=%s",
+            "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
@@ -205,6 +280,7 @@ class TurnTiming:
             self.tool_calls,
             self.specialist_calls,
             self.outcome,
+            self.error_class,
         )
 
 
@@ -275,9 +351,18 @@ class TimedADKAgent(ADKAgent):
             if not timing.terminal_observed:
                 timing.outcome = OUTCOME_CLIENT_DISCONNECT
             raise
-        except BaseException:
+        except Exception:
             timing.outcome = OUTCOME_ERROR
-            raise
+            # Otherwise the installed endpoint catches this exception and
+            # serializes str(exception) into a second, unprojected RUN_ERROR.
+            # Keep the failure terminal and content-free at this boundary.
+            safe_error = RunErrorEvent(
+                message="One couldn't finish that request. Please try again.",
+                code="AGENT_ERROR",
+            )
+            timing.observe(safe_error)
+            timing.error_class = "escaped_exception"
+            yield safe_error
         finally:
             if interrupted or timing.outcome in (OUTCOME_ERROR, OUTCOME_CLIENT_DISCONNECT):
                 await self._release_execution(input)
