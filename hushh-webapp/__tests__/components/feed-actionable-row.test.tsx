@@ -110,6 +110,113 @@ describe("FeedActionableRow", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
+  it("keeps a two-action decision compact and on one row", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "accept",
+              label: "Accept",
+              tone: "primary",
+              run: vi.fn(),
+            },
+            {
+              key: "decline",
+              label: "Decline",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("feed-action-buttons")).toHaveClass(
+      "flex-nowrap",
+      "justify-end",
+    );
+    for (const button of [
+      screen.getByRole("button", { name: "Accept" }),
+      screen.getByRole("button", {
+        name: "Decline (tap again to confirm)",
+      }),
+    ]) {
+      expect(button).toHaveClass("w-auto", "min-w-[5.5rem]");
+      expect(button).not.toHaveClass("w-full");
+    }
+  });
+
+  it("keeps the requested duration visible in compact mobile decision labels", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "approve",
+              label: "Approve 4 hours more",
+              tone: "primary",
+              run: vi.fn(),
+            },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    const approve = screen.getByRole("button", {
+      name: "Approve 4 hours more",
+    });
+    const deny = screen.getByRole("button", {
+      name: "Deny (tap again to confirm)",
+    });
+    expect(approve.querySelector(".sm\\:hidden")).toHaveTextContent(
+      "Accept · 4h",
+    );
+    expect(approve.querySelector(".hidden.sm\\:inline")).toHaveTextContent(
+      "Approve 4 hours more",
+    );
+    expect(deny.querySelector(".sm\\:hidden")).toHaveTextContent("Decline");
+  });
+
+  it("keeps an until-stopped approval explicit on mobile", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "approve",
+              label: "Approve until you stop",
+              tone: "primary",
+              run: vi.fn(),
+            },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    const approve = screen.getByRole("button", {
+      name: "Approve until you stop",
+    });
+    expect(approve.querySelector(".sm\\:hidden")).toHaveTextContent(
+      "Accept · Until off",
+    );
+  });
+
   it("keeps the destructive action in the accessible confirmation name", () => {
     render(
       <FeedActionableRow

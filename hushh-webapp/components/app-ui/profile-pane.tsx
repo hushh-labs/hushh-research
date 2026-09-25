@@ -105,13 +105,21 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <SheetTitle className="truncate">{title}</SheetTitle>
+            <SheetTitle className="truncate font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+              {title}
+            </SheetTitle>
           </div>
           {/* On a panel the page opens with its own description, so the
            * generic line stays for assistive tech only (two subtitles, one
            * line apart, read as clutter). The arrow's glyph sits on the
            * content column, as the close button's edge does on the right. */}
-          <SheetDescription className={canGoBack ? "sr-only" : undefined}>
+          <SheetDescription
+            className={
+              canGoBack
+                ? "sr-only"
+                : "font-[family-name:var(--font-app-body)] text-[15px] leading-5 tracking-normal"
+            }
+          >
             {canGoBack
               ? "Profile settings"
               : "Your account, preferences, and privacy controls."}
