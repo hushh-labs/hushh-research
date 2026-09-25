@@ -160,6 +160,7 @@ const SELF_FALLBACK_RADIUS_PX = 9;
 const SELF_FALLBACK_FILL_OPACITY = 1;
 const SELF_FALLBACK_STROKE_OPACITY = 1;
 const SELF_FALLBACK_STROKE_WEIGHT = 2;
+const WEB_CAMERA_SETTLE_FALLBACK_MS = 180;
 
 /**
  * The check-in radius overlay, deliberately quiet.
@@ -364,6 +365,94 @@ function zoomForRadiusBounds(
   return Number.isFinite(zoom) ? Math.max(0, zoom) : null;
 }
 
+/**
+ * Approximate the zoom selected by `fitBounds` for arbitrary coordinates.
+ *
+ * Google Maps projects latitude through Web Mercator and longitude linearly
+ * into a 256 px world tile. Solving that projection for the padded viewport
+ * gives compatibility bridges (which may never report the fitted camera) a
+ * conservative owner-circle scale once the renderer accepts the move.
+ */
+function zoomForCoordinateBounds(
+  southwest: { lat: number; lng: number },
+  northeast: { lat: number; lng: number },
+  box: { width: number; height: number },
+  paddingPx: number,
+  longitudeSpanDegrees = Math.abs(northeast.lng - southwest.lng),
+): number | null {
+  const availableWidth = (Number(box.width) || 0) - Math.max(0, paddingPx) * 2;
+  const availableHeight =
+    (Number(box.height) || 0) - Math.max(0, paddingPx) * 2;
+  if (!(availableWidth > 0) || !(availableHeight > 0)) return null;
+
+  const mercatorY = (latitude: number) => {
+    const clamped = Math.max(-85.05112878, Math.min(85.05112878, latitude));
+    const sine = Math.sin((clamped * Math.PI) / 180);
+    return 0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI);
+  };
+  const longitudeFraction = Math.max(0, longitudeSpanDegrees) / 360;
+  const latitudeFraction = Math.abs(
+    mercatorY(northeast.lat) - mercatorY(southwest.lat),
+  );
+  const zoomForSpan = (pixels: number, fraction: number) =>
+    fraction > 0
+      ? Math.log2(pixels / (256 * fraction))
+      : Number.POSITIVE_INFINITY;
+  const zoom = Math.min(
+    zoomForSpan(availableWidth, longitudeFraction),
+    zoomForSpan(availableHeight, latitudeFraction),
+  );
+  if (zoom === Number.POSITIVE_INFINITY) return 21;
+  return Number.isFinite(zoom) ? Math.min(21, Math.max(0, zoom)) : null;
+}
+
+function insetMapBox(
+  box: { width: number; height: number },
+  padding: { top: number; right: number; bottom: number; left: number },
+): { width: number; height: number } {
+  return {
+    width: Math.max(0, box.width - padding.left - padding.right),
+    height: Math.max(0, box.height - padding.top - padding.bottom),
+  };
+}
+
+/** The shortest longitude arc containing every point, including date-line sets. */
+function smallestLongitudeArc(longitudes: number[]): {
+  west: number;
+  east: number;
+  center: number;
+  spanDegrees: number;
+} {
+  if (longitudes.length === 0) {
+    return { west: 0, east: 0, center: 0, spanDegrees: 0 };
+  }
+  const normalized = longitudes
+    .map((longitude) => ((longitude % 360) + 360) % 360)
+    .sort((left, right) => left - right);
+  let largestGap = -1;
+  let arcStartIndex = 0;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index] ?? 0;
+    const next =
+      index === normalized.length - 1
+        ? (normalized[0] ?? 0) + 360
+        : (normalized[index + 1] ?? 0);
+    const gap = next - current;
+    if (gap > largestGap) {
+      largestGap = gap;
+      arcStartIndex = (index + 1) % normalized.length;
+    }
+  }
+  const start = normalized[arcStartIndex] ?? 0;
+  const spanDegrees = Math.max(0, 360 - largestGap);
+  return {
+    west: wrappedLongitude(start),
+    east: wrappedLongitude(start + spanDegrees),
+    center: wrappedLongitude(start + spanDegrees / 2),
+    spanDegrees,
+  };
+}
+
 /** "last seen 7m ago" -- a fact about their signal, not their intent. */
 function lastSeenLabel(
   capturedAt: string | null | undefined,
@@ -478,12 +567,12 @@ async function frameMarkers(
   map: GoogleMap,
   markers: RenderMarker[],
   prepareCamera?: (targetZoom: number) => void,
+  box?: { width: number; height: number },
 ): Promise<void> {
   if (markers.length === 0) return;
   if (markers.length === 1) {
     const marker = markers[0];
     if (!marker) return;
-    prepareCamera?.(15);
     await map.setCamera({
       coordinate: {
         lat: marker.point.latitude,
@@ -492,27 +581,39 @@ async function frameMarkers(
       zoom: 15,
       animate: true,
     });
+    prepareCamera?.(15);
     return;
   }
 
   const latitudes = markers.map((marker) => marker.point.latitude);
   const longitudes = markers.map((marker) => marker.point.longitude);
+  const longitudeArc = smallestLongitudeArc(longitudes);
   const southwest = {
     lat: Math.min(...latitudes),
-    lng: Math.min(...longitudes),
+    lng: longitudeArc.west,
   };
   const northeast = {
     lat: Math.max(...latitudes),
-    lng: Math.max(...longitudes),
+    lng: longitudeArc.east,
   };
   const center = {
     lat: (southwest.lat + northeast.lat) / 2,
-    lng: (southwest.lng + northeast.lng) / 2,
+    lng: longitudeArc.center,
   };
-  // fitBounds chooses its own zoom. Keep the last known-safe fallback scale
-  // until idle reports the replacement: older bridges may never send that
-  // callback, and clearing it here would remove the only visible self marker.
+  const fittedZoom = box
+    ? zoomForCoordinateBounds(
+        southwest,
+        northeast,
+        box,
+        24,
+        longitudeArc.spanDegrees,
+      )
+    : null;
   await map.fitBounds(new LatLngBounds({ southwest, northeast, center }), 24);
+  // Only publish the compatibility fallback after the renderer accepted the
+  // fit. A rejected bridge call must leave the existing street-scale dot alone
+  // rather than painting a continent-sized circle over an unmoved camera.
+  if (fittedZoom !== null) prepareCamera?.(fittedZoom);
 }
 
 function wrappedLongitude(longitude: number): number {
@@ -561,26 +662,36 @@ function pairBounds(
   second: { lat: number; lng: number },
 ) {
   const minimumSpanDegrees = 400 / 111_320;
+  const longitudeArc = smallestLongitudeArc([first.lng, second.lng]);
   const latitudePad = Math.max(
     minimumSpanDegrees,
     Math.abs(first.lat - second.lat) * 0.35,
   );
   const longitudePad = Math.max(
     minimumSpanDegrees,
-    Math.abs(first.lng - second.lng) * 0.35,
+    longitudeArc.spanDegrees * 0.35,
   );
+  const paddedLongitudeSpan = longitudeArc.spanDegrees + longitudePad * 2;
   return new LatLngBounds({
     southwest: {
       lat: Math.max(-90, Math.min(first.lat, second.lat) - latitudePad),
-      lng: wrappedLongitude(Math.min(first.lng, second.lng) - longitudePad),
+      lng:
+        paddedLongitudeSpan >= 360
+          ? -180
+          : wrappedLongitude(longitudeArc.west - longitudePad),
     },
     northeast: {
       lat: Math.min(90, Math.max(first.lat, second.lat) + latitudePad),
-      lng: wrappedLongitude(Math.max(first.lng, second.lng) + longitudePad),
+      lng:
+        paddedLongitudeSpan >= 360
+          ? 180
+          : wrappedLongitude(
+              longitudeArc.west + longitudeArc.spanDegrees + longitudePad,
+            ),
     },
     center: {
       lat: (first.lat + second.lat) / 2,
-      lng: (first.lng + second.lng) / 2,
+      lng: longitudeArc.center,
     },
   });
 }
@@ -655,6 +766,7 @@ export function LocationImmersiveMap({
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  const refreshGenerationRef = useRef(0);
   const preferenceRevisionRef = useRef(0);
   /** A tick that arrived mid-refresh, to be served once the current one ends. */
   const refreshRequestedWhileBusyRef = useRef(false);
@@ -723,6 +835,7 @@ export function LocationImmersiveMap({
    * the plain pin on that renderer.
    */
   const [cameraReported, setCameraReported] = useState(false);
+  const [cameraProjectionEnabled, setCameraProjectionEnabled] = useState(false);
   // Updated only at idle. The renderer circle therefore keeps one geographic
   // radius throughout a gesture instead of issuing bridge writes per frame.
   const [settledCameraZoom, setSettledCameraZoom] = useState<number | null>(
@@ -742,7 +855,16 @@ export function LocationImmersiveMap({
    * screenful of names on it.
    */
   const cameraFrameRef = useRef<number | null>(null);
+  const cameraSettleTimerRef = useRef<number | null>(null);
   const pendingCameraRef = useRef<MapNameLabelCamera | null>(null);
+  const settledCameraRevisionRef = useRef(0);
+  const nativeMapPaddingRef = useRef({
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  });
+  const nativeMapPaddingCommandRef = useRef<Promise<void>>(Promise.resolve());
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
   // incoming markers), so it's fetched on a lighter cadence than the 5s marker
@@ -829,6 +951,48 @@ export function LocationImmersiveMap({
   const nearbyPresenceStateRef = useRef(nearbyPresenceState);
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+  const rendererReadyRef = useRef(rendererReady);
+  const previousRendererReadyRef = useRef(rendererReady);
+  rendererReadyRef.current = rendererReady;
+
+  useLayoutEffect(() => {
+    const wasRendererReady = previousRendererReadyRef.current;
+    previousRendererReadyRef.current = rendererReady;
+    if (!wasRendererReady || rendererReady) return;
+
+    // Consent revocation is fail-closed for the whole third-party renderer,
+    // not just the owner's circle. Cover it before paint, invalidate late
+    // decryptions, clear every private presentation input, then recreate the
+    // map at its neutral camera. Renderer teardown is the only transactional
+    // purge when a native removeMarkers/removeCircles call rejects or hangs.
+    preferenceRevisionRef.current += 1;
+    refreshGenerationRef.current += 1;
+    refreshInFlightRef.current = false;
+    refreshRequestedWhileBusyRef.current = false;
+    markerGenerationRef.current += 1;
+    selfCircleGenerationRef.current += 1;
+    nearbyCircleGenerationRef.current += 1;
+    markerCommandRef.current = Promise.resolve();
+    selfCircleCommandRef.current = Promise.resolve();
+    nearbyCircleCommandRef.current = Promise.resolve();
+    nativeMapPaddingCommandRef.current = Promise.resolve();
+    markerIdsRef.current = [];
+    selfCircleIdRef.current = null;
+    nearbyCircleIdsRef.current = [];
+    nearbyConnectorIdsRef.current = [];
+    markerByMapIdRef.current.clear();
+    locationCaptureRef.current = null;
+    markerSignatureRef.current = "";
+    framedInitialMarkersRef.current = false;
+    entryLocationRequestedRef.current = false;
+    setMapReady(false);
+    setCameraProjectionEnabled(false);
+    setMarkers([]);
+    setSelfMarker(null);
+    setSelected(null);
+    setEntryLocationSettled(false);
+    setMapRetryToken((token) => token + 1);
+  }, [rendererReady]);
 
   useEffect(() => {
     nearbyConnectOwnerRef.current = {
@@ -1175,6 +1339,7 @@ export function LocationImmersiveMap({
       return;
     }
     refreshInFlightRef.current = true;
+    const refreshGeneration = ++refreshGenerationRef.current;
     const preferenceRevision = preferenceRevisionRef.current;
     setStatus("loading");
     try {
@@ -1215,13 +1380,18 @@ export function LocationImmersiveMap({
           }
         }),
       );
-      if (!mountedRef.current) return;
+      if (
+        !mountedRef.current ||
+        !rendererReadyRef.current ||
+        refreshGenerationRef.current !== refreshGeneration ||
+        preferenceRevisionRef.current !== preferenceRevision
+      ) {
+        return;
+      }
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
-      if (preferenceRevisionRef.current === preferenceRevision) {
-        setPreferences(state.preferences);
-      }
+      setPreferences(state.preferences);
       if (
         Number.isFinite(state.freshnessSeconds) &&
         state.freshnessSeconds > 0
@@ -1235,15 +1405,27 @@ export function LocationImmersiveMap({
       }
       setStatus("ready");
     } catch {
-      if (mountedRef.current) setStatus("error");
+      if (
+        mountedRef.current &&
+        rendererReadyRef.current &&
+        refreshGenerationRef.current === refreshGeneration
+      ) {
+        setStatus("error");
+      }
     } finally {
-      refreshInFlightRef.current = false;
-      // Serve the tick that arrived while this one was running. Chained
-      // rather than recursive, so a permanently slow backend cannot stack
-      // calls on top of each other.
-      if (refreshRequestedWhileBusyRef.current && mountedRef.current) {
-        refreshRequestedWhileBusyRef.current = false;
-        void refreshRef.current?.();
+      if (refreshGenerationRef.current === refreshGeneration) {
+        refreshInFlightRef.current = false;
+        // Serve the tick that arrived while this one was running. Chained
+        // rather than recursive, so a permanently slow backend cannot stack
+        // calls on top of each other.
+        if (
+          refreshRequestedWhileBusyRef.current &&
+          mountedRef.current &&
+          rendererReadyRef.current
+        ) {
+          refreshRequestedWhileBusyRef.current = false;
+          void refreshRef.current?.();
+        }
       }
     }
   }, [auth.userId, demoMode, rendererReady, vaultOwnerToken]);
@@ -1498,6 +1680,8 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      const currentInstance = () => !superseded() && mapRef.current === map;
+      setCameraProjectionEnabled(false);
       // Gives the renderer-owned owner dot a correct initial scale even on an
       // older bridge that never emits camera callbacks. A neutral camera has
       // no authority to size a private location, even for a returning consented
@@ -1514,67 +1698,121 @@ export function LocationImmersiveMap({
       // frame. Move-start hides those overlays on every platform; only idle
       // publishes the settled camera and makes them eligible to return.
       //
-      // Wrapped, and tried before `setMapReady`, because a renderer without
-      // camera listeners must still produce a working map: the only thing it
-      // loses is the names floating over its pins.
-      try {
-        const readCamera = (
-          data: MapCameraEvent | null,
-        ): MapNameLabelCamera | null => {
-          const bounds = data?.bounds;
-          if (!bounds) return null;
-          return {
-            north: bounds.northeast.lat,
-            south: bounds.southwest.lat,
-            east: bounds.northeast.lng,
-            west: bounds.southwest.lng,
-            zoom: Number(data.zoom) || 0,
-            bearing: Number(data.bearing) || 0,
-            tilt: Number(data.tilt) || 0,
-          };
+      // Each listener is optional on compatibility bridges. Register them
+      // independently so one missing callback cannot leave a successfully
+      // registered sibling in a half-working state.
+      const readCamera = (
+        data: MapCameraEvent | null,
+      ): MapNameLabelCamera | null => {
+        const bounds = data?.bounds;
+        if (!bounds) return null;
+        return {
+          north: bounds.northeast.lat,
+          south: bounds.southwest.lat,
+          east: bounds.northeast.lng,
+          west: bounds.southwest.lng,
+          zoom: Number(data.zoom) || 0,
+          bearing: Number(data.bearing) || 0,
+          tilt: Number(data.tilt) || 0,
         };
-        const publishMovingCamera = (data: MapCameraEvent | null) => {
-          const nextCamera = readCamera(data);
-          if (!nextCamera) return;
-          // Capacitor's web bridge derives move-start from `center_changed`,
-          // but a wheel/pinch zoom can change bounds while the centre stays
-          // fixed. Enter the moving state from the authoritative bounds event
-          // too, or the manually projected avatar can outrun the basemap.
-          //
-          // Native deliberately does not use this fallback: Android reports
-          // camera idle before its final bounds notification, so treating that
-          // trailing bounds event as a new move would hide overlays forever.
-          if (!isNative()) setCameraMoving(true);
-          pendingCameraRef.current = nextCamera;
-          if (cameraFrameRef.current !== null) return;
-          cameraFrameRef.current = window.requestAnimationFrame(() => {
-            cameraFrameRef.current = null;
-            const next = pendingCameraRef.current;
-            if (!next) return;
-            setMapCamera(next);
-            setCameraReported(true);
-          });
-        };
-        const publishSettledCamera = (data: MapCameraEvent | null) => {
-          const nextCamera = readCamera(data);
-          if (!nextCamera) return;
-          if (cameraFrameRef.current !== null) {
-            window.cancelAnimationFrame(cameraFrameRef.current);
-            cameraFrameRef.current = null;
+      };
+      const publishCameraSettled = (nextCamera: MapNameLabelCamera) => {
+        if (!currentInstance()) return;
+        if (cameraFrameRef.current !== null) {
+          window.cancelAnimationFrame(cameraFrameRef.current);
+          cameraFrameRef.current = null;
+        }
+        if (cameraSettleTimerRef.current !== null) {
+          window.clearTimeout(cameraSettleTimerRef.current);
+          cameraSettleTimerRef.current = null;
+        }
+        pendingCameraRef.current = null;
+        settledCameraRevisionRef.current += 1;
+        setMapCamera(nextCamera);
+        setCameraReported(true);
+        setSettledCameraZoom(nextCamera.zoom);
+        setCameraMoving(false);
+      };
+      let idleListenerRegistered = false;
+      const publishMovingCamera = (data: MapCameraEvent | null) => {
+        if (!currentInstance()) return;
+        const nextCamera = readCamera(data);
+        if (!nextCamera) return;
+
+        // Native reports bounds after the gesture. When its idle listener is
+        // unavailable, that report is the only authoritative settlement event.
+        if (isNative() && !idleListenerRegistered) {
+          publishCameraSettled(nextCamera);
+          return;
+        }
+
+        // Capacitor web derives move-start from `center_changed`, but fixed-
+        // centre wheel/pinch zoom can emit only bounds. Hide HTML overlays on
+        // every bounds frame, then settle from the last frame if idle is
+        // unsupported or never emitted.
+        if (!isNative()) {
+          setCameraMoving(true);
+          if (cameraSettleTimerRef.current !== null) {
+            window.clearTimeout(cameraSettleTimerRef.current);
           }
-          pendingCameraRef.current = null;
-          setMapCamera(nextCamera);
+          cameraSettleTimerRef.current = window.setTimeout(() => {
+            cameraSettleTimerRef.current = null;
+            if (!currentInstance()) return;
+            const settled = pendingCameraRef.current ?? nextCamera;
+            publishCameraSettled(settled);
+          }, WEB_CAMERA_SETTLE_FALLBACK_MS);
+        }
+        pendingCameraRef.current = nextCamera;
+        if (cameraFrameRef.current !== null) return;
+        cameraFrameRef.current = window.requestAnimationFrame(() => {
+          cameraFrameRef.current = null;
+          if (!currentInstance()) return;
+          const next = pendingCameraRef.current;
+          if (!next) return;
+          setMapCamera(next);
           setCameraReported(true);
-          setSettledCameraZoom(nextCamera.zoom);
-          setCameraMoving(false);
-        };
+        });
+      };
+      const publishSettledCamera = (data: MapCameraEvent | null) => {
+        if (!currentInstance()) return;
+        const nextCamera = readCamera(data);
+        if (nextCamera) publishCameraSettled(nextCamera);
+      };
+      let boundsListenerRegistered = false;
+      try {
         await map.setOnBoundsChangedListener(publishMovingCamera);
-        await map.setOnCameraIdleListener(publishSettledCamera);
-        await map.setOnCameraMoveStartedListener(() => setCameraMoving(true));
+        boundsListenerRegistered = true;
       } catch {
-        // No camera reports, so no name pills. Everything else still works.
+        // The idle listener below may still provide a complete camera.
       }
+      try {
+        await map.setOnCameraIdleListener(publishSettledCamera);
+        idleListenerRegistered = true;
+      } catch {
+        // Web debounces bounds; native treats its trailing bounds as settled.
+      }
+      let moveStartedListenerRegistered = false;
+      if (boundsListenerRegistered || idleListenerRegistered) {
+        try {
+          await map.setOnCameraMoveStartedListener(() => {
+            if (currentInstance()) setCameraMoving(true);
+          });
+          moveStartedListenerRegistered = true;
+        } catch {
+          // Bounds still protects web. Native cannot safely project HTML
+          // without move-start because its bounds callback trails the gesture.
+        }
+      }
+      if (!currentInstance()) return;
+      setCameraProjectionEnabled(
+        isNative()
+          ? moveStartedListenerRegistered &&
+              (boundsListenerRegistered || idleListenerRegistered)
+          : boundsListenerRegistered ||
+              (idleListenerRegistered && moveStartedListenerRegistered),
+      );
       await map.setOnMarkerClickListener((event) => {
+        if (!currentInstance()) return;
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
@@ -1588,6 +1826,7 @@ export function LocationImmersiveMap({
           animate: true,
         });
       });
+      if (!currentInstance()) return;
       setMapReady(true);
       // Clears a prior "unavailable" from a retried create. status is also
       // driven by the marker-refresh effect below, which only runs once on
@@ -1608,9 +1847,17 @@ export function LocationImmersiveMap({
         window.cancelAnimationFrame(cameraFrameRef.current);
         cameraFrameRef.current = null;
       }
+      if (cameraSettleTimerRef.current !== null) {
+        window.clearTimeout(cameraSettleTimerRef.current);
+        cameraSettleTimerRef.current = null;
+      }
       pendingCameraRef.current = null;
+      settledCameraRevisionRef.current += 1;
+      nativeMapPaddingRef.current = { top: 0, right: 0, bottom: 0, left: 0 };
+      nativeMapPaddingCommandRef.current = Promise.resolve();
       setMapCamera(null);
       setCameraReported(false);
+      setCameraProjectionEnabled(false);
       setSettledCameraZoom(null);
       // Destroy the native map instance and drop the ref on teardown. Without
       // this, closing Your Map left the @capacitor/google-maps instance
@@ -1624,6 +1871,8 @@ export function LocationImmersiveMap({
       mapRef.current = null;
       markerIdsRef.current = [];
       selfCircleIdRef.current = null;
+      nearbyCircleIdsRef.current = [];
+      nearbyConnectorIdsRef.current = [];
       markerIndex.clear();
       if (staleMap) {
         void withNativeMapLock(MAP_ID, () => staleMap.destroy()).catch(
@@ -1857,6 +2106,7 @@ export function LocationImmersiveMap({
    */
   const selfPinDrawnAsAvatar =
     rendererReady &&
+    cameraProjectionEnabled &&
     cameraReported &&
     !cameraMoving &&
     Boolean(mapCamera && isMapCameraProjectionSafe(mapCamera));
@@ -1887,8 +2137,11 @@ export function LocationImmersiveMap({
    * separate circle below so camera events cannot churn this array.
    */
   const rendererMarkers = useMemo(
-    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
-    [visibleMarkers],
+    () =>
+      rendererReady
+        ? visibleMarkers.filter((marker) => marker.kind !== "self")
+        : [],
+    [rendererReady, visibleMarkers],
   );
 
   /**
@@ -1908,7 +2161,14 @@ export function LocationImmersiveMap({
    * names rather than fifty pills in a heap.
    */
   const nameLabels = useMemo<PlacedMapNameLabel[]>(() => {
-    if (!mapCamera || !rendererReady || status === "unavailable") return [];
+    if (
+      !mapCamera ||
+      !rendererReady ||
+      !cameraProjectionEnabled ||
+      status === "unavailable"
+    ) {
+      return [];
+    }
     return layoutMapNameLabels({
       // "My location" over the owner's own avatar is the same fact twice, and
       // the pill is the half that carries no information the face does not.
@@ -1934,6 +2194,7 @@ export function LocationImmersiveMap({
     });
   }, [
     clusteringActive,
+    cameraProjectionEnabled,
     freshnessSeconds,
     mapBox,
     mapCamera,
@@ -2010,7 +2271,19 @@ export function LocationImmersiveMap({
       // QA reported on uat.one.hushh.ai/one/location/map. The container itself
       // is correct and untouched (`h-[100dvh]`, map `absolute inset-0`).
       if (!isNative()) return;
-      void map.setPadding(padding);
+      nativeMapPaddingRef.current = padding;
+      nativeMapPaddingCommandRef.current = map.setPadding(padding).catch(() => {
+        // A rejected bridge write did not shrink the effective fit viewport.
+        if (mapRef.current === map) {
+          nativeMapPaddingRef.current = {
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+          };
+          nativeMapPaddingCommandRef.current = Promise.resolve();
+        }
+      });
     };
     const schedulePadding = () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);
@@ -2183,12 +2456,13 @@ export function LocationImmersiveMap({
     // Discovery is anchored on the *place* once a check-in is live -- that is
     // what the backend matches people against. While the owner is still
     // choosing, it is anchored on them, because that is what bounds the search.
-    const circleCenter =
-      placeFocus?.active && placeCenter
+    const circleCenter = rendererReady
+      ? placeFocus?.active && placeCenter
         ? placeCenter
         : searchPoint
           ? { lat: searchPoint.latitude, lng: searchPoint.longitude }
-          : placeCenter;
+          : placeCenter
+      : null;
     let addedIds: string[] = [];
     let addedLineIds: string[] = [];
 
@@ -2273,6 +2547,7 @@ export function LocationImmersiveMap({
       // presentation point -- the venue-anchored avatar -- and the map should
       // frame the check-in radius rather than the owner's earlier GPS fix.
       const fitPaddingPx = 48;
+      if (isNative()) await nativeMapPaddingCommandRef.current;
       const bounds =
         !placeFocus?.active && searchPoint && placeCenter
           ? pairBounds(
@@ -2286,20 +2561,33 @@ export function LocationImmersiveMap({
               },
               NEARBY_CHECK_IN_RADIUS_METERS,
             );
+      let fittedZoom: number | null = null;
       if (placeFocus?.active && mapElement.current) {
         // A restored venue intentionally prevents the late entry GPS fix from
         // moving the camera. Publish the radius-bound target instead so an old
         // bridge with no idle callback never sizes the owner puck from the
         // neutral world camera it started on.
-        const fittedZoom = zoomForRadiusBounds(
+        const measuredBox = measureMapBox(mapElement.current);
+        const fittingBox = isNative()
+          ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
+          : measuredBox;
+        fittedZoom = zoomForRadiusBounds(
           circleCenter.lat,
           NEARBY_CHECK_IN_RADIUS_METERS,
-          measureMapBox(mapElement.current),
+          fittingBox,
           fitPaddingPx,
         );
-        if (fittedZoom !== null) setSettledCameraZoom(fittedZoom);
       }
+      const cameraRevision = settledCameraRevisionRef.current;
       await map.fitBounds(bounds, fitPaddingPx);
+      if (
+        fittedZoom !== null &&
+        generation === nearbyCircleGenerationRef.current &&
+        mapRef.current === map &&
+        settledCameraRevisionRef.current === cameraRevision
+      ) {
+        setSettledCameraZoom(fittedZoom);
+      }
     }).catch(() => {
       // Place discovery remains usable from the drawer if an older renderer
       // cannot draw the visual boundary. Never convert this into map data.
@@ -2325,7 +2613,13 @@ export function LocationImmersiveMap({
         addedLineIds = [];
       }).catch(() => undefined);
     };
-  }, [displayedPlaceFocus, mapReady, nearbyCheckInOpen, nearbySearchPoint]);
+  }, [
+    displayedPlaceFocus,
+    mapReady,
+    nearbyCheckInOpen,
+    nearbySearchPoint,
+    rendererReady,
+  ]);
 
   const selfRendererMarkerStale = Boolean(
     mapSelfMarker &&
@@ -2357,19 +2651,28 @@ export function LocationImmersiveMap({
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
           await map.removeCircles([id]);
-          if (selfCircleIdRef.current === id) selfCircleIdRef.current = null;
+          if (mapRef.current === map && selfCircleIdRef.current === id) {
+            selfCircleIdRef.current = null;
+          }
           return true;
         } catch {
           if (attempt === 0) await Promise.resolve();
         }
       }
-      selfCircleIdRef.current = id;
+      if (mapRef.current === map && rendererReadyRef.current) {
+        selfCircleIdRef.current = id;
+      }
       return false;
     };
 
     void enqueue(async () => {
       const staleId = selfCircleIdRef.current;
-      if (staleId && !(await removeTrackedCircle(staleId))) return;
+      if (staleId && !(await removeTrackedCircle(staleId))) {
+        // Replacements remain transactional. Consent revocation separately
+        // destroys and recreates the whole renderer, which purges every private
+        // primitive even when this targeted bridge removal cannot be confirmed.
+        return;
+      }
       if (
         generation !== selfCircleGenerationRef.current ||
         cancelled ||
@@ -2408,7 +2711,12 @@ export function LocationImmersiveMap({
       ]);
 
       if (!id) return;
-      if (generation !== selfCircleGenerationRef.current || cancelled) {
+      if (
+        generation !== selfCircleGenerationRef.current ||
+        cancelled ||
+        !rendererReadyRef.current ||
+        mapRef.current !== map
+      ) {
         await removeTrackedCircle(id);
         return;
       }
@@ -2456,7 +2764,12 @@ export function LocationImmersiveMap({
         stale.forEach((id) => markerByMapIdRef.current.delete(id));
         await map.removeMarkers(stale).catch(() => undefined);
       }
-      if (generation !== markerGenerationRef.current) return;
+      if (
+        generation !== markerGenerationRef.current ||
+        !rendererReadyRef.current
+      ) {
+        return;
+      }
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
@@ -2504,7 +2817,12 @@ export function LocationImmersiveMap({
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
       // A superseded run must take its own markers back off the map. Returning
       // early here is what stranded them.
-      if (generation !== markerGenerationRef.current || cancelled) {
+      if (
+        generation !== markerGenerationRef.current ||
+        cancelled ||
+        !rendererReadyRef.current ||
+        mapRef.current !== map
+      ) {
         if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
         return;
       }
@@ -2526,7 +2844,29 @@ export function LocationImmersiveMap({
         visibleMarkers.length > 0
       ) {
         framedInitialMarkersRef.current = true;
-        await frameMarkers(map, visibleMarkers, setSettledCameraZoom);
+        const cameraRevision = settledCameraRevisionRef.current;
+        if (isNative()) await nativeMapPaddingCommandRef.current;
+        const measuredBox = mapElement.current
+          ? measureMapBox(mapElement.current)
+          : undefined;
+        const fittingBox =
+          measuredBox && isNative()
+            ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
+            : measuredBox;
+        await frameMarkers(
+          map,
+          visibleMarkers,
+          (targetZoom) => {
+            if (
+              mapRef.current === map &&
+              rendererReadyRef.current &&
+              settledCameraRevisionRef.current === cameraRevision
+            ) {
+              setSettledCameraZoom(targetZoom);
+            }
+          },
+          fittingBox,
+        );
       }
     }).catch(() => {
       if (!cancelled) setStatus("error");
@@ -3067,7 +3407,7 @@ export function LocationImmersiveMap({
 
   const showEveryone = useCallback(async () => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !rendererReadyRef.current) return;
     setSelected(null);
     setSearchQuery("");
     setTrayExpanded(false);
@@ -3084,7 +3424,33 @@ export function LocationImmersiveMap({
       toast.message("No one is sharing a live location with you yet.");
     }
     if (visibleMarkers.length > 0) {
-      await frameMarkers(map, visibleMarkers, setSettledCameraZoom);
+      const cameraRevision = settledCameraRevisionRef.current;
+      if (isNative()) await nativeMapPaddingCommandRef.current;
+      const measuredBox = mapElement.current
+        ? measureMapBox(mapElement.current)
+        : undefined;
+      const fittingBox =
+        measuredBox && isNative()
+          ? insetMapBox(measuredBox, nativeMapPaddingRef.current)
+          : measuredBox;
+      try {
+        await frameMarkers(
+          map,
+          visibleMarkers,
+          (targetZoom) => {
+            if (
+              mapRef.current === map &&
+              rendererReadyRef.current &&
+              settledCameraRevisionRef.current === cameraRevision
+            ) {
+              setSettledCameraZoom(targetZoom);
+            }
+          },
+          fittingBox,
+        );
+      } catch {
+        toast.error("Map could not frame everyone.");
+      }
       return;
     }
     // Nothing on the map at all, not even this device. Still put the camera
