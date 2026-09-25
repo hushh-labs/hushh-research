@@ -36,9 +36,17 @@ probe_vertex_prediction_access() {
 from __future__ import annotations
 
 import os
+import ssl
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+try:
+    import certifi
+except ImportError:
+    tls_context = ssl.create_default_context()
+else:
+    tls_context = ssl.create_default_context(cafile=certifi.where())
 
 project, location, model = sys.argv[1:]
 url = (
@@ -58,11 +66,12 @@ request = Request(
     },
 )
 try:
-    status = urlopen(request, timeout=8).status
+    status = urlopen(request, timeout=8, context=tls_context).status
 except HTTPError as exc:
     status = exc.code
-except (URLError, OSError):
-    print("network_error")
+except (URLError, OSError) as exc:
+    reason = getattr(exc, "reason", exc)
+    print("tls_ca_unavailable" if isinstance(reason, ssl.SSLCertVerificationError) else "network_error")
     raise SystemExit(0)
 
 if status in {200, 400, 422}:
@@ -476,6 +485,9 @@ case "$PROFILE" in
             quota_exhausted)
               add_check "managed_vertex_adc" "fail" "Vertex ADC reached a managed Gemini quota limit"
               SOURCE_READY=false
+              ;;
+            tls_ca_unavailable)
+              add_check "managed_vertex_adc" "warn" "Python could not validate the Vertex TLS certificate; repair the local CA bundle (for example, install certifi) and retry"
               ;;
             *)
               add_check "managed_vertex_adc" "warn" "Could not verify Vertex prediction access (${vertex_probe}); retry after checking network and Vertex service health"
