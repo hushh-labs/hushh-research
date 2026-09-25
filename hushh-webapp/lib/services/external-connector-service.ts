@@ -89,6 +89,14 @@ export type PendingNativeDrivePicker = {
 };
 
 export type ConnectorEffectGuard = () => boolean;
+
+/** A provider credential failed during catalog discovery; never expose its response. */
+export class McpCatalogAuthenticationError extends Error {
+  constructor() {
+    super("Connector sign-in needs attention.");
+    this.name = "McpCatalogAuthenticationError";
+  }
+}
 /** Never persist this response, put it in React state, or send it through messages. */
 export type DrivePickerSession = {
   sessionId: string;
@@ -215,7 +223,17 @@ export class ExternalConnectorService {
       headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify({ connectorConfiguration: configuration }),
     });
-    if (!response.ok) throw new Error("Could not refresh tools. Check the connection and try again.");
+    if (!current()) throw new Error("Your vault session changed.");
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null);
+      const detail = payload && typeof payload === "object" && "detail" in payload
+        ? payload.detail : null;
+      const code = detail && typeof detail === "object" && "code" in detail
+        ? detail.code : null;
+      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED")
+        throw new McpCatalogAuthenticationError();
+      throw new Error("Could not refresh tools. Check the connection and try again.");
+    }
     const value = await response.json();
     if (!current() || value?.connectorId !== configuration.connectorId || value?.configurationRevision !== configuration.revision ||
         !["available", "empty"].includes(value?.status) || !Array.isArray(value?.tools) || value.tools.length > 500) {

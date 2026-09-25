@@ -4,10 +4,13 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { Capacitor } from "@capacitor/core";
 import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
-vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() } }));
+vi.mock("@/lib/services/external-connector-service", () => ({
+  ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
+  McpCatalogAuthenticationError: class extends Error {},
+}));
 vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/capacitor/oauth-return")>()),
   HushhOAuthReturn: { openAuthorization: vi.fn() },
@@ -34,7 +37,7 @@ it("admits only the app-owned HTTPS return for native connector sign-in", () => 
 
 it("opens native custom OAuth only after owner-bound recovery is ready", async () => {
   vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
-  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const }, oauthRegistration: { issuer: "https://auth.example", clientId: "synthetic-client", tokenEndpointAuthMethod: "none" as const } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
   const callback = "https://one.hushh.ai/one/profile/connectors/oauth/return";
   vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValue({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize", redirectUri: callback });
@@ -50,7 +53,7 @@ it("opens native custom OAuth only after owner-bound recovery is ready", async (
 
 it("refuses a native callback that cannot return to this app", async () => {
   vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
-  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const }, oauthRegistration: { issuer: "https://auth.example", clientId: "synthetic-client", tokenEndpointAuthMethod: "none" as const } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
   vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValueOnce({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize", redirectUri: "http://localhost:3001/one/profile/connectors/oauth/return" }).mockResolvedValueOnce(null);
   const prepare = vi.fn();
@@ -69,7 +72,7 @@ it("saves through the vault with explicit confirmation and no connected claim", 
   fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
   fireEvent.change(screen.getByLabelText("Authorization header (optional)"), { target: { value: "Bearer synthetic" } });
   fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
-  await screen.findByText("Saved · connection not verified");
+  await screen.findByText("Saved · tools not checked");
   expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce();
   expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][2]).toMatchObject({ confirmedByUser: true });
   expect(document.body.textContent).not.toContain("Bearer synthetic");
@@ -153,6 +156,29 @@ it("refreshes tools from the current vault configuration on explicit tap", async
   await screen.findByText("1 tools · Ask first");
   expect(loadCustomConnectorConfigurations).toHaveBeenCalledTimes(2);
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
+  expect(screen.queryByRole("button", { name: "Sign in to Synthetic" })).toBeNull();
+});
+
+it("offers OAuth only after an unauthenticated server requests it", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+  expect(await screen.findByRole("button", { name: "Refresh tools for Synthetic" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Sign in to Synthetic" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh tools for Synthetic" }));
+  expect(await screen.findByText("Sign in needed")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sign in to Synthetic" })).toBeEnabled();
+});
+
+it("does not send a rejected API key into OAuth", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "api_key" as const, header: "Authorization" as const, value: "synthetic" } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
+  expect(await screen.findByText("Saved credential rejected · remove and add again")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign in to Synthetic" })).toBeNull();
 });
 
 it("discards tool catalogs and pending removal when the owner changes", async () => {
@@ -183,7 +209,7 @@ it("blocks a connector with its exact revision without invoking provider discove
   expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([{ ...record, enabled: false }]);
   fireEvent.click(screen.getByRole("button", { name: "Enable Synthetic" }));
-  await screen.findByText("Saved · connection not verified");
+  await screen.findByText("Saved · tools not checked");
   expect(saveCustomConnectorConfiguration).toHaveBeenLastCalledWith(access, record, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function));
   expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
 });
