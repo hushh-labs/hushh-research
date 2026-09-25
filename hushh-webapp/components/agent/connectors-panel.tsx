@@ -1111,7 +1111,10 @@ function OwnerConnectorsPanel({
     statusChecked &&
     drive?.available !== false &&
     overview?.features.google_drive_connection === true &&
-    overview?.features.google_drive_live === true;
+    (overview?.features.google_drive_live === true ||
+      overview?.features.google_drive_picker === true);
+  const driveConnectionProfile: "live" | "selected" =
+    overview?.features.google_drive_live === true ? "live" : "selected";
   const canPick =
     drive?.profile !== "live" &&
     drive?.available !== false &&
@@ -1195,7 +1198,11 @@ function OwnerConnectorsPanel({
     {
       id: "google_drive",
       name: "Google Drive",
-      detail: drive?.status === "needs_reauth" ? "Reconnect needed" : undefined,
+      detail: drive?.status === "needs_reauth"
+        ? "Reconnect needed"
+        : canConnectDrive && driveConnectionProfile === "selected"
+          ? "Selected files only"
+          : undefined,
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1206,7 +1213,7 @@ function OwnerConnectorsPanel({
             label: "Connect Google Drive",
             onClick: () => {
               showConnector("google_drive");
-              startDrive("live");
+              startDrive(driveConnectionProfile);
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
@@ -1476,7 +1483,7 @@ function OwnerConnectorsPanel({
                     size="compact"
                     className={touch}
                     disabled={driveBusy || loading}
-                    onClick={() => startDrive("live")}
+                    onClick={() => startDrive(driveConnectionProfile)}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
@@ -1521,6 +1528,11 @@ function OwnerConnectorsPanel({
                 <p className="text-sm text-muted-foreground">
                   Live access lets One search your Drive when needed. Connecting never shares files;
                   each request still needs your approval or a separate permission you set.
+                </p>
+              )}
+              {canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant && (
+                <p className="text-sm text-muted-foreground">
+                  You can choose files after connecting. One cannot search your entire Drive with this access.
                 </p>
               )}
               {drive?.profile === "live" && drive.status === "connected" && (

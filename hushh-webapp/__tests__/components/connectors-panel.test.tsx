@@ -108,6 +108,25 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
   });
 
+  it("offers selected-file Drive connection without claiming live Drive access", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [],
+      features: {
+        connections_panel_v2: true,
+        google_drive_connection: true,
+        google_drive_live: false,
+        google_drive_picker: true,
+      },
+    });
+    render(panel());
+    expect(await screen.findByRole("button", { name: "Connect Google Drive" })).toBeEnabled();
+    expect(screen.getByText("Selected files only")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeEnabled();
+    expect(screen.getByText("You can choose files after connecting. One cannot search your entire Drive with this access.")).toBeInTheDocument();
+    expect(screen.queryByText("Drive sign-in is not enabled for this account in this environment.")).not.toBeInTheDocument();
+  });
+
   it("omits unsupported catalog placeholders even when the registry returns them", async () => {
     state.overview.mockResolvedValue(overview([
       { ...catalogItem, connectorId: "notion", displayName: "Notion" },
