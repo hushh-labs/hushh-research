@@ -327,7 +327,9 @@ def test_native_pending_handle_reaches_owning_review_service(
     assert service.await_args.kwargs["token"] is token
 
 
-def test_connector_catalog_and_key_lookup_are_owner_scoped(route_client, monkeypatch):
+def test_catalog_is_curated_but_connection_status_and_legacy_key_lookup_are_owner_scoped(
+    route_client, monkeypatch
+):
     client, app, _ = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
     registry = SimpleNamespace(
@@ -340,7 +342,8 @@ def test_connector_catalog_and_key_lookup_are_owner_scoped(route_client, monkeyp
     monkeypatch.setattr(routes, "get_external_connector_registry_service", lambda: registry)
     monkeypatch.setattr(routes, "get_external_connector_credentials_service", lambda: credentials)
     assert client.get("/api/connectors").status_code == 200
-    registry.list_active_connectors.assert_awaited_once_with(user_id="verified-owner")
+    registry.list_active_connectors.assert_awaited_once_with()
+    credentials.list_statuses.assert_awaited_once_with(user_id="verified-owner")
     response = client.post(
         "/api/connectors/custom_other/connect/api-key", json={"apiKey": "synthetic"}
     )

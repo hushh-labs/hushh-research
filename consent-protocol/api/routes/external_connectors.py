@@ -744,7 +744,11 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
     credentials = get_external_connector_credentials_service()
-    connectors = await registry.list_active_connectors(user_id=user_id)
+    # This response is the operator-curated catalog plus owner connection
+    # status. Custom definitions are browser-decrypted vault records, not the
+    # retired private-registration table projection. Do not require migration
+    # 243 or resurrect server-readable custom configuration to render Settings.
+    connectors = await registry.list_active_connectors()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
     result = ConnectorsResponse(
         features=connector_features(user_id),
