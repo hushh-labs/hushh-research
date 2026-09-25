@@ -391,6 +391,129 @@ async def test_live_followup_requires_exact_current_title(monkeypatch):
     source.read_matches.assert_not_awaited()
 
 
+async def test_exact_named_file_existence_skips_models_and_lists_duplicate_files(monkeypatch):
+    source = reader()
+    first = source.find.return_value["matches"][0]
+    source.find.return_value = {
+        "matches": [
+            {**first, "name": "Explain For Product"},
+            {
+                **first,
+                "file_id": "file-2",
+                "name": "Explain For Product",
+                "source_ref": "document:" + "b" * 32,
+                "open_url": "https://drive.google.com/open?id=file-2",
+            },
+        ],
+        "truncated": False,
+    }
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    planner = AsyncMock(side_effect=AssertionError("planner reached"))
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="do you have Explain For Product document")
+    )
+
+    assert response.structured.status == "ok"
+    assert response.structured.metadata_only is True
+    assert response.text.count("Explain For Product") >= 2
+    assert response.text.count("Open in Drive") == 2
+    assert len(response.structured.sources) == 2
+    assert source.find.await_args.kwargs["query"] == ["Explain For Product"]
+    assert source.find.await_args.kwargs["title_only"] is True
+    source.read_matches.assert_not_awaited()
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+
+
+def test_vague_or_date_followup_does_not_claim_an_exact_title():
+    assert drive_chat_service.simple_exact_title_presence_plan("any product document") is None
+    assert drive_chat_service.simple_exact_title_presence_plan("this is on 11 september") is None
+
+
+@pytest.mark.parametrize("mode,status", [("find", "ok"), ("read", "input_required")])
+async def test_duplicate_exact_title_lists_both_without_reading(monkeypatch, mode, status):
+    source = reader()
+    first = source.find.return_value["matches"][0]
+    source.find.return_value = {
+        "matches": [
+            {**first, "name": "Explain For Product"},
+            {
+                **first,
+                "file_id": "file-2",
+                "name": "Explain For Product",
+                "modified_time": "2026-09-11T00:00:00Z",
+                "source_ref": "document:" + "b" * 32,
+                "open_url": "https://drive.google.com/open?id=file-2",
+            },
+        ],
+        "truncated": False,
+    }
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["Explain For Product"], "mode": mode, "exact_title": "Explain For Product"},
+        candidate_selector=selector,
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message=f"{mode} Explain For Product")
+    )
+
+    assert response.structured.status == status
+    assert response.structured.metadata_only is True
+    assert response.text.count("Explain For Product") >= 2
+    assert response.text.count("Open in Drive") == 2
+    assert "Choose one before I read its contents" in response.text
+    assert len(response.structured.sources) == 2
+    source.read_matches.assert_not_awaited()
+    selector.assert_not_awaited()
+
+
+async def test_duplicate_exact_title_read_cannot_become_requester_share(monkeypatch):
+    from hushh_mcp.services.drive_live_query_service import requester_answer
+
+    source = reader()
+    first = source.find.return_value["matches"][0]
+    source.find.return_value = {
+        "matches": [
+            {**first, "name": "Explain For Product"},
+            {
+                **first,
+                "file_id": "file-2",
+                "name": "Explain For Product",
+                "source_ref": "document:" + "b" * 32,
+                "open_url": "https://drive.google.com/open?id=file-2",
+            },
+        ],
+        "truncated": False,
+    }
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["Explain For Product"], "mode": "read", "exact_title": "Explain For Product"},
+    )
+    outcome = await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query="Read Explain For Product",
+        require_access=AsyncMock(),
+        require_live=True,
+    )
+
+    assert outcome["status"] == "input_required"
+    assert outcome["share_files"] == []
+    assert requester_answer(outcome)["titles"] == []
+    source.read_matches.assert_not_awaited()
+
+
 async def test_unresolved_followup_never_reads_broad_search_hits(monkeypatch):
     source = reader()
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
