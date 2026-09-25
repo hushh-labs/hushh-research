@@ -6,6 +6,8 @@ Status: planning-only future architecture package. Do not treat this directory a
 
 ```mermaid
 flowchart TD
+  accTitle: Future infrastructure document map
+  accDescr: Planning documents, repo truth, and Founder Wiki evidence lanes.
   root["Hussh One Infrastructure Roadmap"]
   mega["mega-architecture.md<br/>internal engineering structure"]
   founder["founder-board-brief.md<br/>founder and board narrative"]
@@ -41,6 +43,7 @@ This package promotes the temporary One private-agent infrastructure notes into 
 | --- | --- | --- |
 | Hussh platform | `already_exists` as the trust, consent, API, MCP, PKM, and governance platform | Durable current-state docs and code define shipped behavior. |
 | One private agent | `partially_exists` / `future_state_only` | One Voice is the direct voice surface and One is the approved top-level direction, while several shipped action/planner surfaces still use Kai-era compatibility identifiers today. |
+| Per-person cloud pod | `partially_exists` in dev | Dev has the per-owner Cloud Run pod and BYOC control path in source; image installation, direct ingress, and owner acceptance require separate live evidence. See the [current architecture diagram](../../reference/architecture/architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow). |
 | Kai | `already_exists` as the current finance and investor specialist surface | Kai must not be described as the whole One agent. |
 | Nav | `partially_exists` as privacy, consent, and access guidance | Nav is not ordinary page navigation. UI routes remain route/page concerns. |
 | KYC and PCHP | `partially_exists` / active execution surfaces | Identity and consent boundaries must stay explicit and auditable. |

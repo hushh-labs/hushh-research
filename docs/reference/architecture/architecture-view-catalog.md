@@ -6,6 +6,8 @@ Status: canonical engineering architecture view catalog. This document organizes
 
 ```mermaid
 flowchart TD
+  accTitle: Architecture view catalog map
+  accDescr: Catalog sections and their architecture concerns.
   catalog["Architecture View Catalog"]
   standards["Standards frame<br/>C4 + ISO 42010"]
   landscape["System landscape"]
@@ -82,6 +84,8 @@ View metadata:
 
 ```mermaid
 flowchart TB
+  accTitle: Hussh system landscape
+  accDescr: People, channels, providers, and future partner systems around Hussh.
   user["User<br/>owns account, vault, and consent"]
   web["Hussh web app<br/>One shell + Kai finance runtime"]
   mobile["Capacitor mobile shell<br/>iOS / Android parity lane"]
@@ -122,6 +126,8 @@ View metadata:
 
 ```mermaid
 flowchart TB
+  accTitle: Hussh system context
+  accDescr: Hussh trust boundary and external actors.
   user["User<br/>subject and authority"]
   kai["Kai<br/>current finance specialist surface"]
   one["One<br/>approved top private-agent direction"]
@@ -166,6 +172,8 @@ View metadata:
 
 ```mermaid
 flowchart TB
+  accTitle: Hussh runtime containers
+  accDescr: Frontend, hub, per-owner pods, and storage boundaries.
   subgraph clients["Client and channel containers"]
     web["hushh-webapp<br/>Next.js / React / Cloud Run frontend"]
     mobile["Capacitor app shell<br/>native iOS / Android WebView"]
@@ -184,9 +192,11 @@ flowchart TB
   end
 
   subgraph pods["Per-user compute — one container per person (dev lane)"]
-    podA["one-pod-&lt;HusshID&gt;<br/>Cloud Run, internal ingress, no allUsers"]
+    podA["one-pod-&lt;HusshID&gt;<br/>Cloud Run, hub-only ingress by default"]
     podB["one-pod-&lt;HusshID&gt;<br/>...one per person"]
   end
+
+  ownerStore["BYOC owner cloud<br/>encrypted commit log + KMS, when configured"]
 
   subgraph data["Storage and provider containers"]
     relational["Postgres / Cloud SQL<br/>workflow, consent, audit, metadata"]
@@ -215,11 +225,12 @@ flowchart TB
   fastapi --> relay
   relay -->|"ID token, roles/run.invoker"| podA
   podA -->|"heartbeat, consent verify, prompt fetch<br/>ID token, audience-checked"| fastapi
+  podA -.->|"BYOC encrypted recovery only"| ownerStore
 ```
 
 Container rule: clients call service/proxy boundaries; they do not become policy authorities or memory stores.
 
-Pod container rule: a pod is a **runtime container with no data-plane credential**. It holds no Postgres connection string and no vault data key, so every record it needs travels pod → hub → Postgres over the one door `HUSSH_HUB_BASE_URL`. Do not draw an arrow from a pod to any store. Reachability is two independent controls, both required: `internal` ingress decides *where* a caller may come from, and a `roles/run.invoker` binding for exactly `HUSSH_POD_INVOKER_MEMBER` decides *who* they must be. `allUsers` is refused in code, not merely omitted from the diagram.
+Pod container rule: a pod has no hub Postgres credential or vault data key. Hub-owned information reads travel pod → hub → Postgres over `HUSSH_HUB_BASE_URL`; a configured BYOC pod can also reach its owner's encrypted commit-log bucket and KMS for recovery. Default hub-only reachability uses internal ingress plus the narrow hub `roles/run.invoker` binding. A separately gated dev direct mode uses public ingress and a public Cloud Run invoker, with pod-level signed binding and session admission as its application lock. Do not mistake public transport reachability for information authority.
 
 ## Component View
 
@@ -234,6 +245,8 @@ View metadata:
 
 ```mermaid
 flowchart TB
+  accTitle: Consent Protocol components
+  accDescr: Policy, services, and agent components within the hub.
   fastapi["FastAPI ingress<br/>routes and middleware"]
 
   subgraph policy["Trust and policy components"]
@@ -312,6 +325,8 @@ View metadata:
 
 ```mermaid
 sequenceDiagram
+  accTitle: Consented encrypted export
+  accDescr: Ordered approval and scoped encrypted export flow.
   participant Connector as Connector or MCP host
   participant MCP as Hussh MCP / Developer API
   participant Kai as Kai approval surface
@@ -348,6 +363,8 @@ View metadata:
 
 ```mermaid
 sequenceDiagram
+  accTitle: One and Kai delegation
+  accDescr: Scoped specialist delegation inside the agent runtime.
   participant User as User
   participant One as Agent One
   participant Policy as Consent / vault / route guards
@@ -382,6 +399,8 @@ View metadata:
 
 ```mermaid
 sequenceDiagram
+  accTitle: Portfolio import flow
+  accDescr: Statement import and consented information flow.
   participant User as User
   participant Kai as Kai import surface
   participant Import as Portfolio Import Agent
@@ -461,6 +480,8 @@ View metadata:
 
 ```mermaid
 sequenceDiagram
+  accTitle: One Email KYC flow
+  accDescr: Mailbox and identity workflow boundaries.
   participant Mail as One mailbox / Gmail
   participant Backend as One Email KYC backend workflow
   participant Client as One KYC client surface
@@ -492,11 +513,13 @@ View metadata:
 
 ```mermaid
 sequenceDiagram
+  accTitle: Pod provisioning and first turn
+  accDescr: Hosting choice, pod provisioning, identity handshake, and a relayed turn.
   participant User as User
   participant Web as hushh-webapp
   participant Hub as Consent Protocol hub
   participant Run as Cloud Run Admin API
-  participant Pod as one-pod-&lt;HusshID&gt;
+  participant Pod as owner Cloud Run pod
   participant DB as Postgres
 
   User->>Web: Choose a hosting path
@@ -509,21 +532,20 @@ sequenceDiagram
     User->>Web: Connect a supported AI model
     Web->>Hub: Validate the connection
     Hub->>Hub: Verify the connection against its provider
-    Note over Hub: Provision only for the already-assigned pod target,<br/>after model access verifies.
+    Note over Hub: Provision the assigned pod only after model access verifies.
     Hub->>DB: Registry row -> connecting
-    Hub->>Run: Create service, internal ingress, zero-role SA
+    Hub->>Run: Create service, hub-only ingress by default
     Hub->>Run: Bind roles/run.invoker to the hub identity only
     Run-->>Pod: Start container
-  Pod->>Pod: Generate the pod keypair in memory
+  Pod->>Pod: Recover durable pod identity or create a new keypair
   Pod->>Hub: Heartbeat with ID token
-  Note over Hub,Pod: The hub PULLS the public key; the pod never pushes it.<br/>A fleet-shared SA proves "a hussh pod", never WHICH pod,<br/>so a pushed key could be registered against another owner.
   Hub->>Pod: Fetch the public key
   Hub->>DB: Registry row -> provisioned
 
   User->>Web: Ask the agent something
   Web->>Hub: Turn request
-  Hub->>Hub: Issue or reuse the standing pkm.read grant
-  Hub->>Pod: Relay the turn: owner-scoped consent token + the owner's own AI key
+  Hub->>Hub: Authorize owner-scoped information access
+  Hub->>Pod: Relay the turn with scoped authority and configured model access
   Pod->>Pod: Verify the token with the PUBLIC half only
   Pod->>Hub: Read the records the grant allows
   Hub->>DB: Read on the pod's behalf
@@ -538,7 +560,7 @@ Assigned-pod journey rules:
 
 - **Placement and model access are separate.** No assignment plus no pending setup resolves to Hussh Shared. A verified AI connection may start provisioning only for an assigned BYOC or Hussh Pods target.
 - **The AI connection is the provisioning gate.** No assigned pod is created until supported model access verifies.
-- **The pod thinks on the owner's key.** BYOK per turn is what keeps the pod's service account at zero roles: a managed model would need an ambient identity, and that identity would be shared across the fleet.
+- **Model access follows the hosting target.** A turn may use owner-supplied BYOK, a configured Vertex identity in the owner's project, or managed Vertex where that tier is enabled. Do not describe every pod as zero-role or every turn as BYOK; Vertex paths require scoped IAM.
 - **The pod verifies consent, it cannot mint it.** It carries `CONSENT_ED25519_PUBLIC_KEYS`, the verifying half only, so it can check a token at its own door while holding nothing that could forge one.
 - **Silence means different things at different tiers.** A `warm` pod (minScale ≥ 1) that stops heart-beating is a fault; an `economy` pod (minScale 0) that goes quiet is healthy and scaled to zero. Never draw one liveness rule for both.
 
@@ -554,6 +576,8 @@ BYOC-gated compatibility path and does not prove same-pod connectivity.
 
 ```mermaid
 flowchart LR
+  accTitle: Puppy BYOC inference
+  accDescr: Owner and device binding with conditional direct pod connection.
   App["One app"] -->|pinned owner pod endpoint| Pod["Owner BYOC pod<br/>deployment_target = user_gcp"]
   Hub["Hussh hub<br/>authenticated owner + device authority"] -->|signed binding with puppy.inference| Device["Trusted Puppy device"]
   Device -.->|direct WebSocket<br/>client wiring pending| Pod
@@ -582,6 +606,8 @@ View metadata:
 
 ```mermaid
 flowchart TB
+  accTitle: Hussh deployment topology
+  accDescr: Build authority and separate dev, UAT, and production runtime lanes.
   subgraph local["Local development"]
     localWeb["Next.js dev server<br/>localhost:3000"]
     localBackend["Consent Protocol local backend<br/>development profile"]
@@ -606,7 +632,7 @@ flowchart TB
     devBackend["Cloud Run service<br/>consent-protocol (the hub)"]
     devApp["App origin<br/>https://dev.one.hushh.ai"]
     devDb["Dev Cloud SQL / Postgres<br/>hushh-pda-dev:us-central1:hushh-dev-pg"]
-    devPods["Per-user pod fleet<br/>one-pod-&lt;HusshID&gt;, app=hussh-one-pod<br/>internal ingress, zero-role SA, 500m/1Gi"]
+    devPods["Per-user pod fleet<br/>one-pod-&lt;HusshID&gt;, app=hussh-one-pod<br/>hub-only default; direct ingress is a dev pilot"]
     devPodSa["Pod runtime identity<br/>hussh-one-pod@hushh-pda-dev<br/>no project roles"]
   end
 
@@ -717,24 +743,33 @@ Dev lane rules:
 - Dev accepts **any CI-green ref**, not only `main`, which is what makes it the lane for previewing an unmerged branch. It **never promotes** — a dev deploy is not a step toward UAT.
 - Dev is **shared and costed**. A dispatch replaces whatever was last deployed, and live pods left running spend money, so the fleet is checked before pods are created and torn down after.
 - The dev hub keeps the **UAT runtime identity** (`_RUNTIME_ENVIRONMENT=uat`) so behaviour matches the next lane up. Read the deploy *lane* from `_DEPLOY_ENV`, not from the runtime environment name — they deliberately differ.
-- The pod runtime identity holds **no project roles**. It is shared across the fleet, which is why an ID token from it proves only that a caller is *a* pod and never *which* pod — the reason the hub pulls a pod's key rather than accepting a pushed one.
+- The managed fleet's shared pod runtime identity holds **no project roles**; its ID token proves only that a caller is *a* pod, not *which* pod. BYOC has a separate owner-project identity with narrowly scoped storage, KMS, and optional Vertex permissions. The hub pulls a pod's key rather than accepting a pushed one.
 
 ### Dev BYOC image and private-agent flow
 
-This view joins the build artifact to the request path. It describes the checked-in
-dev BYOC design; a successful build or a published release does not prove that an
-owner pod has installed that image or that direct ingress is live.
+Deployment and request-flow view for founders, CTOs, platform engineers, and
+security reviewers. It joins the build artifact to the request path. The hub
+and frontend deploy paths are current; the pod image build is conditional on
+the explicit dev build flag. BYOC setup and direct ingress are gated dev paths,
+not evidence of a live owner installation. Source anchors: `deploy/backend.cloudbuild.yaml`,
+`consent-protocol/Dockerfile.pod`, `consent-protocol/hushh_mcp/services/user_gcp_backend.py`,
+`consent-protocol/hushh_mcp/services/pod_image_copy.py`,
+`consent-protocol/hushh_mcp/services/pod_binding_service.py`, and
+`hushh-webapp/lib/services/owner-pod-endpoint.ts`.
 
 ```mermaid
 flowchart LR
+  accTitle: Dev BYOC image and private agent flow
+  accDescr: Conditional pod image build, owner registry copy, Hussh hub control, and admitted direct turns.
   source["CI-green source SHA"] --> build["Cloud Build"]
   build --> webImage["Frontend image"]
   build --> hubImage["Hub backend image"]
-  build --> podImage["Private-agent image<br/>Dockerfile.pod, immutable digest"]
+  build -.->|"dev build flag"| podImage["Private-agent image<br/>Dockerfile.pod, immutable digest"]
   webImage --> web["Frontend<br/>hushh-webapp"]
   hubImage --> hub["Hussh hub backend<br/>identity, consent, pod control"]
   podImage -->|"owner-scoped copy"| ownerRegistry["Owner Artifact Registry<br/>digest-pinned BYOC copy"]
   ownerRegistry -->|"authorized setup or approved update"| pod["Owner Cloud Run pod<br/>pod_server + private Agent One runtime"]
+  pod -->|"encrypted recovery, when configured"| ownerStore["Owner GCS bucket + KMS"]
   web -->|"login, discovery, consent, Shared turns"| hub
   hub -->|"provision, bind, update, reconcile"| pod
   hub -->|"private ingress turn relay"| pod
@@ -743,14 +778,16 @@ flowchart LR
   web -.->|"direct HTTPS turns only after verified admission"| pod
 ```
 
-The frontend, hub, and pod are separate images. Cloud Build creates the pod image;
-the hub copies its digest into the owner's registry before BYOC installation. The
+The frontend, hub, and pod are separate images. An explicitly selected dev build
+creates the pod image; the hub copies its resolved digest into the owner's
+registry for authorized BYOC setup or an approved update. Reconcile and heal
+preserve the installed digest instead of silently changing the version. The
 hub remains the control and consent authority. A direct browser-to-pod turn is
 conditional on a verified owner endpoint, binding, pod session, and live ingress.
 Before direct cutover, the private hub relay is the pod path; after cutover, a
 failed direct turn is surfaced rather than silently rerouted. Shared turns stay
-on the hub runtime and do not create an owner pod. The pod has no direct store
-credential; its scoped reads return through the hub.
+on the hub runtime and do not create an owner pod. Hub-owned information reads
+return through the hub; encrypted BYOC recovery uses owner-owned storage.
 
 ## Data Boundary View
 
@@ -765,10 +802,13 @@ View metadata:
 
 ```mermaid
 flowchart LR
+  accTitle: Hussh information boundary
+  accDescr: Hub, pod, owner recovery, and partner information boundaries.
   userDevice["User device / first-party client<br/>vault unlock, local keys, temporary plaintext"]
   memory["Process/browser memory<br/>decrypted PKM only while needed"]
   husshCloud["Hussh cloud runtime — the hub<br/>policy, workflow, export metadata"]
-  pod["Per-user pod<br/>NO database credential, NO vault data key<br/>consent VERIFYING key only, BYOK key per turn"]
+  pod["Per-user pod<br/>no hub database credential or vault data key<br/>scoped authority and configured model access"]
+  ownerRecovery["BYOC owner cloud<br/>encrypted commit log + KMS"]
   pkmBlobs["pkm_blobs<br/>ciphertext, iv, tag, revisions"]
   pkmManifests["PKM manifests and scope registry<br/>metadata and handles"]
   pkmIndex["pkm_index<br/>discovery-safe projection/cache"]
@@ -787,14 +827,15 @@ flowchart LR
   husshCloud -->|ciphertext scoped export| connector
   connector -->|local decrypt, explicit partner policy| crm
 
-  husshCloud <-->|"only door: scoped by the standing grant"| pod
-  pod -.->|"never: no credential exists"| pkmBlobs
+  husshCloud <-->|"hub-owned reads, scoped consent"| pod
+  pod -->|"BYOC encrypted recovery, when configured"| ownerRecovery
+  pod -.->|"no hub database credential"| pkmBlobs
 ```
 
 Boundary rules:
 
 - Vault keys and decrypted PKM stay memory-only.
-- **A pod holds no data-plane credential.** No Postgres connection string, no vault data key. Every record it reads travels pod → hub → Postgres, scoped by the standing `pkm.read` grant, which is why the dotted arrow above is a prohibition and not a lane. The hub is the only door, and that is what makes the pod's zero-role service account meaningful rather than cosmetic.
+- **A pod holds no hub database credential or vault data key.** Hub-owned Postgres reads go through the hub under scoped authority. A configured BYOC pod separately accesses its owner's encrypted commit log and KMS and keeps an encrypted local working copy. The dotted arrow prohibits direct hub database reads; it does not prohibit owner-cloud recovery.
 - **A pod verifies consent; it cannot mint it.** It carries `CONSENT_ED25519_PUBLIC_KEYS` — the verifying half only. Signing material reaches a pod by reference (`secretKeyRef`), never as a rendered value, because with HMAC the power to verify is the power to forge.
 - **A BYOK model key is turn-bounded.** It arrives with the request and is isolated by construction from backend ADC and environment keys; it is never rendered into a deploy artifact and never persisted in the pod.
 - `pkm_blobs` stores encrypted private content.
@@ -819,7 +860,7 @@ Boundary rules:
 | KYC | agent | Identity/KYC workflow specialist manifest | `consent-protocol/hushh_mcp/agents/kyc/agent.yaml` |
 | Portfolio Import Agent | agent | Statement/CSV/PDF/image import specialist | `consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml` |
 | Memory agents | agents | PKM segmentation, intent, merge, structure, summary reduction | `consent-protocol/hushh_mcp/agents/*/agent.yaml` |
-| Private Agent One pod | container / deployment node | One Cloud Run service per person, `one-pod-<HusshID>`; internal ingress, no `allUsers`, zero-role shared SA, 500m/1Gi, no data-plane credential. Dev lane only. | `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/pod_server.py` |
+| Private Agent One pod | container / deployment node | One Cloud Run service per person, `one-pod-<HusshID>`; hub-only ingress by default, separately gated dev direct mode. Managed fleet uses a shared zero-role SA; BYOC uses scoped owner-project IAM for storage, KMS, and optional Vertex. No hub Postgres credential. Dev lane only. | `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/hushh_mcp/services/user_gcp_backend.py`, `consent-protocol/pod_server.py` |
 | Pod fleet control plane | component | Provisions after the AI connection verifies, pulls the pod key on heartbeat, reconciles stalled rows, tears down on account deletion | `consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py`, `consent-protocol/api/routes/one/pod_heartbeat.py` |
 | Compute backend seam | interface | One contract, many hosts: `gcp` (FedRAMP-High tier, live-wired), `anypoint` (mass tier, plan-mode), `user_gcp` (BYO-Compute), `null` (inert default) | `consent-protocol/hushh_mcp/services/compute_backend.py` |
 | Dev Cloud Run lane | deployment node | `hushh-pda-dev`, `us-central1`, `consent-protocol`, `hushh-webapp`, plus the per-user pod fleet. Any CI-green ref; never promotes. | `.github/workflows/deploy-dev.yml`, `docs/reference/operations/dev-fast-lane.md` |

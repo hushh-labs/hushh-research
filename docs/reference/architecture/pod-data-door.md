@@ -8,7 +8,7 @@ in-pod; without the door it reports `runtime_unavailable`. **`runtime_unavailabl
 is the honest state _before_ a specialist's door is opened, never the destination.**
 
 The door is the read-path around the wall. The pod does not gain a credential; it
-asks the **hub broker** to run one fixed, read-only read on the owner's own project
+asks the **hub broker** to run one fixed, owner-scoped, read-only backend or provider read
 and hand back a **fail-closed projection**. This is the mechanism behind the
 north-star's "staged door-by-door plan."
 
@@ -16,14 +16,16 @@ north-star's "staged door-by-door plan."
 
 ```mermaid
 flowchart TB
+  accTitle: Pod specialist information door
+  accDescr: Scoped pod request, hub broker read, and fail-closed specialist projection.
   relay["Hub relay<br/>mints a short-TTL per-specialist scope, best-effort"]
   pod["Keyless pod<br/>no DB credential, no OAuth token"]
   broker["Hub broker (pod_specialist)<br/>verify_pod_identity + re-validate scope + owner bind"]
-  read["One fixed READ-ONLY read on the owner's own project<br/>location: list_state(read_only) · email: list_nudges (OAuth) · calendar: list_events (OAuth)"]
+  read["One fixed owner-scoped READ-ONLY backend or provider read<br/>location: list_state(read_only) · email: list_nudges (OAuth) · calendar: list_events (OAuth)"]
   projection["Fail-closed projection (pod_data_door)<br/>allow-list only: no body, no PII, no key, no resource handle"]
   summary["Deterministic summary rendered IN the pod<br/>_format_X_summary, from the projection"]
 
-  relay -->|couriers dataDoorGrants[name] into the turn| pod
+  relay -->|"couriers dataDoorGrants[name] into the turn"| pod
   pod -->|hands the scope token back to the broker| broker
   broker -->|A's scope on B's pod is refused| read
   read -->|raw owner state| projection

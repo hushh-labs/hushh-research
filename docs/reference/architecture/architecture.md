@@ -6,6 +6,8 @@
 
 ```mermaid
 flowchart TB
+  accTitle: Seven layer platform architecture
+  accDescr: The seven Hussh platform layers from infrastructure to channels.
   l7["7. Channels, Ecosystem, and Distribution<br/>Kai, RIA, developer API, MCP, external hosts"]
   l6["6. Experience and Interaction<br/>web, iOS, Android, voice, search, action surfaces"]
   l5["5. Intelligence and Agent<br/>Kai agents, ADK surfaces, debate, delegations, operons"]
@@ -73,51 +75,59 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
 ## 1a. Per-User Compute — the Private Agent One pod
 
 **Purpose:** give each person their own agent runtime, on compute that is theirs,
-reachable only through the hub.
+under a hub-governed owner assignment. Managed and BYOC targets have different
+cloud identities and custody. The [container view](./architecture-view-catalog.md#container-view)
+and [BYOC image flow](./architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow)
+show those boundaries together.
 
-The pod is the physical answer to "Own your AI. Own your data. Own your compute."
-Every property below is a constraint that makes a compromised pod uninteresting
-rather than catastrophic, and each one is enforced in the rendered artifact — not
-in a runbook.
+BYOC is the owner-compute path behind "Own your AI. Own your data. Own your compute."
+The properties below distinguish the default hub-only path from the gated dev
+direct and BYOC paths. They are source contracts, not proof of a live rollout.
 
 | Property | Value | Why it is that value |
 |---|---|---|
-| Identity | a service account holding **no project roles** | a stolen pod identity grants nothing to steal with |
-| Ingress | `internal`, no `allUsers` binding | non-targetability; the hub is the only door |
-| Invoker | exactly one member — the hub's runtime SA | IAM controls *who*, which is stronger than ingress's *where* |
-| Database | **none** — no Postgres credential, no vault key | the data plane travels pod → hub → Postgres |
-| Model access | the **owner's** key, supplied per turn | cost and quota land on the person whose agent is working |
-| CPU / memory | 500m / 1Gi, declared not inherited | measured at 211.9 MB idle; an unstated size is the platform choosing for us |
+| Identity | Managed fleet: shared zero-role SA; BYOC: scoped owner-project SA | Pod identity must be bound to the owner deployment; BYOC storage, KMS, and optional Vertex access use owner-project IAM |
+| Ingress | Internal by default; direct public ingress only in the gated dev pilot | Public Cloud Run reachability requires pod-level signed binding and session admission |
+| Invoker | Hub-only binding by default; public Cloud Run invoker for the direct pilot | Cloud Run transport admission and private-agent authority are separate checks |
+| Information | No hub Postgres credential or vault data key | Hub-owned reads return through consented hub routes; BYOC encrypted recovery uses the owner's bucket and KMS |
+| Model access | Owner BYOK, owner-project Vertex, or managed Vertex as configured by tier | Neither BYOK nor a zero-role SA is universal |
+| CPU / memory | Managed default 500m / 1Gi; BYOC is rendered for its target | Check the actual deployment artifact for the selected tier |
 | maxScale | **1**, for correctness | the storage engine assumes a single writer per pod |
 | CPU allocation | held between requests on the warm tier | the pod's own heartbeat is a background loop; throttled, it cannot run |
 
 ### The journey, and why its order is the architecture
 
+This sequence shows the default hub-only managed pod path for an account with a
+pod assignment. BYOC adds owner-project identity and encrypted recovery;
+direct browser admission is a separate, dev-gated flow in the
+[BYOC image and private-agent diagram](./architecture-view-catalog.md#dev-byoc-image-and-private-agent-flow).
+
 ```mermaid
 sequenceDiagram
+  accTitle: Private agent pod first turn
+  accDescr: Model validation, pod provisioning, and hub-relayed first turn.
     autonumber
     actor P as Person
     participant W as One webapp
     participant H as Hub (consent-protocol)
     participant R as Cloud Run Admin
-    participant D as Pod (one-pod-&lt;HusshID&gt;)
+    participant D as Owner Cloud Run pod
 
-    P->>W: Choose an AI — managed, or my own key
-    W->>H: POST /api/one/runtime/managed/select<br/>or /gemini/validate
+    P->>W: Connect a supported AI model for an assigned pod
+    W->>H: Validate managed or owner model connection
     H->>H: Prove it with a REAL generation
-    Note over H: No working connection, no pod.<br/>Provisioning on sign-in stands up billable<br/>compute behind an event that says nothing<br/>about whether the agent could ever think.
-    H->>R: Create service · zero-role SA · internal ingress
+    Note over H: No working model connection means no pod provisioning.
+    H->>R: Create service · tier-scoped SA · hub-only ingress
     R-->>H: URL recorded in backend_metadata
     H->>H: Row → connecting
-    D->>D: Boot · generate keypair
+    D->>D: Boot · recover identity or create keypair
     D->>H: POST /api/one/pod/heartbeat (first beat)
-    Note over H,D: The beat SELECTS a row; it never carries the key.<br/>Every pod shares one SA, so a pod's token proves<br/>"a hussh pod", never WHICH pod.
     H->>D: GET /pod/public-key at the URL the hub itself recorded
     D-->>H: public key
-    H->>H: Row → provisioned · mint standing pkm.read
+    H->>H: Row → provisioned
     P->>W: Ask the agent something
-    W->>H: POST /api/one/u/&lt;HusshID&gt;/turn
-    H->>H: Owner check, audited · mint/reuse pkm.read
+    W->>H: POST the owner turn route
+    H->>H: Authorize owner-scoped information access
     H->>D: POST /api/one/pod/turn + X-Consent-Token
     D->>D: Verify owner binding · ask hub if consent is live
     D-->>H: answer
@@ -130,15 +140,14 @@ was a decision:
 1. **The AI connection is verified before any compute exists.** Provisioning used
    to fire on phone verification, which put a billable, warm, heartbeating service
    behind an event that says nothing about whether the agent could ever answer.
-2. **The hub pulls the key; the pod never pushes it.** A pod's ID token proves it
-   is *a* hussh pod, never *which* one, because the fleet shares a service account.
+2. **The hub pulls the key; the pod never pushes it.** A managed-fleet pod's ID token proves it
+   is *a* hussh pod, never *which* one, because that fleet shares a service account.
    A pushed key could therefore be registered against someone else's row. Because
    the beat only selects a row and the key still comes from the URL the hub wrote
    at creation, a lying pod gains nothing.
-3. **The turn runs on a renewed `pkm.read` grant.** The only token a browser holds
-   is `vault.owner` — the master grant. Forwarding that would hand every pod
-   everything its person has, so the relay mints least privilege server-side and
-   the request model has no field for a caller-supplied token.
+3. **The relayed turn uses scoped authority.** The hub verifies the owner and
+   grants access to only the information needed for the turn. A separately
+   admitted direct turn does not silently fall back to the relay on failure.
 
 ### Fleet capacity
 
@@ -155,10 +164,10 @@ their agent is being built.
 
 ### What is not true yet
 
-The hub serving dev can create a pod and a pod can run a turn; every flag is live
-on the serving revision. **No pod has yet served a turn for a real person**, which
-needs an account with a verified phone and a validated AI key. Until that happens
-this section describes a capability, not a track record.
+These diagrams describe checked-in dev paths. They do not prove that a particular
+owner has installed the current image, completed direct ingress admission, or
+passed a real-device Puppy rehearsal. Those require revision-bound serving and
+owner acceptance evidence.
 
 ## 2. Core Platform Services Layer
 
@@ -344,6 +353,8 @@ this section describes a capability, not a track record.
 
 ```mermaid
 flowchart LR
+  accTitle: Hussh integration model
+  accDescr: Identity, trust, services, information, agents, and channels.
   identity["Identity + local unlock"]
   token["Capability Token"]
   experience["Experience surfaces<br/>Kai, consent, mobile"]
@@ -368,6 +379,8 @@ The integration rule is simple: identity establishes authority, authority gates 
 
 ```mermaid
 flowchart TB
+  accTitle: Hussh deployment model
+  accDescr: Frontend, transport, backend, and information deployment boundaries.
   subgraph channels["Channel layer"]
     web["Web browser"]
     mobile["iOS + Android shells"]
@@ -423,6 +436,8 @@ flowchart TB
 
 ```mermaid
 sequenceDiagram
+  accTitle: Trust establishment and unlock
+  accDescr: Identity and vault unlock sequence.
   actor User
   participant App as Hussh app
   participant Identity as Identity provider
@@ -442,6 +457,8 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+  accTitle: Kai scoped analysis
+  accDescr: Consented finance specialist analysis sequence.
   actor User
   participant Kai as Kai surface
   participant Service as Typed service layer
@@ -463,6 +480,8 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+  accTitle: Developer consent and export
+  accDescr: PCHP scoped request and export sequence.
   participant Host as External host
   participant Dev as Developer API / MCP
   participant Kai as Kai approval surface
@@ -486,6 +505,8 @@ entrypoints use separate mechanisms and authority checks.
 
 ```mermaid
 flowchart LR
+  accTitle: One agent invocation
+  accDescr: Private agent invocation and authority boundaries.
   subgraph local["One ADK process"]
     one["One root agent"]
     tool["ADK AgentTool child"]
@@ -517,6 +538,8 @@ handler or prove official A2A v1 release readiness.
 
 ```mermaid
 sequenceDiagram
+  accTitle: Shared action execution
+  accDescr: Web and mobile action execution sequence.
   actor User
   participant Surface as Hussh surface
   participant Action as Generated action plane
