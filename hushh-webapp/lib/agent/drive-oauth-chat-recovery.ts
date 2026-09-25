@@ -16,6 +16,12 @@ export type DriveChatRecoveryReason =
   | "native_oauth"
   | "native_picker";
 
+export type CustomConnectorRecoveryReference = { connectorId: string; revision: string };
+function validCustomReference(value: CustomConnectorRecoveryReference | undefined): boolean {
+  return value === undefined || Boolean(value && /^custom_[a-f0-9]{32}$/.test(value.connectorId) &&
+    /^[a-f0-9-]{36}$/i.test(value.revision));
+}
+
 export type DriveChatRecoveryState = {
   conversationId: string | null;
   input: string;
@@ -42,6 +48,7 @@ type DriveChatRecoveryMarker = {
   attemptId: string;
   reason: DriveChatRecoveryReason;
   expiresAt: number;
+  customConnector?: CustomConnectorRecoveryReference;
 };
 
 function readMarker(key: string): DriveChatRecoveryMarker | null {
@@ -53,7 +60,7 @@ function readMarker(key: string): DriveChatRecoveryMarker | null {
       !ATTEMPT_ID.test(value.attemptId || "") ||
       !["web_full_page", "native_oauth", "native_picker"].includes(value.reason || "") ||
       !Number.isFinite(value.expiresAt) ||
-      (value.expiresAt ?? 0) <= Date.now()
+      (value.expiresAt ?? 0) <= Date.now() || !validCustomReference(value.customConnector)
     ) return null;
     return value as DriveChatRecoveryMarker;
   } catch {
@@ -130,11 +137,12 @@ export async function saveDriveChatRecovery(input: {
   attemptId: string;
   reason: DriveChatRecoveryReason;
   state: DriveChatRecoveryState;
+  customConnector?: CustomConnectorRecoveryReference;
 }): Promise<void> {
   if (
     !input.ownerUserId ||
     !ATTEMPT_ID.test(input.attemptId) ||
-    !validState(input.state)
+    !validState(input.state) || !validCustomReference(input.customConnector)
   ) {
     throw new Error("Invalid Drive chat recovery state.");
   }
@@ -166,6 +174,7 @@ export async function saveDriveChatRecovery(input: {
       attemptId: input.attemptId,
       reason: input.reason,
       expiresAt: capsule.expiresAt,
+      ...(input.customConnector ? { customConnector: input.customConnector } : {}),
     } satisfies DriveChatRecoveryMarker));
     window.sessionStorage.removeItem(RETURN_KEY);
   } catch {

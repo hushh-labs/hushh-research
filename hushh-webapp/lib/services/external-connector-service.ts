@@ -181,6 +181,27 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
+  /** Explicit connection only. Never used as an automatic tool-call retry. */
+  static async privateMcpOAuth(input: {
+    vaultOwnerToken: string; connectorId: string;
+    operation: "begin" | "complete" | "cancel";
+    payload: Record<string, unknown>; signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<unknown> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    if (!/^custom_[a-f0-9]{32}$/.test(input.connectorId) || !current()) throw new Error("Your connection changed.");
+    const response = await ApiService.apiFetch(`/api/connectors/${input.connectorId}/mcp/oauth/${input.operation}`, {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify(input.payload),
+    });
+    if (!response.ok || !current()) throw new Error("Connection was not completed. Please connect again.");
+    if (response.status === 204) return null;
+    const value: unknown = await response.json();
+    if (!current()) throw new Error("Your connection changed.");
+    return value;
+  }
+
   static async refreshMcpCatalog(input: {
     vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
     signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;

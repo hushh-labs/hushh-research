@@ -3799,6 +3799,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const prepareDriveChatRecovery = useCallback(async (request: {
     attemptId: string;
     reason: DriveChatRecoveryReason;
+    customConnector?: { connectorId: string; revision: string };
   }): Promise<"ready" | "busy" | "unavailable"> => {
     if (
       !user?.uid ||
@@ -3832,6 +3833,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey,
         attemptId: request.attemptId,
         reason: request.reason,
+        customConnector: request.customConnector,
         state,
       });
       const live = recoveryUiRef.current;

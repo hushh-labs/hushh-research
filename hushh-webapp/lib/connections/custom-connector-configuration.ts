@@ -16,6 +16,13 @@ const endpoint = z.string().max(2048).refine(value => {
   } catch { return false; }
 });
 
+const oauthClientInfo = z.object({
+  client_id: boundedSecret,
+  client_secret: boundedSecret.optional(),
+  token_endpoint_auth_method: z.enum(["none", "client_secret_post", "client_secret_basic"]).optional(),
+  redirect_uris: z.array(z.string().url().max(2048)).min(1).max(8),
+}).strip();
+
 const configurationSchema = z.object({
   version: z.literal(1),
   connectorId: identifier,
@@ -36,6 +43,7 @@ const configurationSchema = z.object({
       accessToken: boundedSecret,
       expiresAt: z.number().int().positive(),
       refreshToken: boundedSecret.optional(),
+      clientInfo: oauthClientInfo.optional(),
     }).strict(),
   ]),
 }).strict();
@@ -43,7 +51,7 @@ const configurationSchema = z.object({
 export type CustomConnectorConfiguration = z.infer<typeof configurationSchema>;
 type Authentication = CustomConnectorConfiguration["authentication"];
 export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration, "authentication"> & {
-  authentication: Exclude<Authentication, { kind: "oauth" }> | Omit<Extract<Authentication, { kind: "oauth" }>, "refreshToken">;
+  authentication: Exclude<Authentication, { kind: "oauth" }> | Omit<Extract<Authentication, { kind: "oauth" }>, "refreshToken" | "clientInfo">;
 };
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
 
@@ -120,6 +128,34 @@ export async function loadCustomConnectorConfigurations(access: VaultAccess, for
   return Object.entries(await storedRecords(access, force)).map(([key, value]) => parseStoredRecord(key, value));
 }
 
+/** Accept only a fresh owner-bound result; credentials go directly to encryption.
+ * No implicit lifetime is invented for servers omitting token expiry.
+ */
+export async function saveCustomConnectorOAuthResult(
+  access: VaultAccess, connectorId: string, expectedRevision: string,
+  value: unknown, confirmation: PkmUserConfirmation, isCurrent: () => boolean,
+) {
+  const result = z.object({
+    tokens: z.object({
+      access_token: boundedSecret,
+      refresh_token: boundedSecret.optional(),
+      token_type: z.string().refine(type => type.toLowerCase() === "bearer"),
+    }).strip(),
+    clientInfo: oauthClientInfo,
+    expiresAt: z.number().int().positive(),
+  }).strict().safeParse(value);
+  if (!result.success || !isCurrent() || result.data.expiresAt <= Date.now() / 1000) throw invalidConfiguration();
+  const records = await loadCustomConnectorConfigurations(access, true);
+  if (!isCurrent()) throw invalidConfiguration();
+  const record = records.find(item => item.connectorId === connectorId);
+  if (!record || !record.enabled || record.revision !== expectedRevision) throw invalidConfiguration();
+  return saveCustomConnectorConfiguration(access, { ...record, authentication: {
+    kind: "oauth", accessToken: result.data.tokens.access_token,
+    expiresAt: result.data.expiresAt, clientInfo: result.data.clientInfo,
+    ...(result.data.tokens.refresh_token ? { refreshToken: result.data.tokens.refresh_token } : {}),
+  } }, confirmation, expectedRevision, isCurrent);
+}
+
 /** One encrypted record per edit; conflict recovery preserves sibling records. */
 export async function saveCustomConnectorConfiguration(
   access: VaultAccess,
@@ -135,9 +171,11 @@ export async function saveCustomConnectorConfiguration(
   // Every save invalidates prior call-review bindings, even if the caller
   // mistakenly reuses a draft revision. The generated revision is encrypted.
   record.revision = crypto.randomUUID();
+  const serialized = JSON.stringify(record);
+  if (serialized.length > 32000) throw invalidConfiguration();
   await PersonalKnowledgeModelService.storeRuntimeSecret({
     ...access, confirmation, credentialRef: reference(record.connectorId),
-    secret: JSON.stringify(record), expectedValue,
+    secret: serialized, expectedValue,
     ...(isCurrent ? { mayPublish: isCurrent } : {}),
   });
   return record;

@@ -75,6 +75,7 @@ type Props = {
   onPrepareRecovery?: (input: {
     attemptId: string;
     reason: DriveChatRecoveryReason;
+    customConnector?: { connectorId: string; revision: string };
   }) => Promise<"ready" | "busy" | "unavailable">;
   onClearRecovery?: () => Promise<void>;
 };
@@ -1369,6 +1370,7 @@ function OwnerConnectorsPanel({
             {!query && open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
               key={user.uid}
               access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+              onPrepareRecovery={onPrepareRecovery}
             /> : null}
           </>
         ) : (

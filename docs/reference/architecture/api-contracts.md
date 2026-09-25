@@ -1187,8 +1187,19 @@ connector, revision, SDK state and issuer. Its no-store result contains tokens a
 client registration for **browser-encrypted vault delivery only**. Both proxy and
 backend bound request bodies to 64KB. Restart or another worker fails closed;
 multiworker affinity and aggregate admission remain deployment prerequisites.
-The existing return page is still the legacy flow: these routes are not yet a
-usable web/native connection entry point, and refresh is not implemented here.
+Custom connector Settings now offers web Sign in when encrypted Chat recovery is
+available. It starts the private attempt, saves the existing encrypted recovery
+capsule plus opaque connector/revision references, and navigates in the same tab.
+The shared return page distinguishes this marker from legacy provider flows,
+removes callback query parameters, requires the same owner and an unlocked vault,
+and completes once. It forces a fresh connector snapshot, checks the original
+revision, and uses the existing CAS encrypted writer. Client registration and
+refresh credentials remain vault-only; turn projections contain only the access
+token and expiry. Missing/expired token lifetimes reject rather than inventing
+one. A tool refresh follows save, with a distinct recoverable refresh-failure
+message. This is covered by synthetic component/service tests, not live OAuth or
+physical-device proof. Native custom OAuth and refresh-token renewal remain
+unfinished; standard OAuth support is not proof of Workspace server compatibility.
 
 The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
 a fresh SDK provider until the issuer/token-endpoint binding is verified: its
