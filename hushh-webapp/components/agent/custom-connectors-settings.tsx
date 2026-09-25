@@ -28,6 +28,10 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [credential, setCredential] = useState("");
+  const [oauthIssuer, setOauthIssuer] = useState("");
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [oauthAuthMethod, setOauthAuthMethod] = useState<"none" | "client_secret_post" | "client_secret_basic">("none");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const lifetime = useRef<(() => boolean)>(() => false);
@@ -41,7 +45,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     lifetime.current = current;
     inFlight.current = false;
     setBusy(false); setCatalogs({}); setRemoving(null);
-    setItems([]); setCredential(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
+    setItems([]); setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(access, true).then(records => {
       if (!current()) return;
       setItems(records.map(({ connectorId, displayName, revision, enabled }) => ({ connectorId, displayName, revision, enabled })));
@@ -58,13 +62,18 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       const configuration: CustomConnectorConfiguration = {
         version: 1, connectorId: `custom_${crypto.randomUUID().replaceAll("-", "")}`,
         revision: crypto.randomUUID(), displayName: name.trim(), endpoint: endpoint.trim(), enabled: true,
+        ...(oauthIssuer || oauthClientId || oauthClientSecret ? { oauthRegistration: {
+          issuer: oauthIssuer.trim(), clientId: oauthClientId.trim(),
+          ...(oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
+          tokenEndpointAuthMethod: oauthAuthMethod,
+        } } : {}),
         authentication: credential ? { kind: "api_key", header: "Authorization", value: credential } : { kind: "none" },
       };
       const saved = await saveCustomConnectorConfiguration(access, configuration,
         { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, null, current);
       if (!current()) return;
       setItems(previous => [...previous, { connectorId: saved.connectorId, displayName: saved.displayName, revision: saved.revision, enabled: saved.enabled }]);
-      setCredential(""); setName(""); setEndpoint(""); setEditing(false);
+      setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setName(""); setEndpoint(""); setEditing(false);
     })();
     morphyToast.promise(operation, {
       loading: "Saving connector…", success: "Connector settings saved.",
@@ -106,7 +115,9 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       if (!configuration || !configuration.enabled || configuration.revision !== item.revision) throw new Error("Connector changed.");
       const result = await ExternalConnectorService.privateMcpOAuth({
         vaultOwnerToken: access.vaultOwnerToken, connectorId: item.connectorId, operation: "begin",
-        payload: { revision: item.revision, endpoint: configuration.endpoint }, signal: controller.signal, isEffectCurrent: current,
+        payload: { revision: item.revision, endpoint: configuration.endpoint,
+          ...(configuration.oauthRegistration ? { registeredClient: configuration.oauthRegistration } : {}) },
+        signal: controller.signal, isEffectCurrent: current,
       }) as { attemptId?: unknown; authorizeUrl?: unknown };
       if (!result || typeof result.attemptId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(result.attemptId) || typeof result.authorizeUrl !== "string") throw new Error("Invalid connection response.");
       attemptId = result.attemptId;
@@ -189,10 +200,18 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Server address<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Authorization header (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} onChange={event => setCredential(event.target.value)} /></label>
+      <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">OAuth client settings (if provided by your server)</summary>
+        <div className="space-y-3 pb-3">
+          <label className="block space-y-1">Authorization server issuer<Input type="url" placeholder="https://accounts.example.com" maxLength={2048} value={oauthIssuer} onChange={event => setOauthIssuer(event.target.value)} /></label>
+          <label className="block space-y-1">Client ID<Input maxLength={8192} autoComplete="off" value={oauthClientId} onChange={event => setOauthClientId(event.target.value)} /></label>
+          <label className="block space-y-1">Token authentication<select className="flex min-h-11 w-full rounded-[var(--app-input-radius)] border border-input bg-background px-3" value={oauthAuthMethod} onChange={event => setOauthAuthMethod(event.target.value as typeof oauthAuthMethod)}><option value="none">Public client</option><option value="client_secret_post">Client secret in request</option><option value="client_secret_basic">Client secret in header</option></select></label>
+          {oauthAuthMethod !== "none" ? <label className="block space-y-1">Client secret<Input type="password" autoComplete="off" maxLength={8192} value={oauthClientSecret} onChange={event => setOauthClientSecret(event.target.value)} /></label> : null}
+        </div>
+      </details>
       <p className="text-xs text-muted-foreground">Use a trusted server. Settings are encrypted in your vault. Each tool call requires review; saving does not sign you in.</p>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="standard" effect="fade" disabled={busy}>Save connector</Button>
-        <Button type="button" size="standard" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setEditing(false); }}>Cancel</Button>
+        <Button type="button" size="standard" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setEditing(false); }}>Cancel</Button>
       </div>
     </form> : <Button size="standard" variant="none" effect="fade" disabled={status !== "ready"} onClick={() => setEditing(true)}>Add connector</Button>}
     <AlertDialog open={Boolean(removing)} onOpenChange={open => { if (!open && !busy) setRemoving(null); }}>

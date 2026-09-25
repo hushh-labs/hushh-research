@@ -22,6 +22,13 @@ const oauthClientInfo = z.object({
   token_endpoint_auth_method: z.enum(["none", "client_secret_post", "client_secret_basic"]).optional(),
   redirect_uris: z.array(z.string().url().max(2048)).min(1).max(8),
 }).strip();
+const oauthRegistration = z.object({
+  issuer: endpoint,
+  clientId: boundedSecret,
+  clientSecret: boundedSecret.optional(),
+  tokenEndpointAuthMethod: z.enum(["none", "client_secret_post", "client_secret_basic"]),
+}).strict().refine(value => value.tokenEndpointAuthMethod === "none"
+  ? value.clientSecret === undefined : value.clientSecret !== undefined);
 
 const configurationSchema = z.object({
   version: z.literal(1),
@@ -31,6 +38,7 @@ const configurationSchema = z.object({
     .refine(value => !/[\x00-\x1f\x7f]/.test(value)),
   endpoint,
   enabled: z.boolean(),
+  oauthRegistration: oauthRegistration.optional(),
   authentication: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("none") }).strict(),
     z.object({
@@ -50,7 +58,7 @@ const configurationSchema = z.object({
 
 export type CustomConnectorConfiguration = z.infer<typeof configurationSchema>;
 type Authentication = CustomConnectorConfiguration["authentication"];
-export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration, "authentication"> & {
+export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration, "authentication" | "oauthRegistration"> & {
   authentication: Exclude<Authentication, { kind: "oauth" }> | Omit<Extract<Authentication, { kind: "oauth" }>, "refreshToken" | "clientInfo">;
 };
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
@@ -72,7 +80,8 @@ export function projectCustomConnectorTurnConfigurations(
     // Disabled connections therefore need not disclose credentials at all.
     if (!record.enabled) return [];
     const auth = record.authentication;
-    return [{ ...record, authentication: auth.kind === "oauth"
+    const { oauthRegistration: _oauthRegistration, ...turnRecord } = record;
+    return [{ ...turnRecord, authentication: auth.kind === "oauth"
       ? { kind: auth.kind, accessToken: auth.accessToken, expiresAt: auth.expiresAt }
       : auth }];
   });

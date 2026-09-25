@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
+from mcp.shared.auth import OAuthClientInformationFull
 
 from hushh_mcp.one_adk.mcp_oauth_connection import McpOAuthConnection
 from hushh_mcp.one_adk.mcp_oauth_storage import McpOAuthConnectError
@@ -63,7 +64,10 @@ async def test_attempt_registry_bounds_claim_and_owner_isolation(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
-async def test_connection_handshake_and_owner_bound_single_delivery(monkeypatch, cancel):
+@pytest.mark.parametrize("registered", [False, True])
+async def test_connection_handshake_and_owner_bound_single_delivery(
+    monkeypatch, cancel, registered
+):
     methods = []
 
     def respond(request):
@@ -113,6 +117,7 @@ async def test_connection_handshake_and_owner_bound_single_delivery(monkeypatch,
                 },
             )
         if path == "/register":
+            assert not registered
             return httpx.Response(
                 201,
                 json={
@@ -139,6 +144,14 @@ async def test_connection_handshake_and_owner_bound_single_delivery(monkeypatch,
         revision="revision",
         endpoint="https://mcp.example/mcp",
         redirect_uri="https://app.example/return",
+        registered_client=OAuthClientInformationFull(
+            client_id="synthetic-client",
+            redirect_uris=["https://app.example/return"],
+            token_endpoint_auth_method="none",  # noqa: S106 - synthetic public client
+        )
+        if registered
+        else None,
+        registered_issuer="https://auth.example" if registered else None,
     )
     monkeypatch.setattr(
         attempt._provider,

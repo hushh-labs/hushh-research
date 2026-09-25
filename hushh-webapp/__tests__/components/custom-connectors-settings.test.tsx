@@ -40,7 +40,9 @@ it("does not enable adding when the vault catalog cannot be read", async () => {
 });
 
 it("cancels OAuth rather than leave Chat when encrypted draft recovery is busy", async () => {
-  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const }, oauthRegistration: {
+    issuer: "https://auth.example", clientId: "synthetic-client", clientSecret: "synthetic-secret", tokenEndpointAuthMethod: "client_secret_post" as const,
+  } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
   vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValueOnce({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize" }).mockResolvedValueOnce(null);
   const prepare = vi.fn().mockResolvedValue("busy");
@@ -48,6 +50,9 @@ it("cancels OAuth rather than leave Chat when encrypted draft recovery is busy",
   fireEvent.click(await screen.findByRole("button", { name: "Sign in to Synthetic" }));
   await waitFor(() => expect(ExternalConnectorService.privateMcpOAuth).toHaveBeenCalledTimes(2));
   expect(prepare).toHaveBeenCalledWith({ attemptId: "a".repeat(43), reason: "web_full_page", customConnector: { connectorId: record.connectorId, revision: record.revision } });
+  expect(ExternalConnectorService.privateMcpOAuth).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    operation: "begin", payload: { revision: record.revision, endpoint: record.endpoint, registeredClient: record.oauthRegistration },
+  }));
   expect(ExternalConnectorService.privateMcpOAuth).toHaveBeenLastCalledWith(expect.objectContaining({ operation: "cancel" }));
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
 });

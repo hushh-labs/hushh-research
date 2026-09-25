@@ -83,6 +83,55 @@ def test_private_oauth_begin_requires_owner_and_fixed_return(route_client, monke
     assert client.post(path, content=b"x" * 64001).status_code == 413
 
 
+def test_private_oauth_begin_binds_registered_client_to_fixed_redirect(route_client, monkeypatch):
+    client, app, _ = route_client
+    path = "/api/connectors/custom_" + "a" * 32 + "/mcp/oauth/begin"
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    monkeypatch.setattr(
+        routes,
+        "get_app_runtime_settings",
+        lambda: SimpleNamespace(
+            environment="production",
+            app_frontend_origin="https://app.example",
+        ),
+    )
+    begin = AsyncMock(
+        return_value={"attemptId": "a" * 43, "authorizeUrl": "https://auth.example/start"}
+    )
+    monkeypatch.setattr(routes.mcp_oauth_attempts, "begin", begin)
+    body = {
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "endpoint": "https://mcp.example/mcp",
+        "registeredClient": {
+            "issuer": "https://auth.example",
+            "clientId": "synthetic-client",
+            "clientSecret": "synthetic-client-secret",
+            "tokenEndpointAuthMethod": "client_secret_post",
+        },
+    }
+    assert client.post(path, json=body).status_code == 200
+    kwargs = begin.await_args.kwargs
+    assert kwargs["registered_issuer"] == "https://auth.example"
+    assert [str(uri) for uri in kwargs["registered_client"].redirect_uris] == [
+        "https://app.example/one/profile/connectors/oauth/return"
+    ]
+    assert kwargs["registered_client"].client_secret == "synthetic-client-secret"
+    assert "synthetic-client-secret" not in repr(routes.McpOAuthBeginRequest(**body))
+    assert (
+        client.post(
+            path,
+            json={
+                **body,
+                "registeredClient": {
+                    **body["registeredClient"],
+                    "redirect_uris": ["https://evil.example"],
+                },
+            },
+        ).status_code
+        == 422
+    )
+
+
 def test_private_oauth_complete_is_private_and_sanitizes_failures(route_client, monkeypatch):
     client, app, _ = route_client
     path = "/api/connectors/custom_" + "a" * 32 + "/mcp/oauth/complete"

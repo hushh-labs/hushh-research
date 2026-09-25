@@ -12,7 +12,7 @@ import secrets
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 from hushh_mcp.one_adk.mcp_oauth_storage import (
     ConnectOnlyMcpOAuthProvider,
@@ -26,15 +26,27 @@ from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 class McpOAuthConnection:
     def __init__(
-        self, *, owner_id: str, connector_id: str, revision: str, endpoint: str, redirect_uri: str
+        self,
+        *,
+        owner_id: str,
+        connector_id: str,
+        revision: str,
+        endpoint: str,
+        redirect_uri: str,
+        registered_client: OAuthClientInformationFull | None = None,
+        registered_issuer: str | None = None,
     ):
         validate_mcp_endpoint(endpoint)
         if not owner_id or not connector_id or not revision:
+            raise McpOAuthConnectError()
+        if (registered_client is None) != (registered_issuer is None):
             raise McpOAuthConnectError()
         self._owner = owner_id
         self._connector = connector_id
         self._revision = revision
         self._endpoint = endpoint
+        self._registered_client = registered_client
+        self._registered_issuer = registered_issuer
         self._active = True
         self._task: asyncio.Task[OAuthVaultResult] | None = None
         self._redirect = asyncio.get_running_loop().create_future()
@@ -92,8 +104,15 @@ class McpOAuthConnection:
     async def start(self) -> str:
         if not self._active or self._task is not None:
             raise McpOAuthConnectError()
-        self._task = asyncio.create_task(self._run())
         try:
+            if self._registered_client is not None and self._registered_issuer is not None:
+                await self._provider.use_registered_client(
+                    self._registered_client, issuer=self._registered_issuer
+                )
+            # SDK storage now holds a bounded copy. Do not retain another.
+            self._registered_client = None
+            self._registered_issuer = None
+            self._task = asyncio.create_task(self._run())
             done, _ = await asyncio.wait(
                 (self._redirect, self._task), timeout=25, return_when=asyncio.FIRST_COMPLETED
             )
@@ -133,6 +152,8 @@ class McpOAuthConnection:
 
     def close(self) -> None:
         self._active = False
+        self._registered_client = None
+        self._registered_issuer = None
         self._expiry.cancel()
         self._provider.close()
         task, self._task = self._task, None

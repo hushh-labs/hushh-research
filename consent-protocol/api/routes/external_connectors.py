@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
+from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -185,10 +186,19 @@ class McpConfirmRequest(McpReviewRequest):
     confirmed: StrictBool
 
 
+class McpRegisteredClient(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issuer: str = Field(min_length=1, max_length=2048, repr=False)
+    clientId: str = Field(min_length=1, max_length=8192, repr=False)
+    clientSecret: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+    tokenEndpointAuthMethod: Literal["none", "client_secret_basic", "client_secret_post"]
+
+
 class McpOAuthBeginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: UUID
     endpoint: str = Field(min_length=1, max_length=4096, repr=False)
+    registeredClient: McpRegisteredClient | None = Field(default=None, repr=False)
 
 
 class McpOAuthAttemptRequest(BaseModel):
@@ -246,6 +256,17 @@ async def begin_private_mcp_oauth(
             revision=str(body.revision),
             endpoint=body.endpoint,
             redirect_uri=redirect_uri,
+            registered_client=(
+                OAuthClientInformationFull(
+                    client_id=body.registeredClient.clientId,
+                    client_secret=body.registeredClient.clientSecret,
+                    token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
+                    redirect_uris=[redirect_uri],
+                )
+                if body.registeredClient
+                else None
+            ),
+            registered_issuer=body.registeredClient.issuer if body.registeredClient else None,
         )
     except Exception:
         raise HTTPException(

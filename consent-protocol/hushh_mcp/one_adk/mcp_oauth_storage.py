@@ -204,8 +204,9 @@ class McpOAuthCallback:
 class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     """SDK OAuth restricted to setup, never an authorization retry around a write.
 
-    This is not an activated login API. The owning connection workflow must still
-    validate issuer/callback binding and use the public-only HTTP transport.
+    The owning connection workflow binds issuer/callback continuity and uses
+    the public-only HTTP transport. A pre-registered client is optional; its
+    admission does not configure a provider or prove live authentication.
     Fresh authorization only: vault refresh credentials must not enter a provider
     that has not yet established the authorization server/token endpoint.
     """
@@ -213,6 +214,39 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     def create_http_client(self) -> httpx.AsyncClient:
         """Caller closes the client; no environment proxies or automatic redirects."""
         return create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
+
+    async def use_registered_client(
+        self, client_info: OAuthClientInformationFull, *, issuer: str
+    ) -> None:
+        """Admit an owner-supplied registration, never an operator-owned secret.
+
+        The result is returned to the owner's vault. Issuer binding is supplied
+        with the registration, not inferred from an untrusted MCP challenge.
+        The SDK still owns PKCE, authorization and token exchange.
+        """
+        storage = self.context.storage
+        method = client_info.token_endpoint_auth_method or "none"
+        if (
+            self._initialized
+            or getattr(self, "_registered_issuer", None) is not None
+            or not isinstance(storage, EphemeralMcpOAuthStorage)
+            or client_info.redirect_uris != self.context.client_metadata.redirect_uris
+            or not isinstance(client_info.client_id, str)
+            or not 1 <= len(client_info.client_id) <= 8192
+            or method not in {"none", "client_secret_basic", "client_secret_post"}
+            or (method == "none" and client_info.client_secret is not None)
+            or (
+                method != "none"
+                and (
+                    not isinstance(client_info.client_secret, str)
+                    or not 1 <= len(client_info.client_secret) <= 8192
+                )
+            )
+        ):
+            raise McpOAuthConnectError()
+        validate_mcp_endpoint(issuer)
+        await storage.set_client_info(client_info)
+        self._registered_issuer = issuer
 
     def use_callback(
         self, callback: McpOAuthCallback, redirect: Callable[[str], Awaitable[None]]
@@ -248,6 +282,7 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
         self._admitted_metadata = None
         self._admitted_endpoints = {}
         self._advertised_issuer = None
+        self._registered_issuer = None
 
     async def take_result(self) -> OAuthVaultResult:
         """Deliver once, clearing SDK copies as well as the handoff storage."""
@@ -278,6 +313,9 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
             if not isinstance(servers, list) or not servers or not isinstance(servers[0], str):
                 raise McpOAuthConnectError()
             validate_mcp_endpoint(servers[0])
+            registered_issuer = getattr(self, "_registered_issuer", None)
+            if registered_issuer is not None and servers[0] != registered_issuer:
+                raise McpOAuthConnectError()
             # Preserve the exact advertised issuer, before SDK URL normalization.
             self._advertised_issuer = servers[0]
             self._admitted_endpoints = {}
@@ -286,6 +324,13 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
             issuer = getattr(self, "_advertised_issuer", None)
             if issuer is None or payload["issuer"] != issuer:
                 raise McpOAuthConnectError()
+            if getattr(self, "_registered_issuer", None) is not None:
+                # A resource server cannot impersonate the registered issuer
+                # merely by putting its name in a metadata JSON response.
+                source = urlsplit(str(outgoing.url))
+                authority = urlsplit(issuer)
+                if (source.scheme, source.netloc) != (authority.scheme, authority.netloc):
+                    raise McpOAuthConnectError()
             if "S256" not in (payload.get("code_challenge_methods_supported") or []):
                 raise McpOAuthConnectError()
             # Validate the complete SDK contract before admitting any endpoint.
@@ -339,6 +384,12 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
             elif request.method != "GET":
                 raise McpOAuthConnectError()
             if not self._initialized and await storage.get_tokens() is not None:
+                raise McpOAuthConnectError()
+            if (
+                not self._initialized
+                and await storage.get_client_info() is not None
+                and getattr(self, "_registered_issuer", None) is None
+            ):
                 raise McpOAuthConnectError()
             flow = super().async_auth_flow(request)
             async with asyncio.timeout(max(0, storage._deadline - time.monotonic())):
