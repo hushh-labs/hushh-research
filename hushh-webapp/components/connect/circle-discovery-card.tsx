@@ -149,11 +149,11 @@ export function CircleDiscoveryCard({
       data-auto-tour={autoTourActive ? "running" : "stopped"}
       className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
     >
-      <div className="relative text-center">
-        <h2 id={headingId} className="ui-text-major-section-title !text-lg sm:!text-2xl text-[color:var(--app-label)]">
+      <div className="relative grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] text-center md:block">
+        <h2 id={headingId} className="ui-text-major-section-title col-start-2 !text-lg sm:!text-2xl text-[color:var(--app-label)]">
           Circles
         </h2>
-        <p className="mx-auto mt-0.5 max-w-80 text-[11px] leading-3.5 sm:mt-1 sm:text-sm sm:leading-5 text-[color:var(--app-secondary-label)]">
+        <p className="col-start-1 col-span-2 mx-auto mt-0.5 max-w-80 text-[10px] leading-3 sm:mt-1 sm:text-sm sm:leading-5 text-[color:var(--app-secondary-label)]">
           Group people you trust. Choose what they can access.
         </p>
         <button
@@ -162,14 +162,14 @@ export function CircleDiscoveryCard({
           title="Create your own circle"
           disabled={Boolean(creating)}
           onClick={onCreateCircle}
-          className="absolute right-0 top-0 inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50 sm:px-2"
+          className="col-start-3 row-start-1 row-span-2 inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50 md:absolute md:right-0 md:top-0 md:px-2"
         >
           <Plus aria-hidden="true" className="size-4" />
-          <span className="sr-only sm:not-sr-only sm:text-xs sm:font-medium">Custom circle</span>
+          <span className="sr-only md:not-sr-only md:text-xs md:font-medium">Custom circle</span>
         </button>
       </div>
 
-      <div className="mx-auto mt-1 grid w-full max-w-[52rem] min-w-0 items-center gap-1 sm:mt-4 sm:gap-2 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:gap-6 lg:gap-8">
+      <div className="mx-auto mt-0.5 grid w-full max-w-[52rem] min-w-0 items-center gap-1 sm:mt-4 sm:gap-2 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:gap-6 lg:gap-8">
         <div
           className="relative mx-auto aspect-square w-[min(100%,11.25rem)] min-[390px]:w-[12rem] min-[420px]:w-[13rem] sm:w-[18rem] lg:w-[20rem]"
           data-testid="circle-discovery-orbit"
@@ -328,7 +328,7 @@ export function CircleDiscoveryCard({
                 onPointerDown={stopAutoTour}
                 onFocus={stopAutoTour}
                 onClick={handlePrimaryAction}
-                aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create ${starter.name}`}
+                aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle — ${starter.name}`}
                 className="relative !h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3 !text-xs sm:!text-base"
                 data-testid="circle-discovery-primary"
               >

@@ -321,6 +321,13 @@ for (const width of [320, 390, 640, 768, 1440]) {
       ) =>
         Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1 &&
         Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
+      const subtitle = await hero
+        .getByText("Group people you trust. Choose what they can access.")
+        .boundingBox();
+      const customAction = await hero
+        .getByRole("button", { name: "Create your own circle" })
+        .boundingBox();
+      expect(overlaps(subtitle!, customAction!)).toBe(false);
       for (let i = 0; i < boxes.length; i++) {
         const box = boxes[i]!;
         expect(box.width).toBeGreaterThanOrEqual(44);
@@ -356,7 +363,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
       path: testInfo.outputPath("new-user-finance.png"),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "Create Finance Circle" }).click();
+    await page.getByRole("button", { name: "Create a Circle — Finance Circle" }).click();
     await expect(
       page.getByRole("button", {
         name: "Explore Finance Circle, already created",
