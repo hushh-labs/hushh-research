@@ -3569,6 +3569,9 @@ describe("LocationImmersiveMap reported map defects", () => {
   it("does not auto-frame markers installed after a newer Locate command", async () => {
     platformHarness.native = true;
     stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockRejectedValueOnce(
+      new Error("entry location unavailable"),
+    );
     let resolveMarkers!: (ids: string[]) => void;
     const pendingMarkers = new Promise<string[]>((resolve) => {
       resolveMarkers = resolve;
@@ -3584,6 +3587,10 @@ describe("LocationImmersiveMap reported map defects", () => {
 
     await renderReadyMap();
     await waitFor(() => expect(mapHarness.map.addMarkers).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     mapHarness.map.fitBounds.mockClear();
     const cameraCallsBeforeLocate = mapHarness.map.setCamera.mock.calls.length;
     fireEvent.click(screen.getByTestId("one-location-map-locate"));
@@ -3593,12 +3600,24 @@ describe("LocationImmersiveMap reported map defects", () => {
       );
     });
 
+    // A freshness-clock render must reuse the pending automatic-frame token;
+    // recreating it here would make the old frame newer than Locate again.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 20_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
     await act(async () => {
       resolveMarkers(["marker-0", "marker-1"]);
       await pendingMarkers;
       await Promise.resolve();
     });
 
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers.mock.calls.length).toBeGreaterThan(1);
+    });
     expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
   });
 

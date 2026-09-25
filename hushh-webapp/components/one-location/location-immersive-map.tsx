@@ -863,6 +863,10 @@ export function LocationImmersiveMap({
   const pendingCameraRef = useRef<MapNameLabelCamera | null>(null);
   const settledCameraRevisionRef = useRef(0);
   const cameraCommandGenerationRef = useRef(0);
+  const initialFrameCommandRef = useRef<{
+    cameraRevision: number;
+    generation: number;
+  } | null>(null);
   const nativeMapPaddingRef = useRef({
     top: 0,
     right: 0,
@@ -990,6 +994,7 @@ export function LocationImmersiveMap({
     locationCaptureRef.current = null;
     markerSignatureRef.current = "";
     framedInitialMarkersRef.current = false;
+    initialFrameCommandRef.current = null;
     entryLocationRequestedRef.current = false;
     setMapReady(false);
     setCameraProjectionEnabled(false);
@@ -1572,6 +1577,7 @@ export function LocationImmersiveMap({
   useEffect(() => {
     markerSignatureRef.current = "";
     framedInitialMarkersRef.current = false;
+    initialFrameCommandRef.current = null;
     setMarkers([]);
     setSelected(null);
     setSearchQuery("");
@@ -1951,6 +1957,7 @@ export function LocationImmersiveMap({
     void (async () => {
       if (cachedPoint) {
         framedInitialMarkersRef.current = true;
+        initialFrameCommandRef.current = null;
         await focusSelfPoint(cachedPoint, {
           animate: false,
           select: false,
@@ -1961,6 +1968,7 @@ export function LocationImmersiveMap({
         const point = await captureCurrentLocation();
         if (cancelled) return;
         framedInitialMarkersRef.current = true;
+        initialFrameCommandRef.current = null;
         await focusSelfPoint(point, {
           animate: true,
           select: false,
@@ -2830,19 +2838,25 @@ export function LocationImmersiveMap({
     // clustering writes finish. Claim a possible one-time auto-frame now, so a
     // later explicit Locate/marker command can supersede it while those bridge
     // writes are still pending.
-    const initialFrameCommand =
+    const initialFrameEligible =
       // Check-in has a separate radius/pair framing owner below. Letting the
       // generic people auto-frame claim that camera as the venue marker appears
       // would cancel the authoritative check-in fit.
       !isCheckInSurface &&
       entryLocationSettled &&
       !framedInitialMarkersRef.current &&
-      visibleMarkers.length > 0
-        ? {
-            cameraRevision: settledCameraRevisionRef.current,
-            generation: ++cameraCommandGenerationRef.current,
-          }
-        : null;
+      visibleMarkers.length > 0;
+    if (!initialFrameEligible) initialFrameCommandRef.current = null;
+    let initialFrameCommand = initialFrameEligible
+      ? initialFrameCommandRef.current
+      : null;
+    if (initialFrameEligible && !initialFrameCommand) {
+      initialFrameCommand = {
+        cameraRevision: settledCameraRevisionRef.current,
+        generation: ++cameraCommandGenerationRef.current,
+      };
+      initialFrameCommandRef.current = initialFrameCommand;
+    }
     let cancelled = false;
     const enqueue = (command: () => Promise<void>): Promise<void> => {
       const next = markerCommandRef.current
@@ -2934,6 +2948,9 @@ export function LocationImmersiveMap({
       }
       if (initialFrameCommand && !framedInitialMarkersRef.current) {
         framedInitialMarkersRef.current = true;
+        if (initialFrameCommandRef.current === initialFrameCommand) {
+          initialFrameCommandRef.current = null;
+        }
         if (isNative()) await nativeMapPaddingCommandRef.current;
         if (
           cancelled ||
@@ -3469,6 +3486,7 @@ export function LocationImmersiveMap({
     const nextEnabled = !demoMode;
     markerSignatureRef.current = "";
     framedInitialMarkersRef.current = false;
+    initialFrameCommandRef.current = null;
     setDemoMode(nextEnabled);
     setTrayExpanded(true);
     toast.message(
