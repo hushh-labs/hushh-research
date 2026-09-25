@@ -519,15 +519,15 @@ The final candidate passed the blocking checks in stage form: secret and governa
 
 The frontend CI helper now supplies the documented dummy `BACKEND_URL` during build, so a local build does not depend on a developer's ambient backend setting. The helper's production build passed with that default.
 
-## Current integration checkpoint (2026-09-24)
+## Current integration checkpoint (2026-09-25)
 
-The pod branch `claude/hushh-infrastructure-analysis-7o991c` now contains main
-`81c60be360ad` and the local ADK head `1767d4351` through merges
-`9d62c2c6f` and `7a96ceed7`. Main's Drive cancellation migration
+The pod branch `claude/hushh-infrastructure-analysis-7o991c` contains main
+`6328e3b3e` and the frozen local ADK snapshot `39d727ad3`; the most recent
+merges are `2612c2661` and `83e7fd13d`. Main's Drive cancellation migration
 retains number 243. Private MCP registration and ADK Chat action authority moved
-to 244 and 245. This scoped pod candidate leaves the separate public-profile
-discovery work uncommitted in the root worktree; its release manifest and three
-schema projections report head 245. Generated agent, capability, location-card, and topology contracts
+to 244 and 245; the restored, still uncommitted public-profile bridge moved to
+246. The release manifest and three schema projections report head 246 in their
+declared lanes. Generated agent, capability, location-card, and topology contracts
 were rebuilt from their owning sources. This is source order, not evidence that
 any environment applied these migrations.
 
@@ -539,18 +539,47 @@ where main's Drive work, renumbered migrations, or generated projections
 intersected them. The subsequent ADK merge preserved 176 of 180 snapshotted
 files byte-for-byte; four were reconciled with committed MCP work or regenerated
 topology. Focused ADK/backend checks passed 111 and focused web connector checks
-passed 61. The complete `./bin/hushh ci` must be repeated on this latest state;
-the earlier run was stopped after its stale Connectors test helper was fixed.
-No application candidate
-has been pushed or deployed to dev.
+passed 61. The scoped application candidate `a158b1561` was pushed to the
+existing pod branch, followed by `e4fa7f496`, which classifies one reviewed
+synthetic idempotency fixture by exact secret-scan fingerprint. CI on that SHA
+exposed a stale PostgreSQL test fixture: 75 location transaction cases failed
+because the fixture omitted migration 245. Commit `24b952be6` applies that
+migration in the shared fixture; all 90 affected real transaction cases passed
+locally. The local ADK branch then advanced to `39d727ad3`; merge `83e7fd13d`
+carried its committed per-tool MCP blocks into the pod branch. Its 104 focused
+backend MCP tests, 49 focused web tests, and TypeScript typecheck passed in an
+isolated checkout. CI on that merge passed protocol, Web Core, MCP, integration,
+and Android, then found a missing brace in the merged iOS test file. Commit
+`7728848ca` closes the test method; local Swift parsing and the next iOS CI
+lane passed. That CI then exposed a document-sharing browser fixture importing
+Firebase through the new custom-MCP configuration module. Commit `df6f8153b`
+isolates that unused fixture branch and loads the product font explicitly;
+all 24 Chromium/WebKit layout cases passed locally. Main advanced during the
+next run, so merge `2612c2661` brought in its location-map fix without conflict;
+118 focused map tests passed. CI on `2612c2661` then exposed an outdated Mail
+receipt browser fixture: its button name and callback signature no longer
+matched the source. Commit `9661ec426` aligns both; all eight affected
+Chromium/WebKit cases passed locally. The exact-head PR Validation run
+`36111382367` passed every lane, including its CI Status Gate, on that commit.
+The complete local CI suite was verified stage by stage on the combined state;
+it did not produce a single terminal green `./bin/hushh ci` run. No application
+candidate has been deployed to dev yet.
+
+A read-only dev predeploy check on 2026-09-25 reconfirmed that migration 239
+would refuse legacy Plaid Items and a regulated funding consent record. The
+approved retirement and retention evidence is still pending. The governed dev
+deployment must not apply that migration or promote backend traffic until the
+records are handled through the existing Plaid retirement procedure and the
+funding record has an approved disposition. Exact inventory and environment
+identifiers stay in private operational evidence.
 
 A direct BYOC Puppy client is implemented and focused-tested in the local Hussh
-One checkout at `da16f4eef8` (22 relay tests passed). The current dev service
+One checkout at `2d07f50ef8` (22 relay tests passed). The current dev service
 recognizes an existing trusted dev device and returns an owner pod endpoint, but
 its binding route returned HTTP 404. The client therefore cannot complete direct
 admission against the serving dev revision yet. This check did not establish a
-live two-device relay or permit re-enrollment as a workaround. Keep the dev
-deployment and physical-device acceptance gates open.
+live two-device relay. Re-enrollment is unnecessary: the device status is active.
+Keep the dev deployment and physical-device acceptance gates open.
 
 ## Follow-up ownership
 
