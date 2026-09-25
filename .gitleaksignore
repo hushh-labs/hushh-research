@@ -23,3 +23,6 @@
 # introduced under a second integrated history commit; no credential values.
 fae8592b2e3d34dfe554eda4ea3f272ef45a356e:consent-protocol/tests/test_webauthn_aal.py:generic-api-key:16
 fae8592b2e3d34dfe554eda4ea3f272ef45a356e:consent-protocol/tests/test_personal_agent_registry_repo.py:generic-api-key:94
+
+# Synthetic idempotency value in the pod update compatibility refusal test; never a credential.
+a158b1561d7e8342f00611c15d6904596405e520:consent-protocol/tests/test_personal_agent_routes.py:generic-api-key:612
