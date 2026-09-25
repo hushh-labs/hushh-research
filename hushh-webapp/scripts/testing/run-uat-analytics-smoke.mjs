@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
+import { classifyCollectSettlement } from "./analytics-collect-delivery.mjs";
 import {
   defaultReviewerIdentityEnvFiles,
   resolveReviewerTestIdentity,
@@ -289,6 +290,19 @@ async function assertVaultStillUnlocked(page, routeLabel) {
   }
 }
 
+// `/login?redirect=/kai` resolves to the Finance dashboard via `/kai`. The
+// reviewer unlock can finish before that redirect lands; navigating first lets
+// the late redirect overwrite the URL, so wait for it to settle.
+const loginRedirectLandingPath = "/one/kai";
+
+async function waitForLoginRedirectToSettle(page) {
+  await page.waitForFunction(
+    (landingPath) => window.location.pathname === landingPath,
+    loginRedirectLandingPath,
+    { timeout: defaultTimeoutMs },
+  );
+}
+
 async function navigateInApp(page, href) {
   const dispatched = await page.evaluate((targetHref) => {
     window.dispatchEvent(
@@ -362,16 +376,34 @@ page.on("requestfinished", async (request) => {
   }
 });
 
-page.on("requestfailed", (request) => {
-  for (const collect of parseAnalyticsCollectRequests(request)) {
-    if (!collect.eventName) continue;
+// GA4 beacons never emit requestfinished: they end here with ERR_ABORTED
+// after GA4's 204. The response, not the event name, decides delivery.
+async function recordCollectRequestFailure(request) {
+  const collectEvents = parseAnalyticsCollectRequests(request).filter(
+    (collect) => collect.eventName,
+  );
+  if (collectEvents.length === 0) return;
+  const response = await request.response().catch(() => null);
+  const httpStatus = response?.status() ?? 0;
+  const failureText = request.failure()?.errorText || "unknown";
+  const status = classifyCollectSettlement({
+    settledBy: "requestfailed",
+    responseStatus: httpStatus,
+    failureText,
+  });
+  for (const collect of collectEvents) {
     analyticsCollectEvents.push({
       ...collect,
       requestId: getAnalyticsRequestId(request),
-      status: "failed",
-      failureText: request.failure()?.errorText || "unknown",
+      status,
+      httpStatus,
+      failureText,
     });
   }
+}
+
+page.on("requestfailed", (request) => {
+  void recordCollectRequestFailure(request);
 });
 
 function parseAnalyticsCollectRequests(request) {
@@ -434,81 +466,40 @@ function isAnalyticsCollectUrl(rawUrl) {
   }
 }
 
+function isCollectEventDelivered(observed, { eventName, params }) {
+  return observed.some(
+    (entry) =>
+      entry.measurementId === expectedMeasurementId &&
+      entry.eventName === eventName &&
+      Object.entries(params).every(([key, value]) => entry[key] === value) &&
+      entry.status === "finished" &&
+      !observed.some(
+        (candidate) =>
+          candidate.requestId === entry.requestId &&
+          candidate.status === "failed",
+      ),
+  );
+}
+
 async function waitForAnalyticsCollectEvents(requiredEvents) {
-  await page.waitForFunction(
-    ({ expectedMeasurementId: measurementId, requiredEvents }) => {
-      const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-      return requiredEvents.every(({ eventName, params }) =>
-        observed.some(
-          (entry) =>
-            entry.measurementId === measurementId &&
-            entry.eventName === eventName &&
-            Object.entries(params).every(
-              ([key, value]) => entry[key] === value,
-            ) &&
-            entry.status === "finished" &&
-            !observed.some(
-              (candidate) =>
-                candidate.requestId === entry.requestId &&
-                candidate.status === "failed",
-            ),
-        ),
-      );
-    },
-    {
-      expectedMeasurementId,
-      requiredEvents,
-    },
-    { timeout: defaultTimeoutMs },
+  const deadline = Date.now() + defaultTimeoutMs;
+  let missing = requiredEvents;
+  while (Date.now() < deadline) {
+    missing = requiredEvents.filter(
+      (requiredEvent) =>
+        !isCollectEventDelivered(analyticsCollectEvents, requiredEvent),
+    );
+    if (missing.length === 0) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(
+    `GA collect delivery (2xx) not proven for: ${missing
+      .map(({ eventName }) => eventName)
+      .join(", ")}`,
   );
 }
 
 try {
-  await page.addInitScript(() => {
-    window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ = [];
-  });
-  const mirrorCollectEvent = async (entry) => {
-    await page
-      .evaluate((value) => {
-        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ =
-          window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
-        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__.push(value);
-      }, entry)
-      .catch(() => {});
-  };
-  page.on("request", (request) => {
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: "requested",
-      });
-    }
-  });
-  page.on("requestfinished", async (request) => {
-    const response = await request.response().catch(() => null);
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: response?.ok() ? "finished" : "failed",
-        httpStatus: response?.status() ?? 0,
-      });
-    }
-  });
-  page.on("requestfailed", (request) => {
-    for (const collect of parseAnalyticsCollectRequests(request)) {
-      if (!collect.eventName) continue;
-      void mirrorCollectEvent({
-        ...collect,
-        requestId: getAnalyticsRequestId(request),
-        status: "failed",
-      });
-    }
-  });
-
   await page.goto(`${appOrigin}/login?redirect=${encodeURIComponent("/kai")}`, {
     waitUntil: "domcontentloaded",
   });
@@ -519,6 +510,7 @@ try {
   });
   await clickIfVisible(reviewerButton);
   await waitForReviewerVaultBootstrap(page);
+  await waitForLoginRedirectToSettle(page);
 
   await navigateInApp(page, "/one/kai?tab=portfolio");
   const routeViewEvent = await waitForAnalyticsEvent(
