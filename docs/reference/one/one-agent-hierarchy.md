@@ -114,6 +114,8 @@ changes are not deployment acceptance; live performance failures remain in
 
 Authenticated Chat's registry-backed ADK MCP toolset now has read-only
 credential adapters for curated Drive, Gmail, and Calendar registrations.
+The shared public-HTTPS MCP transport bounds each provider response to 4 MiB
+before SDK parsing; the separate catalog and model-result limits still apply.
 Gmail's admitted schema and result are metadata-only; Calendar uses its
 existing owner-specific read grant. Each native call rechecks the current
 owner and grant, and application review remains separate from discovery.
