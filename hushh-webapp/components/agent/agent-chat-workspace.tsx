@@ -1918,6 +1918,28 @@ export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]
     .filter((message): message is AgentMessage => Boolean(message));
 }
 
+function ChatAgentSubtitle({ text }: { text: string }) {
+  const [display, setDisplay] = useState(text);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    if (display === text) { setVisible(true); return; }
+    setVisible(false);
+    const timer = window.setTimeout(() => { setDisplay(text); setVisible(true); }, 90);
+    return () => window.clearTimeout(timer);
+  }, [display, text]);
+  return <p aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground sm:max-w-64">
+    <span className={`block truncate transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>{display}</span>
+  </p>;
+}
+
+function activeToolStatus(label: string): string {
+  if (label === "Connected tool") return "Using a connected tool";
+  if (label === "Connector access") return "Checking connector access";
+  if (label === "Connected systems") return "Checking connected systems";
+  if (label === "Agent step") return "Working on your request";
+  return `Using ${label}`;
+}
+
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -2076,6 +2098,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   );
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [activeToolCalls, setActiveToolCalls] = useState<Array<{ id: string; label: string }>>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
@@ -4765,6 +4788,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ];
     });
     latestVisibleTurnIdRef.current = debugTurnId;
+    setActiveToolCalls([]);
     setIsChatLoading(true);
     setIsStreaming(true);
 
@@ -4989,6 +5013,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
+              { id: toolEvent.callId, label: toolEvent.label }]);
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             upsertTurnStreamEvent(
               agentToolEventToVisibleStreamEvent("start", toolEvent),
@@ -4996,6 +5022,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
+              setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            }
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const visibleEvent = agentToolEventToVisibleStreamEvent(
               "waiting",
@@ -5027,6 +5056,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
@@ -5255,6 +5285,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       status: "streaming",
     });
     latestVisibleTurnIdRef.current = debugTurnId;
+    setActiveToolCalls([]);
     setIsChatLoading(true);
     setIsStreaming(true);
 
@@ -5449,6 +5480,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       status: "streaming",
     };
     setMessages((current) => [...current, userMessage, assistantMessage]);
+    setActiveToolCalls([]);
     setIsChatLoading(true);
     setIsStreaming(true);
 
@@ -6262,16 +6294,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <div className="truncate text-base font-medium leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
-                <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  {/* Not "On your machine": most accounts have no machine, and
-                      this line renders identically for them. What Puppy One is
-                      is said once, by the surface below, and only to the reader
-                      who has not connected one yet; the workspace header must
-                      not promise a Mac it cannot see. */}
-                  {isPuppySurface
-                    ? "Separate conversation"
-                    : "Your private agent"}
-                </p>
+                <ChatAgentSubtitle text={isPuppySurface ? "Separate conversation" :
+                  isStreaming && activeToolCalls.length > 0
+                    ? activeToolStatus(activeToolCalls.at(-1)!.label)
+                    : "Your private agent"} />
               </div>
             </div>
 

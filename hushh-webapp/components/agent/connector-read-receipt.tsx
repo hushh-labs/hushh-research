@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/lib/morphy-ux/button";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -121,7 +122,6 @@ function GmailConnectorChatCard({ onOpenConnections }: {
   const [confirm, setConfirm] = useState(false);
   const [confirmOwner, setConfirmOwner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
   useEffect(() => {
     if (!user) return;
     void gmail.refreshStatus().catch(() => undefined);
@@ -136,20 +136,21 @@ function GmailConnectorChatCard({ onOpenConnections }: {
     {!connected ? <p className="text-muted-foreground">Connecting does not share information with anyone.</p> : null}
     <Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
       onClick={event => { if (connected) { setConfirmOwner(user?.uid ?? null); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>
-    {error ? <p role="alert">Could not disconnect Gmail. Check and retry.</p> : null}
     <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
       <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
       <AlertDialogDescription>One will no longer read your Gmail through this connection. This does not revoke access in your Google Account.</AlertDialogDescription>
-    </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-      <AlertDialogAction disabled={busy} onClick={event => {
+    </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel size="standard" className="min-w-0 w-full px-3" disabled={busy}>Cancel</AlertDialogCancel>
+      <AlertDialogAction size="standard" className="min-w-0 w-full px-3" aria-label="Disconnect Gmail" disabled={busy} onClick={event => {
         event.preventDefault();
         if (!confirmOwner || confirmOwner !== user?.uid || !connected) { setConfirm(false); return; }
-        setBusy(true); setError(false);
-        void gmail.disconnectGmail().then(result => {
+        setBusy(true);
+        const operation = gmail.disconnectGmail().then(result => {
           if (!result || result.connected) throw new Error("disconnect_failed");
           setConfirm(false);
-        }).catch(() => setError(true)).finally(() => setBusy(false));
-      }}>Disconnect Gmail</AlertDialogAction>
+        });
+        morphyToast.promise(operation, { loading: "Disconnecting Gmail…", success: "Gmail disconnected.", error: "Could not disconnect Gmail. Check and retry." });
+        void operation.catch(() => undefined).finally(() => setBusy(false));
+      }}>Disconnect</AlertDialogAction>
     </AlertDialogFooter></AlertDialogContent></AlertDialog>
   </section>;
 }

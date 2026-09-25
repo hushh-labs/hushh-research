@@ -343,8 +343,12 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking your saved connectors.",
   },
   discover_workspace_tools: {
-    label: "Connection status",
-    message: "Checking available connector access.",
+    label: "Connector access",
+    message: "Checking which connected capabilities are available.",
+  },
+  read_workspace_tool: {
+    label: "Connected app read",
+    message: "Reading the selected connected capability.",
   },
   ask_email_agent: {
     label: "Gmail",
@@ -353,6 +357,14 @@ const SERVER_TOOL_PRESENTATION: Record<
   ask_documents_agent: {
     label: "Drive",
     message: "Checking your file request.",
+  },
+  ask_connected_systems_agent: {
+    label: "Connected systems",
+    message: "Checking the connected-systems request.",
+  },
+  ask_consent_agent: {
+    label: "Consent",
+    message: "Checking the consent request.",
   },
   list_pending_connection_requests: {
     label: "Connection requests",
@@ -530,7 +542,10 @@ export async function streamAgentChat(input: {
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
     const serverPresentation = SERVER_TOOL_PRESENTATION[name];
     const resolvedActionId = typeof actionId === "string" ? actionId : null;
-    const label = action?.label || serverPresentation?.label || "One task";
+    // Native MCP identities are opaque digests. Never render their raw name or
+    // provider-authored descriptions as app-owned activity labels.
+    const label = action?.label || serverPresentation?.label ||
+      (/^mcp_[0-9a-f]{40}$/.test(name) ? "Connected tool" : "Agent step");
     const requiresConfirmation = action?.execution_policy === "confirm_required";
     const trustedActivationRequired =
       action?.activation_policy === "trusted_activation_required";
@@ -552,7 +567,8 @@ export async function streamAgentChat(input: {
         ? describeDirectiveForOwner(resolvedActionId, label, args, {
             requiresConfirmation: requiresConfirmation || trustedActivationRequired,
           })
-        : serverPresentation?.message || "One is working on your request.",
+        : serverPresentation?.message ||
+          (/^mcp_[0-9a-f]{40}$/.test(name) ? "Using a connected tool." : "Completing a step for your request."),
       requiresConfirmation,
       trustedActivationRequired,
       raw: {
@@ -683,7 +699,7 @@ export async function streamAgentChat(input: {
         payload.execution = "server";
         payload.message = toolName === "inspect_private_connectors"
           ? "One checked your connectors."
-          : "One checked a connected app.";
+          : "Connector access checked.";
         payload.raw = {
           protocol: "ag-ui",
           toolName,
