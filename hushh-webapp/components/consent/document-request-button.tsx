@@ -49,7 +49,7 @@ type RequestDraft = {
 };
 
 const ASK_HELPER =
-  "They see your question and decide. Nothing in their Drive is read unless they allow it.";
+  "They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.";
 
 /** A chat draft becomes one plain question; its period travels as text. */
 function draftQuestion(draft: RequestDraft): string {
