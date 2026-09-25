@@ -656,15 +656,16 @@ device does not need re-registration solely to fetch a newer relay client.
 This is a dev acceptance gap, not a passing direct-access result. The separate
 consumer worktree was not part of this candidate.
 
-Freshness check after the dev deployment found a new merge blocker. The pod
-branch's deployed migration `244_private_mcp_registration.sql` and newer `main`'s
-`244_drive_query_notifications.sql` claim the same numeric version. The migration
-runner requires unique versions, while dev has already applied the pod branch's
-version. A trial merge was aborted without changing the branch. Reconcile the
-numbering and each environment's applied-migration ledger before merging the
-newer `main` or proposing main promotion; do not rename an already applied file
-without a deliberate environment-aware migration path. Generated schema and
-runtime contracts must then be rebuilt from the merged owning sources.
+Freshness check after dev deployment found a migration-number collision:
+`main` added `244_drive_query_notifications.sql` after the pod branch had used
+244 for private MCP registration. The first trial merge was aborted. Dev's
+release lane used replay mode, which executed the branch SQL without release
+ledger rows; its separate parked 900-series migrations have ledger rows. The
+branch migrations were then moved to 245–247, preserving their SQL bodies, so
+`main` retains 244. This resolves the source numbering conflict; the combined
+revision still needs its migration, generated-contract and CI checks and a new
+dev deployment before its newer Drive behavior can be called live. Confirm UAT
+and production baselines separately before either environment is promoted.
 
 ## Follow-up ownership
 

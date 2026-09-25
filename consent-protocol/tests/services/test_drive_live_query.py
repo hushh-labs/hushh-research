@@ -51,6 +51,9 @@ async def store(sharing, monkeypatch):
     with sharing.db.engine.connect() as connection:
         with connection.connection.driver_connection.cursor() as cursor:
             cursor.execute((MIGRATIONS / "242_drive_live_query_requests.sql").read_text())
+            # Replay mode runs every migration on every deploy.
+            for _ in range(2):
+                cursor.execute((MIGRATIONS / "244_drive_query_notifications.sql").read_text())
         connection.execute(
             text("CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT)")
         )
@@ -1122,3 +1125,85 @@ async def test_folders_are_never_offered_for_sharing(store, monkeypatch):
     )
     mine = await store.status(user_id="owner", request_id=created["requestId"])
     assert [item["name"] for item in mine["answer"]["files"]] == ["March bank statement.pdf"]
+
+
+def query_events(store, request_id):
+    with store.db.engine.connect() as connection:
+        return [
+            (item["user_id"], item["event_type"])
+            for item in connection.execute(
+                text(
+                    "SELECT user_id,event_type FROM drive_query_events "
+                    "WHERE request_id=:id ORDER BY revision"
+                ),
+                {"id": request_id},
+            ).mappings()
+        ]
+
+
+async def test_a_new_question_notifies_the_owner_once(store):
+    client = str(uuid4())
+    created = await ask(store, client=client)
+    # A retried send returns the same question and queues nothing more.
+    again = await ask(store, client=client)
+    assert again["requestId"] == created["requestId"]
+    assert query_events(store, created["requestId"]) == [("owner", "document_share_question")]
+
+
+async def test_an_answer_and_a_decline_notify_the_asker(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    assert query_events(store, request_id) == [
+        ("owner", "document_share_question"),
+        ("recipient", "document_share_answered"),
+    ]
+    declined = await ask(store)
+    await store.deny(
+        user_id="owner", request_id=declined["requestId"], revision=declined["revision"]
+    )
+    assert query_events(store, declined["requestId"]) == [
+        ("owner", "document_share_question"),
+        ("recipient", "document_share_declined"),
+    ]
+
+
+async def test_a_question_event_is_delivered_as_an_opaque_alert(store):
+    from unittest.mock import MagicMock
+
+    from hushh_mcp.services.drive_share_notification_store import DriveQueryNotificationStore
+    from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
+
+    created = await ask(store)
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(
+        stores=(DriveQueryNotificationStore(db=store.db),), send_push=send
+    )
+    assert (await worker.run())["outcomes"] == {"settled": 1}
+    args, kwargs = send.call_args
+    assert args == ("owner",)
+    assert kwargs["data"]["type"] == "document_share_question"
+    assert kwargs["data"]["request_id"] == created["requestId"]
+    assert (kwargs["title"], kwargs["body"]) == (
+        "Drive question",
+        "Someone asked about your Drive. Open One to review.",
+    )
+    # The alert carries no question text, name or file detail.
+    serialized = json.dumps(kwargs)
+    assert QUESTION not in serialized and "Ada" not in serialized and "Bo" not in serialized
+    # Settled once: a later drain does not repeat it.
+    assert (await worker.run())["outcomes"] == {}
+    send.assert_called_once()
+
+
+async def test_the_default_worker_drains_questions_and_shares():
+    from hushh_mcp.services.drive_share_notification_store import (
+        DriveQueryNotificationStore,
+        DriveShareNotificationStore,
+    )
+    from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
+
+    worker = DriveShareNotificationWorker(send_push=lambda *a, **k: 1)
+    assert [type(item) for item in worker.stores] == [
+        DriveShareNotificationStore,
+        DriveQueryNotificationStore,
+    ]
+    assert [item.TABLE for item in worker.stores] == ["drive_share_events", "drive_query_events"]

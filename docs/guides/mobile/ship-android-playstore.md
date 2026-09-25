@@ -150,16 +150,34 @@ removal trigger, so declare what is true:
 ### Prominent disclosure
 
 Play requires an in-app disclosure **before** the permission prompt, inside the
-app rather than only in the listing, and not buried in a menu. The One Location
-onboarding contacts screen already satisfies this — the privacy line renders
-*above* the button that triggers the OS prompt, and the prompt fires on tap
-rather than on mount:
+app rather than only in the listing, and not buried in a menu. Two layers
+satisfy it:
 
-> Your contacts are checked using a one-way hash. One never stores your contact
-> list, and nobody is contacted for you.
+1. The One Location onboarding contacts screen renders the privacy line
+   (`CONTACTS_PRIVACY_DISCLOSURE`) *above* the button that triggers the OS
+   prompt, and the prompt fires on tap rather than on mount.
+2. On Android, `HushhContactsPlugin` shows the same statement in a dialog
+   (`contacts_disclosure_message`) before every `READ_CONTACTS` request, so the
+   People tab, Connect, and voice paths are covered too. It is skipped only when
+   the permission is already granted (Capacitor's cached DENIED state can go
+   stale after a Settings revoke, so it is not trusted to mean "no prompt").
 
-Anyone moving that line below the button, or making the prompt fire on screen
-entry, breaks the disclosure requirement as well as the UX intent.
+> Phone numbers are standardized on your device and turned into one-way codes.
+> Only those codes and the last four digits are checked for matches. One never
+> stores your contacts' names or numbers, and nobody is contacted for you.
+
+Anyone moving that line below the button, making the prompt fire on screen
+entry, or requesting `READ_CONTACTS` outside the plugin's disclosure gate breaks
+the disclosure requirement. `__tests__/app/delete-account-page.test.tsx` pins
+the copy parity and the gate.
+
+## Account deletion (Data safety "Delete account URL")
+
+Use `https://one.hushh.ai/delete-account`. The page is public and static: it
+gives the in-app steps (Profile → Delete account) and a request path by email to
+`support@hushh.ai` that is acted on only after the requester proves ownership
+from the email or phone already on the account. It never deletes anything
+itself. Support must own that verification step before this URL is submitted.
 
 ### iOS counterpart
 

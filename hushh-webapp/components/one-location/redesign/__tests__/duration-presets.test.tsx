@@ -153,8 +153,8 @@ describe("DurationPresetPicker", () => {
   });
 
   it("drops the Custom cell and its wheel when allowCustom is false", () => {
-    // The live-share "New time" editor (issue #6228): the timed rungs plus the
-    // open-ended row are the whole choice.
+    // The end-time dropdown derives its timed values from this compact rung
+    // set; keep the underlying preset picker contract exact as well.
     render(
       <DurationPresetPicker
         value="1"

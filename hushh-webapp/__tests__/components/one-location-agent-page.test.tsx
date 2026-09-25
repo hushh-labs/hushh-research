@@ -8862,6 +8862,14 @@ describe("OneLocationAgentPage", () => {
       });
       expect(dialog).toHaveAttribute("aria-modal", "true");
       expect(
+        document.querySelectorAll('[data-slot="dialog-overlay"]'),
+      ).toHaveLength(1);
+      expect(document.body).toHaveStyle({ pointerEvents: "none" });
+      expect(dialog).toHaveStyle({ pointerEvents: "auto" });
+      expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
+        "[backdrop-filter:var(--app-scrim-filter)]",
+      );
+      expect(
         screen.getByTestId("one-location-active-shares"),
       ).toBeInTheDocument();
       expect(screen.queryByTestId("one-location-now-hub")).toBeNull();
@@ -8950,7 +8958,10 @@ describe("OneLocationAgentPage", () => {
         "one-location-live-share-duration-editor",
       );
       fireEvent.click(
-        within(editor).getByRole("button", { name: "Until I stop" }),
+        within(editor).getByRole("combobox", { name: "New time" }),
+      );
+      fireEvent.click(
+        await screen.findByRole("option", { name: "Until I stop" }),
       );
       fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
 
@@ -9144,6 +9155,9 @@ describe("OneLocationAgentPage", () => {
       const editor = await screen.findByTestId(
         "one-location-live-share-duration-editor",
       );
+      expect(
+        within(editor).getByRole("combobox", { name: "New time" }),
+      ).toHaveTextContent("Current · 30 min");
 
       await act(async () => {
         fireEvent.click(
@@ -9151,8 +9165,8 @@ describe("OneLocationAgentPage", () => {
         );
       });
 
-      // The wheel opened on the 30 minutes this share has left and nothing was
-      // touched, so there is nothing to save -- an untouched picker must not
+      // The dropdown opened on the 30 minutes this share has left and nothing
+      // was touched, so there is nothing to save -- an untouched picker must not
       // spend a call or push the recipient an alert.
       expect(mockSetGrantDuration).not.toHaveBeenCalled();
       expect(mockRevokeGrant).not.toHaveBeenCalled();
@@ -9185,12 +9199,16 @@ describe("OneLocationAgentPage", () => {
       );
 
       // "Until I stop" is the largest increase there is, and the direction the
-      // shorten-only endpoint refused outright. It is also a plain button
-      // rather than a carousel slide, so this drives the real control and not
-      // a scroll position JSDOM cannot lay out.
+      // shorten-only endpoint refused outright. Drive the real dropdown rather
+      // than setting component state directly.
       await act(async () => {
         fireEvent.click(
-          within(editor).getByRole("button", { name: "Until I stop" }),
+          within(editor).getByRole("combobox", { name: "New time" }),
+        );
+      });
+      await act(async () => {
+        fireEvent.click(
+          await screen.findByRole("option", { name: "Until I stop" }),
         );
       });
       await act(async () => {
@@ -9217,12 +9235,7 @@ describe("OneLocationAgentPage", () => {
     }
   }, 15000);
 
-  it("offers four common lengths and the open-ended row, one tap each", async () => {
-    // The report (issue #6228): Change time showed too many near-identical
-    // choices -- 15 min / 1 hour / 2 hours / 4 hours / 8 hours / Custom /
-    // Until I stop -- wrapped and left-hugging under the live clock. It is
-    // trimmed to the four common lengths plus the open-ended row; `8 hours`
-    // and the `Custom` wheel are gone.
+  it("offers the five end-time choices in one compact dropdown", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
     try {
@@ -9240,6 +9253,10 @@ describe("OneLocationAgentPage", () => {
         "one-location-live-share-duration-editor",
       );
 
+      const durationSelect = within(editor).getByRole("combobox", {
+        name: "New time",
+      });
+      expect(durationSelect).toBeInTheDocument();
       for (const label of [
         "15 min",
         "1 hour",
@@ -9247,23 +9264,24 @@ describe("OneLocationAgentPage", () => {
         "4 hours",
         "Until I stop",
       ]) {
-        expect(
-          within(editor).getByRole("button", { name: label }),
-        ).toBeInTheDocument();
+        expect(within(editor).queryByRole("button", { name: label })).toBeNull();
       }
-      // The two choices the issue asked to drop.
-      expect(
-        within(editor).queryByRole("button", { name: "8 hours" }),
-      ).toBeNull();
-      expect(
-        within(editor).queryByRole("button", { name: "Custom" }),
-      ).toBeNull();
+      fireEvent.click(durationSelect);
+      for (const label of [
+        "15 min",
+        "1 hour",
+        "2 hours",
+        "4 hours",
+        "Until I stop",
+      ]) {
+        expect(await screen.findByRole("option", { name: label })).toBeTruthy();
+      }
+      expect(screen.queryByRole("option", { name: "8 hours" })).toBeNull();
+      expect(screen.queryByRole("option", { name: "Custom" })).toBeNull();
 
-      // One tap on a rung is the whole interaction -- no drag, no confirm
-      // step of its own before Save.
       await act(async () => {
         fireEvent.click(
-          within(editor).getByRole("button", { name: "2 hours" }),
+          await screen.findByRole("option", { name: "2 hours" }),
         );
       });
       await act(async () => {

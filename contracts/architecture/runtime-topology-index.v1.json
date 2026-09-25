@@ -823,7 +823,7 @@
       "id": "drive_live_questions",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read and no worker wake. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive. The asker can cancel a pending or running question; cancel never reads Drive and stops a running Allow from storing an answer."
+      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read; no worker reads the question. An opaque drive_query_events row (closed type, ids only) notifies the owner that a question arrived and the asker when it is answered or declined. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive. The asker can cancel a pending or running question; cancel never reads Drive and stops a running Allow from storing an answer."
     },
     {
       "data_class": "workflow_state",
@@ -840,12 +840,13 @@
       "exact_tables": [
         "drive_share_file_claims",
         "drive_share_events",
+        "drive_query_events",
         "drive_share_management_contexts"
       ],
       "id": "drive_original_sharing_coordination",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs; web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded."
+      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded."
     },
     {
       "data_class": "personal_encrypted",
@@ -1968,6 +1969,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.consents.legacy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/delete-account/page.tsx",
+      "pathname": "/delete-account",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.delete.account"
       }
     },
     {
@@ -5836,13 +5860,13 @@
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
     "agent_registry": "ef277899815fe7dfac0a0cd82a050aae81b0f6983a5c84ab10ea38dacfd995a0",
-    "cache_manifest": "33090c165b979aa5155d2590b03e427541c59320fe06a2b3da3a400bbe8d2927",
-    "data_plane": "d341c927a79097ab9ad444f23a5dc05c88355460fe9a9358654d289c2d141e0f",
+    "cache_manifest": "fc071d97067933cbc4f5387286018fbfaa8f29ba90743560b0472a44022e1674",
+    "data_plane": "fd074263e3c72eb67581247163c6f4697b29a98d0d0f07da56b93dc3d377516b",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "b7336e488ac3f18b88155ede9785cb56d5ce6512f7a9df9b11d4f07bb99744a9",
-    "route_index": "f8da0d11b784afe39c74a1154e37f9061b95779cc63fcdaa45fb122e281a168a",
-    "route_layout": "a0af4e39736885f7ddd91977eaf47e992064972b1545ae7683cfaeffa35511ef",
-    "surface_map": "364673c61e05e27582f0107ad58068396f405e94e7cc361508ec91ce5a21a375",
+    "route_index": "b38c5eee5f6857b38f6c221e9a2c483e0d66ce3ad14862dabaaa5094e9a5e46a",
+    "route_layout": "921c653dd41232010cab389e25136fd5a7c3a67579eddd1034e39ef8b5b80884",
+    "surface_map": "f4c366e826f0a402ba23d9e8d0893114bceccf523244c79bbeefef3e4aa79ac5",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5854,7 +5878,7 @@
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 143,
+    "physical_routes": 144,
     "semantic_routes": 14,
     "table_families": 81
   }

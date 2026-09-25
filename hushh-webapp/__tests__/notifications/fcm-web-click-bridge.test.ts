@@ -72,6 +72,17 @@ describe("web system-notification click bridge", () => {
     );
   });
 
+  it("opens a Drive question's card for a question push", () => {
+    expect(
+      buildNotificationTapTarget({
+        type: "document_share_answered",
+        request_id: "22222222-2222-4222-8222-222222222222",
+      }),
+    ).toBe(
+      "/one/consent?tab=pending&requestId=drive_query_request%3A22222222-2222-4222-8222-222222222222",
+    );
+  });
+
   it.each([
     {
       type: "document_share_review_ready",

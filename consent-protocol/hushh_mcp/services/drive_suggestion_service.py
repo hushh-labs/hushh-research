@@ -685,6 +685,8 @@ class DriveSuggestionService:
                     read_sources=list(observed.values()),
                     live_sources=reader._rows if job.get("live") else None,
                     **({"foreground": True} if self.require_owner is not None else {}),
+                    # A's own selection is approved right after; no self-alert.
+                    **({"notify_owner": False} if owner_selected is not None else {}),
                 )
                 await wake_drive_work("sharing")
                 return "review_ready"

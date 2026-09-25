@@ -16,6 +16,15 @@ const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
   "document_share_outcome",
   "document_share_revoked",
   "document_share_revocation_outcome",
+  // Drive questions (drive_query_events): their request_id is a question.
+  "document_share_question",
+  "document_share_answered",
+  "document_share_declined",
+]);
+const DRIVE_QUESTION_NOTIFICATION_TYPES = new Set([
+  "document_share_question",
+  "document_share_answered",
+  "document_share_declined",
 ]);
 const DOCUMENT_REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +32,51 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
   body: "Open One to review.",
 };
+// Fixed words per reviewed type; keep aligned with
+// lib/consent/document-share-consent.ts and the backend worker.
+const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
+  document_share_request: DOCUMENT_SHARE_NOTIFICATION_COPY,
+  document_share_review_ready: {
+    title: "Files ready to review",
+    body: "Open One to choose what to share.",
+  },
+  document_share_decided: {
+    title: "Drive sharing update",
+    body: "Open One to see the latest.",
+  },
+  document_share_outcome: {
+    title: "Drive sharing finished",
+    body: "Open One to see the shared files.",
+  },
+  document_share_revoked: {
+    title: "Drive access changed",
+    body: "Open One to see what changed.",
+  },
+  document_share_revocation_outcome: {
+    title: "Drive access changed",
+    body: "Open One to see what changed.",
+  },
+  document_share_question: {
+    title: "Drive question",
+    body: "Someone asked about your Drive. Open One to review.",
+  },
+  document_share_answered: {
+    title: "Drive question answered",
+    body: "Open One to see the answer.",
+  },
+  document_share_declined: {
+    title: "Drive question declined",
+    body: "Open One for details.",
+  },
+};
+
+function documentShareNotificationCopy(data) {
+  return (
+    DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE[
+      normalizedDocumentShareType(data)
+    ] || DOCUMENT_SHARE_NOTIFICATION_COPY
+  );
+}
 
 function normalizedDocumentShareType(data) {
   return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
@@ -108,9 +162,12 @@ function isSilentNotification(data) {
 function notificationTapTarget(data) {
   const documentRequestId = documentShareNotificationRequestId(data);
   if (documentRequestId) {
-    return `/one/consent?tab=pending&requestId=${encodeURIComponent(
-      `document_share_request:${documentRequestId}`,
-    )}`;
+    const selection = DRIVE_QUESTION_NOTIFICATION_TYPES.has(
+      normalizedDocumentShareType(data),
+    )
+      ? `drive_query_request:${documentRequestId}`
+      : `document_share_request:${documentRequestId}`;
+    return `/one/consent?tab=pending&requestId=${encodeURIComponent(selection)}`;
   }
   const type = String(data?.type || "")
     .trim()
@@ -260,10 +317,10 @@ self.addEventListener("push", function (event) {
     const safeDocumentData = sanitizeDocumentShareNotificationData(rawData);
     const notificationData = safeDocumentData || rawData;
     const title = safeDocumentData
-      ? DOCUMENT_SHARE_NOTIFICATION_COPY.title
+      ? documentShareNotificationCopy(safeDocumentData).title
       : data.notification?.title || data.title || "Notification";
     const body = safeDocumentData
-      ? DOCUMENT_SHARE_NOTIFICATION_COPY.body
+      ? documentShareNotificationCopy(safeDocumentData).body
       : data.notification?.body || data.body || "You have a new notification";
     const url = notificationTapTarget(notificationData);
     const sourceUrl = safeDocumentData

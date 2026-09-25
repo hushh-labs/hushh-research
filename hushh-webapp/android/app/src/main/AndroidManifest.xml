@@ -102,6 +102,11 @@
                 verification needs the matching assetlinks.json served by
                 app/.well-known/assetlinks.json/route.ts with this build's
                 signing fingerprint.
+
+                dev.one.hushh.ai is claimed only by src/debug/AndroidManifest.xml.
+                On Android 11 and below verification is all-or-nothing across
+                every autoVerify host, so one host that does not vouch for this
+                release signature would unverify one.hushh.ai as well.
             -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -109,7 +114,6 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="one.hushh.ai" />
                 <data android:scheme="https" android:host="uat.one.hushh.ai" />
-                <data android:scheme="https" android:host="dev.one.hushh.ai" />
                 <data android:pathPrefix="/one/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/one/profile/google/oauth/return" />
                 <data android:pathPrefix="/one/profile/gmail/oauth/return" />

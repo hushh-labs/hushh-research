@@ -216,6 +216,7 @@
     "241_drive_live_sharing.sql",
     "242_drive_live_query_requests.sql",
     "243_drive_live_query_cancel.sql",
+    "244_drive_query_notifications.sql",
     "245_private_mcp_registration.sql",
     "246_adk_chat_action_authority.sql",
     "247_public_profile_bridge.sql"
@@ -449,6 +450,7 @@
     "241_drive_live_sharing.sql": "rollback/241_drive_live_sharing.rollback.sql",
     "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
     "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql",
+    "244_drive_query_notifications.sql": "rollback/244_drive_query_notifications.rollback.sql",
     "245_private_mcp_registration.sql": "rollback/245_private_mcp_registration.rollback.sql",
     "246_adk_chat_action_authority.sql": "rollback/246_adk_chat_action_authority.rollback.sql",
     "247_public_profile_bridge.sql": "rollback/247_public_profile_bridge.rollback.sql"

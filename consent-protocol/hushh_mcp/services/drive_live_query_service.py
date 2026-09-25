@@ -1,6 +1,8 @@
 """A connection asks; the owner allows or denies; Allow runs one live Drive turn.
 
-Create, Deny and Cancel never read Drive and wake no worker. Allow claims the exact
+Create, Deny and Cancel never read Drive and wake no worker. A new question,
+an answer and a decline each queue one opaque notification (drive_query_events,
+migration 244) that the scheduled drain delivers. Allow claims the exact
 stored question once and runs the owner's own bounded chat turn
 (``DriveChatService.run_live_query``), fenced on every step by the owner's
 current authority and the claim. The requester receives answer text and file

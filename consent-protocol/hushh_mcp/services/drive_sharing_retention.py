@@ -296,6 +296,15 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
         )
     if _exists(connection, "drive_live_preferences"):
         connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id=:user"), params)
+    if _exists(connection, "drive_query_events"):
+        # Notification rows reference the questions deleted just below.
+        connection.execute(
+            text(
+                "DELETE FROM drive_query_events WHERE request_id IN (SELECT request_id "
+                "FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user)"
+            ),
+            params,
+        )
     if _exists(connection, "drive_live_query_requests"):
         # A question and its answer belong to both participants; either erasure removes them.
         connection.execute(
