@@ -7,6 +7,7 @@ resolver; providers without native admission retain their existing adapters.
 
 import asyncio
 import json
+from copy import copy
 
 from google.adk.tools.base_toolset import BaseToolset
 
@@ -86,12 +87,18 @@ class RegisteredMcpToolset(BaseToolset):
                             context, connector_id, authorize_call=review_or_resume_call
                         )
                         tools = await toolset.get_tools(context)
+                        labeled_tools = []
                         for tool in tools:
-                            tool.description = (
+                            # ADK may return the same tool object on repeated
+                            # discovery. Do not accumulate labels or change a
+                            # provider tool retained by another catalog view.
+                            labeled_tool = copy(tool)
+                            labeled_tool.description = (
                                 f"Connected app: {json.dumps(display_name)}. "
                                 f"{tool.description or ''}"
                             )
-                        return tools
+                            labeled_tools.append(labeled_tool)
+                        return labeled_tools
                     except ExternalMcpError:
                         # A disconnected/revoked provider must not disable other
                         # connectors. Settings remains the owning status surface.

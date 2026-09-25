@@ -1,7 +1,7 @@
 import React, { StrictMode } from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", returnTo: undefined as "connector_settings" | undefined }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), remember: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", returnTo: undefined as "connector_settings" | undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
@@ -15,6 +15,7 @@ vi.mock("@/lib/auth/session-owner", () => ({ snapshotValidatedAuthSessionOwner: 
 vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => 1, isVaultSessionEpochCurrent: () => mocks.current }));
 vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { privateMcpOAuth: mocks.complete, refreshMcpCatalog: mocks.refresh } }));
 vi.mock("@/lib/connections/custom-connector-configuration", () => ({ saveCustomConnectorOAuthResult: mocks.save }));
+vi.mock("@/lib/connections/custom-mcp-catalog-handoff", () => ({ rememberRefreshedMcpCatalog: mocks.remember }));
 import Page from "@/app/one/profile/connectors/oauth/return/page";
 
 beforeEach(() => {
@@ -49,8 +50,15 @@ it("does not exchange under a different signed-in owner", async () => {
 
 it("returns Settings sign-in to Settings without arming Chat draft recovery", async () => {
   mocks.returnTo = "connector_settings";
+  mocks.save.mockResolvedValue({ connectorId: "custom_" + "a".repeat(32), revision: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb" });
+  mocks.refresh.mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1" }]);
   render(<Page />);
   await screen.findByText(/Sign-in saved in your vault/);
+  await waitFor(() => expect(mocks.remember).toHaveBeenCalledWith(expect.objectContaining({
+    ownerUserId: "owner", connectorId: "custom_" + "a".repeat(32),
+    configurationRevision: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+    tools: [{ id: "mcp_" + "b".repeat(40), name: "search_files", revision: "rev1" }],
+  })));
   expect(mocks.markReturned).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Return to Connectors" }));
   expect(mocks.replace).toHaveBeenCalledWith("/one/profile/connectors");

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMcpCallReview } from "@/lib/agent/mcp-call-review";
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { ApiService } from "@/lib/services/api-service";
 
 vi.mock("@/lib/config", () => ({ BACKEND_URL: "https://backend.test" }));
@@ -59,6 +59,15 @@ describe("ephemeral MCP review", () => {
   it("rejects another configuration's catalog", async () => {
     respond({ connectorId: configuration.connectorId, configurationRevision: "other", status: "empty", tools: [] });
     await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration })).rejects.toThrow("changed");
+  });
+
+  it("distinguishes a provider credential refusal from app authentication failure", async () => {
+    respond({ detail: { code: "EXTERNAL_MCP_AUTH_FAILED", message: "private provider response" } }, 401);
+    await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration }))
+      .rejects.toBeInstanceOf(McpCatalogAuthenticationError);
+    respond({ detail: "Vault owner token expired" }, 401);
+    await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration }))
+      .rejects.not.toBeInstanceOf(McpCatalogAuthenticationError);
   });
 
   it("rejects a configuration for another connector before transport", async () => {

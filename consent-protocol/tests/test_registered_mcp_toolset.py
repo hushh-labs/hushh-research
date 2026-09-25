@@ -49,12 +49,35 @@ async def test_native_view_is_owner_scoped_and_clears_sdk_retained_catalog(regis
             tool = SimpleNamespace(name="mcp_" + owner, description="Find synthetic files")
             native = SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
             scope.acquire = AsyncMock(return_value=native)
-            assert await view.get_tools_with_prefix(context(owner)) == [tool]
-            assert tool.description.startswith('Connected app: "Synthetic connector".')
+            discovered = await view.get_tools_with_prefix(context(owner))
+            assert [item.name for item in discovered] == [tool.name]
+            assert discovered[0].description.startswith('Connected app: "Synthetic connector".')
+            assert tool.description == "Find synthetic files"
             assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
             registry.list_active_connectors.assert_awaited_with(user_id=owner)
         assert view._cached_prefixed_tools is None
         assert view._cached_invocation_id is None
+
+
+async def test_discovery_does_not_mutate_or_repeat_labels_on_sdk_tools(registry):
+    view = module.RegisteredMcpToolset()
+    shared_tool = SimpleNamespace(name="mcp_shared", description="Find files")
+    native = SimpleNamespace(get_tools=AsyncMock(return_value=[shared_tool]))
+
+    for owner in ("owner", "other"):
+        candidate = definition(owner=owner)
+        candidate.display_name = f"{owner} app"
+        registry.list_active_connectors.return_value = [candidate]
+        async with mcp_turn_scope("thread") as scope:
+            scope.acquire = AsyncMock(return_value=native)
+            first = await view.get_tools(context(owner))
+            second = await view.get_tools(context(owner))
+            assert first[0] is not shared_tool
+            assert second[0] is not shared_tool
+            assert first[0].description == second[0].description
+            assert first[0].description == f'Connected app: "{owner} app". Find files'
+
+    assert shared_tool.description == "Find files"
 
 
 @pytest.mark.parametrize("kind", ["missing", "owner", "surface", "thread"])
@@ -97,7 +120,9 @@ async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
         scope.acquire = AsyncMock(
             return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
         )
-        assert await module.RegisteredMcpToolset().get_tools(context()) == [tool]
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == [tool.name]
+        assert discovered[0].description.endswith("Read Drive")
         assert scope.acquire.await_count == 1
         assert scope.acquire.await_args.args[1] == "google_drive"
         assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
@@ -119,7 +144,9 @@ async def test_vault_catalog_replaces_private_db_definitions(registry):
         scope.acquire = AsyncMock(
             return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
         )
-        assert await module.RegisteredMcpToolset().get_tools(context()) == [tool]
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == [tool.name]
+        assert discovered[0].description.startswith('Connected app: "Vault app".')
         registry.list_active_connectors.assert_awaited_with(user_id=None)
         assert scope.acquire.await_args.args[1] == record["connectorId"]
         assert scope.acquire.await_count == 1
@@ -140,7 +167,9 @@ async def test_disconnected_connector_does_not_hide_working_connector(registry):
             return SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
 
         scope.acquire = AsyncMock(side_effect=acquire)
-        assert await module.RegisteredMcpToolset().get_tools(context()) == [tool]
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert [item.name for item in discovered] == [tool.name]
+        assert discovered[0].description.endswith("Read")
 
 
 async def test_connector_bound_rejects_without_partial_discovery(registry):
