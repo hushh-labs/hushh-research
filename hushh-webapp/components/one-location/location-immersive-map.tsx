@@ -962,6 +962,7 @@ export function LocationImmersiveMap({
   const rendererReady = acceptedRenderer || demoMode;
   const rendererReadyRef = useRef(rendererReady);
   const previousRendererReadyRef = useRef(rendererReady);
+  const cameraReportsAuthorizedRef = useRef(rendererReady);
   rendererReadyRef.current = rendererReady;
 
   useLayoutEffect(() => {
@@ -971,6 +972,16 @@ export function LocationImmersiveMap({
       // The consent screen's neutral world zoom is not authority for sizing a
       // private owner circle. Wait for a consented camera target/report before
       // the fallback becomes eligible to draw.
+      cameraReportsAuthorizedRef.current = false;
+      if (cameraFrameRef.current !== null) {
+        window.cancelAnimationFrame(cameraFrameRef.current);
+        cameraFrameRef.current = null;
+      }
+      if (cameraSettleTimerRef.current !== null) {
+        window.clearTimeout(cameraSettleTimerRef.current);
+        cameraSettleTimerRef.current = null;
+      }
+      pendingCameraRef.current = null;
       setSettledCameraZoom(null);
       return;
     }
@@ -989,6 +1000,7 @@ export function LocationImmersiveMap({
     selfCircleGenerationRef.current += 1;
     nearbyCircleGenerationRef.current += 1;
     cameraCommandGenerationRef.current += 1;
+    cameraReportsAuthorizedRef.current = false;
     markerCommandRef.current = Promise.resolve();
     selfCircleCommandRef.current = Promise.resolve();
     nearbyCircleCommandRef.current = Promise.resolve();
@@ -1330,6 +1342,7 @@ export function LocationImmersiveMap({
         cameraCommandGenerationRef.current === cameraCommandGeneration &&
         settledCameraRevisionRef.current === cameraRevision
       ) {
+        cameraReportsAuthorizedRef.current = true;
         setSettledCameraZoom(camera.zoom);
       }
     },
@@ -1743,6 +1756,7 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      cameraReportsAuthorizedRef.current = rendererReady;
       const currentInstance = () => !superseded() && mapRef.current === map;
       setCameraProjectionEnabled(false);
       // Gives the renderer-owned owner dot a correct initial scale even on an
@@ -1782,6 +1796,9 @@ export function LocationImmersiveMap({
       let cameraGestureSinceSettle = false;
       const publishCameraSettled = (nextCamera: MapNameLabelCamera) => {
         if (!currentInstance()) return;
+        if (rendererReadyRef.current && !cameraReportsAuthorizedRef.current) {
+          return;
+        }
         if (cameraFrameRef.current !== null) {
           window.cancelAnimationFrame(cameraFrameRef.current);
           cameraFrameRef.current = null;
@@ -1882,7 +1899,13 @@ export function LocationImmersiveMap({
         try {
           await map.setOnCameraMoveStartedListener((event) => {
             if (!currentInstance()) return;
-            cameraGestureSinceSettle ||= event.isGesture;
+            if (event.isGesture && rendererReadyRef.current) {
+              cameraGestureSinceSettle = true;
+              cameraReportsAuthorizedRef.current = true;
+              cameraCommandGenerationRef.current += 1;
+              initialFrameCommandRef.current = null;
+              framedInitialMarkersRef.current = true;
+            }
             setCameraMoving(true);
           });
           moveStartedListenerRegistered = true;
@@ -1940,6 +1963,7 @@ export function LocationImmersiveMap({
       pendingCameraRef.current = null;
       settledCameraRevisionRef.current += 1;
       cameraCommandGenerationRef.current += 1;
+      cameraReportsAuthorizedRef.current = false;
       nativeMapPaddingRef.current = { top: 0, right: 0, bottom: 0, left: 0 };
       nativeMapPaddingCommandRef.current = Promise.resolve();
       setMapCamera(null);
@@ -2719,6 +2743,7 @@ export function LocationImmersiveMap({
         cameraCommandGenerationRef.current === nearbyFrameCommand.generation &&
         settledCameraRevisionRef.current === nearbyFrameCommand.cameraRevision
       ) {
+        cameraReportsAuthorizedRef.current = true;
         setSettledCameraZoom(fittedZoom);
       }
     }).catch(() => {
@@ -3050,6 +3075,7 @@ export function LocationImmersiveMap({
               settledCameraRevisionRef.current ===
                 initialFrameCommand.cameraRevision
             ) {
+              cameraReportsAuthorizedRef.current = true;
               setSettledCameraZoom(targetZoom);
             }
           },
@@ -3650,6 +3676,7 @@ export function LocationImmersiveMap({
               cameraCommandGenerationRef.current === cameraCommandGeneration &&
               settledCameraRevisionRef.current === cameraRevision
             ) {
+              cameraReportsAuthorizedRef.current = true;
               setSettledCameraZoom(targetZoom);
             }
           },

@@ -730,6 +730,21 @@ describe("LocationImmersiveMap demo experience", () => {
     await waitFor(() =>
       expect(mapHarness.map.setOnCameraIdleListener).toHaveBeenCalled(),
     );
+    mapHarness.map.setCamera.mockImplementationOnce(async () => {
+      await new Promise<void>(() => undefined);
+    });
+    mapHarness.map.addCircles.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.46, lng: 81.85 },
+        }),
+      );
+    });
+    // This neutral report belonged to the pre-consent camera command but was
+    // delivered after consent while the private move was still pending.
     await act(async () => {
       mapHarness.listeners.cameraIdle?.({
         bounds: {
@@ -744,19 +759,6 @@ describe("LocationImmersiveMap demo experience", () => {
         tilt: 0,
       });
       await Promise.resolve();
-    });
-    mapHarness.map.setCamera.mockImplementationOnce(async () => {
-      await new Promise<void>(() => undefined);
-    });
-    mapHarness.map.addCircles.mockClear();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
-        expect.objectContaining({
-          coordinate: { lat: 25.46, lng: 81.85 },
-        }),
-      );
     });
     expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
   });
@@ -3553,6 +3555,37 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await act(async () => {
+      resolvePadding();
+      await pendingPadding;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("does not start a native Everyone fit after a user gesture begins", async () => {
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    let resolvePadding!: () => void;
+    const pendingPadding = new Promise<void>((resolve) => {
+      resolvePadding = resolve;
+    });
+    mapHarness.map.setPadding.mockReturnValueOnce(pendingPadding);
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 40.7128, -74.006)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => expect(mapHarness.map.setPadding).toHaveBeenCalled());
+    mapHarness.map.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await act(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({
+        mapId: "one-location-private-map",
+        isGesture: true,
+      });
       resolvePadding();
       await pendingPadding;
       await Promise.resolve();
