@@ -38241,7 +38241,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "e3b60053f6f2b1f81354a0f9097d0f2afdf8c1d2e005b8d1ec500b65910ad56b",
+      "projection_digest": "b7011df970f877b0dcf77e82cf1392615642b58c84366cac04251fe20129a0b5",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38260,7 +38260,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "3242a65d3aaa95e5",
+      "source_revision": "fb7a6340d119acec",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39778,7 +39778,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "3242a65d3aaa95e5",
+    "source_revision": "fb7a6340d119acec",
     "web": {
       "actions": [
         {
@@ -39821,7 +39821,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "17783aeb1d1f43b5d3ea866e3ec9345098b53fc78ae5298df07c5a6f0a212f91",
+      "projection_digest": "ec172445fe31cdd38c0236d69a7729ac3b7f523c7ae9ead4a5ca9c80440f25fe",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39840,7 +39840,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "3242a65d3aaa95e5",
+      "source_revision": "fb7a6340d119acec",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41397,7 +41397,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "3242a65d3aaa95e5",
+  "revision": "fb7a6340d119acec",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41483,6 +41483,15 @@
       "kind": "screen",
       "label": "consents",
       "route_pattern": "/consents",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/delete-account",
+      "kind": "screen",
+      "label": "app",
+      "route_pattern": "/delete-account",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -43077,7 +43086,9 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "screens:screen:/delete-account"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
@@ -45565,12 +45576,12 @@
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "49ca19980fca153d5ece61f58c59e1ff79d59f6ea4674001e317f594836bc2c4",
-    "route_orchestration_index": "c99892f37570c3b151b066b26ef3f71f481d5782bbbd6c6f41606524217c2363",
+    "route_orchestration_index": "203167fb00b30d4c1c7fb506f7b6802a4ee7cffbb1728de30d8d8514e9241935",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "3242a65d3aaa95e5",
+  "source_revision": "fb7a6340d119acec",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "3242a65d3aaa95e5",
+    "current_graph_revision": "fb7a6340d119acec",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

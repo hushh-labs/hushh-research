@@ -56,17 +56,27 @@ describe("Universal Link / App Link claim", () => {
   });
 
   it("declares an autoVerify https intent filter on Android for the same origins", () => {
-    const manifest = read("android/app/src/main/AndroidManifest.xml");
-    expect(manifest).toContain('android:autoVerify="true"');
-    for (const origin of ORIGINS) {
-      expect(manifest, `manifest must claim ${origin}`).toContain(
-        `android:host="${origin}"`,
-      );
+    // Android 11 and below verify every autoVerify host together, so the
+    // release manifest claims only hosts whose assetlinks vouch for the release
+    // signature; dev is claimed by the debug build alone.
+    const manifests = {
+      release: read("android/app/src/main/AndroidManifest.xml"),
+      debug: read("android/app/src/debug/AndroidManifest.xml"),
+    };
+    const DEBUG_ONLY_ORIGINS = ["dev.one.hushh.ai"];
+    for (const [variant, manifest] of Object.entries(manifests)) {
+      expect(manifest).toContain('android:autoVerify="true"');
+      for (const claimed of UNIVERSAL_LINK_PATHS) {
+        expect(manifest, `${variant} manifest must claim ${claimed}`).toContain(
+          `android:pathPrefix="${claimed}"`,
+        );
+      }
     }
-    for (const claimed of UNIVERSAL_LINK_PATHS) {
-      expect(manifest, `manifest must claim ${claimed}`).toContain(
-        `android:pathPrefix="${claimed}"`,
-      );
+    for (const origin of ORIGINS) {
+      const debugOnly = DEBUG_ONLY_ORIGINS.includes(origin);
+      const claim = `android:host="${origin}"`;
+      expect(manifests.debug.includes(claim) || manifests.release.includes(claim)).toBe(true);
+      expect(manifests.release.includes(claim), `release claim for ${origin}`).toBe(!debugOnly);
     }
   });
 
