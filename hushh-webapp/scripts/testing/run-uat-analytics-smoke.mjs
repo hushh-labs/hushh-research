@@ -45,8 +45,14 @@ try {
 }
 const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const smokeUserId = reviewerIdentity.reviewerUid;
+const fullJourney = process.argv.includes("--full");
+const smokeTicker =
+  sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_TICKER) || "AAPL";
 const defaultTimeoutMs = Number(
   process.env.UAT_ANALYTICS_SMOKE_TIMEOUT_MS || 120_000,
+);
+const analysisTimeoutMs = Number(
+  process.env.UAT_ANALYTICS_SMOKE_ANALYSIS_TIMEOUT_MS || 420_000,
 );
 
 function fail(message) {
@@ -71,6 +77,9 @@ function fail(message) {
 function classifySmokeFailure(message) {
   if (/missing canonical reviewer test identity/i.test(message)) {
     return "missing_fixture_credentials";
+  }
+  if (/recommendation_viewed|investor_activation_completed/i.test(message)) {
+    return "analysis_recommendation_or_activation_instrumentation";
   }
   if (/measurement ID|forbidden production measurement/i.test(message)) {
     return "measurement_id_or_sink_mismatch";
@@ -225,6 +234,17 @@ async function clickIfVisible(locator) {
   return false;
 }
 
+async function clickRequired(locator, label) {
+  try {
+    await locator.waitFor({ state: "visible", timeout: defaultTimeoutMs });
+  } catch {
+    throw new Error(
+      `${label} did not become visible within ${defaultTimeoutMs} ms`,
+    );
+  }
+  await locator.click();
+}
+
 async function waitForReviewerVaultBootstrap(page) {
   await page.waitForFunction(
     (expectedUserId) => {
@@ -330,10 +350,18 @@ function parseAnalyticsCollectRequests(request) {
   try {
     const parsed = new URL(url);
     const measurementId = parsed.searchParams.get("tid");
+    const collectFrom = (params) => ({
+      measurementId,
+      eventName: params.get("en") || "",
+      route_id: params.get("ep.route_id") || "",
+      journey: params.get("ep.journey") || "",
+      step: params.get("ep.step") || "",
+      result: params.get("ep.result") || "",
+    });
     const queryEventName = parsed.searchParams.get("en");
     if (!measurementId) return [];
     if (queryEventName) {
-      return [{ measurementId, eventName: queryEventName }];
+      return [collectFrom(parsed.searchParams)];
     }
     const postData =
       request.postData() ||
@@ -346,7 +374,10 @@ function parseAnalyticsCollectRequests(request) {
       const bodyParams = new URLSearchParams(line);
       const bodyEventName = bodyParams.get("en");
       if (bodyEventName) {
-        bodyEvents.push({ measurementId, eventName: bodyEventName });
+        for (const [key, value] of parsed.searchParams.entries()) {
+          if (!bodyParams.has(key)) bodyParams.set(key, value);
+        }
+        bodyEvents.push(collectFrom(bodyParams));
       }
     }
     return bodyEvents.length > 0
@@ -371,30 +402,35 @@ function isAnalyticsCollectUrl(rawUrl) {
   }
 }
 
-async function waitForAnalyticsCollectEvents(eventNames) {
-  const required = new Set(eventNames);
+async function waitForAnalyticsCollectEvents(requiredEvents) {
   await page.waitForFunction(
     ({ expectedMeasurementId: measurementId, requiredEvents }) => {
       const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
       return requiredEvents.every(
-        (eventName) =>
+        ({ eventName, params }) =>
           observed.some(
             (entry) =>
               entry.measurementId === measurementId &&
               entry.eventName === eventName &&
+              Object.entries(params).every(
+                ([key, value]) => entry[key] === value,
+              ) &&
               entry.status === "finished",
           ) &&
           !observed.some(
             (entry) =>
               entry.measurementId === measurementId &&
               entry.eventName === eventName &&
+              Object.entries(params).every(
+                ([key, value]) => entry[key] === value,
+              ) &&
               entry.status === "failed",
           ),
       );
     },
     {
       expectedMeasurementId,
-      requiredEvents: [...required],
+      requiredEvents,
     },
     { timeout: defaultTimeoutMs },
   );
@@ -460,10 +496,53 @@ try {
     (payload) => payload.route_id === "kai_dashboard",
   );
 
-  await waitForAnalyticsCollectEvents([
-    "growth_funnel_step_completed",
-    "page_view",
-  ]);
+  const requiredCollectEvents = [
+    {
+      eventName: "growth_funnel_step_completed",
+      params: { journey: "investor", step: "entered" },
+    },
+    { eventName: "page_view", params: { route_id: "kai_dashboard" } },
+  ];
+  const outputEvents = {
+    growth_funnel_step_completed: growthEvent.payload,
+    page_view: routeViewEvent.payload,
+  };
+
+  if (fullJourney) {
+    await navigateInApp(
+      page,
+      `/kai/analysis?ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
+    );
+    const startButton = page
+      .getByRole("button", {
+        name: /start debate|start analysis|run debate|run analysis|begin debate|begin analysis/i,
+      })
+      .first();
+    await clickRequired(startButton, "analysis start command");
+    const recommendationEvent = await waitForAnalyticsEvent(
+      page,
+      "recommendation_viewed",
+      (payload) => payload.result === "success",
+      analysisTimeoutMs,
+    );
+    const activationEvent = await waitForAnalyticsEvent(
+      page,
+      "investor_activation_completed",
+      (payload) => payload.journey === "investor",
+      defaultTimeoutMs,
+    );
+    requiredCollectEvents.push(
+      { eventName: "recommendation_viewed", params: { result: "success" } },
+      {
+        eventName: "investor_activation_completed",
+        params: { journey: "investor" },
+      },
+    );
+    outputEvents.recommendation_viewed = recommendationEvent.payload;
+    outputEvents.investor_activation_completed = activationEvent.payload;
+  }
+
+  await waitForAnalyticsCollectEvents(requiredCollectEvents);
 
   const state = await getSmokeState(page);
   const measurementIds = new Set([
@@ -512,10 +591,8 @@ try {
             status: entry.status,
             failureText: entry.failureText,
           })),
-        events: {
-          growth_funnel_step_completed: growthEvent.payload,
-          page_view: routeViewEvent.payload,
-        },
+        mode: fullJourney ? "full" : "promotion",
+        events: outputEvents,
       },
       null,
       2,

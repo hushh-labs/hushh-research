@@ -988,6 +988,17 @@ jobs:
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Promote paired backend candidate for analytics bootstrap
+        id: promote-paired-backend
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --to-revisions="${{ steps.candidate-state.outputs.backend_revision }}=100"
+
       - name: Install UAT analytics smoke dependencies
         if: steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
@@ -1027,11 +1038,12 @@ jobs:
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
-            echo "Analytics smoke failed; keeping all candidate revisions at zero traffic."
+            echo "Analytics smoke failed; frontend stays unpromoted and any paired backend promotion will enter governed rollback."
             exit 0
           fi
 
-          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+            && [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
@@ -1540,6 +1552,8 @@ jobs:
           if not analytics_smoke_success:
               append_unique(blocking, ["analytics_transport_failed"])
               frontend_failure = True
+              if os.environ.get("DEPLOY_BACKEND") == "true":
+                  backend_failure = True
 
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)

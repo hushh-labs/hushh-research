@@ -62,12 +62,15 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         ".github/workflows/deploy-uat.yml",
         "id: frontend-analytics-candidate",
         '--update-tags="analytics-candidate=${revision}"',
+        "id: promote-paired-backend",
+        'steps.scope.outputs.deploy_backend == \'true\'',
         "id: verify-analytics-uat",
         "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
         "npm run smoke:analytics:uat",
-        "Analytics smoke failed; keeping all candidate revisions at zero traffic.",
+        "Analytics smoke failed; frontend stays unpromoted and any paired backend promotion will enter governed rollback.",
         "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
         'append_unique(blocking, ["analytics_transport_failed"])',
+        'if os.environ.get("DEPLOY_BACKEND") == "true":',
         '"analytics_smoke": {',
     )
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
@@ -85,13 +88,16 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'entry.status === "failed"',
     )
     content = (ROOT / path).read_text(encoding="utf-8")
-    for backend_or_provider_backed_event in (
-        "portfolio_viewed",
-        "recommendation_viewed",
-        "investor_activation_completed",
-    ):
-        assert backend_or_provider_backed_event not in content
-    require(path, '"page_view"', 'payload.route_id === "kai_dashboard"')
+    require(
+        path,
+        '"page_view"',
+        'payload.route_id === "kai_dashboard"',
+        'process.argv.includes("--full")',
+        'params: { journey: "investor", step: "entered" }',
+        'params: { route_id: "kai_dashboard" }',
+    )
+    package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")
+    assert "npm run smoke:analytics:uat -- --full" in package_json
 
 
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
