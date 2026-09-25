@@ -3,8 +3,10 @@
 import { useState } from "react";
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
+export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });
 export const saveCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
+export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const projectCustomConnectorTurnConfigurations = () => { throw new Error("Not admitted in layout fixture"); };
 const user = {
   uid: "fixture-owner",

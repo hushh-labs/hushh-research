@@ -195,6 +195,23 @@ test.beforeEach(async ({ page }) => {
   await awaitProductFont(page);
 });
 
+for (const width of [390, 768])
+  test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 640 });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const search = chats.getByRole("searchbox", { name: "Search chats" });
+    const connectors = chats.getByRole("button", { name: "Open Connectors" });
+    await expect(search).toBeVisible();
+    await expect(connectors).toBeVisible();
+    const searchBox = (await search.boundingBox())!;
+    const connectorBox = (await connectors.boundingBox())!;
+    const drawerBox = (await chats.boundingBox())!;
+    expect(connectorBox.y).toBeGreaterThan(searchBox.y + searchBox.height);
+    expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
+    expect(await chats.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  });
+
 for (const width of [320, 390, 768, 1440])
   test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];

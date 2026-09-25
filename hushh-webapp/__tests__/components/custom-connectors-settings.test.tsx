@@ -2,7 +2,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { Capacitor } from "@capacitor/core";
@@ -18,15 +18,18 @@ vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   HushhOAuthReturn: { openAuthorization: vi.fn() },
 }));
 
-vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
+vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), loadCustomConnectorSnapshot: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
-vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size: _s, variant: _v, effect: _e, ...props }: any) => <button {...props}>{children}</button> }));
+vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size, variant: _v, effect: _e, ...props }: any) => <button data-size={size} {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.resetAllMocks();
   publishValidatedAuthSessionOwner(access.userId);
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([]);
+  vi.mocked(loadCustomConnectorSnapshot).mockImplementation(async (ownerAccess) => ({
+    configurations: await loadCustomConnectorConfigurations(ownerAccess), invalid: [],
+  }));
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
   vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
 });
@@ -70,11 +73,12 @@ it("refuses a native callback that cannot return to this app", async () => {
 it("verifies tools before saving through the vault", async () => {
   render(<CustomConnectorsSettings access={access} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Add connector" })).not.toBeDisabled());
+  expect(screen.getByRole("button", { name: "Add connector" })).toHaveAttribute("data-size", "compact");
   fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Synthetic server" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
-  fireEvent.change(screen.getByLabelText("Authorization header (optional)"), { target: { value: "Bearer synthetic" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer synthetic" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await screen.findByText("1 tools discovered");
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce();
   expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce();
@@ -87,8 +91,8 @@ it("keeps a failed connection draft and does not save it", async () => {
   render(<CustomConnectorsSettings access={access} />);
   fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Unreachable" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Name")).toHaveValue("Unreachable");
@@ -99,8 +103,8 @@ it("saves an OAuth challenge only as sign-in pending, never as connected", async
   render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "GitHub" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://api.githubcopilot.com/mcp/" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://api.githubcopilot.com/mcp/" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await screen.findByText("Sign in needed");
   expect(screen.getByRole("button", { name: "Sign in to GitHub" })).toBeEnabled();
   expect(screen.queryByText(/tools discovered/)).toBeNull();
@@ -111,9 +115,9 @@ it("does not save a rejected supplied credential as an OAuth setup", async () =>
   render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
-  fireEvent.change(screen.getByLabelText("Authorization header (optional)"), { target: { value: "Bearer invalid" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer invalid" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
 });
@@ -128,14 +132,14 @@ it("does not enable adding when the vault catalog cannot be read", async () => {
 it("does not carry a cancelled OAuth registration into another connector", async () => {
   render(<CustomConnectorsSettings access={access} />);
   fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
-  fireEvent.click(screen.getByText("OAuth client settings (if provided by your server)"));
+  fireEvent.click(screen.getByText("OAuth settings"));
   fireEvent.change(screen.getByLabelText("Authorization server issuer"), { target: { value: "https://auth.example" } });
   fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "old-client" } });
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New server" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://new.example/mcp" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://new.example/mcp" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce());
   expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1]).not.toHaveProperty("oauthRegistration");
 });
@@ -143,15 +147,15 @@ it("does not carry a cancelled OAuth registration into another connector", async
 it("clears a hidden client secret when switching back to public OAuth", async () => {
   render(<CustomConnectorsSettings access={access} />);
   fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
-  fireEvent.click(screen.getByText("OAuth client settings (if provided by your server)"));
+  fireEvent.click(screen.getByText("OAuth settings"));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Public server" } });
-  fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
   fireEvent.change(screen.getByLabelText("Authorization server issuer"), { target: { value: "https://auth.example" } });
   fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "public-client" } });
   fireEvent.change(screen.getByLabelText("Token authentication"), { target: { value: "client_secret_post" } });
   fireEvent.change(screen.getByLabelText("Client secret"), { target: { value: "synthetic-secret" } });
   fireEvent.change(screen.getByLabelText("Token authentication"), { target: { value: "none" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save connector" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce());
   expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1].oauthRegistration).toEqual({
     issuer: "https://auth.example", clientId: "public-client", tokenEndpointAuthMethod: "none",

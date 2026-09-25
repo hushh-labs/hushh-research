@@ -6,6 +6,7 @@ import {
   CheckIcon as Check,
   MessageSquareIcon as MessageSquare,
   DotsThreeIcon as MoreHorizontal,
+  Loader2Icon as Loader2,
   PanelLeftCloseIcon as PanelLeftClose,
   PanelLeftOpenIcon as PanelLeftOpen,
   PencilIcon as Pencil,
@@ -117,19 +118,21 @@ function formatRelativeTime(timestamp: number): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-type ConversationGroupKey = "today" | "yesterday" | "previous7" | "earlier";
+type ConversationGroupKey = "today" | "yesterday" | "previous7" | "previous30" | "earlier";
 
 const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   today: "Today",
   yesterday: "Yesterday",
-  previous7: "Previous 7 days",
-  earlier: "Earlier",
+  previous7: "Last 7 days",
+  previous30: "Last 30 days",
+  earlier: "Older",
 };
 
 const GROUP_ORDER: ConversationGroupKey[] = [
   "today",
   "yesterday",
   "previous7",
+  "previous30",
   "earlier",
 ];
 
@@ -142,10 +145,16 @@ function conversationGroupKey(
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTodayMs = startOfToday.getTime();
   if (timestamp >= startOfTodayMs) return "today";
-  const startOfYesterdayMs = startOfTodayMs - 24 * 60 * 60 * 1000;
+  const yesterday = new Date(startOfToday);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const startOfYesterdayMs = yesterday.getTime();
   if (timestamp >= startOfYesterdayMs) return "yesterday";
-  const startOfPrevious7Ms = startOfTodayMs - 7 * 24 * 60 * 60 * 1000;
-  if (timestamp >= startOfPrevious7Ms) return "previous7";
+  const previous7 = new Date(startOfToday);
+  previous7.setDate(previous7.getDate() - 7);
+  if (timestamp >= previous7.getTime()) return "previous7";
+  const previous30 = new Date(startOfToday);
+  previous30.setDate(previous30.getDate() - 30);
+  if (timestamp >= previous30.getTime()) return "previous30";
   return "earlier";
 }
 
@@ -242,10 +251,11 @@ export function AgentHistorySidebar({
     cancelRename();
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteTarget) return;
-    await onDeleteConversation(deleteTarget.id);
+    const targetId = deleteTarget.id;
     setDeleteTarget(null);
+    void Promise.resolve(onDeleteConversation(targetId)).catch(() => undefined);
   };
 
   const renderConversationItem = (conversation: AgentChatConversation) => {
@@ -369,11 +379,15 @@ export function AgentHistorySidebar({
             <div
               className={cn(
                 "absolute right-1 top-1/2 -translate-y-1/2",
-                !isMobileMode && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
+                !isMobileMode && !pending && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
                 isMobileMode && "opacity-100"
               )}
             >
-              <DropdownMenu>
+              {pending ? (
+                <span role="status" aria-label={`Deleting ${title}`} className="grid h-7 w-7 place-items-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                </span>
+              ) : <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -409,7 +423,7 @@ export function AgentHistorySidebar({
                     Delete chat
                   </DropdownMenuItem>
                 </DropdownMenuContent>
-              </DropdownMenu>
+              </DropdownMenu>}
             </div>
           </div>
         )}
@@ -595,21 +609,6 @@ export function AgentHistorySidebar({
                 onClear={() => setSearchQuery("")}
               />
             </div>
-            {onOpenConnectors ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                className="group mt-1 h-11 min-h-11 w-full justify-start rounded-xl bg-transparent p-0 text-[13px] font-medium text-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-primary/60"
-                onClick={(event) => onOpenConnectors(event.currentTarget)}
-                aria-label="Open Connectors"
-              >
-                <span className="flex h-9 w-full items-center gap-2 rounded-xl border border-black/[0.06] bg-foreground/[0.035] px-3 group-hover:bg-foreground/[0.06] dark:border-white/[0.07] dark:bg-white/[0.04] dark:group-hover:bg-white/[0.07]">
-                  <PlugIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
-                  <span className="truncate">Connectors</span>
-                </span>
-              </Button>
-            ) : null}
           </div>
         ) : null}
 
@@ -685,7 +684,7 @@ export function AgentHistorySidebar({
             <div className="space-y-4">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
-                  <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted-foreground/70">
                     {group.label}
                   </div>
                   <div
@@ -702,6 +701,25 @@ export function AgentHistorySidebar({
             </div>
           )}
         </div>
+        {onOpenConnectors ? (
+          <div className="shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <Button
+              type="button"
+              variant="ghost"
+              size="compact"
+              className={cn(
+                "group min-h-11 w-full rounded-xl text-[13px] font-medium text-foreground focus-visible:ring-2 focus-visible:ring-primary/60",
+                collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",
+              )}
+              onClick={(event) => onOpenConnectors(event.currentTarget)}
+              aria-label="Open Connectors"
+              title={collapsed && !isMobileMode ? "Connectors" : undefined}
+            >
+              <PlugIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              {collapsed && !isMobileMode ? null : <span className="ml-2 truncate">Connectors</span>}
+            </Button>
+          </div>
+        ) : null}
       </aside>
 
       <AlertDialog
