@@ -427,3 +427,13 @@ def test_source_ref_bounds_still_hold_after_the_model_answers(count):
     with pytest.raises(ValidationError):
         CoveredPeriod(period_start="2026-04-01", period_end="2026-04-30", source_refs=refs)
     assert SuggestedFile(document_ref="1" * 36, source_refs=["document:" + "0" * 32])
+
+
+def test_drive_model_turns_leave_room_for_a_regional_failover():
+    """A Vertex 429 on global plus failover cancelled a 20 s suggestions turn on UAT."""
+    from hushh_mcp.services import drive_suggestion_service as service
+
+    assert service.PLANNER_TIMEOUT_SECONDS >= 30
+    assert service.SUGGESTIONS_TIMEOUT_SECONDS >= 60
+    # Both still fit inside the 160 s preparation budget together.
+    assert service.PLANNER_TIMEOUT_SECONDS * 2 + service.SUGGESTIONS_TIMEOUT_SECONDS <= 160

@@ -248,6 +248,13 @@ class LiveSearchPlan(BaseModel):
         return _utc_text(start), _utc_text(end)
 
 
+# Room for one regional failover after a Vertex 429 on the global endpoint,
+# within the 160 s preparation budget. At 20 s, a 429 at 23:43Z on UAT
+# cancelled the suggestions turn mid-failover (2026-09-25).
+PLANNER_TIMEOUT_SECONDS = 30
+SUGGESTIONS_TIMEOUT_SECONDS = 60
+
+
 async def interpret_live_search(*, prompt, user_id):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
@@ -262,7 +269,7 @@ async def interpret_live_search(*, prompt, user_id):
         prompt_parts=prompt,
         user_id=user_id,
         consent_token="",
-        timeout_seconds=20,  # nosec B106
+        timeout_seconds=PLANNER_TIMEOUT_SECONDS,  # nosec B106
     )
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
@@ -306,7 +313,7 @@ async def interpret_suggestions(*, prompt, user_id):
         prompt_parts=prompt,
         user_id=user_id,
         consent_token="",
-        timeout_seconds=20,  # nosec B106
+        timeout_seconds=SUGGESTIONS_TIMEOUT_SECONDS,  # nosec B106
     )
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
