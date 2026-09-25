@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -17,6 +18,8 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
 export function CustomConnectorsSettings({ access }: { access: Access }) {
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
+  const [catalogs, setCatalogs] = useState<Record<string, Array<{ id: string; name: string; revision: string }>>>({});
+  const refreshAbort = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
@@ -39,7 +42,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
       setItems(records.map(({ connectorId, displayName, revision }) => ({ connectorId, displayName, revision })));
       setStatus("ready");
     }).catch(() => { if (current()) setStatus("failed"); });
-    return () => { active = false; };
+    return () => { active = false; refreshAbort.current?.abort(); };
   }, [access.userId, access.vaultKey, access.vaultOwnerToken]);
 
   const save = async () => {
@@ -66,6 +69,25 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     finally { inFlight.current = false; if (current()) setBusy(false); }
   };
 
+  const refresh = async (item: SavedConnector) => {
+    if (inFlight.current || !lifetime.current()) return;
+    inFlight.current = true; setBusy(true);
+    const current = lifetime.current;
+    const controller = new AbortController(); refreshAbort.current = controller;
+    setCatalogs(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
+    const operation = (async () => {
+      const records = await loadCustomConnectorConfigurations(access, true);
+      if (!current()) throw new Error("Session changed.");
+      const configuration = records.find(record => record.connectorId === item.connectorId);
+      if (!configuration || configuration.revision !== item.revision) throw new Error("Connector changed.");
+      const tools = await ExternalConnectorService.refreshMcpCatalog({ vaultOwnerToken: access.vaultOwnerToken, configuration, signal: controller.signal, isEffectCurrent: current });
+      if (current()) setCatalogs(previous => ({ ...previous, [item.connectorId]: tools }));
+    })();
+    morphyToast.promise(operation, { loading: "Refreshing tools…", success: "Tools refreshed.", error: "Could not refresh. Check the connection and try again." });
+    try { await operation; } catch { /* Shared toast owns the failure. */ }
+    finally { inFlight.current = false; if (current()) setBusy(false); }
+  };
+
   const remove = async () => {
     if (!removing || inFlight.current || !lifetime.current()) return;
     const selected = removing;
@@ -88,7 +110,11 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
       <p className="text-sm font-medium">{item.displayName}</p>
       <p className="text-xs text-muted-foreground">Saved · connection not verified</p>
+      <Button size="standard" variant="none" effect="fade" disabled={busy} onClick={() => void refresh(item)}>Refresh tools for {item.displayName}</Button>
       <Button size="standard" variant="none" effect="fade" disabled={busy} onClick={() => setRemoving(item)}>Remove {item.displayName}</Button>
+      {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools · Ask first</summary>
+        <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="break-words py-2">{tool.name}</li>)}</ul>
+      </details> : null}
     </li>)}</ul>
     {editing ? <form className="space-y-3" onSubmit={event => { event.preventDefault(); void save(); }}>
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>

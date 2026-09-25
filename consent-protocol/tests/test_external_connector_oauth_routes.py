@@ -72,6 +72,34 @@ def route_client(monkeypatch):
     return TestClient(app), app, drive
 
 
+def test_catalog_refresh_requires_owner_and_transient_configuration(route_client, monkeypatch):
+    client, app, _ = route_client
+    connector_id = "custom_" + "a" * 32
+    path = f"/api/connectors/{connector_id}/mcp/catalog"
+    assert client.post(path, json={}).status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": "owner",
+        "token": "synthetic",
+    }
+    assert client.post(path, json={}).status_code == 400
+    configuration = {
+        "version": 1,
+        "connectorId": connector_id,
+        "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "displayName": "Synthetic",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "none"},
+    }
+    discover = AsyncMock(return_value={"connectorId": connector_id, "status": "empty", "tools": []})
+    monkeypatch.setattr(routes.mcp_review_service, "discover_catalog", discover)
+    response = client.post(path, json={"connectorConfiguration": configuration})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    discover.assert_awaited_once()
+    assert discover.await_args.kwargs["configuration"] == configuration
+
+
 def test_private_registration_derives_owner_and_never_echoes_secrets(route_client, monkeypatch):
     client, app, _ = route_client
     body = {

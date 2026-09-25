@@ -54,7 +54,7 @@ class PrivateConnectorRoute(APIRoute):
 
         async def private_handler(request: Request):
             try:
-                if self.path.endswith(("/mcp/review", "/mcp/confirm")):
+                if self.path.endswith(("/mcp/review", "/mcp/confirm", "/mcp/catalog")):
                     # Bound the stream BEFORE FastAPI parses JSON, including
                     # chunked requests with no trustworthy Content-Length.
                     chunks, size = [], 0
@@ -139,12 +139,8 @@ class RegisterConnectorRequest(BaseModel):
     authStyle: Literal["api_key", "oauth"]
 
 
-class McpReviewRequest(BaseModel):
+class McpConfigurationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    conversationId: str = Field(min_length=1, max_length=256)
-    toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
-    arguments: dict[str, Any]
-    pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
     connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
 
     @field_validator("connectorConfiguration")
@@ -156,6 +152,13 @@ class McpReviewRequest(BaseModel):
             return next(iter(validate_mcp_turn_configurations([value]).values()))
         except ExternalMcpError:
             raise ValueError("Invalid connector configuration.") from None
+
+
+class McpReviewRequest(McpConfigurationRequest):
+    conversationId: str = Field(min_length=1, max_length=256)
+    toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
+    arguments: dict[str, Any]
+    pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
 
     @field_validator("arguments")
     @classmethod
@@ -191,6 +194,24 @@ async def _mcp_review_response(operation, **kwargs):
             status_code=503,
             detail="Connector review is temporarily unavailable. No automatic retry was made.",
         ) from None
+
+
+@router.post("/{connector_id}/mcp/catalog")
+async def refresh_mcp_catalog(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    if body.connectorConfiguration is None:
+        raise HTTPException(
+            status_code=400, detail="Unlock and provide the current connector settings."
+        )
+    return await _mcp_review_response(
+        mcp_review_service.discover_catalog,
+        token=token,
+        connector_id=connector_id,
+        configuration=body.connectorConfiguration,
+    )
 
 
 @router.post("/{connector_id}/mcp/review")

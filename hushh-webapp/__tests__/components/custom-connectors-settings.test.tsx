@@ -4,6 +4,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { refreshMcpCatalog: vi.fn() } }));
 
 vi.mock("@/lib/connections/custom-connector-configuration", () => ({ loadCustomConnectorConfigurations: vi.fn(), saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
@@ -46,4 +48,15 @@ it("requires confirmation and the displayed revision before removal", async () =
   expect(screen.getByText(/does not revoke access/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Remove connector" }));
   await waitFor(() => expect(removeCustomConnectorConfiguration).toHaveBeenCalledWith(access, record.connectorId, expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function)));
+});
+
+it("refreshes tools from the current vault configuration on explicit tap", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "tool", name: "search_files", revision: "rev1" }]);
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
+  await screen.findByText("1 tools · Ask first");
+  expect(loadCustomConnectorConfigurations).toHaveBeenCalledTimes(2);
+  expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
 });

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from google.adk.agents.context import Context
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.sessions import Session
+from google.adk.sessions import InMemorySessionService, Session
 
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.governed_mcp_toolset import (
@@ -33,6 +33,56 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 async def _never_execute(*_):
     return {"status": "permission_required"}
+
+
+async def discover_catalog(
+    *, token: dict[str, Any], connector_id: str, configuration: dict[str, Any]
+):
+    """Explicit Settings refresh; discover through the Chat toolset, never invoke."""
+    owner = str(token["user_id"])
+    records = validate_mcp_turn_configurations([configuration])
+    record = records.get(connector_id)
+    if record is None or not record["enabled"]:
+        raise ExternalMcpError(
+            "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
+        )
+    thread = f"catalog-{uuid4().hex}"
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id=uuid4().hex,
+            session=Session(
+                id=thread,
+                app_name="hussh_one",
+                user_id=owner,
+                state={
+                    "hussh:user_id": owner,
+                    "hussh:conversation_id": thread,
+                    "hussh:consent_token": store_request_secret(token["token"]),
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        )
+    )
+    async with mcp_turn_scope(thread, owner_id=owner, configurations=[record]) as scope:
+        toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
+        tools = await toolset.get_tools(context)
+        # Server-provided names are untrusted display text, not permission or
+        # instructions. Exclude schemas/results/credentials from this UI view.
+        return {
+            "connectorId": connector_id,
+            "configurationRevision": record["revision"],
+            "status": "available" if tools else "empty",
+            "tools": [
+                {
+                    "id": tool.name,
+                    "name": tool.descriptor["name"],
+                    "revision": tool.revision,
+                    "permission": "ask_first",
+                }
+                for tool in tools
+            ],
+        }
 
 
 @asynccontextmanager

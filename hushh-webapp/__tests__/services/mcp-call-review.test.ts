@@ -48,6 +48,19 @@ describe("ephemeral MCP review", () => {
     expect(configuration.authentication.refreshToken).toBe("synthetic-refresh");
   });
 
+  it("refreshes a revision-bound catalog without granting permission", async () => {
+    respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
+      status: "available", tools: [{ id: reference.toolName, name: "search_files", revision: "rev1", permission: "ask_first", ignored: "private" }] });
+    const tools = await ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration });
+    expect(tools).toEqual([{ id: reference.toolName, name: "search_files", revision: "rev1" }]);
+    expect(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body).not.toContain("synthetic-refresh");
+  });
+
+  it("rejects another configuration's catalog", async () => {
+    respond({ connectorId: configuration.connectorId, configurationRevision: "other", status: "empty", tools: [] });
+    await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration })).rejects.toThrow("changed");
+  });
+
   it("rejects a configuration for another connector before transport", async () => {
     await expect(ExternalConnectorService.reviewMcpCall({ ...input(), configuration }))
       .rejects.toThrow("configuration changed");

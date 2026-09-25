@@ -1110,13 +1110,24 @@ The existing Connectors panel includes a custom-server editor for public HTTPS
 endpoints with no authentication or a supplied Authorization header. It writes
 through browser-encrypted runtime settings, never the private-registration API,
 and labels records as saved rather than connected. This editor does not yet
-implement remote OAuth, tool-list refresh, or permissions management. Removal
+implement remote OAuth or persistent permissions management. Removal
 requires an explicit confirmation and the displayed record revision, and deletes
 only its encrypted vault settings; it does not revoke the provider's grant or
 undo completed actions.
 Those remain explicit integration gaps; do not advertise a saved definition as
 a verified provider connection. Owner/vault guards fence preparation, dispatch,
 retry and cache publication through the existing encrypted write service.
+
+`POST /api/connectors/{connector_id}/mcp/catalog` takes a transient
+`connectorConfiguration` under Vault Owner authority. Settings' explicit Refresh
+tools action reloads the encrypted record and calls the same governed toolset as
+Chat with execution disabled. The no-store response contains connector/configuration
+revision and namespaced tool IDs, names, revisions and `ask_first` permission.
+It contains no tool results or credentials and issues no action approval.
+Settings rejects mismatched or late responses and bounds the visible tool list.
+Discovery uses the shared toolset's bounded pagination and timeout; an empty
+catalog is distinct from failure. Provider notifications and persistent per-tool
+permission controls remain unimplemented.
 
 Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
 Owner authority. It removes that private field before handing the input to
