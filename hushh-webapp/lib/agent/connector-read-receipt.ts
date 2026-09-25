@@ -5,6 +5,10 @@ export type DriveOwnerCompileWindow = {
   end_date: string;
   timezone: string;
 };
+
+export function driveOwnerCompileKey(query: string, window: DriveOwnerCompileWindow): string {
+  return JSON.stringify([query, window.start_date, window.end_date, window.timezone]);
+}
 const STATUSES = [
   "ok", "input_required", "connect_required", "reconnect_required", "connection_changed",
   "permission_denied", "source_changed", "response_too_large", "invalid_argument", "unavailable",

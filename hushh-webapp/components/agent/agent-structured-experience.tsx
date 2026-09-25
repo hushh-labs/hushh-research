@@ -16,6 +16,7 @@ import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } 
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
+import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DriveOwnerShareCard } from "@/components/consent/drive-owner-share-card";
 import { DriveCircleShareCard } from "@/components/consent/drive-circle-share-card";
@@ -61,7 +62,7 @@ export function AgentStructuredExperienceView({
 }: {
   experience: AgentStructuredExperience;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
-  onCompileDriveNotes?: () => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
 }) {

@@ -124,7 +124,7 @@ import {
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import type { DriveBatchProgress, DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
-import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
+import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
 import {
   parseAgentActivityExperience,
@@ -311,9 +311,6 @@ type AgentMessage = {
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
-  /** Canonical owner query validated by the Documents listing parser. */
-  driveCompileQuery?: string;
-  driveCompileWindow?: DriveOwnerCompileWindow;
   driveCompilation?: DriveCompilationUiState;
 };
 
@@ -1573,7 +1570,7 @@ function AgentBubble({
 }: {
   message: AgentMessage;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
-  onCompileDriveNotes?: () => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   userAvatarUrl?: string | null;
   userInitials?: string;
@@ -1945,12 +1942,6 @@ export function storedMessageToAgentMessage(
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
-    ...(connectorRead?.type === "one.connector_read.v1" &&
-      connectorRead.connector === "drive" &&
-      connectorRead.ownerCompileAvailable === true && connectorRead.ownerCompileQuery &&
-      connectorRead.ownerCompileWindow
-      ? { driveCompileQuery: connectorRead.ownerCompileQuery,
-        driveCompileWindow: connectorRead.ownerCompileWindow } : {}),
     ...(structuredExperiences.length ? { structuredExperiences } : {}),
   };
 }
@@ -3231,13 +3222,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     compiledDriveMarkdownRef.current.clear();
     setMessages(clearDriveCompilationFromMessages);
     const ownerId = user.uid;
+    const sourceKey = driveOwnerCompileKey(query, window);
     const eventId = `owner-compile:${messageId}`;
     let lastProgress: DriveBatchProgress = {
       phase: "searching", completed: 0, total: 0, failed: 0,
     };
     updateMessage(messageId, (message) => ({
       ...message,
-      driveCompilation: { status: "running" },
+      driveCompilation: { status: "running", sourceKey },
     }));
     upsertMessageStreamEvent(messageId,
       driveBatchProgressToVisibleStreamEvent(lastProgress, eventId));
@@ -3272,6 +3264,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ...message,
         driveCompilation: {
           status: result.status === "partial" || result.truncated ? "partial" : "ready",
+          sourceKey,
           matched: result.matched,
           included: result.included,
           failed: result.failed,
@@ -3294,7 +3287,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : "unavailable";
       updateMessage(messageId, (message) => ({
         ...message,
-        driveCompilation: { status: "error", errorReason },
+        driveCompilation: { status: "error", sourceKey, errorReason },
       }));
       upsertMessageStreamEvent(messageId,
         driveBatchProgressToVisibleStreamEvent({ ...lastProgress, phase: "error" }, eventId));
@@ -5061,13 +5054,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               const current = message.structuredExperiences ?? [];
               return {
                 ...message,
-                ...(structuredExperience.type === "one.connector_read.v1" &&
-                  structuredExperience.ownerCompileAvailable === true &&
-                  structuredExperience.ownerCompileQuery &&
-                  structuredExperience.ownerCompileWindow
-                  ? { driveCompileQuery: structuredExperience.ownerCompileQuery,
-                    driveCompileWindow: structuredExperience.ownerCompileWindow }
-                  : {}),
                 structuredExperiences: upsertAgentStructuredExperience(
                   current,
                   stableId,
@@ -6567,10 +6553,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <AgentBubble
                       message={message}
                       onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
-                      onCompileDriveNotes={hasChatAccess && message.status === "done" &&
-                        message.driveCompileQuery && message.driveCompileWindow
-                        ? () => void compileOwnerDriveNotes(
-                          message.id, message.driveCompileQuery!, message.driveCompileWindow!,
+                      onCompileDriveNotes={hasChatAccess && message.status === "done"
+                        ? (query, window) => void compileOwnerDriveNotes(
+                          message.id, query, window,
                         )
                         : undefined}
                       onDownloadDriveNotes={hasChatAccess && compiledDriveMarkdownRef.current.has(message.id)

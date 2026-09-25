@@ -86,6 +86,7 @@ import {
   agentToolEventToVisibleStreamEvent,
   driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
+import { driveOwnerCompileKey } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatToolEvent {
@@ -283,13 +284,16 @@ describe("AgentTurnStreamPanel", () => {
       isStreaming={false} structuredExperience={experience}
       onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes} />);
     fireEvent.click(screen.getByRole("button", { name: "Compile original notes" }));
-    expect(onCompileDriveNotes).toHaveBeenCalledOnce();
+    expect(onCompileDriveNotes).toHaveBeenCalledWith(
+      experience.ownerCompileQuery, experience.ownerCompileWindow,
+    );
     expect(screen.queryByRole("list", { name: "Document sources" })).not.toBeInTheDocument();
 
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
       structuredExperience={experience} onCompileDriveNotes={onCompileDriveNotes}
       onDownloadDriveNotes={onDownloadDriveNotes}
-      driveCompilation={{ status: "partial", matched: 30, included: 29, failed: 1 }} />);
+      driveCompilation={{ status: "partial", matched: 30, included: 29, failed: 1,
+        sourceKey: driveOwnerCompileKey(experience.ownerCompileQuery, experience.ownerCompileWindow) }} />);
     expect(screen.getByText(/Compiled 29 of 30 matching files/)).toBeInTheDocument();
     expect(screen.getByText(/Some notes were unavailable or omitted/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Download Markdown notes" }));
@@ -304,6 +308,39 @@ describe("AgentTurnStreamPanel", () => {
       structuredExperience={{ ...experience, ownerCompileWindow: undefined }}
       onCompileDriveNotes={onCompileDriveNotes} />);
     expect(screen.queryByRole("button", { name: "Compile original notes" })).not.toBeInTheDocument();
+  });
+
+  it("sends each listing button's own validated query and window", () => {
+    const onCompileDriveNotes = vi.fn();
+    const first = {
+      type: "one.connector_read.v1" as const, connector: "drive" as const,
+      status: "ok" as const, sourceRefs: [], metadataOnly: true, truncated: false,
+      ownerCompileAvailable: true, ownerCompileQuery: "all last 30 days standup notes",
+      ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
+    };
+    const second = {
+      ...first, ownerCompileQuery: "all last 7 days planning notes",
+      ownerCompileWindow: { start_date: "2026-09-19", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
+    };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperiences={[{ id: "first", experience: first }, { id: "second", experience: second }]}
+      onCompileDriveNotes={onCompileDriveNotes} />);
+    const buttons = screen.getAllByRole("button", { name: "Compile original notes" });
+    fireEvent.click(buttons[0]!);
+    fireEvent.click(buttons[1]!);
+    expect(onCompileDriveNotes.mock.calls).toEqual([
+      [first.ownerCompileQuery, first.ownerCompileWindow],
+      [second.ownerCompileQuery, second.ownerCompileWindow],
+    ]);
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperiences={[{ id: "first", experience: first }, { id: "second", experience: second }]}
+      onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={vi.fn()}
+      driveCompilation={{ status: "ready", matched: 30, included: 30, failed: 0,
+        sourceKey: driveOwnerCompileKey(first.ownerCompileQuery, first.ownerCompileWindow) }} />);
+    expect(screen.getAllByRole("button", { name: "Download Markdown notes" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Compile original notes" })).toHaveLength(1);
   });
 
   it("never renders legacy reasoning during a turn or after the answer arrives", () => {

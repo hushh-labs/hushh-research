@@ -242,9 +242,13 @@ describe("owner Drive compilation history", () => {
       { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
         metadata: { connectorRead: listingReceipt } },
     ]);
-    expect(restored[1]?.driveCompileQuery).toBe(listingReceipt.ownerCompileQuery);
-    expect(restored[1]?.driveCompileWindow).toEqual(listingReceipt.ownerCompileWindow);
-    expect(restored[1]?.driveCompileQuery).not.toBe(rawUserQuery);
+    expect(restored[1]?.structuredExperience).toMatchObject({
+      ownerCompileQuery: listingReceipt.ownerCompileQuery,
+      ownerCompileWindow: listingReceipt.ownerCompileWindow,
+    });
+    expect(restored[1]?.structuredExperience).not.toMatchObject({
+      ownerCompileQuery: rawUserQuery,
+    });
   });
 
   it("does not infer a compile request from previous user text without a validated hint", () => {
@@ -253,8 +257,7 @@ describe("owner Drive compilation history", () => {
       { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
         metadata: { connectorRead: { ...listingReceipt, ownerCompileQuery: undefined } } },
     ]);
-    expect(restored[1]?.driveCompileQuery).toBeUndefined();
-    expect(restored[1]?.driveCompileWindow).toBeUndefined();
+    expect(restored[1]?.structuredExperience).toMatchObject({ ownerCompileQuery: undefined });
   });
 });
 

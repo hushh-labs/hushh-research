@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/lib/morphy-ux/button";
-import type { ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
+import type { ConnectorReadExperience, DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 
 const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
@@ -41,7 +41,7 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
   onDownloadDriveNotes, driveCompilation }: {
   experience: ConnectorReadExperience;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
-  onCompileDriveNotes?: () => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
 }) {
@@ -85,7 +85,10 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
             </Button>
           ) : (
             <Button type="button" variant="muted" size="compact"
-              disabled={driveCompilation?.status === "running"} onClick={onCompileDriveNotes}>
+              disabled={driveCompilation?.status === "running"}
+              onClick={() => onCompileDriveNotes(
+                experience.ownerCompileQuery!, experience.ownerCompileWindow!,
+              )}>
               {driveCompilation?.status === "running" ? "Compiling original notes…" :
                 driveCompilation?.status === "error" ? "Try compiling again" : "Compile original notes"}
             </Button>

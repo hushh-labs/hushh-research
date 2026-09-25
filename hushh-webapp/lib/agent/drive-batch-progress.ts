@@ -23,6 +23,8 @@ export type DriveBatchProgress = {
 /** Ephemeral chat UI state; the Markdown itself stays in a memory-only ref. */
 export type DriveCompilationUiState = {
   status: "running" | "ready" | "partial" | "error";
+  /** Identifies the one listing receipt whose compile action owns this state. */
+  sourceKey?: string;
   matched?: number;
   included?: number;
   failed?: number;

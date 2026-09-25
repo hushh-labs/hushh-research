@@ -16,6 +16,7 @@ import {
   type DriveBatchProgress,
   type DriveCompilationUiState,
 } from "@/lib/agent/drive-batch-progress";
+import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 
 export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
@@ -46,7 +47,7 @@ export type AgentTurnStreamPanelProps = {
     experience: AgentStructuredExperienceWithPresentation;
   }>;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
-  onCompileDriveNotes?: () => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
 };
@@ -258,16 +259,21 @@ export function AgentTurnStreamPanel({
       structuredContent={
         experienceItems.length > 0 ? (
           <div className="space-y-3">
-            {experienceItems.map(({ id, experience }) => (
-              <AgentStructuredExperienceView
+            {experienceItems.map(({ id, experience }) => {
+              const scopedCompilation = experience.type === "one.connector_read.v1" &&
+                experience.connector === "drive" && experience.ownerCompileQuery &&
+                experience.ownerCompileWindow && driveCompilation?.sourceKey ===
+                  driveOwnerCompileKey(experience.ownerCompileQuery, experience.ownerCompileWindow)
+                ? driveCompilation : undefined;
+              return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
                 onOpenConnections={onOpenConnections}
                 onCompileDriveNotes={onCompileDriveNotes}
-                onDownloadDriveNotes={onDownloadDriveNotes}
-                driveCompilation={driveCompilation}
-              />
-            ))}
+                onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
+                driveCompilation={scopedCompilation}
+              />;
+            })}
           </div>
         ) : null
       }
