@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from datetime import timezone as datetime_timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,10 +20,11 @@ from hushh_mcp.services.drive_candidate_selection import (
     interpret_candidate_selection,
     select_matches,
 )
+from hushh_mcp.services.drive_content_compilation import discover_long_range_matches
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
 from hushh_mcp.services.drive_live_reader import MAX_READS, DriveLiveReader
 from hushh_mcp.services.drive_long_range_listing import (
-    filter_long_range_matches,
+    owner_compile_query,
     parse_long_range_listing,
 )
 from hushh_mcp.services.drive_suggestion_service import (
@@ -38,7 +39,6 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = logging.getLogger("drive_chat_service")
 MAX_OWNER_LIST_DISPLAY = 60
-MAX_OWNER_LIST_CANDIDATES = 100
 
 
 class DocumentAnswer(BaseModel):
@@ -85,6 +85,8 @@ def result(
     truncated=False,
     metadata_only=False,
     owner_compile_available=False,
+    owner_compile_query=None,
+    owner_compile_window=None,
 ):
     return {
         "conversationId": conversation_id,
@@ -98,6 +100,8 @@ def result(
             "truncated": truncated,
             "metadata_only": metadata_only,
             "owner_compile_available": owner_compile_available,
+            "owner_compile_query": owner_compile_query,
+            "owner_compile_window": owner_compile_window,
         },
     }
 
@@ -373,6 +377,11 @@ class DriveChatService:
                     "\n\nThis search may include more files with that title. "
                     "Choose one before I read its contents."
                 )
+        listing_selection = outcome.get("selection") or {}
+        compile_available = (
+            outcome["status"] == "ok"
+            and listing_selection.get("stage") == "owner_title_date_listing"
+        )
         return result(
             conversation_id,
             text,
@@ -380,9 +389,12 @@ class DriveChatService:
             sources=outcome["sources"],
             truncated=outcome["truncated"],
             metadata_only=outcome["metadata_only"],
-            owner_compile_available=(
-                outcome["status"] == "ok"
-                and (outcome.get("selection") or {}).get("stage") == "owner_title_date_listing"
+            owner_compile_available=compile_available,
+            owner_compile_query=(
+                listing_selection.get("owner_compile_query") if compile_available else None
+            ),
+            owner_compile_window=(
+                listing_selection.get("owner_compile_window") if compile_available else None
             ),
         )
 
@@ -441,31 +453,15 @@ class DriveChatService:
                 if listing is not None:
                     stage = "search_files"
                     await require_access()
-                    # Bound Google files.list before its 100-candidate cut. In
-                    # particular, newer standups must not crowd an explicitly
-                    # requested preceding 30-day window out of the results.
                     first_day, last_day = listing.window(now_utc=now_utc, timezone=owner_timezone)
-                    owner_zone = ZoneInfo(owner_timezone)
-                    start_utc = datetime.combine(first_day, time.min, tzinfo=owner_zone).astimezone(
-                        datetime_timezone.utc
-                    )
-                    end_utc = datetime.combine(
-                        last_day + timedelta(days=1), time.min, tzinfo=owner_zone
-                    ).astimezone(datetime_timezone.utc)
-                    found = await reader.find(
-                        query=[listing.anchor],
-                        time_field="createdTime",
-                        start_time=start_utc.isoformat().replace("+00:00", "Z"),
-                        end_time=end_utc.isoformat().replace("+00:00", "Z"),
-                        max_results=MAX_OWNER_LIST_CANDIDATES,
-                        title_only=True,
-                    )
-                    matches = filter_long_range_matches(
-                        listing,
-                        found["matches"],
+                    found = await discover_long_range_matches(
+                        reader=reader,
+                        spec=listing,
                         now_utc=now_utc,
                         timezone=owner_timezone,
+                        window=(first_day, last_day),
                     )
+                    matches = found["matches"]
                     await reader.require_current()
                     if not matches:
                         return _outcome(
@@ -505,6 +501,12 @@ class DriveChatService:
                             "stage": "owner_title_date_listing",
                             "candidates": len(found["matches"]),
                             "selected": count,
+                            "owner_compile_query": owner_compile_query(listing),
+                            "owner_compile_window": {
+                                "start_date": first_day.isoformat(),
+                                "end_date": last_day.isoformat(),
+                                "timezone": owner_timezone,
+                            },
                         },
                     )
                 selection = None

@@ -31,7 +31,8 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -526,19 +527,79 @@ async def prepare_request_stream(
     )
 
 
+class OwnerCompilationWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
 class OwnerCompilationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     message: str = Field(min_length=1, max_length=2048)
-    timezone: str = Field(default="UTC", max_length=64)
+    window: OwnerCompilationWindow
 
 
 COMPILE_STREAM_HEARTBEAT_SECONDS = 15.0
 COMPILE_STREAM_DEADLINE_SECONDS = 330.0
-COMPILE_STREAM_CHUNK_CHARS = 2048
+COMPILE_STREAM_CHUNK_CHARS = 8192
 COMPILE_STREAM_MAX_ACTIVE = 4
 _COMPILE_STREAM_ACTIVE = 0
 _COMPILE_STREAM_TASKS: set[asyncio.Task[None]] = set()
+
+
+class _CompilationReservation:
+    """Release the stream slot once, including before its body first starts."""
+
+    def __init__(self) -> None:
+        global _COMPILE_STREAM_ACTIVE
+        _COMPILE_STREAM_ACTIVE += 1
+        self.released = False
+
+    def release(self) -> None:
+        global _COMPILE_STREAM_ACTIVE
+        if not self.released:
+            self.released = True
+            _COMPILE_STREAM_ACTIVE -= 1
+
+
+class _CompilationStreamingResponse(StreamingResponse):
+    def __init__(self, *args, reservation: _CompilationReservation, **kwargs) -> None:
+        self._reservation = reservation
+        super().__init__(*args, **kwargs)
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                # Starlette can fail while sending response headers, before
+                # the async generator's own finally block has ever run.
+                await cast(AsyncGenerator[bytes, None], self.body_iterator).aclose()
+            finally:
+                self._reservation.release()
+
+
+async def _current_live_generation(user_id: str) -> int:
+    """Cheap live-grant fence while sending private Markdown frames."""
+    row = (
+        await get_external_connector_oauth_service()
+        .drive()
+        .lifecycle.read(user_id=user_id, connector_id="google_drive")
+    )
+    generation = row.get("connection_generation") if isinstance(row, dict) else None
+    if (
+        not isinstance(row, dict)
+        or row.get("status") != "connected"
+        or row.get("validation_state") != "verified"
+        or row.get("verified_policy_hash") != LIVE_POLICY_HASH
+        or not isinstance(generation, int)
+        or isinstance(generation, bool)
+    ):
+        raise PermissionError("Drive live grant is no longer current")
+    return generation
 
 
 def _compilation_error(error: Exception) -> tuple[str, str]:
@@ -558,16 +619,26 @@ def _compilation_error(error: Exception) -> tuple[str, str]:
 
 
 async def _compile_stream(
-    *, request: Request, owner: Owner, body: OwnerCompilationRequest
+    *,
+    request: Request,
+    owner: Owner,
+    body: OwnerCompilationRequest,
+    reservation: _CompilationReservation,
 ) -> AsyncGenerator[bytes, None]:
     """Count-only progress, then full owner text only after every source fence."""
-    global _COMPILE_STREAM_ACTIVE
     events: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+    expected_generation: int | None = None
 
     async def require_compilation_access() -> None:
+        nonlocal expected_generation
         await owner.require_current()
         if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
             raise PermissionError("Drive chat reads are unavailable")
+        generation = await _current_live_generation(owner.user_id)
+        if expected_generation is None:
+            expected_generation = generation
+        elif generation != expected_generation:
+            raise PermissionError("Drive live grant changed")
 
     def on_stage(phase: str) -> None:
         if phase in {"searching", "fetching", "finalizing"}:
@@ -584,10 +655,12 @@ async def _compile_stream(
 
     async def run() -> None:
         try:
+            await require_compilation_access()
             result = await DriveContentCompilationService().compile(
                 user_id=owner.user_id,
                 message=body.message,
-                timezone=body.timezone,
+                timezone=body.window.timezone,
+                window=body.window.model_dump(),
                 require_access=require_compilation_access,
                 on_stage=on_stage,
                 on_progress=on_progress,
@@ -667,7 +740,7 @@ async def _compile_stream(
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
         finally:
-            _COMPILE_STREAM_ACTIVE -= 1
+            reservation.release()
 
 
 @router.post("/owner/compile/stream")
@@ -676,7 +749,6 @@ async def compile_owner_notes_stream(
     body: OwnerCompilationRequest,
     owner: Owner = Depends(_owner),
 ):
-    global _COMPILE_STREAM_ACTIVE
     await owner.require_current()
     if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
         raise HTTPException(403, "Drive chat reads are unavailable", headers=NO_STORE)
@@ -684,12 +756,17 @@ async def compile_owner_notes_stream(
         raise HTTPException(503, "Drive compilation is busy", headers=NO_STORE)
     # No await separates admission and reservation, so concurrent HTTP calls
     # cannot all enter before their streaming generators start.
-    _COMPILE_STREAM_ACTIVE += 1
-    return StreamingResponse(
-        _compile_stream(request=request, owner=owner, body=body),
-        media_type="text/event-stream",
-        headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
+    reservation = _CompilationReservation()
+    try:
+        return _CompilationStreamingResponse(
+            _compile_stream(request=request, owner=owner, body=body, reservation=reservation),
+            reservation=reservation,
+            media_type="text/event-stream",
+            headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+    except BaseException:
+        reservation.release()
+        raise
 
 
 @router.post("/requests/{request_id}/approve", status_code=202)

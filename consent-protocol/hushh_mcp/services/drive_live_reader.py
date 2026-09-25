@@ -35,6 +35,8 @@ EXCERPT_CHARS = 4000
 # previous eight-file page made a full result require four serial round trips.
 SEARCH_PAGE_SIZE = MAX_SEARCH_RESULTS
 MAX_SEARCH_PAGES = 6
+MAX_COMPILATION_FOLDERS = 3
+MAX_COMPILATION_FOLDER_PAGES = 4
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
 TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -459,6 +461,85 @@ class DriveLiveReader:
             matches.sort(key=lambda item: item.get(field) or "", reverse=True)
         await self.require_current()
         return {"matches": matches, "truncated": truncated}
+
+    async def find_compilation_folder_children(self, *, folder_ids: list[str]) -> dict:
+        """Search only validated, provider-discovered note folders for A's compilation.
+
+        A folder name can carry the standup subject while its Gemini note files
+        are titled only by date. This path is metadata-only and bounded; every
+        selected child still goes through the exact-file live content fences.
+        """
+        if (
+            not isinstance(folder_ids, list)
+            or not 1 <= len(folder_ids) <= MAX_COMPILATION_FOLDERS
+            or any(
+                not isinstance(value, str) or not FILE_ID.fullmatch(value) for value in folder_ids
+            )
+            or len(set(folder_ids)) != len(folder_ids)
+        ):
+            raise DriveReadError("narrow_selection_required")
+        await self._credential()
+
+        async def scan(folder_id: str) -> tuple[list[dict], bool]:
+            matches: list[dict] = []
+            seen: set[str] = set()
+            page_token = None
+            truncated = False
+            for _ in range(MAX_COMPILATION_FOLDER_PAGES):
+                await self.require_access()
+                arguments = {
+                    "query": f"'{folder_id}' in parents",
+                    "pageSize": SEARCH_PAGE_SIZE,
+                    "orderBy": "createdTime desc",
+                    "excludeContentSnippets": True,
+                }
+                if page_token:
+                    arguments["pageToken"] = page_token
+                result = await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name="search_files", arguments=arguments
+                )
+                candidates = result.payload.get("files")
+                if (
+                    result.is_error
+                    or result.truncated
+                    or not isinstance(candidates, list)
+                    or len(candidates) > SEARCH_PAGE_SIZE
+                    or result.payload.get("overLimit") is True
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                for candidate in candidates:
+                    match = self._match(candidate)
+                    if match is None:
+                        truncated = True
+                        continue
+                    if match["file_id"] not in seen:
+                        seen.add(match["file_id"])
+                        matches.append(match)
+                next_token = result.payload.get("nextPageToken")
+                if next_token is not None and (
+                    not isinstance(next_token, str) or len(next_token) > 1024
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                if not next_token:
+                    page_token = None
+                    break
+                if next_token == page_token:
+                    raise DriveReadError("provider_response_invalid")
+                page_token = next_token
+            if page_token:
+                truncated = True
+            return matches, truncated
+
+        pages = await asyncio.gather(*(scan(folder_id) for folder_id in folder_ids))
+        unique: dict[str, dict] = {}
+        for matches, _ in pages:
+            for match in matches:
+                unique.setdefault(match["file_id"], match)
+        await self.require_current()
+        return {
+            "matches": list(unique.values()),
+            "truncated": any(truncated for _, truncated in pages),
+        }
 
     @staticmethod
     def _match(candidate: object) -> dict | None:

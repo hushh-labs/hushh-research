@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from hushh_mcp.services import drive_chat_service
 from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_long_range_listing import parse_long_range_listing
 from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
@@ -98,6 +99,18 @@ async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
     found = await reader.find(query=["salary slip", "payslip"])
     assert [item["name"] for item in found["matches"]] == ["payslip-aug.pdf"]
     assert [call[1] for call in calls] == [both, either]
+
+
+async def test_compilation_folder_children_use_validated_parent_scope_and_bound_pages():
+    query = "'meeting-folder' in parents"
+    reader, calls = reader_with(
+        {("search_files", query): [file("gemini-note", "2026-09-23 Notes by Gemini")]}
+    )
+    found = await reader.find_compilation_folder_children(folder_ids=["meeting-folder"])
+    assert [item["file_id"] for item in found["matches"]] == ["gemini-note"]
+    assert calls[0][1] == query
+    assert calls[0][2]["orderBy"] == "createdTime desc"
+    assert calls[0][2]["pageSize"] == 25
 
 
 async def test_owner_title_only_search_excludes_full_text_from_both_query_passes():
@@ -755,20 +768,108 @@ async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
     assert response["structured"]["status"] == "ok"
     assert response["structured"]["metadata_only"] is True
     assert response["structured"]["owner_compile_available"] is True
+    assert parse_long_range_listing(response["structured"]["owner_compile_query"]) == (
+        parse_long_range_listing(message)
+    )
     assert "I found 30 candidate files" in response["response"]
     assert "30. Team Standup Sync Notes" in response["response"]
     assert f"{older_day:%Y/%m/%d}" not in response["response"]
     assert len(response["structured"]["sources"]) == 30
     first_day = NOW.date() - timedelta(days=offset_days + 30)
     end_day = NOW.date() - timedelta(days=offset_days)
-    reader.find.assert_awaited_once_with(
-        query=["standup"],
-        time_field="createdTime",
-        start_time=f"{first_day.isoformat()}T00:00:00Z",
-        end_time=f"{end_day.isoformat()}T00:00:00Z",
-        max_results=100,
-        title_only=True,
+    assert response["structured"]["owner_compile_window"] == {
+        "start_date": first_day.isoformat(),
+        "end_date": (end_day - timedelta(days=1)).isoformat(),
+        "timezone": "UTC",
+    }
+    assert reader.find.await_count == 3
+    assert any(
+        call.kwargs
+        == {
+            "query": ["standup"],
+            "time_field": "createdTime",
+            "start_time": f"{first_day.isoformat()}T00:00:00Z",
+            "end_time": f"{end_day.isoformat()}T00:00:00Z",
+            "max_results": 100,
+            "title_only": False,
+        }
+        for call in reader.find.await_args_list
     )
+    assert any(call.kwargs.get("recent") is True for call in reader.find.await_args_list)
     planner.assert_not_awaited()
     selector.assert_not_awaited()
     reader.read_matches.assert_not_awaited()
+
+
+async def test_owner_listing_reaches_date_only_note_in_named_meeting_folder(monkeypatch):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", FrozenDatetime)
+    folder = {
+        "file_id": "meeting-folder",
+        "name": "Hushh Team Sync and Standup",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    child = {
+        "file_id": "gemini-note",
+        "name": "2026/09/23 Notes by Gemini",
+        "mime_type": "application/vnd.google-apps.document",
+        "created_time": "2026-09-23T09:00:00Z",
+        "modified_time": "2026-09-23T09:00:00Z",
+        "source_ref": "document:" + "f" * 32,
+        "open_url": "https://drive.google.com/open?id=gemini-note",
+    }
+
+    async def find(**kwargs):
+        return {
+            "matches": [folder] if kwargs.get("file_kind") == "folder" else [],
+            "truncated": False,
+        }
+
+    reader = SimpleNamespace(
+        find=AsyncMock(side_effect=find),
+        find_compilation_folder_children=AsyncMock(
+            return_value={"matches": [child], "truncated": False}
+        ),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(),
+        candidate_selector=AsyncMock(),
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message="share me all my last 30 days standup sync notes",
+        require_access=AsyncMock(),
+        timezone="UTC",
+    )
+    assert response["structured"]["status"] == "ok"
+    assert response["structured"]["owner_compile_available"] is True
+    assert child["name"] in response["response"]
+    assert response["structured"]["sources"][0]["source_ref"] == child["source_ref"]
+    reader.find_compilation_folder_children.assert_awaited_once_with(folder_ids=["meeting-folder"])
+
+
+async def test_connection_question_does_not_enter_owner_compilation_listing(monkeypatch):
+    parser = Mock(wraps=parse_long_range_listing)
+    monkeypatch.setattr(drive_chat_service, "parse_long_range_listing", parser)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(side_effect=RuntimeError("stop after owner gate")),
+    )
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query="share me all my last 30 days standup sync notes",
+        require_access=AsyncMock(),
+        require_live=True,
+    )
+    parser.assert_not_called()
+    assert (outcome.get("selection") or {}).get("stage") != "owner_title_date_listing"

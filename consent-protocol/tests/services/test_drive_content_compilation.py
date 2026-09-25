@@ -49,6 +49,9 @@ class Reader:
         truncated=False,
         text=None,
         delays=None,
+        broad=(),
+        folders=(),
+        children=(),
     ):
         self.matches = matches
         self.unreadable = set(unreadable)
@@ -57,15 +60,29 @@ class Reader:
         self.truncated = truncated
         self.text = text
         self.delays = delays or {}
+        self.broad = list(broad)
+        self.folders = list(folders)
+        self.children = list(children)
         self.find_kwargs = None
+        self.find_calls = []
+        self.folder_ids = []
         self.read_ids = []
         self.verified = []
         self.active = 0
         self.peak_active = 0
 
     async def find(self, **kwargs):
+        self.find_calls.append(kwargs)
+        if kwargs.get("file_kind") == "folder":
+            return {"matches": self.folders, "truncated": False}
+        if kwargs.get("recent"):
+            return {"matches": self.broad, "truncated": False}
         self.find_kwargs = kwargs
         return {"matches": self.matches, "truncated": self.truncated}
+
+    async def find_compilation_folder_children(self, *, folder_ids):
+        self.folder_ids = folder_ids
+        return {"matches": self.children, "truncated": False}
 
     async def read_compilation_match(self, *, match):
         self.active += 1
@@ -120,7 +137,7 @@ async def test_compiles_all_thirty_original_notes_without_model_or_index():
     assert (result.matched, result.included, result.failed, result.truncated) == (30, 30, 0, False)
     assert reader.find_kwargs["query"] == ["standup"]
     assert reader.find_kwargs["max_results"] == 100
-    assert reader.find_kwargs["title_only"] is True
+    assert reader.find_kwargs["title_only"] is False
     assert len(reader.read_ids) == len(reader.verified) == 30
     assert result.markdown.count("[Open original in Drive]") == 30
     assert result.markdown.count("Original contents of note-") == 30
@@ -128,6 +145,87 @@ async def test_compiles_all_thirty_original_notes_without_model_or_index():
     assert stages == ["searching", "fetching", "finalizing"]
     assert progress[-1] == (30, 30, 0)
     assert checked >= 2
+
+
+@pytest.mark.asyncio
+async def test_title_dated_note_created_after_window_is_found_by_bounded_broad_search():
+    backfilled = notes(1)[0]
+    backfilled["created_time"] = "2026-10-01T09:00:00Z"
+    reader = Reader([], broad=[backfilled])
+    result = await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+        user_id="owner",
+        message="share me all my last 30 days standup sync notes",
+        timezone="UTC",
+        require_access=AsyncAccess(),
+    )
+    assert (result.status, result.matched, result.included) == ("complete", 1, 1)
+    assert "Original contents of note-00" in result.markdown
+    assert any(call.get("recent") is True for call in reader.find_calls)
+
+
+@pytest.mark.asyncio
+async def test_named_meeting_folder_supplies_date_only_gemini_note():
+    child = notes(1)[0]
+    child["name"] = "2026-09-25 Notes by Gemini"
+    folder = {
+        **notes(1)[0],
+        "file_id": "meeting-folder",
+        "name": "Hushh Team Sync and Standup",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    reader = Reader([], folders=[folder], children=[child])
+    result = await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+        user_id="owner",
+        message="share me all my last 30 days standup sync notes",
+        timezone="UTC",
+        require_access=AsyncAccess(),
+    )
+    assert reader.folder_ids == ["meeting-folder"]
+    assert (result.status, result.matched, result.included) == ("complete", 1, 1)
+    assert "Notes by Gemini" in result.markdown
+
+
+@pytest.mark.asyncio
+async def test_fixed_listing_window_survives_a_local_midnight(monkeypatch):
+    class NextDayDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return (NOW + timedelta(days=1)).astimezone(tz)
+
+    monkeypatch.setattr(compilation, "datetime", NextDayDatetime)
+    reader = Reader([notes(30)[-1]])  # Aug 27 falls out of a recomputed Sep 27 window.
+    result = await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+        user_id="owner",
+        message="all last 30 days standup sync",
+        timezone="UTC",
+        window={
+            "start_date": "2026-08-27",
+            "end_date": "2026-09-25",
+            "timezone": "UTC",
+        },
+        require_access=AsyncAccess(),
+    )
+    assert (result.status, result.included) == ("complete", 1)
+    assert "2026-08-27 through 2026-09-25" in result.markdown
+    assert reader.find_kwargs["start_time"] == "2026-08-27T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_fixed_window_must_match_query_span_and_recent_offset():
+    reader = Reader(notes())
+    with pytest.raises(CompilationInputError, match="Refresh the Drive listing"):
+        await DriveContentCompilationService(reader_factory=lambda **_: reader).compile(
+            user_id="owner",
+            message="all last 30 days standup sync",
+            timezone="UTC",
+            window={
+                "start_date": "2026-08-01",
+                "end_date": "2026-09-25",
+                "timezone": "UTC",
+            },
+            require_access=AsyncAccess(),
+        )
+    assert reader.find_calls == []
 
 
 @pytest.mark.asyncio

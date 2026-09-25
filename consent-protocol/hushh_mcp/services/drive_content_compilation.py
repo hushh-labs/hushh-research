@@ -11,8 +11,8 @@ import asyncio
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
-from typing import Any
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -20,19 +20,34 @@ from hushh_mcp.services.drive_live_reader import UNREADABLE, DriveLiveReader
 from hushh_mcp.services.drive_long_range_listing import (
     LongRangeListing,
     filter_long_range_matches,
+    matches_long_range_subject,
     parse_long_range_listing,
 )
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 
 MAX_CANDIDATES = 100
 MAX_FILES = 40
+MAX_FOLDER_SEARCH_RESULTS = 25
+MAX_MATCHING_FOLDERS = 3
 MAX_PARALLEL_READS = 4
 MAX_FILE_TEXT_BYTES = 128_000
 MAX_TOTAL_TEXT_BYTES = 1_600_000
 MAX_MARKDOWN_BYTES = 2_000_000
 MAX_COMPILATION_SECONDS = 300
+MAX_WINDOW_DRIFT_DAYS = 7
 
 _FILE_FAILURES = UNREADABLE | frozenset({"source_changed", "provider_unavailable"})
+_FOLDER_NOTE_MIMES = frozenset(
+    {
+        "application/vnd.google-apps.document",
+        "text/plain",
+        "text/markdown",
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.oasis.opendocument.text",
+    }
+)
 _FAILURE_LABELS = {
     "encrypted_document": "Password protected",
     "file_too_large": "Too large to read",
@@ -73,6 +88,44 @@ def _zone(value: str) -> ZoneInfo:
         return ZoneInfo(value or "UTC")
     except (ValueError, ZoneInfoNotFoundError):
         return ZoneInfo("UTC")
+
+
+def _validated_window(
+    spec: LongRangeListing,
+    *,
+    now_utc: datetime,
+    timezone: str,
+    window: dict[str, str] | None,
+) -> tuple[date, date]:
+    if window is None:
+        return cast(tuple[date, date], spec.window(now_utc=now_utc, timezone=timezone))
+    if (
+        not isinstance(window, dict)
+        or set(window) != {"start_date", "end_date", "timezone"}
+        or window.get("timezone") != timezone
+    ):
+        raise CompilationInputError("Refresh the Drive listing before compiling these notes.")
+    try:
+        ZoneInfo(timezone)
+        values = (window["start_date"], window["end_date"])
+        if any(
+            not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)
+            for value in values
+        ):
+            raise ValueError("invalid date")
+        first = date.fromisoformat(values[0])
+        last = date.fromisoformat(values[1])
+    except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError) as error:
+        raise CompilationInputError(
+            "Refresh the Drive listing before compiling these notes."
+        ) from error
+    expected_end = spec.window(now_utc=now_utc, timezone=timezone)[1]
+    elapsed_days = (expected_end - last).days
+    if (
+        last - first
+    ).days != spec.relative_days - 1 or not 0 <= elapsed_days <= MAX_WINDOW_DRIFT_DAYS:
+        raise CompilationInputError("Refresh the Drive listing before compiling these notes.")
+    return first, last
 
 
 def _markdown_title(value: str) -> str:
@@ -116,6 +169,8 @@ def _render(
     spec: LongRangeListing,
     now_utc: datetime,
     timezone: str,
+    first_date: date,
+    last_date: date,
     matches: list[dict],
     selected: list[dict],
     read: dict[int, tuple[object, str, bool]],
@@ -128,7 +183,8 @@ def _render(
     lines = [
         "# Compiled Drive notes",
         "",
-        f"Window: {spec.window_description(now_utc=now_utc, timezone=timezone)}",
+        f"Window: {first_date.isoformat()} through {last_date.isoformat()} "
+        f"({timezone}). {spec.basis}",
         f"Matched title/date candidates: {len(matches)}. Checked: {len(selected)}. "
         f"Included: {len(read)}. Could not read: {len(failures)}.",
         "This is a bounded Drive title/date search, not proof that no other notes exist.",
@@ -202,6 +258,93 @@ def _render(
     )
 
 
+async def discover_long_range_matches(
+    *,
+    reader: DriveLiveReader,
+    spec: LongRangeListing,
+    now_utc: datetime,
+    timezone: str,
+    window: tuple[date, date],
+) -> dict[str, Any]:
+    """Bounded metadata discovery shared by owner chat and owner compilation."""
+    first, last = window
+    owner_zone = ZoneInfo(timezone)
+    start_utc = datetime.combine(first, time.min, tzinfo=owner_zone).astimezone(UTC)
+    end_utc = datetime.combine(last + timedelta(days=1), time.min, tzinfo=owner_zone).astimezone(
+        UTC
+    )
+    # Drive's `name contains` is prefix-only. fullText finds a subject token
+    # inside a title; exact title/date filtering below removes body-only hits.
+    # A matching meeting folder can hold date-only Gemini note children.
+    timed, broad, folders = await asyncio.gather(
+        reader.find(
+            query=[spec.anchor],
+            time_field="createdTime",
+            start_time=start_utc.isoformat().replace("+00:00", "Z"),
+            end_time=end_utc.isoformat().replace("+00:00", "Z"),
+            max_results=MAX_CANDIDATES,
+            title_only=False,
+        ),
+        reader.find(
+            query=[spec.anchor],
+            recent=True,
+            max_results=MAX_CANDIDATES,
+            title_only=False,
+        ),
+        reader.find(
+            query=[spec.anchor],
+            file_kind="folder",
+            recent=True,
+            max_results=MAX_FOLDER_SEARCH_RESULTS,
+            title_only=False,
+        ),
+    )
+    matching_folders = [
+        item["file_id"]
+        for item in folders["matches"]
+        if item.get("mime_type") == "application/vnd.google-apps.folder"
+        and matches_long_range_subject(spec, item.get("name", ""))
+    ]
+    folder_limit_hit = len(matching_folders) > MAX_MATCHING_FOLDERS
+    children: dict[str, Any] = (
+        await reader.find_compilation_folder_children(
+            folder_ids=matching_folders[:MAX_MATCHING_FOLDERS]
+        )
+        if matching_folders
+        else {"matches": [], "truncated": False}
+    )
+    direct = filter_long_range_matches(
+        spec,
+        [*timed["matches"], *broad["matches"]],
+        now_utc=now_utc,
+        timezone=timezone,
+        window=window,
+    )
+    scoped = filter_long_range_matches(
+        spec,
+        [item for item in children["matches"] if item.get("mime_type") in _FOLDER_NOTE_MIMES],
+        now_utc=now_utc,
+        timezone=timezone,
+        require_title_terms=False,
+        window=window,
+    )
+    unique = {item["file_id"]: item for item in direct}
+    for item in scoped:
+        unique.setdefault(item["file_id"], item)
+    discovered = sorted(unique.values(), key=lambda item: item["listing_day"], reverse=True)
+    return {
+        "matches": discovered[:MAX_CANDIDATES],
+        "truncated": bool(
+            timed["truncated"]
+            or broad["truncated"]
+            or folders["truncated"]
+            or children["truncated"]
+            or folder_limit_hit
+            or len(discovered) > MAX_CANDIDATES
+        ),
+    }
+
+
 class DriveContentCompilationService:
     def __init__(self, *, reader_factory=None):
         self.reader_factory = reader_factory
@@ -212,6 +355,7 @@ class DriveContentCompilationService:
         user_id: str,
         message: str,
         timezone: str,
+        window: dict[str, str] | None = None,
         require_access,
         on_stage: Callable[[str], None] | None = None,
         on_progress: Callable[[int, int, int], None] | None = None,
@@ -235,25 +379,21 @@ class DriveContentCompilationService:
         )
         now_utc = datetime.now(UTC)
         owner_zone = _zone(timezone)
-        first, last = spec.window(now_utc=now_utc, timezone=owner_zone.key)
-        start_utc = datetime.combine(first, time.min, tzinfo=owner_zone).astimezone(UTC)
-        end_utc = datetime.combine(
-            last + timedelta(days=1), time.min, tzinfo=owner_zone
-        ).astimezone(UTC)
+        first, last = _validated_window(
+            spec, now_utc=now_utc, timezone=owner_zone.key, window=window
+        )
 
         async with asyncio.timeout(MAX_COMPILATION_SECONDS):
             _emit(on_stage, "searching")
-            found = await reader.find(
-                query=[spec.anchor],
-                time_field="createdTime",
-                start_time=start_utc.isoformat().replace("+00:00", "Z"),
-                end_time=end_utc.isoformat().replace("+00:00", "Z"),
-                max_results=MAX_CANDIDATES,
-                title_only=True,
+            found = await discover_long_range_matches(
+                reader=reader,
+                spec=spec,
+                now_utc=now_utc,
+                timezone=owner_zone.key,
+                window=(first, last),
             )
-            matches = filter_long_range_matches(
-                spec, found["matches"], now_utc=now_utc, timezone=owner_zone.key
-            )
+            matches = found["matches"]
+            discovery_truncated = found["truncated"]
             if not matches:
                 raise CompilationInputError(
                     "No title-and-date matches were confirmed in this bounded Drive search."
@@ -325,9 +465,11 @@ class DriveContentCompilationService:
                 spec=spec,
                 now_utc=now_utc,
                 timezone=owner_zone.key,
+                first_date=first,
+                last_date=last,
                 matches=matches,
                 selected=selected,
                 read=read,
                 failures=failures,
-                discovery_truncated=found["truncated"],
+                discovery_truncated=discovery_truncated,
             )

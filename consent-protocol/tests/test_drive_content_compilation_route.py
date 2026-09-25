@@ -5,13 +5,21 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from api.middleware import require_vault_owner_token
 from api.routes import drive_sharing as routes
 from hushh_mcp.services.drive_content_compilation import CompilationResult
 
 URL = "/api/connectors/google_drive/sharing/owner/compile/stream"
-BODY = {"message": "share me all my last 30 days standup sync notes", "timezone": "UTC"}
+BODY = {
+    "message": "all last 30 days standup sync",
+    "window": {
+        "start_date": "2026-08-27",
+        "end_date": "2026-09-25",
+        "timezone": "UTC",
+    },
+}
 
 
 class Service:
@@ -47,6 +55,7 @@ def setup(monkeypatch):
     monkeypatch.setattr(routes, "DriveContentCompilationService", lambda: service)
     monkeypatch.setattr(routes, "connector_feature_enabled", lambda *_: True)
     monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr(routes, "_current_live_generation", AsyncMock(return_value=7))
     return TestClient(app), app, service, current
 
 
@@ -68,7 +77,7 @@ def test_compilation_requires_owner_before_provider_work(setup):
 def test_compilation_streams_counts_then_ordered_private_markdown(setup):
     client, app, service, current = setup
     unlock(app)
-    service.text = "x" * 5000
+    service.text = "x" * 20_000
     response = client.post(URL, json=BODY)
     assert response.status_code == 200
     assert "no-store" in response.headers["Cache-Control"]
@@ -81,7 +90,29 @@ def test_compilation_streams_counts_then_ordered_private_markdown(setup):
     assert response.text.index("event: markdown") < response.text.index("event: complete")
     assert service.calls[0]["user_id"] == "owner"
     assert service.calls[0]["message"] == BODY["message"]
+    assert service.calls[0]["window"] == BODY["window"]
     assert current.await_count >= 5
+    assert routes._COMPILE_STREAM_ACTIVE == 0
+
+
+@pytest.mark.asyncio
+async def test_prestart_send_failure_releases_reserved_slot_without_provider_work(setup):
+    _, _, service, _ = setup
+    request = Request({"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"}})
+    response = await routes.compile_owner_notes_stream(
+        request,
+        routes.OwnerCompilationRequest(**BODY),
+        routes.Owner("owner", "synthetic-owner"),
+    )
+    assert routes._COMPILE_STREAM_ACTIVE == 1
+
+    async def fail_before_body(_message):
+        raise RuntimeError("socket closed before response headers")
+
+    with pytest.raises(RuntimeError, match="socket closed"):
+        await response(request.scope, request.receive, fail_before_body)
+    assert routes._COMPILE_STREAM_ACTIVE == 0
+    assert service.calls == []
 
 
 def test_revocation_after_compilation_withholds_original_text(setup):
@@ -92,6 +123,20 @@ def test_revocation_after_compilation_withholds_original_text(setup):
     assert response.status_code == 200
     assert service.text not in response.text
     assert "event: complete" not in response.text
+
+
+def test_drive_grant_revocation_between_chunks_stops_private_stream(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    service.text = "x" * 20_000
+    # Producer start, producer completion, first chunk, then generation change.
+    monkeypatch.setattr(routes, "_current_live_generation", AsyncMock(side_effect=[7, 7, 7, 8]))
+    response = client.post(URL, json=BODY)
+    assert response.status_code == 200
+    assert response.text.count("event: markdown") == 1
+    assert '"index":1' not in response.text
+    assert "event: complete" not in response.text
+    assert routes._COMPILE_STREAM_ACTIVE == 0
 
 
 def test_invalid_input_does_not_echo_private_query(setup):
