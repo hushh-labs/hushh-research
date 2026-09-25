@@ -20,6 +20,7 @@ import {
 import {
   CONNECT_PAGE_CONTENT_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
+  CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
 } from "../app/connect/connect-surface-layout";
 
 /**
@@ -124,6 +125,13 @@ function shellMarkup(): string {
                 <div data-strip style="height:${SURFACE_STRIP_HEIGHT_PX}px;background:#e8e8ed;">Connections / Circles</div>
               </div>
               <div data-my-connections style="height:900px;background:#dddde2;">
+                <div data-contact-row class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5">
+                  <div data-contact-title class="${CONNECT_WRAPPING_TITLE_ROW_CLASSNAME}">
+                    <span data-contact-name class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">Kushal Trivedi</span>
+                    <span data-contact-badge class="h-5 shrink-0 rounded-full px-1.5 text-[10px] leading-none">From contacts</span>
+                  </div>
+                  <button class="h-11 min-h-11 shrink-0 rounded-xl px-2.5">Remove</button>
+                </div>
                 <div data-person-row class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5">
                   <div class="min-w-0">
                     <span data-person-title class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">24E2100221 Mayank Featherstonehaugh-Rajendran</span>
@@ -156,6 +164,7 @@ async function writeFixture(): Promise<string> {
     "sm:space-y-4",
     ...CONNECT_PAGE_CONTENT_CLASSNAME.split(" "),
     ...CONNECT_WRAPPING_TEXT_CLASSNAME.split(" "),
+    ...CONNECT_WRAPPING_TITLE_ROW_CLASSNAME.split(" "),
     "grid",
     "grid-cols-[minmax(0,1fr)_auto]",
     "items-center",
@@ -165,9 +174,17 @@ async function writeFixture(): Promise<string> {
     "min-w-0",
     "h-8",
     "min-h-8",
+    "h-5",
+    "h-11",
+    "min-h-11",
     "shrink-0",
+    "rounded-full",
+    "rounded-xl",
+    "px-1.5",
     "rounded-2xl",
     "px-2.5",
+    "text-[10px]",
+    "leading-none",
     ...APP_SHELL_FRAME_CLASSNAME.split(" "),
     APP_SHELL_MAX_WIDTHS.agent,
     ...STICKY_HEADER_CLASSNAME.split(" "),
@@ -325,6 +342,54 @@ test.describe("connect sticky header", () => {
         expect(metric.whiteSpace).not.toBe("nowrap");
       }
       expect(result.actionRight).toBeLessThanOrEqual(result.rowRight + 1);
+    });
+  }
+
+  for (const width of [320, 393, 600, 640, 768, 1440] as const) {
+    test(`contact badge keeps its responsive identity row at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture());
+      await awaitProductFont(page);
+
+      const geometry = await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>(
+          "[data-contact-title]",
+        )!;
+        const name = document.querySelector<HTMLElement>(
+          "[data-contact-name]",
+        )!;
+        const badge = document.querySelector<HTMLElement>(
+          "[data-contact-badge]",
+        )!;
+        const titleStyle = getComputedStyle(title);
+        const nameBox = name.getBoundingClientRect();
+        const badgeBox = badge.getBoundingClientRect();
+
+        return {
+          direction: titleStyle.flexDirection,
+          nameBottom: nameBox.bottom,
+          nameLeft: nameBox.left,
+          nameRight: nameBox.right,
+          badgeTop: badgeBox.top,
+          badgeLeft: badgeBox.left,
+        };
+      });
+
+      if (width < 640) {
+        expect(geometry.direction).toBe("column");
+        expect(geometry.badgeTop).toBeGreaterThanOrEqual(
+          geometry.nameBottom - SLACK_PX,
+        );
+        expect(
+          Math.abs(geometry.badgeLeft - geometry.nameLeft),
+        ).toBeLessThanOrEqual(SLACK_PX);
+      } else {
+        expect(geometry.direction).toBe("row");
+        expect(geometry.badgeTop).toBeLessThan(geometry.nameBottom);
+        expect(geometry.badgeLeft).toBeGreaterThan(geometry.nameRight);
+      }
     });
   }
 });

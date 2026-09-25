@@ -30,8 +30,7 @@ export const CONNECT_PAGE_CONTENT_CLASSNAME = "min-w-0";
  * the clip edge: a sub-pixel swipe offset can trim the first letter, and the
  * tile's hover/focus border is cut at the same edge.
  */
-export const CONNECT_SWIPE_CLIP_GUARD_CLASSNAME =
-  "-mx-2 w-[calc(100%+1rem)]";
+export const CONNECT_SWIPE_CLIP_GUARD_CLASSNAME = "-mx-2 w-[calc(100%+1rem)]";
 export const CONNECT_SWIPE_PANE_INSET_CLASSNAME = "px-2";
 
 /** Let identities use the room a responsive row gives them instead of cutting
@@ -39,10 +38,15 @@ export const CONNECT_SWIPE_PANE_INSET_CLASSNAME = "px-2";
 export const CONNECT_WRAPPING_TEXT_CLASSNAME =
   "block min-w-0 whitespace-normal [overflow-wrap:anywhere]";
 
-/** A source badge may wrap after a long identity without forcing the identity
- * itself to disappear. */
+/** Keep contact provenance predictable beside variable-length identities.
+ *
+ * Phone rows always place the badge below the name, even when a short name
+ * would leave enough inline room. At `sm` and above the existing inline,
+ * wrapping desktop layout returns. This avoids a mixed phone list where the
+ * same badge changes rows only for longer names.
+ */
 export const CONNECT_WRAPPING_TITLE_ROW_CLASSNAME =
-  "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5";
+  "flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5";
 
 /**
  * The roster is bounded on every viewport, phones included.
