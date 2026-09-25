@@ -255,7 +255,7 @@ jobs:
               raise SystemExit("Drive work wake Cloud Scheduler run grant is missing")
           '
 
-      - name: Resolve last-known-good rollback targets
+      - name: Resolve rollback targets from predeploy traffic
         id: rollback-targets
         shell: bash
         run: |
@@ -266,24 +266,35 @@ jobs:
           git fetch --force origin \
             refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest
 
-          backend_revision=""
+          # An audited traffic restore can serve a verified revision without
+          # moving the last-known-good tag. On failure, return to the revision
+          # actually serving before this run rather than an older tag target.
+          backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            backend_revision="$(
-              ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
-              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-              bash scripts/ci/resolve-rollback-target.sh uat backend
-            )"
+            if [ -z "${backend_revision}" ]; then
+              backend_revision="$(
+                ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
+                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+                bash scripts/ci/resolve-rollback-target.sh uat backend
+              )"
+            fi
+          else
+            backend_revision=""
           fi
 
-          frontend_revision=""
+          frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
-            frontend_revision="$(
-              ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
-              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-              bash scripts/ci/resolve-rollback-target.sh uat frontend
-            )"
+            if [ -z "${frontend_revision}" ]; then
+              frontend_revision="$(
+                ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
+                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+                bash scripts/ci/resolve-rollback-target.sh uat frontend
+              )"
+            fi
+          else
+            frontend_revision=""
           fi
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
@@ -984,12 +995,19 @@ jobs:
           # smoke. The canonical-configured release revision is the one that is
           # promoted after the smoke succeeds.
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            # Cloud Run rejects changing a secret-backed variable to a literal
+            # in the same update. Remove the secret bindings first.
             gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
               --platform=managed \
               --no-traffic \
-              --remove-secrets=BACKEND_URL,DEVELOPER_API_URL \
+              --remove-secrets=BACKEND_URL,DEVELOPER_API_URL
+            gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --platform=managed \
+              --no-traffic \
               --update-env-vars="BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }},DEVELOPER_API_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}"
             smoke_revision="$(gcloud run revisions list \
               --service="${{ env.FRONTEND_SERVICE }}" \
@@ -1100,6 +1118,37 @@ jobs:
           else
             echo "Frontend analytics candidate tag is already absent."
           fi
+
+      - name: Restore canonical frontend backend bindings
+        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The smoke clone may leave a literal candidate URL (or no URL if
+          # its first update succeeded but the second failed) on the service
+          # template. Restore the canonical secret refs before any promotion.
+          gcloud run services update "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --no-traffic \
+            --remove-env-vars=BACKEND_URL,DEVELOPER_API_URL \
+            --update-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json | python3 -c '
+          import json, sys
+          service = json.load(sys.stdin)
+          containers = ((service.get("spec") or {}).get("template") or {}).get("spec", {}).get("containers") or []
+          if len(containers) != 1:
+              raise SystemExit("Expected one frontend container")
+          env = {item.get("name"): item for item in containers[0].get("env") or []}
+          for name in ("BACKEND_URL", "DEVELOPER_API_URL"):
+              ref = ((env.get(name) or {}).get("valueFrom") or {}).get("secretKeyRef") or {}
+              if ref.get("name") != "BACKEND_URL" or ref.get("key") != "latest":
+                  raise SystemExit(f"Canonical secret binding missing: {name}")
+          '
 
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic

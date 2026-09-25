@@ -420,17 +420,14 @@ describe("exact-file document review", () => {
       const result = deferred<string>();
       const seen: {
         onStage?: (stage: string) => void;
-        onProgress?: (progress: { completed: number; total: number } | null) => void;
         signal?: AbortSignal;
       } = {};
       state.prepareStream.mockImplementation(
         (_token: string, _id: string, _guard: () => void, options: {
           onStage: (stage: string) => void;
-          onProgress: (progress: { completed: number; total: number } | null) => void;
           signal: AbortSignal;
         }) => {
           seen.onStage = options.onStage;
-          seen.onProgress = options.onProgress;
           seen.signal = options.signal;
           return result.promise;
         },
@@ -458,12 +455,6 @@ describe("exact-file document review", () => {
       await act(async () => seen.onStage?.("searching"));
       expect(screen.getByRole("status")).toHaveTextContent("Searching Drive…");
       await act(async () => seen.onStage?.("checking"));
-      expect(screen.getByRole("status")).toHaveTextContent("Checking coverage…");
-      await act(async () => seen.onProgress?.({ completed: 1, total: 3 }));
-      expect(screen.getByRole("status")).toHaveTextContent("Checked 1 of 3 files…");
-      await act(async () => seen.onProgress?.({ completed: 2, total: 3 }));
-      expect(screen.getByRole("status")).toHaveTextContent("Checked 2 of 3 files…");
-      await act(async () => seen.onProgress?.(null));
       expect(screen.getByRole("status")).toHaveTextContent("Checking coverage…");
       state.status.mockResolvedValue(initial());
       state.review.mockImplementation(async () => review());

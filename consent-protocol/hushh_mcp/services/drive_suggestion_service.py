@@ -53,16 +53,6 @@ def _emit(on_stage, stage: PreparationStage) -> None:
         logger.debug("drive_suggestion.stage_callback_failed type=%s", type(error).__name__)
 
 
-def _emit_progress(on_progress, completed: int, total: int) -> None:
-    """Owner-only file counts; a display callback cannot fail preparation."""
-    if on_progress is None:
-        return
-    try:
-        on_progress(completed, total)
-    except Exception as error:  # noqa: BLE001 - a UI callback must not fail the run
-        logger.debug("drive_suggestion.progress_callback_failed type=%s", type(error).__name__)
-
-
 MAX_SOURCE_REFS = 8
 
 
@@ -431,9 +421,7 @@ class DriveSuggestionService:
             store=DriveSuggestionRetrievalStore(db=self.store.db, cipher=self.store.cipher),
         )
 
-    async def run_one(
-        self, *, user_id, request_id, owner_selected=None, on_stage=None, on_progress=None
-    ):
+    async def run_one(self, *, user_id, request_id, owner_selected=None, on_stage=None):
         """Prepare one review. owner_selected: files A chose from B's answered
         question; they are bound by metadata only, with no planner, model or read.
         """
@@ -621,17 +609,7 @@ class DriveSuggestionService:
                         stage = "read_file_content"
                         _emit(on_stage, "checking")
                         retrieved = await reader.read_matches(
-                            matches=matches,
-                            truncated=found["truncated"],
-                            **(
-                                {
-                                    "on_progress": lambda completed, total: _emit_progress(
-                                        on_progress, completed, total
-                                    )
-                                }
-                                if on_progress is not None
-                                else {}
-                            ),
+                            matches=matches, truncated=found["truncated"]
                         )
                 else:
                     stage = "search_files"

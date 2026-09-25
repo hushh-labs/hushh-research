@@ -35,9 +35,9 @@ that token or requiring background consent. Its empty request body forbids mode
 flags. Worker preparation still requires the separately enabled background
 setting. Proxy/browser timeouts for this endpoint are 170/180 seconds; execution
 remains bounded to 160 seconds.
-`POST …/prepare/stream` runs the same preparation and streams stage names plus
-count-only per-file check progress (never filenames, ids, contents or coverage).
-Metadata-only reviews have no per-file check events. Closing the tab, locking the vault or signing out
+`POST …/prepare/stream` runs the same preparation and streams stage names,
+then one committed status (never files, ids, contents or coverage).
+Closing the tab, locking the vault or signing out
 does not stop a started preparation; token expiry or revocation, account
 deletion, decline and refresh do.
 
