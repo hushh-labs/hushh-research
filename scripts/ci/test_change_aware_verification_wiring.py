@@ -75,14 +75,21 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
 
 
 def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
+    path = "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs"
     require(
-        "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs",
+        path,
         'page.on("response", (response) => {',
         'status: response.ok() ? "finished" : "failed"',
         'page.on("requestfailed", (request) => {',
         'entry.status === "finished"',
         'entry.status === "failed"',
     )
+    content = (ROOT / path).read_text(encoding="utf-8")
+    for provider_backed_event in (
+        "recommendation_viewed",
+        "investor_activation_completed",
+    ):
+        assert provider_backed_event not in content
 
 
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:

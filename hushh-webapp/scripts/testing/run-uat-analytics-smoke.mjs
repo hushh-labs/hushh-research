@@ -34,7 +34,7 @@ const forbiddenMeasurementIds = new Set(
     .filter(Boolean),
 );
 const fixturePolicy =
-  "reuse the existing reviewer test fixture; if seeded portfolio or recommendation state is stale, repair that fixture instead of creating another user or environment";
+  "reuse the existing reviewer test fixture; if seeded portfolio state is stale, repair that fixture instead of creating another user or environment";
 let reviewerIdentity;
 try {
   reviewerIdentity = resolveReviewerTestIdentity({
@@ -45,13 +45,8 @@ try {
 }
 const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const smokeUserId = reviewerIdentity.reviewerUid;
-const smokeTicker =
-  sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_TICKER) || "AAPL";
 const defaultTimeoutMs = Number(
   process.env.UAT_ANALYTICS_SMOKE_TIMEOUT_MS || 120_000,
-);
-const analysisTimeoutMs = Number(
-  process.env.UAT_ANALYTICS_SMOKE_ANALYSIS_TIMEOUT_MS || 420_000,
 );
 
 function fail(message) {
@@ -80,9 +75,6 @@ function classifySmokeFailure(message) {
   if (/portfolio_viewed/i.test(message)) {
     return "missing_or_unusable_seeded_portfolio_state";
   }
-  if (/recommendation_viewed|investor_activation_completed/i.test(message)) {
-    return "analysis_recommendation_or_activation_instrumentation";
-  }
   if (/measurement ID|forbidden production measurement/i.test(message)) {
     return "measurement_id_or_sink_mismatch";
   }
@@ -91,10 +83,7 @@ function classifySmokeFailure(message) {
 
 function validateRequiredParams(eventName, payload) {
   const required = ["platform", "event_category", "app_version"];
-  if (
-    eventName === "growth_funnel_step_completed" ||
-    eventName === "investor_activation_completed"
-  ) {
+  if (eventName === "growth_funnel_step_completed") {
     required.push("journey", "entry_surface");
   }
   if (eventName === "growth_funnel_step_completed") {
@@ -237,18 +226,6 @@ async function clickIfVisible(locator) {
     return true;
   }
   return false;
-}
-
-async function clickRequired(locator, label) {
-  try {
-    await locator.waitFor({ state: "visible", timeout: defaultTimeoutMs });
-  } catch (error) {
-    throw new Error(
-      `${label} did not become visible within ${defaultTimeoutMs} ms`,
-    );
-  }
-  await locator.click();
-  return true;
 }
 
 async function waitForReviewerVaultBootstrap(page) {
@@ -486,34 +463,9 @@ try {
     (payload) => payload.result === "success",
   );
 
-  await navigateInApp(
-    page,
-    `/kai/analysis?ticker=${encodeURIComponent(smokeTicker)}&pickSource=default`,
-  );
-  const startButton = page
-    .getByRole("button", {
-      name: /start debate|start analysis|run debate|run analysis|begin debate|begin analysis/i,
-    })
-    .first();
-  await clickRequired(startButton, "analysis start command");
-
-  const recommendationEvent = await waitForAnalyticsEvent(
-    page,
-    "recommendation_viewed",
-    (payload) => payload.result === "success",
-    analysisTimeoutMs,
-  );
-  const activationEvent = await waitForAnalyticsEvent(
-    page,
-    "investor_activation_completed",
-    (payload) => payload.journey === "investor",
-    defaultTimeoutMs,
-  );
   await waitForAnalyticsCollectEvents([
     "growth_funnel_step_completed",
     "portfolio_viewed",
-    "recommendation_viewed",
-    "investor_activation_completed",
   ]);
 
   const state = await getSmokeState(page);
@@ -566,8 +518,6 @@ try {
         events: {
           growth_funnel_step_completed: growthEvent.payload,
           portfolio_viewed: portfolioEvent.payload,
-          recommendation_viewed: recommendationEvent.payload,
-          investor_activation_completed: activationEvent.payload,
         },
       },
       null,

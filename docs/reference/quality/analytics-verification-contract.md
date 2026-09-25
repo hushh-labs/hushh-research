@@ -101,8 +101,9 @@ UAT smoke note:
 - it must not fabricate analytics events; it only observes events produced by the app during a real browser journey
 - it must not create Firebase users, reviewer users, app environments, or one-off analytics fixtures
 - after the cold `/login` boot, it must use Next client navigation for protected routes so the in-memory vault key stays inside the mounted React provider tree
-- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires `growth_funnel_step_completed`, `portfolio_viewed`, `recommendation_viewed`, and `investor_activation_completed`
-- if prerequisite credentials or seeded portfolio/recommendation data are missing, the smoke fails clearly and the gate remains blocked; repair or reseed the same reviewer test fixture instead of creating another user
+- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires successful GA transport for the deterministic, frontend-owned `growth_funnel_step_completed` and `portfolio_viewed` events
+- the promotion gate intentionally does not run a provider-backed recommendation. AI/provider availability is monitored separately and must not veto a healthy analytics transport release; backend candidates retain their own zero-traffic health and contract gates
+- if prerequisite credentials or seeded portfolio data are missing, the smoke fails clearly and the gate remains blocked; repair or reseed the same reviewer test fixture instead of creating another user
 
 ## 2. GA Admin API Validation
 
