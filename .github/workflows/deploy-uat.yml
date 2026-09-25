@@ -973,10 +973,13 @@ jobs:
               --no-traffic \
               --remove-secrets=BACKEND_URL,DEVELOPER_API_URL \
               --update-env-vars="BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }},DEVELOPER_API_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}"
-            smoke_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            smoke_revision="$(gcloud run revisions list \
+              --service="${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
-              --format='value(status.latestCreatedRevisionName)')"
+              --sort-by='~metadata.creationTimestamp' \
+              --limit=1 \
+              --format='value(metadata.name)')"
             if [ -z "${smoke_revision}" ] || [ "${smoke_revision}" = "${release_revision}" ]; then
               echo "Paired frontend smoke revision was not created." >&2
               exit 1
