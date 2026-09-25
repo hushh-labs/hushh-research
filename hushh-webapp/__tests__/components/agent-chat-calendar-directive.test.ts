@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -30,6 +32,20 @@ function makeToolEvent(
 }
 
 describe("getCalendarDirectiveFromToolEvent", () => {
+  it("persists chat-started same-window OAuth attempts before navigation", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
+      "utf8",
+    );
+    const persistAt = source.indexOf("persistGoogleOAuthSameWindowAttempt(attempt)");
+    const navigateAt = source.indexOf(
+      "window.location.assign(start.authorize_url)",
+      persistAt,
+    );
+    expect(persistAt).toBeGreaterThan(-1);
+    expect(navigateAt).toBeGreaterThan(persistAt);
+  });
+
   it("returns null for non-calendar tools", () => {
     const event = makeToolEvent("search_pkm", { results: [] });
     expect(getCalendarDirectiveFromToolEvent(event)).toBeNull();

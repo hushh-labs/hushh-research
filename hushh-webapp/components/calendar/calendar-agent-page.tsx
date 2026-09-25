@@ -91,6 +91,7 @@ export function CalendarAgentPage({
   const expectedPopupAttempt = useRef<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const popupStartedAtRef = useRef<number | null>(null);
+  const popupAccessLevelRef = useRef<"read" | "manage" | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user || connectionPending) return null;
@@ -117,6 +118,7 @@ export function CalendarAgentPage({
       expectedPopupAttempt.current = null;
       popupRef.current = null;
       popupStartedAtRef.current = null;
+      popupAccessLevelRef.current = null;
       setBusy(false);
     };
     const settle = async (
@@ -171,9 +173,14 @@ export function CalendarAgentPage({
     };
     const recoverAbandonedPopup = async (message: string) => {
       if (!expectedPopupAttempt.current) return;
+      const requestedAccessLevel = popupAccessLevelRef.current;
       clearAttempt();
       const currentStatus = await refresh().catch(() => null);
-      if (currentStatus?.connected) {
+      if (
+        currentStatus?.connected &&
+        (requestedAccessLevel !== "manage" ||
+          currentStatus.access_level === "manage")
+      ) {
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
         return;
@@ -282,6 +289,7 @@ export function CalendarAgentPage({
       expectedPopupAttempt.current = attempt.attemptId;
       popupRef.current = popup;
       popupStartedAtRef.current = Date.now();
+      popupAccessLevelRef.current = accessLevel;
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
       const result =
@@ -294,6 +302,7 @@ export function CalendarAgentPage({
       expectedPopupAttempt.current = null;
       popupRef.current = null;
       popupStartedAtRef.current = null;
+      popupAccessLevelRef.current = null;
       toast.error(
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );

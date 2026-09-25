@@ -201,6 +201,53 @@ describe("CalendarAgentPage", () => {
     );
   });
 
+  it("does not treat an abandoned scheduling upgrade as connected", async () => {
+    let popupWatcher: (() => void) | null = null;
+    vi.spyOn(window, "setInterval").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
+      return 1 as unknown as number;
+    }) as typeof window.setInterval);
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "owner@example.com",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    await waitFor(() => expect(popupWatcher).not.toBeNull());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    Object.assign(mocks.popup as object, { closed: true });
+    await act(async () => {
+      popupWatcher?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "expected_error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "success" }),
+    );
+  });
+
   it("counts a native Calendar consent dismissal as expected", async () => {
     mocks.native = true;
     mocks.status.mockResolvedValue({

@@ -203,6 +203,10 @@ import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-avai
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
+  createGoogleOAuthPopupAttempt,
+  persistGoogleOAuthSameWindowAttempt,
+} from "@/lib/google/google-oauth-popup";
+import {
   runLocationDirective,
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
@@ -6923,6 +6927,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               userId: user.uid,
                               accessLevel,
                             });
+                          const attempt =
+                            createGoogleOAuthPopupAttempt("calendar");
+                          if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
+                            throw new Error(
+                              "Calendar sign-in could not be started safely. Please try again.",
+                            );
+                          }
                           setPendingSpecialistDirective(null);
                           window.location.assign(start.authorize_url);
                         } catch (error) {
