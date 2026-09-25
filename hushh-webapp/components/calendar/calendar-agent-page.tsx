@@ -132,6 +132,7 @@ export function CalendarAgentPage({
       ) {
         return;
       }
+      const completedAccessLevel = popupAccessLevelRef.current;
       clearAttempt();
       if (outcome === "succeeded") {
         // The owner-bound callback has already verified the completed
@@ -142,7 +143,7 @@ export function CalendarAgentPage({
           connected: true,
           google_email: current?.google_email,
           status: "connected",
-          access_level: current?.access_level ?? null,
+          access_level: completedAccessLevel ?? current?.access_level ?? null,
           scope_csv: current?.scope_csv ?? "",
         }));
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });

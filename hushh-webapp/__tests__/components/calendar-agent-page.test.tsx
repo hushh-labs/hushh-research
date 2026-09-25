@@ -248,6 +248,48 @@ describe("CalendarAgentPage", () => {
     );
   });
 
+  it("keeps a verified scheduling upgrade at manage access", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "owner@example.com",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+
+    render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: mocks.popup,
+          data: {
+            schemaVersion: 1,
+            type: "google_oauth_settlement",
+            attemptId: attempt.attemptId,
+            service: "calendar",
+            outcome: "succeeded",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Enable scheduling" }),
+      ).toBeNull(),
+    );
+  });
+
   it("counts a native Calendar consent dismissal as expected", async () => {
     mocks.native = true;
     mocks.status.mockResolvedValue({

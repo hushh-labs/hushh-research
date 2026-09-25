@@ -227,8 +227,8 @@ async function parseConnectionStatus(
   if (
     !isRecord(payload) ||
     typeof payload.configured !== "boolean" ||
-    typeof payload.connected !== "boolean" ||
-    !["connected", "disconnected", "error"].includes(String(payload.status))
+    payload.connected !== true ||
+    payload.status !== "connected"
   ) {
     throw new Error("Mail OAuth completion returned an invalid response.");
   }

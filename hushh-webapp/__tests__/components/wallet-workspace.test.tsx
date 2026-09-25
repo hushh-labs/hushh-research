@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigationMock = vi.hoisted(() => ({
@@ -64,6 +66,19 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("keeps post-mutation refresh outside Wallet outcome catches", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/wallet/wallet-workspace.tsx"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /card_deleted", result: "success" \}\);\s*\} catch[\s\S]*card_deleted", result: "error"[\s\S]*\}\s*await refresh\(\);/,
+    );
+    expect(source).toMatch(
+      /card_added", result: "success" \}\);\s*\} catch[\s\S]*card_added", result: "error"[\s\S]*\}\s*await refresh\(\);/,
+    );
+  });
+
   beforeEach(() => {
     navigationMock.search = "";
     navigationMock.replace.mockReset();

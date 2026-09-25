@@ -77,6 +77,34 @@ describe("native Gmail observability", () => {
   });
 
   it.each([
+    ["native", () => GmailReceiptsService.completeNativeConnect({
+      idToken: "token",
+      userId: "owner",
+      serverAuthCode: "one-time-code",
+    })],
+    ["web", () => GmailReceiptsService.completeConnect({
+      idToken: "token",
+      userId: "owner",
+      code: "code",
+      state: "state",
+    })],
+  ] as const)("does not report %s completion success for an inactive status", async (_surface, invoke) => {
+    mocks.apiFetch.mockResolvedValueOnce(
+      response({ configured: true, connected: false, status: "disconnected" }),
+    );
+
+    await expect(invoke()).rejects.toThrow("invalid response");
+    expect(mocks.trackEvent).toHaveBeenCalledWith("gmail_connect_result", {
+      action: "complete",
+      result: "error",
+    });
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "gmail_connect_result",
+      { action: "complete", result: "success" },
+    );
+  });
+
+  it.each([
     [{ code: "USER_CANCELLED" }, "expected_error"],
     [new Error("native SDK failed"), "error"],
   ] as const)("records native consent failures as a terminal outcome", (error, result) => {
