@@ -85,7 +85,7 @@ Code: `api/routes/drive_sharing.py` (`/queries`), `drive_live_query_store.py`, `
 3. A selects all or a non-empty subset of the reviewed files and confirms. Approval binds the review digest and source evidence, writes an action ledger record, and queues `drive_share_permission_operations`. It returns pending rather than Google success. A separately disclosed, revocable trust rule can allow a covered future request; ordinary Trusted circle membership does not create that rule.
 4. The permission worker creates an individual Viewer permission or recognizes existing access. B's `/requests/{id}/delivery` projection releases only recorded delivered originals and links. A can review outcomes and separately revoke recorded managed permissions.
 
-Merged PR #7089 added `/requests/{id}/prepare/stream` and a grouped, progressively updated review sheet. Its stream reports stages (`starting`, `searching`, `choosing`, `checking`) and a terminal status; private files remain behind `/review`. The local P0 branch adds completed file-check counts during content preparation. Metadata-only reviews have no file-check counts.
+Merged PR #7089 added `/requests/{id}/prepare/stream` and a grouped, progressively updated review sheet. Its stream reports stages (`starting`, `searching`, `choosing`, `checking`) and a terminal status; private files remain behind `/review`.
 
 Code: `document-file-request.tsx`, `document-share-review.tsx`, `api/routes/drive_sharing.py` (`/requests`), `drive_sharing_service.py`, `drive_suggestion_service.py`, `drive_sharing_store.py`, `drive_permission_worker.py`.
 
@@ -115,7 +115,7 @@ These are source-level candidates. No end-to-end trace or live timing was collec
 
 The code settings do not establish current deployed scheduler state, queue depth, Google response times, or which interval the reported latency concerns. Generic chat latency baselines are not measurements of these Drive card and worker paths. The live Drive path has outcome/stage logs but lacks per-stage elapsed measurements; worker HTTP returns aggregate counts.
 
-The P0 branch uses Google Drive REST `files.list` and `files.get`/export for live search. The separate selected-file index remains opt-in. The new review stream reports actual completed file-check counts to A only; a typed chat turn shows its private-memory preparation and Drive tool activity but does not stream each document's bytes or model tokens. Real Google latency and end-to-end improvement still require a deployed UAT run with redacted timing evidence.
+The P0 branch uses Google Drive REST `files.list` and `files.get`/export for live search. The separate selected-file index remains opt-in. The review stream reports preparation stages to A only; a typed chat turn shows its private-memory preparation and Drive tool activity but does not stream each document's bytes or model tokens. Real Google latency and end-to-end improvement still require a deployed UAT run with redacted timing evidence.
 
 ### Long-range owner listing and the UAT failure
 

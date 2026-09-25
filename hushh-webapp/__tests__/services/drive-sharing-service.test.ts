@@ -715,11 +715,9 @@ describe("streamed preparation", () => {
     onStage = vi.fn(),
     signal?: AbortSignal,
     check = guard,
-    onProgress?: (progress: { completed: number; total: number } | null) => void,
   ) =>
     DriveSharingService.prepareStream("owner-a", requestId, check, {
       onStage,
-      onProgress,
       signal,
     });
 
@@ -750,48 +748,6 @@ describe("streamed preparation", () => {
       Authorization: "Bearer owner-a",
       Accept: "text/event-stream",
     });
-  });
-
-  it("reports only bounded completed-file counts during content checks and clears them on completion", async () => {
-    streamer.mockResolvedValueOnce(streamOf([
-      frame("stage", { stage: "starting" }) +
-      frame("stage", { stage: "checking" }) +
-      frame("file", { completed: 1, total: 3 }) +
-      frame("file", { completed: 1, total: 3 }) +
-      frame("file", { completed: 2, total: 3 }) +
-      frame("complete", { status: "review_ready" }),
-    ]).response);
-    const onProgress = vi.fn();
-
-    await expect(run(vi.fn(), undefined, guard, onProgress)).resolves.toBe("review_ready");
-    expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual([
-      { completed: 1, total: 3 },
-      { completed: 2, total: 3 },
-      null,
-    ]);
-  });
-
-  it("rejects file progress before the content-check stage", async () => {
-    streamer.mockResolvedValueOnce(streamOf([
-      frame("stage", { stage: "searching" }) +
-      frame("file", { completed: 1, total: 2 }),
-    ]).response);
-    await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
-  });
-
-  it.each([
-    [frame("file", { completed: 0, total: 2 })],
-    [frame("file", { completed: 1.5, total: 2 })],
-    [frame("file", { completed: 1, total: 9 })],
-    [frame("file", { completed: 3, total: 2 })],
-    [frame("file", { completed: 1, total: 2, name: "private.pdf" })],
-    [frame("file", { completed: 1, total: 2 }) + frame("file", { completed: 2, total: 3 })],
-    [frame("file", { completed: 2, total: 2 }) + frame("file", { completed: 1, total: 2 })],
-  ])("rejects malformed or misleading file progress", async (fileFrames) => {
-    streamer.mockResolvedValueOnce(streamOf([
-      frame("stage", { stage: "checking" }) + fileFrames,
-    ]).response);
-    await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("rejects an unknown stage, an unknown status and oversized frames", async () => {

@@ -173,8 +173,6 @@ export class StreamUnavailable extends Error {
 /** Public preparation stages, in order. Never file names, ids or coverage. */
 export const PREPARE_STAGES = ["starting", "searching", "choosing", "checking"] as const;
 export type PrepareStage = (typeof PREPARE_STAGES)[number];
-/** Owner-only count of completed content reads; no file metadata crosses the stream. */
-export type PrepareFileProgress = { completed: number; total: number };
 export type PrepareOutcome =
   | "review_ready"
   | "no_ready_files"
@@ -776,11 +774,9 @@ export class DriveSharingService {
     guard: SharingSessionGuard,
     {
       onStage,
-      onProgress,
       signal,
     }: {
       onStage: (stage: PrepareStage) => void;
-      onProgress?: (progress: PrepareFileProgress | null) => void;
       signal?: AbortSignal;
     },
   ): Promise<PrepareOutcome> {
@@ -844,7 +840,6 @@ export class DriveSharingService {
     let remainder = "";
     let received = 0;
     let reached = -1;
-    let progress: PrepareFileProgress | null = null;
     try {
       for (;;) {
         let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -882,35 +877,8 @@ export class DriveSharingService {
             if (index < 0) throw new DriveSharingError("invalid_response");
             // Stages only move forward; a repeat or regression is dropped.
             if (index > reached) {
-              if (progress) {
-                progress = null;
-                onProgress?.(null);
-              }
               reached = index;
               onStage(payload.stage as PrepareStage);
-            }
-          } else if (frame.event === "file") {
-            const completed = payload.completed;
-            const total = payload.total;
-            // Content is read only during checking. Reject extra keys so a
-            // filename or provider detail cannot slip into progress state.
-            if (
-              reached !== PREPARE_STAGES.indexOf("checking") ||
-              Object.keys(payload).length !== 3 ||
-              !Number.isSafeInteger(completed) ||
-              !Number.isSafeInteger(total) ||
-              (completed as number) < 1 ||
-              (total as number) < 1 ||
-              (total as number) > 8 ||
-              (completed as number) > (total as number) ||
-              (progress !== null &&
-                ((total as number) !== progress.total ||
-                  (completed as number) < progress.completed))
-            )
-              throw new DriveSharingError("invalid_response");
-            if (!progress || completed !== progress.completed) {
-              progress = { completed: completed as number, total: total as number };
-              onProgress?.(progress);
             }
           } else if (frame.event === "complete") {
             if (typeof payload.status !== "string" || !PREPARE_RESULTS.has(payload.status))
@@ -926,7 +894,6 @@ export class DriveSharingService {
         }
       }
     } finally {
-      if (progress) onProgress?.(null);
       signal?.removeEventListener("abort", cancel);
       cancel();
     }

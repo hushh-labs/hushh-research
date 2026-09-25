@@ -446,19 +446,12 @@ async def _prepare_stream(
             reported.append(stage)
             events.put_nowait(("stage", {"stage": stage}))
 
-    def on_progress(completed: int, total: int) -> None:
-        # The owner has authorized this review. Counts are drawn from completed
-        # file checks, including unreadable files; never send file details here.
-        if 1 <= completed <= total <= 8:
-            events.put_nowait(("file", {"completed": completed, "total": total}))
-
     async def prepare() -> None:
         try:
             result = await DriveSuggestionService(require_owner=owner.require_current).run_one(
                 user_id=owner.user_id,
                 request_id=request_id,
                 on_stage=on_stage,
-                on_progress=on_progress,
             )
             await owner.require_current()
         except HTTPException:
