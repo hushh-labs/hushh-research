@@ -57,6 +57,30 @@ describe("native test automation guards", () => {
     };
 
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "uat.one.hushh.ai")).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "release-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---other-service-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-rpphvsc3tq-uc.a.run.app",
+      ),
+    ).toBe(true);
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "one.hushh.ai")).toBe(true);
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "localhost")).toBe(true);
   });
