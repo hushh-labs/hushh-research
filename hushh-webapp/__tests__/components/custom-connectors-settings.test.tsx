@@ -61,6 +61,23 @@ it("refreshes tools from the current vault configuration on explicit tap", async
   expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledWith(expect.objectContaining({ configuration: record, isEffectCurrent: expect.any(Function) }));
 });
 
+it("discards tool catalogs and pending removal when the owner changes", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "tool", name: "prior_owner_tool", revision: "rev1" }]);
+  const view = render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Synthetic" }));
+  await screen.findByText("prior_owner_tool");
+  fireEvent.click(screen.getByRole("button", { name: "Remove Synthetic" }));
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  publishValidatedAuthSessionOwner("next-owner");
+  view.rerender(<CustomConnectorsSettings access={{ ...access, userId: "next-owner" }} />);
+  await screen.findByRole("button", { name: "Refresh tools for Synthetic" });
+  expect(screen.queryByText("prior_owner_tool")).toBeNull();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(removeCustomConnectorConfiguration).not.toHaveBeenCalled();
+});
+
 it("blocks a connector with its exact revision without invoking provider discovery", async () => {
   const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Synthetic", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);

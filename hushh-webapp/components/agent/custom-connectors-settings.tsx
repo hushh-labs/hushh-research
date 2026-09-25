@@ -36,7 +36,9 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     const current = () => Boolean(active && owner?.userId === access.userId &&
       isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
     lifetime.current = current;
-    setItems([]); setCredential(""); setEditing(false); setStatus("loading");
+    inFlight.current = false;
+    setBusy(false); setCatalogs({}); setRemoving(null);
+    setItems([]); setCredential(""); setName(""); setEndpoint(""); setEditing(false); setStatus("loading");
     void loadCustomConnectorConfigurations(access, true).then(records => {
       if (!current()) return;
       setItems(records.map(({ connectorId, displayName, revision, enabled }) => ({ connectorId, displayName, revision, enabled })));
@@ -66,7 +68,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
       error: "Could not save. Check the address and keep your vault unlocked.",
     });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const refresh = async (item: SavedConnector) => {
@@ -85,7 +87,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     })();
     morphyToast.promise(operation, { loading: "Refreshing tools…", success: "Tools refreshed.", error: "Could not refresh. Check the connection and try again." });
     try { await operation; } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const setEnabled = async (item: SavedConnector) => {
@@ -107,7 +109,7 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     })();
     morphyToast.promise(operation, { loading: "Updating connector…", success: item.enabled ? "Connector blocked for new turns." : "Connector enabled. Calls still require review.", error: "Could not update. Reopen connectors and try again." });
     try { await operation; } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const remove = async () => {
@@ -120,9 +122,12 @@ export function CustomConnectorsSettings({ access }: { access: Access }) {
     morphyToast.promise(operation, { loading: "Removing connector…", success: "Saved connector removed.", error: "Could not remove. Reopen connectors and try again." });
     try {
       await operation;
-      if (current()) { setItems(items => items.filter(item => item.connectorId !== selected.connectorId)); setRemoving(null); }
+      if (current()) {
+        setItems(items => items.filter(item => item.connectorId !== selected.connectorId)); setRemoving(null);
+        setCatalogs(previous => { const next = { ...previous }; delete next[selected.connectorId]; return next; });
+      }
     } catch { /* Shared toast owns the failure. */ }
-    finally { inFlight.current = false; if (current()) setBusy(false); }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   return <section aria-label="Custom connectors" className="space-y-3">
