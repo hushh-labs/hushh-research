@@ -612,6 +612,50 @@ GitHub CI, governed dev deployment, live BYOC
 ingress admission and two-network browser/Puppy rehearsal are still required.
 No direct-ready marker should be written solely from these local checks.
 
+### Dev deployment and owner-pod gate (2026-09-25)
+
+The combined pod branch was promoted at `7466824d3d960616988af145d8f7b74e73bda379`.
+The final full local CI and exact-SHA PR validation passed. Governed
+[Deploy to Dev run 36142680344](https://github.com/hushh-labs/hushh-research/actions/runs/36142680344)
+completed successfully from `main` with that application SHA, `scope=auto`, and
+pod-image building enabled. Dev now serves backend revision
+`consent-protocol-00094-hsk` at 100% traffic with image digest
+`sha256:b91d1b2601d816307df0dbdab391cd74fa3be668ab05e66cde13b933a0470e55`,
+and frontend revision `hushh-webapp-00065-sf4` at 100% traffic with image digest
+`sha256:24c1208cc3f1977e59d7be47864f1acda0b92b8ee20cb8566ee69d5ded929ff3`.
+Both revisions carry the application SHA; dev login and backend health returned
+HTTP 200. The workflow's migration, schema, candidate-health, provenance and
+semantic gates passed. Earlier attempts found a missing optional Puppy build
+substitution, then a semantic verifier that treated the correct shared-runtime
+`AGENT_PRIVATE_RUNTIME_REQUIRED` refusal as unhealthy; both were corrected before
+this successful run. Dev Plaid cleanup and the funding-consent disposition were
+completed before migration 239. These results do not establish UAT or production
+schema, migration or release readiness.
+
+The dev hub offers pod release `2026.09-dev.1+7466824d3d96.4d1f7172` at immutable
+digest `sha256:4d1f7172574b32637b3fc57e5d05ea10982c1668c25a3c6dba9e619a3a233929`.
+Its reviewed `supportedUpgradeDigests` list is empty, so it cannot yet be
+installed on an existing owner pod. The named test owner's BYOC service is still
+ready on its original service UID and immutable digest
+`sha256:a91fede9767753b8623976296effc8706affbbcf09135ce8be95d0256cfa89db`.
+Its live IAM policy permits only the dev hub service account; it has no public
+invoker. The older source contains upgrade handoff routes, and the registry has a
+durable bootstrap receipt, but this session could not prove the protected live
+handoff: the operator identity was denied permission to mint a pod-audience token.
+Source ancestry and Cloud Run Ready do not prove encrypted recovery or update
+continuity. Keep this predecessor out of the release compatibility list until
+the authenticated handoff, recovery and rollback checks pass. A normal
+owner-approved installation has not occurred.
+
+Direct BYOC ingress and endpoint publication remain closed. Do not grant a public
+invoker, record `directIngressObserved`, or write `directReadiness` until the
+updated pod passes live route-wall, IAM, CORS, admission and recovery checks.
+Browser and trusted Puppy access to the same pod from separate networks, including
+grant/revocation and replacement cases, remain unverified. The existing trusted
+device does not need re-registration solely to fetch a newer relay client.
+This is a dev acceptance gap, not a passing direct-access result. The separate
+consumer worktree was not part of this candidate.
+
 ## Follow-up ownership
 
 - **Frontend proxy and dashboard integration:** verify response-header propagation through [`api-contract-change`](../../../.codex/workflows/api-contract-change/workflow.json) and migrate/verify the mounted status/refresh consumer against the vault contract through [`frontend-cache-coherence`](../../../.codex/workflows/frontend-cache-coherence/workflow.json). Evidence required: route-level header test and a same-contract dashboard integration check.

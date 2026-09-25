@@ -146,7 +146,7 @@ restore or recall drill; those require fresh target-bound operational evidence.
 
 ## Related
 
-- [dev-pod-first-light-runbook.md](./dev-pod-first-light-runbook.md): standing a pod up by hand.
+- [dev-pod-first-light-runbook.md](./dev-pod-first-light-runbook.md): existing BYOC pod release, recovery and controlled direct access.
 - [dev-fast-lane.md](./dev-fast-lane.md): previewing a branch on dev.
 - `docs/reference/architecture/private-agent-north-star.md`: the seven requirements the ledger
   scores against.
