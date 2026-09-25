@@ -383,7 +383,28 @@ describe("connection-request Feed-first foreground policy", () => {
       requestId: "document_share_request:11111111-1111-4111-8111-111111111111",
       reconcile: true,
     });
-    expect(detail.accepted).toBe(true);
+    // Unacknowledged on purpose: the web worker then shows the system
+    // notification even while One is open (UAT: open apps saw nothing).
+    expect(detail.accepted).not.toBe(true);
+  });
+
+  it("opens a Drive question's own card for a question push", async () => {
+    await renderProvider();
+    const detail = dispatchDocumentShare({
+      type: "document_share_question",
+      user_id: "recipient-user",
+      request_id: "22222222-2222-4222-8222-222222222222",
+      question: "private question text",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "fcm_document_share",
+      requestId: "drive_query_request:22222222-2222-4222-8222-222222222222",
+      reconcile: true,
+    });
+    expect(detail.accepted).not.toBe(true);
   });
 
   it("leaves an unreviewed or malformed document-share payload unaccepted", async () => {

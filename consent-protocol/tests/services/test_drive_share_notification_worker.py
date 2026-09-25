@@ -274,3 +274,55 @@ async def test_notification_worker_bounds_are_enforced(bounds):
     worker = DriveShareNotificationWorker(DriveShareNotificationStore(db=MagicMock()))
     with pytest.raises(ValueError, match="invalid worker bounds"):
         await worker.run(**bounds)
+
+
+def test_every_surface_shares_one_type_list_and_the_same_words():
+    """The backend worker, the web worker and the app must agree, or a new type
+    is silently dropped on one surface (five hard-coded lists before 244)."""
+    import re
+
+    from hushh_mcp.services.drive_share_notification_worker import (
+        DOCUMENT_SHARE_NOTIFICATION_COPY,
+    )
+
+    web = Path(__file__).resolve().parents[3] / "hushh-webapp"
+    for relative in ("public/firebase-messaging-sw.js", "lib/consent/document-share-consent.ts"):
+        source = (web / relative).read_text()
+        allowlist = re.search(
+            r"DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set\(\[(.*?)\]\)", source, re.S
+        )
+        assert allowlist, relative
+        assert set(re.findall(r'"(document_share_[a-z_]+)"', allowlist.group(1))) == set(
+            DOCUMENT_SHARE_NOTIFICATION_COPY
+        ), relative
+        for title, body in DOCUMENT_SHARE_NOTIFICATION_COPY.values():
+            assert f'"{title}"' in source and f'"{body}"' in source, (relative, title)
+
+
+@pytest.mark.asyncio
+async def test_a_dispatch_logs_counts_only(caplog, monkeypatch):
+    import logging
+
+    event_id = "11111111-1111-4111-8111-111111111111"
+    request_id = "22222222-2222-4222-8222-222222222222"
+    job = {
+        "event_id": event_id,
+        "request_id": request_id,
+        "event_type": "document_share_question",
+        "user_id": "opaque-user",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+    store = SimpleNamespace(
+        due=AsyncMock(side_effect=[[{"event_id": event_id, "user_id": "opaque-user"}], []]),
+        claim=AsyncMock(return_value=job),
+        settle=AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_share_notification_worker.connector_feature_enabled",
+        lambda *_: True,
+    )
+    with caplog.at_level(logging.INFO):
+        await DriveShareNotificationWorker(store, send_push=MagicMock(return_value=1)).run()
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "drive_notify.run settled=1" in logged
+    assert "opaque-user" not in logged and event_id not in logged and request_id not in logged

@@ -600,11 +600,15 @@ class DriveSharingStore(DriveDocumentStore):
         read_sources: list[ReviewedSource | LiveReviewedSource] | None = None,
         live_sources: list[dict] | None = None,
         foreground: bool = False,
+        notify_owner: bool = True,
     ) -> dict:
         """Called only after a tool-less suggestion pass; never shares automatically.
 
         Coverage is private authored model output. The store enforces bounds and
         exact source authority, not semantic relevance or date coverage.
+
+        notify_owner=False: the owner chose these exact files and is approving
+        them now, so no "ready to review" notification is queued for them.
         """
         self._sharing_admission(user_id)
         if len(json.dumps(coverage).encode()) > 16 * 1024:
@@ -787,12 +791,13 @@ class DriveSharingStore(DriveDocumentStore):
                     "status": "approved" if rule else "review_ready",
                 },
             )
-            self._event(
-                connection,
-                updated,
-                row["recipient_user_id"] if rule else user_id,
-                "document_share_decided" if rule else "document_share_review_ready",
-            )
+            if rule or notify_owner:
+                self._event(
+                    connection,
+                    updated,
+                    row["recipient_user_id"] if rule else user_id,
+                    "document_share_decided" if rule else "document_share_review_ready",
+                )
             if rule:
                 self._event(connection, updated, user_id, "document_share_decided")
             return {**self._summary(updated), "reviewDigest": digest}
