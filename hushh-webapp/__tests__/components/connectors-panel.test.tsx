@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   overview: vi.fn(),
   documents: vi.fn(),
   push: vi.fn(),
+  calendarRefresh: vi.fn(),
   calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
   gmailStatus: { connected: false, compose_permission_granted: false },
@@ -15,7 +16,7 @@ const state = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
-vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => state.calendar }));
+vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ usePkmDomainResource: () => state.financial }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
@@ -66,6 +67,7 @@ describe("supported connector catalog", () => {
     state.overview.mockReset().mockResolvedValue(overview());
     state.documents.mockReset().mockResolvedValue([]);
     state.push.mockReset();
+    state.calendarRefresh.mockReset();
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
     state.gmailStatus = { connected: false, compose_permission_granted: false };
@@ -239,6 +241,14 @@ describe("supported connector catalog", () => {
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     view.rerender(panel());
     expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
+  });
+
+  it("retries Calendar status instead of claiming an unchecked connection is manageable", async () => {
+    state.calendar = { connected: false, loaded: true, error: "Status unavailable", status: { status: "disconnected" } };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Calendar" }));
+    expect(state.calendarRefresh).toHaveBeenCalledOnce();
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it("rejects a delayed catalog after same-owner token rotation", async () => {
