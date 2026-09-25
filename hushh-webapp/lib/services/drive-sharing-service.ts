@@ -299,6 +299,44 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
   };
 }
 
+/** The owner's own Drive search for sharing with a connection, from chat. */
+export type DriveOwnerShareView = {
+  requestId: string | null;
+  status: "ready" | "shared" | "no_match";
+  recipientName: string | null;
+  files: DriveQueryFile[];
+  shareRequestId: string | null;
+  /** The owner's own search words when nothing matched (e.g. "Which file?"). */
+  message: string | null;
+};
+
+function parseOwnerShareView(value: RecordValue): DriveOwnerShareView {
+  const status = string(value.status, 16);
+  if (status !== "ready" && status !== "shared" && status !== "no_match")
+    throw new DriveSharingError("invalid_response");
+  if (status === "no_match") {
+    return {
+      requestId: null,
+      status,
+      recipientName: null,
+      files: [],
+      shareRequestId: null,
+      message: value.message == null ? null : string(value.message, 600),
+    };
+  }
+  const found = queryFiles(value.files, "incoming");
+  if (!found.length) throw new DriveSharingError("invalid_response");
+  return {
+    requestId: id(value.requestId),
+    status,
+    recipientName:
+      value.recipientName == null ? null : string(value.recipientName, 200),
+    files: found,
+    shareRequestId: value.shareRequestId == null ? null : id(value.shareRequestId),
+    message: null,
+  };
+}
+
 /** Private responses stay in the invoking component's memory, never a cache. */
 export class DriveSharingService {
   private static async request(
@@ -791,6 +829,58 @@ export class DriveSharingService {
     return this.queryView(token, requestId, guard, "/cancel", {
       revision: revisionValue,
     });
+  }
+
+  /** The owner searches their own Drive to share with one connected person. */
+  static async prepareOwnerShare(
+    token: string,
+    draft: {
+      recipientPersonRef: string;
+      clientRequestId: string;
+      query: string;
+      timeZone?: string;
+    },
+    guard: SharingSessionGuard,
+  ): Promise<DriveOwnerShareView> {
+    if (
+      !DOCUMENT_REQUEST_UUID.test(draft.recipientPersonRef) ||
+      !DOCUMENT_REQUEST_UUID.test(draft.clientRequestId) ||
+      !validDriveQuery(draft.query)
+    )
+      throw new DriveSharingError("invalid_argument");
+    return parseOwnerShareView(
+      await this.send(`${SHARING_PATH}/owner-shares`, token, guard, {
+        recipientPersonRef: draft.recipientPersonRef,
+        clientRequestId: draft.clientRequestId,
+        query: draft.query,
+        ...(draft.timeZone ? { timeZone: draft.timeZone } : {}),
+      }),
+    );
+  }
+
+  /** The owner shares chosen files from their own search, as Viewer. */
+  static async shareOwnerFiles(
+    token: string,
+    requestId: string,
+    fileRefs: string[],
+    guard: SharingSessionGuard,
+  ): Promise<DriveOwnerShareView> {
+    if (
+      !DOCUMENT_REQUEST_UUID.test(requestId) ||
+      fileRefs.length === 0 ||
+      fileRefs.length > 8 ||
+      new Set(fileRefs).size !== fileRefs.length ||
+      fileRefs.some((ref) => !QUERY_FILE_REF.test(ref))
+    )
+      throw new DriveSharingError("invalid_selection");
+    return parseOwnerShareView(
+      await this.send(
+        `${SHARING_PATH}/owner-shares/${requestId}/share`,
+        token,
+        guard,
+        { fileRefs },
+      ),
+    );
   }
 
   /** The owner shares chosen files from an answered question, as Viewer. */

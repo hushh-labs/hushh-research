@@ -105,6 +105,12 @@ These paths must derive meaning through ADK/A2A agent stages:
   unsupported or unsafe operations. A read result never grants a subsequent
   outward action: that action needs its own reviewed recipient, payload and
   explicit confirmation through the owning service.
+  Example: the owner sharing their own Drive files from chat. One stages
+  `propose_drive_share` with the person and the files in the owner's words; the
+  host only resolves and validates the connected person. The card runs the
+  owner's own live search (the Documents planner and selector decide which
+  files match), the owner ticks the exact files and taps Share, and the share
+  goes through the exact-file lane under the owner's approval.
 
 Required shape:
 
