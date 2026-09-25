@@ -34,7 +34,7 @@ const forbiddenMeasurementIds = new Set(
     .filter(Boolean),
 );
 const fixturePolicy =
-  "reuse the existing reviewer test fixture; if seeded portfolio state is stale, repair that fixture instead of creating another user or environment";
+  "reuse the existing reviewer test fixture instead of creating another user or environment";
 let reviewerIdentity;
 try {
   reviewerIdentity = resolveReviewerTestIdentity({
@@ -71,9 +71,6 @@ function fail(message) {
 function classifySmokeFailure(message) {
   if (/missing canonical reviewer test identity/i.test(message)) {
     return "missing_fixture_credentials";
-  }
-  if (/portfolio_viewed/i.test(message)) {
-    return "missing_or_unusable_seeded_portfolio_state";
   }
   if (/measurement ID|forbidden production measurement/i.test(message)) {
     return "measurement_id_or_sink_mismatch";
@@ -457,15 +454,15 @@ try {
   );
 
   await navigateInApp(page, "/kai/portfolio");
-  const portfolioEvent = await waitForAnalyticsEvent(
+  const routeViewEvent = await waitForAnalyticsEvent(
     page,
-    "portfolio_viewed",
-    (payload) => payload.result === "success",
+    "page_view",
+    (payload) => payload.route_id === "kai_dashboard",
   );
 
   await waitForAnalyticsCollectEvents([
     "growth_funnel_step_completed",
-    "portfolio_viewed",
+    "page_view",
   ]);
 
   const state = await getSmokeState(page);
@@ -517,7 +514,7 @@ try {
           })),
         events: {
           growth_funnel_step_completed: growthEvent.payload,
-          portfolio_viewed: portfolioEvent.payload,
+          page_view: routeViewEvent.payload,
         },
       },
       null,

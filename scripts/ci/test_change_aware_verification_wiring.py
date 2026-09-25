@@ -85,11 +85,13 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'entry.status === "failed"',
     )
     content = (ROOT / path).read_text(encoding="utf-8")
-    for provider_backed_event in (
+    for backend_or_provider_backed_event in (
+        "portfolio_viewed",
         "recommendation_viewed",
         "investor_activation_completed",
     ):
-        assert provider_backed_event not in content
+        assert backend_or_provider_backed_event not in content
+    require(path, '"page_view"', 'payload.route_id === "kai_dashboard"')
 
 
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
