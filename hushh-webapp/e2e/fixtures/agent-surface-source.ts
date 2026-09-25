@@ -136,20 +136,21 @@ const nameMatch = one(
 );
 
 const subtitleClass = one(
-  header,
-  /<p className="(hidden truncate text-xs[^"]+)">/,
+  workspace,
+  /<p aria-live="polite" className="([^"]+)">/,
   "agent subtitle class",
   WORKSPACE_PATH,
 )[1];
 
-const subtitleExpression = flatten(
-  one(
-    header,
-    /<p className="hidden truncate text-xs[^"]*">[\s\S]*?\{\s*(isPuppySurface\s*\?\s*"[^"]*"\s*:\s*"[^"]*")\s*\}/,
-    "agent subtitle expression",
-    WORKSPACE_PATH,
-  )[1],
+// The shipped subtitle can show tool activity during a turn. This static
+// layout fixture measures the resting labels for the two agent modes.
+const subtitleLabels = one(
+  header,
+  /<ChatAgentSubtitle text=\{isPuppySurface\s*\?\s*"([^"]+)"\s*:[\s\S]*?:\s*"([^"]+)"\}\s*\/>/,
+  "agent subtitle mode labels",
+  WORKSPACE_PATH,
 );
+const subtitleExpression = `isPuppySurface ? "${subtitleLabels[1]}" : "${subtitleLabels[2]}"`;
 
 const clusterClass = one(
   header,
