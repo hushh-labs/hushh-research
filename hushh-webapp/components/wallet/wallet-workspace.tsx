@@ -44,8 +44,17 @@ const WALLET_PAGE_SIZE = 10;
 
 export function WalletWorkspace() {
   const { user, loading: authLoading } = useAuth();
-  const activeOwnerIdRef = useRef<string | null>(user?.uid ?? null);
-  activeOwnerIdRef.current = user?.uid ?? null;
+  const renderedOwnerId = user?.uid ?? null;
+  const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
+  activeOwnerIdRef.current = renderedOwnerId;
+  useEffect(() => {
+    activeOwnerIdRef.current = renderedOwnerId;
+    return () => {
+      if (activeOwnerIdRef.current === renderedOwnerId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.

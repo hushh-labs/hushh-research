@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   navigateToAgentChat: vi.fn(),
   trackEvent: vi.fn(),
   connectCalendar: vi.fn(),
+  ownerId: "calendar-user" as string | null,
   native: false,
   popup: null as Window | null,
   popupAttempt: "",
@@ -30,7 +31,9 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { uid: "calendar-user", getIdToken: mocks.getIdToken },
+    user: mocks.ownerId
+      ? { uid: mocks.ownerId, getIdToken: mocks.getIdToken }
+      : null,
     loading: false,
   }),
 }));
@@ -54,6 +57,7 @@ describe("CalendarAgentPage", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.native = false;
+    mocks.ownerId = "calendar-user";
     mocks.popupAttempt = "";
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(
@@ -355,5 +359,96 @@ describe("CalendarAgentPage", () => {
       { route_id: "one_calendar", action: "connected", result: "expected_error" },
     ));
     expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
+  });
+
+  it("rejects a native read-only result for a manage upgrade", async () => {
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client",
+      access_level: "manage",
+      state: "state",
+    });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "auth-code" });
+    mocks.completeNativeConnect.mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      access_level: "read",
+      scope_csv: "calendar.freebusy",
+    });
+
+    render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enable scheduling" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "error",
+      }),
+    );
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ result: "success" }),
+    );
+  });
+
+  it("suppresses a late native outcome after the owner changes", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      access_level: string;
+      scope_csv: string;
+    }) => void;
+    mocks.native = true;
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
+    });
+    mocks.startNativeConnect.mockResolvedValue({
+      server_client_id: "native-client",
+      access_level: "read",
+      state: "state",
+    });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "auth-code" });
+    mocks.completeNativeConnect.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCompletion = resolve;
+      }),
+    );
+
+    const view = render(<CalendarAgentPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect Calendar" }),
+    );
+    await waitFor(() => expect(mocks.completeNativeConnect).toHaveBeenCalled());
+    mocks.ownerId = "other-owner";
+    view.rerender(<CalendarAgentPage />);
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        access_level: "read",
+        scope_csv: "calendar.freebusy",
+      });
+    });
+
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
   });
 });

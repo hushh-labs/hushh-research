@@ -98,6 +98,7 @@ describe("WalletWorkspace at scale", () => {
     expect(addCatch).toBeGreaterThan(addSuccess);
     expect(addError).toBeGreaterThan(addCatch);
     expect(addRefresh).toBeGreaterThan(addError);
+    expect(source).toContain("activeOwnerIdRef.current = null");
   });
 
   beforeEach(() => {

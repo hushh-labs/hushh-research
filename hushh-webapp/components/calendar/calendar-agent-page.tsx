@@ -86,6 +86,17 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
+  const renderedOwnerId = user?.uid ?? null;
+  const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
+  activeOwnerIdRef.current = renderedOwnerId;
+  useEffect(() => {
+    activeOwnerIdRef.current = renderedOwnerId;
+    return () => {
+      if (activeOwnerIdRef.current === renderedOwnerId) {
+        activeOwnerIdRef.current = null;
+      }
+    };
+  }, [renderedOwnerId]);
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -242,6 +253,7 @@ export function CalendarAgentPage({
 
   const connect = async (accessLevel: "read" | "manage" = "read") => {
     if (!user) return;
+    const operationOwnerId = user.uid;
     setBusy(true);
     try {
       if (journeyVariant === "onboarding") {
@@ -250,28 +262,37 @@ export function CalendarAgentPage({
         clearCalendarSetupOAuthReturn();
       }
       const idToken = await user.getIdToken();
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       if (Capacitor.isNativePlatform()) {
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
         });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
         const nativeResult = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
         });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
           idToken,
-          userId: user.uid,
+          userId: operationOwnerId,
           accessLevel,
           serverAuthCode: nativeResult.serverAuthCode,
           state: start.state,
         });
-        setStatus(completed);
-        if (!completed.connected) {
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (
+          !completed.connected ||
+          (accessLevel === "manage" && completed.access_level !== "manage")
+        ) {
           throw new Error(
-            "Calendar authorization did not create an active connection.",
+            accessLevel === "manage"
+              ? "Calendar authorization did not grant meeting management access."
+              : "Calendar authorization did not create an active connection.",
           );
         }
+        setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
@@ -285,9 +306,10 @@ export function CalendarAgentPage({
       const popup = openGoogleOAuthPopup(attempt);
       const start = await GoogleCalendarService.startConnect({
         idToken,
-        userId: user.uid,
+        userId: operationOwnerId,
         accessLevel: accessLevel,
       });
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       if (!popup) {
         if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
           throw new Error(
@@ -303,6 +325,7 @@ export function CalendarAgentPage({
       popupAccessLevelRef.current = accessLevel;
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       const result =
         error && typeof error === "object" && "code" in error &&
         error.code === "USER_CANCELLED"
@@ -323,10 +346,16 @@ export function CalendarAgentPage({
 
   const disconnect = async () => {
     if (!user) return;
+    const operationOwnerId = user.uid;
     setBusy(true);
     const operation = user
       .getIdToken()
-      .then((idToken) => GoogleCalendarService.disconnect(idToken, user.uid));
+      .then((idToken) => {
+        if (activeOwnerIdRef.current !== operationOwnerId) {
+          throw new Error("Calendar account changed.");
+        }
+        return GoogleCalendarService.disconnect(idToken, operationOwnerId);
+      });
     void morphyToast.promise(operation, {
       loading: "Disconnecting Google Calendar…",
       success: "Google Calendar disconnected.",
@@ -335,14 +364,16 @@ export function CalendarAgentPage({
     });
     try {
       const next = await operation;
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
     } catch (error) {
+      if (activeOwnerIdRef.current !== operationOwnerId) return;
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "error" });
       throw error;
     } finally {
-      setBusy(false);
+      if (activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     }
   };
 
