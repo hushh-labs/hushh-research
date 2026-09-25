@@ -17,6 +17,7 @@ selector, record the skip (``metadata_listing`` / ``exact_title``)
 and release the found titles worded as found, not judged.
 """
 
+import asyncio
 from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -219,6 +220,137 @@ class DriveLiveQueryService:
         )
         if existing is not None:
             return existing
+        files, no_match = await self._owner_search(
+            user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
+        )
+        if no_match is not None:
+            return no_match
+        await self._require_owner()
+        return await self.owner_shares.create(
+            user_id=user_id,
+            recipient_user_id=recipient_user_id,
+            client_request_id=client_request_id,
+            query=query,
+            owner_files=files,
+        )
+
+    async def prepare_trusted_share(
+        self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
+    ):
+        """A searches A's own Drive to share with A's Trusted circle, from chat.
+
+        Only Trusted members A accepted by request or invite are recipients;
+        the rest are listed with a reason and never receive anything. One
+        search, one sealed row per recipient with the same files, so each
+        share runs through the same per-person lane. Nothing is shared here.
+        One member's failure excludes only that member; a retry adds anyone
+        missing from the first search's files instead of dropping them.
+        """
+        await self._require_owner()
+        if not connector_feature_enabled("google_drive_chat_reads", user_id):
+            raise DriveSharingError("sharing_unavailable")
+        circle = await self.owner_shares.trusted_recipients(user_id=user_id)
+        reasons = await asyncio.gather(
+            *(self._identity_reason(member["userId"]) for member in circle["eligible"])
+        )
+        excluded = list(circle["excluded"])
+        eligible = []
+        for member, reason in zip(circle["eligible"], reasons, strict=True):
+            if reason:
+                excluded.append({**member, "reason": reason})
+            else:
+                eligible.append(member)
+        rows = await self.owner_shares.existing_group(
+            user_id=user_id, client_request_id=client_request_id
+        )
+        if rows:
+            have = {row["_recipientUserId"] for row in rows}
+            for member in eligible:
+                if member["userId"] in have:
+                    continue
+                try:
+                    await self._require_owner()
+                    rows.append(
+                        await self.owner_shares.create_from(
+                            user_id=user_id,
+                            recipient_user_id=member["userId"],
+                            source_request_id=rows[0]["requestId"],
+                        )
+                    )
+                except DriveSharingError:
+                    excluded.append({**member, "reason": "unavailable"})
+            return self._group_view(rows, excluded)
+        if not eligible:
+            return self._no_recipients(excluded)
+        files, no_match = await self._owner_search(
+            user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
+        )
+        if no_match is not None:
+            return {**no_match, "recipients": [], "excluded": self._excluded_view(excluded)}
+        for member in eligible:
+            try:
+                await self._require_owner()
+                rows.append(
+                    await self.owner_shares.create(
+                        user_id=user_id,
+                        recipient_user_id=member["userId"],
+                        client_request_id=client_request_id,
+                        query=query,
+                        owner_files=files,
+                    )
+                )
+            except DriveSharingError as error:
+                # A concurrent second search binds different files: surface it.
+                if str(error) == "request_changed":
+                    raise
+                excluded.append({**member, "reason": "unavailable"})
+        if not rows:
+            return self._no_recipients(excluded)
+        return self._group_view(rows, excluded)
+
+    async def _identity_reason(self, user_id):
+        """None when the member has one Google identity; otherwise why not."""
+        try:
+            await self.recipient_identity(user_id)
+        except DriveSharingError as error:
+            # A Firebase outage is "try again", never "no Google account".
+            if str(error) == "recipient_google_identity_required":
+                return "no_google_account"
+            return "unavailable"
+        return None
+
+    @staticmethod
+    def _excluded_view(excluded):
+        return [{"name": item["name"], "reason": item["reason"]} for item in excluded]
+
+    def _no_recipients(self, excluded):
+        return {
+            "status": "no_recipients",
+            "files": [],
+            "recipients": [],
+            "excluded": self._excluded_view(excluded),
+            "message": None,
+        }
+
+    def _group_view(self, rows, excluded):
+        return {
+            "status": "ready" if any(row["status"] == "ready" for row in rows) else "shared",
+            "files": rows[0]["files"],
+            "recipients": [
+                {
+                    "requestId": row["requestId"],
+                    "name": row["recipientName"],
+                    "status": row["status"],
+                    "shareRequestId": row["shareRequestId"],
+                }
+                for row in rows
+            ],
+            "excluded": self._excluded_view(excluded),
+            "message": None,
+        }
+
+    async def _owner_search(self, *, user_id, query, consent_token, timezone):
+        """One live turn under A's own authority. Returns (files, None) or (None, no_match)."""
 
         async def require_access():
             await self._require_owner()
@@ -242,20 +374,13 @@ class DriveLiveQueryService:
         if not any(item.get("mime_type") != FOLDER_MIME for item in files):
             # A's own words from A's own search (e.g. "Which file do you mean?").
             message = outcome.get("answer") if outcome["status"] == "input_required" else None
-            return {
+            return None, {
                 "requestId": None,
                 "status": "no_match",
                 "files": [],
                 "message": str(message)[:600] if message else None,
             }
-        await self._require_owner()
-        return await self.owner_shares.create(
-            user_id=user_id,
-            recipient_user_id=recipient_user_id,
-            client_request_id=client_request_id,
-            query=query,
-            owner_files=files,
-        )
+        return files, None
 
     async def share_owner_files(self, *, user_id, request_id, file_refs):
         """A shares chosen files from A's own search with B, as Viewer."""

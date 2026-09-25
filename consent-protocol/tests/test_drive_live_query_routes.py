@@ -32,6 +32,7 @@ def setup(monkeypatch):
                 "deny",
                 "cancel",
                 "prepare_owner_share",
+                "prepare_trusted_share",
                 "share_owner_files",
             )
         }
@@ -291,3 +292,34 @@ def test_owner_share_passes_the_chosen_references(setup):
     service.share_owner_files.assert_awaited_once_with(
         user_id="owner", request_id=REQUEST_ID, file_refs=["f1", "f2"]
     )
+
+
+def test_a_trusted_circle_share_needs_no_person_and_carries_the_owner_token(setup):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    body = owner_share_body(audience="trusted_circle")
+    body.pop("recipientPersonRef")
+    assert client.post(OWNER_SHARES, json=body).status_code == 200
+    service.prepare_trusted_share.assert_awaited_once_with(
+        user_id="owner",
+        client_request_id=body["clientRequestId"],
+        query="Chris onboarding recordings",
+        consent_token=OWNER_PROOF,
+        timezone="UTC",
+    )
+    service.prepare_owner_share.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"audience": "trusted_circle"}, {"audience": "everyone"}, {"recipientPersonRef": None}],
+)
+def test_an_owner_share_names_exactly_one_audience(setup, changes):
+    client, app, service, current = setup
+    unlock(app, current, "owner")
+    body = {**owner_share_body(), **changes}
+    if body.get("recipientPersonRef") is None:
+        body.pop("recipientPersonRef")
+    assert client.post(OWNER_SHARES, json=body).status_code == 422
+    service.prepare_owner_share.assert_not_called()
+    service.prepare_trusted_share.assert_not_called()
