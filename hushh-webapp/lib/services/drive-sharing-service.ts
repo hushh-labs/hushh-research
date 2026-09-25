@@ -1,5 +1,7 @@
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 
 export type SharingStatus = {
   requestId: string;
@@ -161,6 +163,65 @@ export class DriveSharingError extends Error {
   ) {
     super("Could not complete the document request. Refresh and try again.");
   }
+}
+/** The streamed route is unavailable here (older backend or native build). */
+export class StreamUnavailable extends Error {
+  constructor() {
+    super("Streamed preparation is unavailable.");
+  }
+}
+/** Public preparation stages, in order. Never file names, ids or coverage. */
+export const PREPARE_STAGES = ["starting", "searching", "choosing", "checking"] as const;
+export type PrepareStage = (typeof PREPARE_STAGES)[number];
+export type PrepareOutcome =
+  | "review_ready"
+  | "no_ready_files"
+  | "unavailable"
+  | "not_claimed"
+  // The stream ended without a result; status is the truth.
+  | "interrupted";
+const PREPARE_RESULTS = new Set<string>([
+  "review_ready",
+  "no_ready_files",
+  "unavailable",
+  "not_claimed",
+]);
+// The codes drive_sharing.py _error() can send. A client-internal code such as
+// session_changed or request_failed is never accepted from the server.
+const STREAM_ERROR_CODES = new Set<string>([
+  "request_unavailable",
+  "verify_google_identity_required",
+  "review_changed",
+  "source_changed",
+  "recipient_changed",
+  "reconnect_required",
+  "connection_changed",
+  "connection_required",
+  "explicit_approval_required",
+  "confirmation_required",
+  "request_already_decided",
+  "request_changed",
+  "revocation_pending",
+  "no_revocable_permissions",
+  "sharing_unavailable",
+  "rule_not_covered",
+  "rule_changed",
+  "connector_unavailable",
+  "request_expired",
+  "owner_share_expired",
+  "drive_query_unavailable",
+  "recipient_google_identity_required",
+  "recipient_verification_unavailable",
+  "drive_share_unavailable",
+  "invalid_argument",
+]);
+const STREAM_FRAME_MAX_LENGTH = 1024;
+function unimplemented(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "UNIMPLEMENTED"
+  );
 }
 type RecordValue = Record<string, unknown>;
 export type SharingSessionGuard = () => void;
@@ -700,6 +761,139 @@ export class DriveSharingService {
 
   static prepare(token: string, requestId: string, guard: SharingSessionGuard) {
     return this.request(token, requestId, guard, "/prepare", {});
+  }
+
+  /**
+   * The same preparation as `prepare`, reporting public stages as they happen.
+   * Throws `StreamUnavailable` when the route can't stream here, so the caller
+   * falls back to `prepare` exactly once.
+   */
+  static async prepareStream(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+    {
+      onStage,
+      signal,
+    }: { onStage: (stage: PrepareStage) => void; signal?: AbortSignal },
+  ): Promise<PrepareOutcome> {
+    id(requestId);
+    guard();
+    let response: Response;
+    try {
+      response = await nativeStreamFetch(
+        `${SHARING_PATH}/requests/${requestId}/prepare/stream`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            ...ApiService.getAuthHeaders(token),
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: "{}",
+          signal,
+        },
+      );
+    } catch (error) {
+      if (unimplemented(error)) throw new StreamUnavailable();
+      throw error;
+    }
+    guard();
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      guard();
+      let detail: unknown;
+      try {
+        detail = record(JSON.parse(text)).detail;
+      } catch {
+        detail = undefined;
+      }
+      const code =
+        detail && typeof detail === "object" && !Array.isArray(detail)
+          ? (detail as RecordValue).code
+          : undefined;
+      const known =
+        typeof code === "string" && /^[a-z_]{1,80}$/.test(code) ? code : null;
+      // FastAPI's own Not Found: a backend older than this web build.
+      if (!known && (response.status === 404 || response.status === 405))
+        throw new StreamUnavailable();
+      // The stream route is at capacity; the plain POST still serves the owner.
+      if (known === "sharing_unavailable" && response.status === 503)
+        throw new StreamUnavailable();
+      throw new DriveSharingError(known ?? "request_failed", response.status);
+    }
+    if (
+      !response.body ||
+      !response.headers.get("content-type")?.includes("text/event-stream")
+    ) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new StreamUnavailable();
+    }
+    const reader = response.body.getReader();
+    const cancel = () => void reader.cancel().catch(() => undefined);
+    signal?.addEventListener("abort", cancel, { once: true });
+    const decoder = new TextDecoder();
+    let remainder = "";
+    let received = 0;
+    let reached = -1;
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch {
+          guard();
+          return "interrupted";
+        }
+        guard();
+        if (chunk.done) return "interrupted";
+        received += chunk.value.byteLength;
+        if (received > VIEW_MAX_LENGTH)
+          throw new DriveSharingError("invalid_response");
+        const parsed = parseSSEBlocks(
+          decoder.decode(chunk.value, { stream: true }),
+          remainder,
+        );
+        remainder = parsed.remainder;
+        if (remainder.length > STREAM_FRAME_MAX_LENGTH)
+          throw new DriveSharingError("invalid_response");
+        for (const frame of parsed.events) {
+          if (frame.data.length > STREAM_FRAME_MAX_LENGTH)
+            throw new DriveSharingError("invalid_response");
+          let payload: RecordValue;
+          try {
+            payload = record(JSON.parse(frame.data));
+          } catch {
+            throw new DriveSharingError("invalid_response");
+          }
+          if (payload.event !== frame.event)
+            throw new DriveSharingError("invalid_response");
+          if (frame.event === "stage") {
+            const index = PREPARE_STAGES.indexOf(payload.stage as PrepareStage);
+            if (index < 0) throw new DriveSharingError("invalid_response");
+            // Stages only move forward; a repeat or regression is dropped.
+            if (index > reached) {
+              reached = index;
+              onStage(payload.stage as PrepareStage);
+            }
+          } else if (frame.event === "complete") {
+            if (typeof payload.status !== "string" || !PREPARE_RESULTS.has(payload.status))
+              throw new DriveSharingError("invalid_response");
+            return payload.status as PrepareOutcome;
+          } else if (frame.event === "error") {
+            if (typeof payload.code !== "string" || !STREAM_ERROR_CODES.has(payload.code))
+              throw new DriveSharingError("invalid_response");
+            // Never render the server message.
+            throw new DriveSharingError(payload.code);
+          }
+          // Heartbeats and unknown events are ignored.
+        }
+      }
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      cancel();
+    }
   }
 
   static approve(

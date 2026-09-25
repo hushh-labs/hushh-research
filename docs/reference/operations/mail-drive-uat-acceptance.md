@@ -35,6 +35,10 @@ that token or requiring background consent. Its empty request body forbids mode
 flags. Worker preparation still requires the separately enabled background
 setting. Proxy/browser timeouts for this endpoint are 170/180 seconds; execution
 remains bounded to 160 seconds.
+`POST …/prepare/stream` runs the same preparation and streams stage names only
+(never files, ids or coverage). Closing the tab, locking the vault or signing out
+does not stop a started preparation; token expiry or revocation, account
+deletion, decline and refresh do.
 
 Approval optionally carries `trustFutureRequests`, `trustScope` and
 `trustDisclosureVersion`. The broad scope `any_requested_drive_file` requires
