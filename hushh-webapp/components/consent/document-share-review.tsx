@@ -69,6 +69,10 @@ export function DocumentShareReview({
   onChanged: () => void;
 }) {
   const { user } = useAuth();
+  // Viewer access goes to the Google account linked to this One sign-in, so
+  // the recipient opens each original as that account, not the browser default.
+  const googleEmail =
+    user?.providerData?.find((provider) => provider?.providerId === "google.com")?.email ?? null;
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to review.</BodyText>;
@@ -78,6 +82,7 @@ export function DocumentShareReview({
       requestId={requestId}
       getToken={getVaultOwnerToken}
       onChanged={onChanged}
+      googleEmail={googleEmail}
     />
   );
 }
@@ -86,10 +91,12 @@ function UnlockedDocumentReview({
   requestId,
   getToken,
   onChanged,
+  googleEmail,
 }: {
   requestId: string;
   getToken: () => string | null;
   onChanged: () => void;
+  googleEmail: string | null;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
@@ -468,7 +475,11 @@ function UnlockedDocumentReview({
                 ) : null}
                 {file.openUrl ? (
                   <a
-                    href={file.openUrl}
+                    href={
+                      snapshot.status.direction === "outgoing" && googleEmail
+                        ? `${file.openUrl}?authuser=${encodeURIComponent(googleEmail)}`
+                        : file.openUrl
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     referrerPolicy="no-referrer"
@@ -482,8 +493,9 @@ function UnlockedDocumentReview({
           </ul>
           {snapshot.status.direction === "outgoing" ? (
             <HelperText>
-              Open with the Google identity approved for this request. To ask
-              One questions, connect your own Drive and select these files.
+              {googleEmail
+                ? `Shared with ${googleEmail}. Open while signed in to that Google account.`
+                : "Open while signed in to the Google account linked to your One sign-in."}
             </HelperText>
           ) : (
             <>
