@@ -5,11 +5,17 @@ import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+const ModalPopoverContext = React.createContext(false)
+
 function Popover({
   modal = false,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" modal={modal} {...props} />
+  return (
+    <ModalPopoverContext.Provider value={modal}>
+      <PopoverPrimitive.Root data-slot="popover" modal={modal} {...props} />
+    </ModalPopoverContext.Provider>
+  )
 }
 
 function PopoverTrigger({
@@ -22,20 +28,17 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
-  withBackdrop = false,
+  withBackdrop,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content> & {
   /**
-   * Render the canonical overlay scrim (the "backdrop thump") behind the
-   * popover, matching the dialog/sheet/drawer overlay. Opt-in so that
-   * lightweight anchored popovers (menus, hovercards) keep their flat look,
-   * while modal popovers (vault, command palette style surfaces) darken and
-   * blur the page behind them. The scrim carries data-slot="popover-overlay"
-   * so the global motion-overlay timing in globals.css fades it in/out instead
-   * of snapping.
+   * Modal popovers inherit the shared scrim; non-modal anchored menus stay
+   * flat. Override only when the interaction deliberately differs.
    */
   withBackdrop?: boolean
 }) {
+  const modal = React.useContext(ModalPopoverContext)
+  const showBackdrop = withBackdrop ?? modal
   return (
     <PopoverPrimitive.Portal>
       {/*
@@ -48,7 +51,7 @@ function PopoverContent({
         contract while still conditionally rendering the scrim.
       */}
       <>
-        {withBackdrop ? (
+        {showBackdrop ? (
           <div
             data-slot="popover-scrim"
             aria-hidden

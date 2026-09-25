@@ -986,10 +986,8 @@ textarea {
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
-  /* The modal scrim. Desktop keeps the frosted blur; touch screens get a plain
-   * dim instead (see the pointer: coarse block below), because a full-screen
-   * backdrop blur fading in re-blurs the whole page on every frame, and on a
-   * phone that frame cost is what starved the sheet's slide. */
+  /* Shared modal scrim. Native Android disables backdrop filtering globally
+   * below after the measured sheet-motion cost; other surfaces keep the blur. */
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 

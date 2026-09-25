@@ -326,6 +326,30 @@ for (const width of [320, 390, 768, 1440])
     await expect(page.getByTestId("stream")).toHaveText("Streaming turn 2");
   });
 
+for (const width of [320, 390, 1440])
+  test(`connectors remain scrollable with a short ${width}px viewport`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 440 });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const scrollRegion = dialog.locator('[data-connections-panel] > div').last();
+    await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
+    expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+    const plaid = dialog.getByRole("button", { name: "Manage Plaid" });
+    await plaid.scrollIntoViewIfNeeded();
+    await expect(plaid).toBeVisible();
+    const action = await plaid.boundingBox();
+    const bounds = await dialog.boundingBox();
+    expect(action).not.toBeNull();
+    expect(bounds).not.toBeNull();
+    expect(action!.y).toBeGreaterThanOrEqual(bounds!.y);
+    expect(action!.y + action!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 1);
+    expect(action!.x).toBeGreaterThanOrEqual(0);
+    expect(action!.x + action!.width).toBeLessThanOrEqual(width + 1);
+  });
+
 test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 820 });
   const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
