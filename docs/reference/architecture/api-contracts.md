@@ -1126,9 +1126,21 @@ cancel an already-dispatched provider operation or revoke a provider grant.
 Custom remote OAuth remains a separate, incomplete custody boundary. The legacy
 `ExternalConnectorOAuthService.complete` writes to the server-owned credential
 store and must not be reused unchanged for vault-owned custom connectors. The
-installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior,
-but its storage, callback and protected-resource/issuer discovery integration
-still need implementation with owner-bound vault custody and endpoint protection.
+installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior.
+`one_adk/mcp_oauth_storage.py` now implements its request-only TokenStorage port
+over the existing expiring secret handoff, with single delivery of tokens and
+registered client information for eventual browser-vault persistence. Five
+focused tests include a synthetic SDK authorization exchange, owner invalidation,
+expiry, bounded responses and one-time delivery. This adapter is not yet wired
+to a public login route; it does not establish browser or provider acceptance.
+Callback and protected-resource/issuer discovery integration still need owner-bound
+vault custody and endpoint protection. Before activation, suppress credential-bearing
+SDK exception logs, bound the live callback wait, bind its owner/attempt/issuer,
+and fail closed on lost worker continuity. Do not load a vault refresh token into
+a fresh SDK provider until the issuer/token-endpoint binding is verified: its
+initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
+Use OAuth only for a connection handshake, not mutating tool invocation, because
+the SDK may replay the original HTTP request after authorization.
 No static API-key form or Google provider token passthrough proves standard MCP
 OAuth support. See the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
 
