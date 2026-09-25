@@ -234,10 +234,10 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     browser history as its parent resolver. The left edge wins over contextual
     tab swipes, appears only when the route exposes a back action, and never
     runs over a modal surface. Android preserves platform system-back behavior.
-30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
-    compositor. Both edges paint a neutral `--background` to transparent
-    feather with `--foreground` ink and the shared subtle readability blur;
-    route colors must not tint either bar.
+30. Persistent signed-in top chrome uses `AmbientChromeMask` as its single
+    compositor. The top edge paints a neutral `--background` to transparent
+    feather with `--foreground` ink and subtle readability blur; the bottom
+    navigation and Agent Bar float without a page-wide mask.
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
@@ -259,9 +259,8 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     progress variables directly; do not add an independent CSS transition that
     continues after the gesture or makes the edge lag the bottom compositor.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
-    bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
-    by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
-    bottom navigation and Agent Bar as separate accessible slots. Keep route
+    safe-area stack and scroll-hide transform, and renders bottom navigation
+    and Agent Bar as separate accessible slots without a full-width fade. Keep route
     visibility in its route-derived model; never recreate fixed bottom wrappers
     or move either slot inside a page Suspense boundary.
 32. `FoundationPublicAmbient` is the canonical Foundation canvas for every
@@ -433,10 +432,9 @@ Rules:
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
-11. Top and bottom shell material uses the same subtle-blur sampled-tint,
-    feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
-    contract. A dark or gradient surface must not acquire a milky light chrome
-    band.
+11. The top shell uses the neutral readability feather. The bottom controls
+    retain their own glass surface and foreground contrast, without a
+    full-width fade or a milky light band over dark content.
 
 ## Row and Card Interaction Contract
 
@@ -490,7 +488,7 @@ Rules:
 2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. Vault's primary and fallback method buttons share one effect; a low-emphasis recovery escape may use the canonical link treatment and must not be styled as a second primary CTA. When Sign out is offered by the hard gate, Recovery key belongs beside it in the same quiet escape group rather than under the preceding primary button.
-5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame`, and both edges consume the neutral theme feather and foreground contract. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+5. Persistent top chrome uses `AmbientChromeMask` through `AppTopShell`; the controller is mounted once in `AppShellFrame`. Bottom navigation and Agent Bar keep their own glass surfaces without a page-wide mask. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
 6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
 
 ## Foundation Color Contract

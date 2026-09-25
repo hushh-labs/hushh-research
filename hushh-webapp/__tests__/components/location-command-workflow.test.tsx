@@ -275,7 +275,6 @@ function App() {
           model={{
             hidden: false,
             navigationHidden: false,
-            ambientEnabled: false,
           }}
         />
       </LocationCommandProvider>

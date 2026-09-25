@@ -156,7 +156,7 @@ function App({
     <LocationCommandProvider>
       <button onClick={onPage}>Page action</button>
       <AppBottomShell
-        model={{ hidden, navigationHidden: hidden, ambientEnabled: false }}
+        model={{ hidden, navigationHidden: hidden }}
       />
     </LocationCommandProvider>
   );

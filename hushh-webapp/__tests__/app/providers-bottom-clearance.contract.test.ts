@@ -66,24 +66,14 @@ describe("app shell bottom-clearance contract", () => {
     ).toBeLessThan(source.indexOf("<Suspense"));
   });
 
-  it("rides the bottom chrome on transform only, never on height", () => {
-    // The mask used to recompute its height from the scroll progress on every
-    // frame: one layout per frame, and under a backdrop-filter the blur
-    // repaints with it. It is the only non-composited motion this stack had.
+  it("moves the navigation stack without a full-width bottom mask", () => {
     const shell = readFileSync(
       join(process.cwd(), "components/app-ui/app-bottom-shell.tsx"),
       "utf8",
     );
-    expect(shell).toContain('height: "var(--bottom-chrome-full-height)"');
-    expect(shell).not.toContain(
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress",
-    );
-    const maskStyle = shell.slice(
-      shell.indexOf("const maskStyle"),
-      shell.indexOf("as CSSProperties", shell.indexOf("const maskStyle")),
-    );
-    expect(maskStyle).toContain("translate3d(0, calc(var(--bottom-chrome-progress");
-    expect(maskStyle).not.toContain("height:\n");
+    expect(shell).toContain("BOTTOM_SCROLL_TRANSFORM");
+    expect(shell).toContain("data-bottom-shell-motion-stack");
+    expect(shell).not.toContain("<AmbientChromeMask");
   });
 
   it("keeps typed search available while focused Location navigation is hidden", () => {

@@ -437,7 +437,7 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
-            ? "chrome-glass-surface rounded-br-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
+            ? "chrome-glass-surface rounded-r-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
             : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className

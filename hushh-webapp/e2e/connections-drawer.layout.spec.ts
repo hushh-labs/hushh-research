@@ -210,6 +210,7 @@ for (const width of [390, 768])
     expect(connectorBox.y).toBeGreaterThan(searchBox.y + searchBox.height);
     expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
     expect(await chats.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await chats.locator("aside").evaluate((element) => getComputedStyle(element).borderTopRightRadius)).toBe("28px");
   });
 
 for (const width of [320, 390, 768, 1440])
