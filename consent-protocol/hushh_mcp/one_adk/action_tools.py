@@ -2902,11 +2902,11 @@ async def propose_document_request(
 
 
 async def propose_drive_share(
-    person: str,
     files_request: str,
     tool_context: ToolContext,
-    selection_handle: str = "",
+    person: str = "",
     trusted_circle: bool = False,
+    selection_handle: str = "",
 ) -> dict[str, Any]:
     """Stage sharing the owner's own Drive files with one connected person,
     or with their Trusted circle (trusted_circle=true, person left empty).
@@ -2926,6 +2926,11 @@ async def propose_drive_share(
         return {
             "status": "needs_clarification",
             "message": "Say which Drive files to share, for example a name, type or date.",
+        }
+    if trusted_circle is not True and not str(person or "").strip():
+        return {
+            "status": "needs_clarification",
+            "message": "Say which connected person to share with, or the Trusted circle.",
         }
     if trusted_circle is True:
         return {

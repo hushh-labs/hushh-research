@@ -60,14 +60,17 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
             raise DriveSharingError("sharing_unavailable")
 
     def _relationship(self, connection, owner, recipient):
-        pair = sorted((owner, recipient))
+        # Either stored order: the database collation (LEAST/GREATEST at
+        # accept time) orders mixed-case ids differently from Python's sort.
         row = self._row(
             connection,
             """
-            SELECT id FROM connections WHERE user_a_id=:a AND user_b_id=:b AND status='active'
+            SELECT id FROM connections WHERE status='active'
+              AND ((user_a_id=:owner AND user_b_id=:recipient)
+                OR (user_a_id=:recipient AND user_b_id=:owner))
             FOR SHARE
         """,
-            {"a": pair[0], "b": pair[1]},
+            {"owner": owner, "recipient": recipient},
         )
         if owner == recipient or not row:
             raise DriveSharingError("connection_required")
@@ -182,9 +185,43 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
                     params,
                 ).mappings()
             ]
-            return [self._view(connection, row) for row in rows]
+            return [
+                {**self._view(connection, row), "_recipientUserId": row["recipient_user_id"]}
+                for row in rows
+            ]
 
         return cast(list, await self._transaction(operation))
+
+    async def create_from(self, *, user_id, recipient_user_id, source_request_id):
+        """Add a recipient to an existing circle search with its exact files.
+
+        The source row's sealed search is reused, so a member missed earlier
+        (a failed lookup, an expired row) gets the same files without a new
+        Drive search.
+        """
+
+        def operation(connection):
+            return self._sealed(self._owner_row(connection, user_id, source_request_id)), (
+                self._owner_row(connection, user_id, source_request_id)["client_request_id"]
+            )
+
+        sealed, client_request_id = await self._transaction(operation)
+        files = [
+            {
+                "file_id": item["fileId"],
+                "name": item["name"],
+                "mime_type": item["mimeType"],
+                "modified_time": item["modifiedTime"],
+            }
+            for item in sealed.get("ownerFiles", [])
+        ]
+        return await self.create(
+            user_id=user_id,
+            recipient_user_id=recipient_user_id,
+            client_request_id=client_request_id,
+            query=sealed["query"],
+            owner_files=files,
+        )
 
     async def existing(self, *, user_id, recipient_user_id, client_request_id):
         """A retried tap returns the first search's files instead of searching again.
@@ -228,7 +265,11 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
             raise DriveSharingError("invalid_argument")
         client_request_id = str(UUID(str(client_request_id)))
         request_id = str(uuid4())
-        digest = self.cipher.digest(_PURPOSE, [user_id, recipient_user_id, query])
+        # Binding the files means a concurrent second search conflicts with
+        # request_changed instead of mixing into this group.
+        digest = self.cipher.digest(
+            _PURPOSE, [user_id, recipient_user_id, query, [item["fileId"] for item in files]]
+        )
         envelope = self.cipher.seal(
             {"query": query, "ownerFiles": files},
             user_id=user_id,

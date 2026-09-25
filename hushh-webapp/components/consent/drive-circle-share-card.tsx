@@ -175,17 +175,28 @@ function UnlockedDriveCircleShareCard({
     setPhase("sharing");
     setNotice(null);
     const next: Record<string, Result> = {};
+    let stale = false;
     // One person at a time: each is their own Viewer share and outcome.
     for (const person of chosen) {
       try {
         await DriveSharingService.shareOwnerFiles(session.token, person.requestId, refs, session.guard);
         next[person.requestId] = "shared";
       } catch (cause) {
-        if (codeOf(cause) === "session_changed") return;
+        const code = codeOf(cause);
+        if (code === "session_changed") return;
+        if (code === "owner_share_expired" || code === "request_changed") stale = true;
         next[person.requestId] = "failed";
       }
       if (!session.current()) return;
       setResults((prior) => ({ ...prior, ...next }));
+    }
+    if (stale) {
+      // The search is gone or changed: find the files again, never re-share it.
+      setView(null);
+      setResults({});
+      setNotice("This search expired. Find the files again.");
+      setPhase("idle");
+      return;
     }
     CacheSyncService.onConsentMutated(userId);
     window.dispatchEvent(

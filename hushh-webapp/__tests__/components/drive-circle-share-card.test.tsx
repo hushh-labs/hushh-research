@@ -78,6 +78,19 @@ describe("DriveCircleShareCard", () => {
     expect(state.service.shareOwnerFiles.mock.calls[0][1]).toBe(bo);
   });
 
+  it("offers Find files again when the search expired", async () => {
+    state.service.prepareTrustedShare.mockResolvedValue(ready);
+    state.service.shareOwnerFiles.mockRejectedValue(
+      new DriveSharingError("owner_share_expired", 409),
+    );
+    render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Chris recordings" />);
+    fireEvent.click(screen.getByRole("button", { name: "Find files" }));
+    await screen.findByText("Chris onboarding.mp4");
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file with 2 people" }));
+    await screen.findByText("This search expired. Find the files again.");
+    expect(screen.getByRole("button", { name: "Find files" })).toBeTruthy();
+  });
+
   it("says so when no one in the circle can receive yet", async () => {
     state.service.prepareTrustedShare.mockResolvedValue({
       ...ready, status: "no_recipients", files: [], recipients: [],

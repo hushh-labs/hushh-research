@@ -17,6 +17,7 @@ selector, record the skip (``metadata_listing`` / ``exact_title``)
 and release the found titles worded as found, not judged.
 """
 
+import asyncio
 from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -242,54 +243,96 @@ class DriveLiveQueryService:
         the rest are listed with a reason and never receive anything. One
         search, one sealed row per recipient with the same files, so each
         share runs through the same per-person lane. Nothing is shared here.
+        One member's failure excludes only that member; a retry adds anyone
+        missing from the first search's files instead of dropping them.
         """
         await self._require_owner()
         if not connector_feature_enabled("google_drive_chat_reads", user_id):
             raise DriveSharingError("sharing_unavailable")
         circle = await self.owner_shares.trusted_recipients(user_id=user_id)
-        eligible, excluded = [], list(circle["excluded"])
-        for member in circle["eligible"]:
-            try:
-                await self.recipient_identity(member["userId"])
-            except DriveSharingError:
-                excluded.append({**member, "reason": "no_google_account"})
-                continue
-            eligible.append(member)
-        excluded_view = [{"name": item["name"], "reason": item["reason"]} for item in excluded]
-        existing = await self.owner_shares.existing_group(
+        reasons = await asyncio.gather(
+            *(self._identity_reason(member["userId"]) for member in circle["eligible"])
+        )
+        excluded = list(circle["excluded"])
+        eligible = []
+        for member, reason in zip(circle["eligible"], reasons, strict=True):
+            if reason:
+                excluded.append({**member, "reason": reason})
+            else:
+                eligible.append(member)
+        rows = await self.owner_shares.existing_group(
             user_id=user_id, client_request_id=client_request_id
         )
-        if existing:
-            return self._group_view(existing, excluded_view)
+        if rows:
+            have = {row["_recipientUserId"] for row in rows}
+            for member in eligible:
+                if member["userId"] in have:
+                    continue
+                try:
+                    await self._require_owner()
+                    rows.append(
+                        await self.owner_shares.create_from(
+                            user_id=user_id,
+                            recipient_user_id=member["userId"],
+                            source_request_id=rows[0]["requestId"],
+                        )
+                    )
+                except DriveSharingError:
+                    excluded.append({**member, "reason": "unavailable"})
+            return self._group_view(rows, excluded)
         if not eligible:
-            return {
-                "status": "no_recipients",
-                "files": [],
-                "recipients": [],
-                "excluded": excluded_view,
-                "message": None,
-            }
+            return self._no_recipients(excluded)
         files, no_match = await self._owner_search(
             user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
         )
         if no_match is not None:
-            return {**no_match, "recipients": [], "excluded": excluded_view}
-        rows = []
+            return {**no_match, "recipients": [], "excluded": self._excluded_view(excluded)}
         for member in eligible:
-            await self._require_owner()
-            rows.append(
-                await self.owner_shares.create(
-                    user_id=user_id,
-                    recipient_user_id=member["userId"],
-                    client_request_id=client_request_id,
-                    query=query,
-                    owner_files=files,
+            try:
+                await self._require_owner()
+                rows.append(
+                    await self.owner_shares.create(
+                        user_id=user_id,
+                        recipient_user_id=member["userId"],
+                        client_request_id=client_request_id,
+                        query=query,
+                        owner_files=files,
+                    )
                 )
-            )
-        return self._group_view(rows, excluded_view)
+            except DriveSharingError as error:
+                # A concurrent second search binds different files: surface it.
+                if str(error) == "request_changed":
+                    raise
+                excluded.append({**member, "reason": "unavailable"})
+        if not rows:
+            return self._no_recipients(excluded)
+        return self._group_view(rows, excluded)
+
+    async def _identity_reason(self, user_id):
+        """None when the member has one Google identity; otherwise why not."""
+        try:
+            await self.recipient_identity(user_id)
+        except DriveSharingError as error:
+            # A Firebase outage is "try again", never "no Google account".
+            if str(error) == "recipient_google_identity_required":
+                return "no_google_account"
+            return "unavailable"
+        return None
 
     @staticmethod
-    def _group_view(rows, excluded):
+    def _excluded_view(excluded):
+        return [{"name": item["name"], "reason": item["reason"]} for item in excluded]
+
+    def _no_recipients(self, excluded):
+        return {
+            "status": "no_recipients",
+            "files": [],
+            "recipients": [],
+            "excluded": self._excluded_view(excluded),
+            "message": None,
+        }
+
+    def _group_view(self, rows, excluded):
         return {
             "status": "ready" if any(row["status"] == "ready" for row in rows) else "shared",
             "files": rows[0]["files"],
@@ -302,7 +345,7 @@ class DriveLiveQueryService:
                 }
                 for row in rows
             ],
-            "excluded": excluded,
+            "excluded": self._excluded_view(excluded),
             "message": None,
         }
 

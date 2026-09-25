@@ -434,3 +434,75 @@ async def test_each_circle_recipient_is_shared_through_their_own_lane(circle):
     )
     assert shared["status"] == "shared"
     assert sharing.store.create_request.await_args.kwargs["owner_initiated"] is True
+
+
+async def test_a_pair_stored_in_database_order_still_counts_as_connected(shares, monkeypatch):
+    """Postgres collation, not Python's sort, orders a connection's pair."""
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient,Mixed")
+    with shares.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO connections VALUES (:id,'owner','Mixed','active')"),
+            {"id": str(uuid4())},
+        )
+        connection.execute(text("INSERT INTO actor_identity_cache VALUES ('Mixed','Mo')"))
+    # Python would look for ('Mixed','owner'); the row is stored the other way.
+    view = await prepare(service(shares, chat()), recipient="Mixed")
+    assert view["status"] == "ready" and view["recipientName"] == "Mo"
+
+
+async def test_a_firebase_blip_is_unavailable_not_no_google_and_a_retry_adds_them(circle):
+    queries = circle_service(circle, chat())
+    blip = {"on": True}
+
+    async def identity(user_id):
+        if user_id == "recipient" and blip["on"]:
+            raise DriveSharingError("recipient_verification_unavailable", retryable=True)
+        if user_id == "nogoogle":
+            raise DriveSharingError("recipient_google_identity_required")
+        return SimpleNamespace(user_id=user_id)
+
+    queries.recipient_identity = AsyncMock(side_effect=identity)
+    client = str(uuid4())
+    first = await prepare_circle(queries, client=client)
+    assert first["status"] == "no_recipients"
+    assert {"name": "Bo", "reason": "unavailable"} in first["excluded"]
+    blip["on"] = False
+    again = await prepare_circle(queries, client=client)
+    assert [person["name"] for person in again["recipients"]] == ["Bo"]
+
+
+async def test_a_member_missing_from_an_earlier_search_is_added_from_its_files(circle):
+    live = chat()
+    queries = circle_service(circle, live)
+    client = str(uuid4())
+    await prepare_circle(queries, client=client)
+    with circle.db.engine.begin() as connection:
+        connection.execute(text("DELETE FROM drive_owner_shares"))
+        # Keep one sealed search alive for another member, as if Bo's row expired.
+        connection.execute(
+            text("INSERT INTO connections VALUES (:id,'owner','late','active')"),
+            {"id": str(uuid4())},
+        )
+    first = await prepare_circle(queries, client=client)
+    assert [person["name"] for person in first["recipients"]] == ["Bo"]
+    assert live.run_live_query.await_count == 2
+
+
+async def test_two_searches_never_mix_in_one_group(shares):
+    client = str(uuid4())
+    await shares.create(
+        user_id="owner",
+        recipient_user_id="recipient",
+        client_request_id=client,
+        query=WORDS,
+        owner_files=found(),
+    )
+    other = [{**found()[0], "file_id": "1ZzZzZzZzZzZzZzZzZzZzZzZzZzZz0000"}]
+    with pytest.raises(DriveSharingError, match="request_changed"):
+        await shares.create(
+            user_id="owner",
+            recipient_user_id="recipient",
+            client_request_id=client,
+            query=WORDS,
+            owner_files=other,
+        )

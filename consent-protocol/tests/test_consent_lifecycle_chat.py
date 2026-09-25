@@ -1101,9 +1101,9 @@ async def test_drive_share_proposal_names_one_connected_person_and_grants_nothin
         connected,
     ):
         ready = await action_tools.propose_drive_share(
-            "Rahul", "the Chris onboarding recordings", context
+            "the Chris onboarding recordings", context, person="Rahul"
         )
-        empty = await action_tools.propose_drive_share("Rahul", "   ", context)
+        empty = await action_tools.propose_drive_share("   ", context, person="Rahul")
     assert ready["status"] == "proposal_ready"
     assert ready["person"] == {"personRef": PERSON_REF, "displayName": "Rahul Sharma"}
     assert ready["filesRequest"] == "the Chris onboarding recordings"
@@ -1124,7 +1124,7 @@ async def test_drive_share_proposal_refuses_someone_not_connected():
         _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
         stranger,
     ):
-        result = await action_tools.propose_drive_share("Rahul", "recordings", context)
+        result = await action_tools.propose_drive_share("recordings", context, person="Rahul")
     assert result["status"] == "connection_required"
 
 
@@ -1166,7 +1166,7 @@ async def test_a_trusted_circle_share_proposal_names_no_person():
     context = _ctx(_state())
     with _auth():
         ready = await action_tools.propose_drive_share(
-            "", "the Chris onboarding recordings", context, trusted_circle=True
+            "the Chris onboarding recordings", context, trusted_circle=True
         )
     assert ready["status"] == "proposal_ready" and ready["audience"] == "trusted_circle"
     assert "person" not in ready
@@ -1198,3 +1198,12 @@ def test_the_trusted_circle_share_card_survives_a_chat_reload():
             "filesRequest": "the Chris onboarding recordings",
         },
     }
+
+
+def test_the_drive_share_tool_needs_no_person_for_the_trusted_circle():
+    """ADK marks every parameter without a default as required."""
+    import inspect
+
+    parameters = inspect.signature(action_tools.propose_drive_share).parameters
+    assert parameters["person"].default == ""
+    assert parameters["trusted_circle"].default is False
