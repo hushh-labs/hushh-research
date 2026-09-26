@@ -2841,7 +2841,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
   width: 100%;
   padding-top: var(--app-fullscreen-flow-content-offset);
-  padding-bottom: var(--app-screen-footer-pad);
+  padding-bottom: var(--app-scroll-bottom-pad, var(--onboarding-agent-bar-clearance, calc(8px + var(--app-bottom-inset))));
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
 }
