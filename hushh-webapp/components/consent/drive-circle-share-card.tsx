@@ -52,6 +52,8 @@ function failureCopy(code: string): string {
       return "Drive didn't answer. Try again.";
     case "sharing_unavailable":
       return "Sharing Drive files isn't available right now.";
+    case "drive_share_in_progress":
+      return "Sharing is in progress. Try again to check its status.";
     case "connection_required":
       return "Connect with this person, then try again.";
     case "recipient_google_identity_required":
@@ -119,6 +121,9 @@ function UnlockedDriveCircleShareCard({
   const [results, setResults] = useState<Record<string, Result>>({});
   const [activeElapsedMs, setActiveElapsedMs] = useState(0);
   const [lastOperation, setLastOperation] = useState<TimedOperation | null>(null);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [shareProgress, setShareProgress] = useState({ completed: 0, total: 0 });
+  const [attempts, setAttempts] = useState<Record<string, string[]>>({});
   const alive = useRef(false);
   const serial = useRef(0);
   const operationStartedAt = useRef<number | null>(null);
@@ -178,6 +183,7 @@ function UnlockedDriveCircleShareCard({
       if (!session.current()) return;
       outcome = result.status;
       setView(result);
+      setNeedsRefresh(false);
       setUnsharedFiles([]);
       setSkipped([]);
     } catch (cause) {
@@ -192,21 +198,28 @@ function UnlockedDriveCircleShareCard({
   };
 
   const files = view && (view.status === "ready" || view.status === "shared") ? view.files : [];
-  const selectedFiles = files.map((file) => file.ref).filter((ref) => !unsharedFiles.includes(ref));
   const open = (view?.recipients ?? []).filter(
-    (item) => item.status === "ready" && results[item.requestId]?.state !== "queued",
+    (item) => item.status === "ready" && !item.selectionExpired && results[item.requestId]?.state !== "queued",
   );
+  const bindings = open.map((person) => person.selectedFileRefs ?? attempts[person.requestId])
+    .filter((refs): refs is string[] => !!refs);
+  const reservedRefs = bindings[0];
+  const conflictingSelections = !!reservedRefs && bindings.some((refs) =>
+    refs.length !== reservedRefs.length || refs.some((ref) => !reservedRefs.includes(ref)));
+  const selectedFiles = reservedRefs ?? files.map((file) => file.ref).filter((ref) => !unsharedFiles.includes(ref));
   const chosen = open.filter((item) => !skipped.includes(item.requestId));
 
   const share = async () => {
-    if (phase !== "idle" || !selectedFiles.length || !chosen.length) return;
+    if (phase !== "idle" || needsRefresh || conflictingSelections || !selectedFiles.length || !chosen.length) return;
     const session = guarded();
     if (!session) {
       setNotice("Unlock your vault to share Drive files.");
       return;
     }
     const refs = [...selectedFiles];
+    setAttempts((previous) => ({ ...previous, ...Object.fromEntries(chosen.map((person) => [person.requestId, refs])) }));
     setPhase("sharing");
+    setShareProgress({ completed: 0, total: chosen.length });
     operationStartedAt.current = performance.now();
     setActiveElapsedMs(0);
     setNotice(null);
@@ -223,6 +236,10 @@ function UnlockedDriveCircleShareCard({
           next[person.requestId] = {
             state: "queued", shareRequestId: shared.shareRequestId,
           };
+          CacheSyncService.onConsentMutated(userId);
+          window.dispatchEvent(
+            new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
+          );
         } catch (cause) {
           const code = codeOf(cause);
           if (code === "session_changed") return;
@@ -231,19 +248,22 @@ function UnlockedDriveCircleShareCard({
         }
         if (!session.current()) return;
         setResults((prior) => ({ ...prior, ...next }));
+        setShareProgress({ completed: Object.keys(next).length, total: chosen.length });
       }
       if (stale) {
-        // The search is gone or changed: find the files again, never re-share it.
-        setView(null);
-        setResults({});
-        setNotice("This search expired. Find the files again.");
+        const hasReceipts = view?.recipients.some((person) => person.status === "shared") ||
+          Object.values({ ...results, ...next }).some((result) => result.state === "queued");
+        if (hasReceipts) {
+          setNeedsRefresh(true);
+          setNotice("Some remaining shares need a fresh review.");
+        } else {
+          setView(null);
+          setResults({});
+          setNotice("This search expired. Find the files again.");
+        }
         outcome = "expired";
         return;
       }
-      CacheSyncService.onConsentMutated(userId);
-      window.dispatchEvent(
-        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
-      );
       if (Object.values(next).some((result) => result.state === "failed"))
         setNotice("Couldn't start sharing with everyone. Retry the people marked below.");
       outcome = Object.values(next).some((result) => result.state === "failed") ? "partial" : "shared";
@@ -264,20 +284,22 @@ function UnlockedDriveCircleShareCard({
     phase === "searching"
       ? "Searching your Drive…"
       : phase === "sharing"
-        ? "Sharing…"
+        ? `Sharing with ${Math.min(shareProgress.completed + 1, shareProgress.total)} of ${shareProgress.total} people…`
         : view?.status === "no_match"
           ? "No matching files found."
           : view?.status === "no_recipients"
             ? "No eligible people yet."
             : requestedCount > 0 && open.length === 0
               ? `Sharing requested for ${requestedCount} ${requestedCount === 1 ? "person" : "people"}.`
+              : view?.recipients.some((person) => person.selectionExpired) && open.length === 0
+                ? "Sharing results"
               : view
-                ? "Choose the files and people."
+                ? reservedRefs ? "Retry sharing the selected files." : "Choose the files and people."
                 : null;
 
   return (
     <section aria-label="Share Drive files with your Trusted circle" className="min-w-0 space-y-4 break-words"
-      data-testid="drive-circle-share" aria-busy={phase !== "idle"}>
+      data-testid="drive-circle-share">
       <div role="status" aria-live="polite" className="min-w-0 space-y-1">
         {statusLine ? <BodyText>{statusLine}</BodyText> : null}
       </div>
@@ -293,6 +315,14 @@ function UnlockedDriveCircleShareCard({
       ) : null}
       <BodyText className="whitespace-pre-wrap break-words">“{filesRequest}”</BodyText>
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
+      {conflictingSelections ? (
+        <HelperText role="alert">These attempts use different files. Ask One to start a new share.</HelperText>
+      ) : null}
+      {needsRefresh ? (
+        <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+          Review remaining shares
+        </Button>
+      ) : null}
       {view?.message ? <HelperText className="whitespace-pre-wrap">{view.message}</HelperText> : null}
       {view?.status === "no_recipients" ? (
         <>
@@ -317,7 +347,7 @@ function UnlockedDriveCircleShareCard({
         </>
       ) : null}
       {files.length > 0 && open.length > 0 ? (
-        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle" || needsRefresh || !!reservedRefs} aria-busy={phase === "searching"}>
           <legend>
             <MediumRowLabel as="span">Files</MediumRowLabel>
           </legend>
@@ -345,19 +375,21 @@ function UnlockedDriveCircleShareCard({
             {view.recipients.map((person) => {
               const result = results[person.requestId];
               const done = person.status === "shared" || result?.state === "queued";
+              const expired = !done && person.selectionExpired === true;
               const shareRequestId = result?.shareRequestId ?? person.shareRequestId;
               return (
                 <li key={person.requestId}>
                   <label className="flex min-h-11 min-w-0 items-center gap-3">
-                    <input type="checkbox" disabled={done}
-                      checked={done || !skipped.includes(person.requestId)}
+                    <input type="checkbox" disabled={done || expired || conflictingSelections}
+                      checked={done || (!expired && !skipped.includes(person.requestId))}
                       onChange={(event) => setSkipped(event.target.checked
                         ? skipped.filter((item) => item !== person.requestId)
                         : [...skipped, person.requestId])} />
                     <span className="min-w-0 break-all">
                       {person.name ?? "A connection"}
                       {done ? <HelperText as="span"> · sharing requested</HelperText> : null}
-                      {result?.state === "failed" ? (
+                      {expired ? <HelperText as="span"> · This sharing attempt expired. Ask One to start a new share.</HelperText> : null}
+                      {!expired && result?.state === "failed" ? (
                         <HelperText as="span"> · {failureCopy(result.code ?? "request_failed")}</HelperText>
                       ) : null}
                     </span>
@@ -394,7 +426,7 @@ function UnlockedDriveCircleShareCard({
           <HelperText>
             Each person gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle" || !selectedFiles.length || !chosen.length}
+          <Button size="prominent" disabled={phase !== "idle" || needsRefresh || conflictingSelections || !selectedFiles.length || !chosen.length}
             onClick={() => void share()}>
             {phase === "sharing"
               ? "Sharing…"

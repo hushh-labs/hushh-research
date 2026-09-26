@@ -55,6 +55,8 @@ function failureCopy(code: string, name: string): string {
       return "Your Drive changed. Find the files again.";
     case "sharing_unavailable":
       return "Sharing Drive files isn't available right now.";
+    case "drive_share_in_progress":
+      return "Sharing is in progress. Try again to check its status.";
     default:
       return "Couldn't finish that. Try again.";
   }
@@ -122,6 +124,7 @@ function UnlockedDriveOwnerShareCard({
   const [notice, setNotice] = useState<string | null>(null);
   // Files the owner left unticked; every found file starts selected.
   const [unshared, setUnshared] = useState<string[]>([]);
+  const [attempt, setAttempt] = useState<{ requestId: string; refs: string[] } | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
   const statusTarget = useRef<HTMLDivElement>(null);
@@ -162,6 +165,8 @@ function UnlockedDriveOwnerShareCard({
         if (!current()) return;
         setView(result);
         setUnshared([]);
+        setAttempt((previous) => result.status === "ready" && result.requestId === previous?.requestId
+          ? previous : null);
       } catch (cause) {
         if (!current()) return;
         const code = codeOf(cause);
@@ -190,18 +195,26 @@ function UnlockedDriveOwnerShareCard({
   };
 
   const found = view?.status === "ready" ? view.files : [];
-  const selected = found.map((file) => file.ref).filter((ref) => !unshared.includes(ref));
+  const reservedRefs = view?.selectedFileRefs ??
+    (attempt?.requestId === view?.requestId ? attempt?.refs : null);
+  const selectionExpired = view?.status === "ready" && view.selectionExpired === true;
+  const selected = reservedRefs ?? found.map((file) => file.ref).filter((ref) => !unshared.includes(ref));
+
+  const onChanged = useCallback(() => {
+    CacheSyncService.onConsentMutated(userId);
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
+    );
+  }, [userId]);
 
   const share = () => {
     const requestId = view?.requestId;
-    if (!requestId || phase !== "idle" || selected.length === 0) return;
+    if (!requestId || phase !== "idle" || selectionExpired || selected.length === 0) return;
     const refs = [...selected];
+    setAttempt({ requestId, refs });
     void run("sharing", async (token, guard) => {
       const result = await DriveSharingService.shareOwnerFiles(token, requestId, refs, guard);
-      CacheSyncService.onConsentMutated(userId);
-      window.dispatchEvent(
-        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
-      );
+      onChanged();
       return result;
     });
   };
@@ -213,10 +226,12 @@ function UnlockedDriveOwnerShareCard({
         ? "Sharing…"
         : view?.status === "shared"
           ? `Sharing requested for ${personName}.`
+          : selectionExpired
+            ? "This sharing attempt expired. Ask One to start a new share."
           : view?.status === "no_match"
             ? "No matching files found."
             : view?.status === "ready"
-              ? "Choose the files to share."
+              ? reservedRefs ? "Retry sharing the selected files." : "Choose the files to share."
               : null;
 
   return (
@@ -224,9 +239,9 @@ function UnlockedDriveOwnerShareCard({
       aria-label="Share Drive files"
       className="min-w-0 space-y-4 break-words"
       data-testid="drive-owner-share"
-      aria-busy={phase !== "idle"}
     >
-      <div ref={statusTarget} tabIndex={-1} role="status" aria-live="polite" className="min-w-0 space-y-1">
+      <div ref={statusTarget} tabIndex={-1} role={view?.status === "shared" ? undefined : "status"}
+        aria-live={view?.status === "shared" ? undefined : "polite"} className="min-w-0 space-y-1">
         <MediumRowLabel as="p">Share Drive files with {personName}</MediumRowLabel>
         {statusLine ? <BodyText>{statusLine}</BodyText> : null}
       </div>
@@ -243,8 +258,7 @@ function UnlockedDriveOwnerShareCard({
       {!view || view.status === "no_match" ? (
         <>
           <HelperText>
-            Your private agent searches your Drive once for these files. Nothing is shared until
-            you choose files and tap Share.
+            Review the files, then tap Share.
           </HelperText>
           <Button size="prominent" disabled={phase !== "idle"} onClick={find}>
             {phase === "searching" ? "Searching…" : view ? "Search again" : "Find files"}
@@ -252,7 +266,7 @@ function UnlockedDriveOwnerShareCard({
         </>
       ) : null}
       {found.length > 0 ? (
-        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle" || selectionExpired} aria-busy={phase === "searching"}>
           <legend>
             <MediumRowLabel as="span">Files to share with {personName}</MediumRowLabel>
           </legend>
@@ -260,6 +274,7 @@ function UnlockedDriveOwnerShareCard({
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input
                 type="checkbox"
+                disabled={!!reservedRefs}
                 checked={selected.length === found.length}
                 onChange={(event) =>
                   setUnshared(event.target.checked ? [] : found.map((file) => file.ref))
@@ -274,6 +289,7 @@ function UnlockedDriveOwnerShareCard({
                 <label className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     type="checkbox"
+                    disabled={!!reservedRefs}
                     checked={selected.includes(file.ref)}
                     onChange={(event) =>
                       setUnshared(
@@ -296,7 +312,7 @@ function UnlockedDriveOwnerShareCard({
           <HelperText>
             {personName} gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle" || selected.length === 0} onClick={share}>
+          <Button size="prominent" disabled={phase !== "idle" || selectionExpired || selected.length === 0} onClick={share}>
             {phase === "sharing"
               ? "Sharing…"
               : selected.length === 1
@@ -306,7 +322,7 @@ function UnlockedDriveOwnerShareCard({
         </fieldset>
       ) : null}
       {view?.status === "shared" && view.shareRequestId ? (
-        <DocumentShareReview requestId={view.shareRequestId} onChanged={() => undefined} />
+        <DocumentShareReview requestId={view.shareRequestId} onChanged={onChanged} />
       ) : null}
     </section>
   );
