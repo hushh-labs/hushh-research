@@ -234,9 +234,13 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Open drawer", exact: true })
       .click();
-    await page
-      .getByRole("searchbox", { name: "Search chats" })
-      .fill("History filter");
+    const historySearch = page.getByRole("searchbox", { name: "Search chats" });
+    await historySearch.fill("History filter");
+    // Wait for React's controlled value to commit before switching the
+    // still-mounted drawer view. WebKit can otherwise click the next control
+    // in the same frame as the input event and expose an empty stale value on
+    // the next open even though the component itself stayed mounted.
+    await expect(historySearch).toHaveValue("History filter");
     await page.getByLabel("Open Connectors", { exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
