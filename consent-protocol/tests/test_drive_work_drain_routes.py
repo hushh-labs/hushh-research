@@ -193,7 +193,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()
-    run.assert_awaited_once_with(stage="documents", max_jobs_per_worker=1, deadline_seconds=205)
+    run.assert_awaited_once_with(stage="documents", max_jobs_per_worker=20, deadline_seconds=205)
 
 
 @pytest.mark.parametrize("stage", ["documents", "suggestions", "sharing"])
@@ -224,7 +224,7 @@ def test_route_accepts_only_fixed_authorized_stages(client, monkeypatch, stage):
     response = client.post(PATH, headers=_authorized_headers(), json={"stage": stage})
 
     assert response.status_code == 200
-    run.assert_awaited_once_with(stage=stage, max_jobs_per_worker=1, deadline_seconds=205)
+    run.assert_awaited_once_with(stage=stage, max_jobs_per_worker=20, deadline_seconds=205)
 
 
 @pytest.mark.parametrize(

@@ -286,6 +286,7 @@ def _error(error):
             "Couldn't check their Google account. Try again.",
         ),
         "drive_share_unavailable": (503, "Couldn't prepare these files. Try again."),
+        "drive_share_in_progress": (409, "Sharing is already in progress."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"

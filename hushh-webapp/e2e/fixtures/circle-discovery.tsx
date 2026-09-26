@@ -148,7 +148,7 @@ function Fixture() {
             }}
           >
             <div data-app-shell-top-spacer="true" aria-hidden="true" />
-            <AppPageShell fitContent width="agent">
+            <AppPageShell data-connect-page="" fitContent width="agent">
               <AppPageHeaderRegion>
                 <PageHeader title="Connect" titleRole="agent" />
               </AppPageHeaderRegion>
