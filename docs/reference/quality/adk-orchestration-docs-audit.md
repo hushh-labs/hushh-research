@@ -1119,3 +1119,21 @@ tests. Nineteen imported size findings were individually reviewed and recorded i
 the existing fitness baseline; no dependency, import, or authority budget was
 relaxed. Compilation remains a separately authorized hub connector read, not a
 fallback transport for private pod turns.
+
+
+The live dev migration ledger already owns IDs 937–939 for consumer MCP changes.
+The pod erasure composition and Files erasure migrations were not applied there;
+their unchanged SQL and rollback bodies now use 940 and 941. The dev manifest and
+PostgreSQL rehearsal follow those names. All previously applied pod migration
+checksums match the inspected candidate; only 940 and 941 are pending in its dev
+manifest. The pre-deploy schema check still reports `drive_owner_shares` absent;
+the governed release migration step must create migration 245's additive table
+before candidate promotion. No manual live schema changes were performed.
+
+The canonical reviewer authenticated and unlocked through the existing harness.
+Browser status and the read-only dev registry agree on the existing BYOC pod;
+provider service inventory agrees with that assignment. Its serving image is an
+older predecessor, and its registry lacks `serviceUid` and an immutable image
+observation. This is not a verified normal upgrade path. Keep the predecessor
+compatibility list closed until machine admission, incarnation and encrypted
+recovery evidence establish that transition. Do not reset or recreate the pod.

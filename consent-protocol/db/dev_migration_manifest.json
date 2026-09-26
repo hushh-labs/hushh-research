@@ -52,7 +52,7 @@
     "934_personal_agent_erasure_resource_coverage.sql",
     "935_personal_agent_erasure_finalization.sql",
     "936_personal_agent_stale_erasure_recovery.sql",
-    "937_personal_agent_erasure_guard_composition.sql",
-    "938_personal_agent_files_erasure.sql"
+    "940_personal_agent_erasure_guard_composition.sql",
+    "941_personal_agent_files_erasure.sql"
   ]
 }

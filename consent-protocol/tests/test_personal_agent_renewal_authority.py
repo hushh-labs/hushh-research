@@ -622,14 +622,14 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     )
     pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
     pg.apply_file(ROOT / "db/migrations/parked/936_personal_agent_stale_erasure_recovery.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/937_personal_agent_erasure_guard_composition.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/940_personal_agent_erasure_guard_composition.sql")
     pg.apply_file(
-        ROOT / "db/migrations/rollback/937_personal_agent_erasure_guard_composition.rollback.sql"
+        ROOT / "db/migrations/rollback/940_personal_agent_erasure_guard_composition.rollback.sql"
     )
-    pg.apply_file(ROOT / "db/migrations/parked/937_personal_agent_erasure_guard_composition.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/938_personal_agent_files_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/rollback/938_personal_agent_files_erasure.rollback.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/938_personal_agent_files_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/940_personal_agent_erasure_guard_composition.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/rollback/941_personal_agent_files_erasure.rollback.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
