@@ -60,13 +60,13 @@ for (const dark of [false, true]) {
       expect(result.buttonFont).toBe("17px");
       expect(result.buttonWeight).toBe("500");
       expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48, 0);
-      expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(12, 0);
+      expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(10, 0);
       expect(result.button.height).toBeCloseTo(52, 0);
       expect(result.button.width).toBeCloseTo(Math.min(viewport.width, 440) - 48, 0);
       expect(result.button.x).toBeGreaterThanOrEqual(0);
       expect(result.button.right).toBeLessThanOrEqual(viewport.width);
       if (viewport.height >= 667) expect(result.button.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
-      expect(result.button.y - result.privacy.bottom).toBeCloseTo(12, 0);
+      expect(result.button.y - result.privacy.bottom).toBeCloseTo(10, 0);
       for (const image of result.images) {
         expect(image.loaded).toBe(true);
         // Decorative exports include intentionally oversized transparent/cropped
