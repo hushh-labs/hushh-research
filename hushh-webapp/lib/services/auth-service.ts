@@ -705,6 +705,73 @@ export class AuthService {
    *
    * Falls back to web auth if native plugin is not available
    */
+  /**
+   * Safety net for the Android bridge. The native plugin already settles
+   * every provider, Firebase, and exchange-deadline path; this bound only
+   * guarantees the sign-in UI can never wait forever on an older shell.
+   * It is generous because the account picker itself is user-paced.
+   */
+  static readonly ANDROID_GOOGLE_SIGN_IN_TIMEOUT_MS = 180_000;
+
+  private static async boundedAndroidGoogleSignIn(): ReturnType<
+    typeof HushhAuth.signIn
+  > {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        HushhAuth.signIn(),
+        new Promise<never>((_, reject) => {
+          deadline = setTimeout(
+            () =>
+              reject(
+                Object.assign(
+                  new Error("Google sign-in is taking too long. Check your connection and try again."),
+                  { code: "auth/timeout" },
+                ),
+              ),
+            this.ANDROID_GOOGLE_SIGN_IN_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(deadline);
+    }
+  }
+
+  /** Maps HushhAuth bridge rejections to the codes the sign-in UI handles. */
+  private static normalizeAndroidGoogleSignInError(
+    error: unknown,
+  ): Error & { code: string } {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Google sign-in failed. Please try again.";
+    if (code === "USER_CANCELLED") {
+      return Object.assign(new Error("Sign in cancelled"), {
+        code: "auth/user-cancelled",
+      });
+    }
+    if (code === "auth/network-request-failed") {
+      return Object.assign(
+        new Error("Network error. Check your connection and try again."),
+        { code },
+      );
+    }
+    if (code === "auth/timeout") {
+      return Object.assign(
+        new Error("Google sign-in is taking too long. Check your connection and try again."),
+        { code },
+      );
+    }
+    return Object.assign(new Error(message), {
+      code: code || "auth/google-sign-in-failed",
+    });
+  }
+
   private static async nativeGoogleSignIn(): Promise<AuthResult> {
     this.debugLog(
       "🍎 [AuthService] Starting native Google Sign-In via FirebaseAuthentication",
@@ -729,7 +796,7 @@ export class AuthService {
       let idToken = "";
       let accessToken: string | undefined;
       if (Capacitor.getPlatform() === "android") {
-        const result = await HushhAuth.signIn();
+        const result = await this.boundedAndroidGoogleSignIn();
         nativeAuthUser = result.user;
         idToken = result.idToken;
         accessToken = result.accessToken;
@@ -815,6 +882,16 @@ export class AuthService {
         error instanceof Error ? error.message : String(error);
 
       this.debugError("❌ [AuthService] nativeGoogleSignIn error");
+
+      if (Capacitor.getPlatform() === "android") {
+        const androidError = this.normalizeAndroidGoogleSignInError(error);
+        if (androidError.code === "auth/user-cancelled") {
+          toast.dismiss(toastId);
+        } else {
+          toast.error(androidError.message, { id: toastId });
+        }
+        throw androidError;
+      }
 
       // If native plugin not implemented, fall back to web auth
       if (
