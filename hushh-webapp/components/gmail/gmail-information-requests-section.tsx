@@ -1124,11 +1124,11 @@ export default function GmailInformationRequestsSection({
     </Button>
   );
   return (
-    <SurfaceInset className="space-y-5 px-4 py-4 text-sm sm:px-5 sm:py-5">
+    <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="font-semibold text-foreground">KYC requests</p>
-          <p className="text-sm leading-6 text-muted-foreground">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">KYC requests</h2>
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Review requests and approve every reply before it sends.
           </p>
         </div>

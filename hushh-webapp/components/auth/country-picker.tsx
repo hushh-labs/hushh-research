@@ -45,7 +45,7 @@ export function CountryPicker({ open, onOpenChange, query, onQueryChange, option
           className={styles.trigger}
           aria-label={`Country code: ${selected.label} (${selected.dialCode})`}
         >
-          <span data-country-flag={selected.value} aria-hidden="true">{flag(selected.value)}</span>
+          <span data-country-code={selected.value} aria-hidden="true">{selected.value.toUpperCase()}</span>
           <span>{selected.dialCode}</span>
           <ChevronDown size={14} aria-hidden="true" />
         </button>

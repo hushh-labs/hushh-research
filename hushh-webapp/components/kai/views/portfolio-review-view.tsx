@@ -2295,8 +2295,8 @@ export function PortfolioReviewView({
         </div>
 
         {/* Right Column / Mobile Bottom: Holdings */}
-        <div className="mt-8 xl:col-span-7 xl:mt-0">
-          <MorphyCard variant="none" preset="surface" className="h-full">
+        <div className="mt-8 xl:col-span-7 xl:mt-0 min-w-0 max-w-full">
+          <MorphyCard variant="none" preset="surface" className="h-full min-w-0 max-w-full overflow-hidden">
             <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -2321,7 +2321,7 @@ export function PortfolioReviewView({
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-4 px-6 pb-6 pt-6">
+            <CardContent className="space-y-4 px-6 pb-6 pt-6 min-w-0 max-w-full overflow-hidden">
               <div className="rounded-[var(--app-card-radius-compact)] border border-transparent bg-[var(--app-card-surface-compact)] px-3 py-2.5 text-xs text-muted-foreground shadow-[var(--shadow-xs)]">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Current State</span>

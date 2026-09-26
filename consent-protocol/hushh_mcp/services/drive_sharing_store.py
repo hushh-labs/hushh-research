@@ -52,14 +52,15 @@ class DriveSharingStore(DriveDocumentStore):
             raise DriveSharingError("sharing_unavailable")
 
     def _relationship(self, connection, owner, recipient):
-        pair = sorted((owner, recipient))
         row = self._row(
             connection,
             """
-            SELECT id FROM connections WHERE user_a_id=:a AND user_b_id=:b AND status='active'
+            SELECT id FROM connections WHERE status='active'
+              AND ((user_a_id=:owner AND user_b_id=:recipient)
+                OR (user_a_id=:recipient AND user_b_id=:owner))
             FOR SHARE
         """,
-            {"a": pair[0], "b": pair[1]},
+            {"owner": owner, "recipient": recipient},
         )
         if owner == recipient or not row:
             raise DriveSharingError("connection_required")
@@ -191,6 +192,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "subject": recipient.subject,
                 "email": recipient.email,
                 "verified_at": recipient.verified_at.isoformat(),
+                **({"kind": recipient.kind} if recipient.kind != "google_provider" else {}),
             },
         }
         binding = self.sharing_cipher.recipient_binding(recipient)

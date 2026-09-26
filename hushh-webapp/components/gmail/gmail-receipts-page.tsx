@@ -1872,11 +1872,10 @@ export default function GmailReceiptsPage({
           // Named for the source, not the artefact: the breadcrumb on both
           // routes that render this page says "Gmail", and the setup checklist
           // row that leads here says "Connect Gmail".
-          title="Gmail"
+          title="Mail"
           description={pageTitle}
           actions={
-            isConnected &&
-            (journeyVariant === "onboarding" || workspace === "receipts") ? (
+            isConnected && journeyVariant === "onboarding" ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   onClick={() => void handleSyncNow()}
@@ -2125,7 +2124,9 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {isConnected && workspace === "overview" ? (
+          {/* Stable Tab Content Container with Min-Height & Smooth Fade Transition */}
+          <div className="min-h-[340px] w-full space-y-4 transition-opacity duration-150 animate-in fade-in">
+            {isConnected && workspace === "overview" ? (
             <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
                 <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0 mt-0.5">
@@ -2214,19 +2215,18 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && receiptsContentActive ? (
-            <SurfaceInset className="space-y-4 px-4 py-4.5 text-sm sm:px-5 sm:py-5.5">
-              <div className="space-y-1.5">
-                <p className="font-medium text-foreground">Shopping summary</p>
-                <p className="text-muted-foreground">
-                  Generated from your synced receipts. You choose when to save
-                  it to your private memory.
+            <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">Shopping summary</h2>
+                <p className="text-sm text-muted-foreground">
+                  Generated from your receipts for your private memory.
                 </p>
               </div>
 
               {receiptMemoryLoading && !receiptMemoryArtifact ? (
                 <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background/60 px-3.5 py-3.5 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating your shopping summary…
+                  Creating summary…
                 </div>
               ) : null}
 
@@ -2267,10 +2267,14 @@ export default function GmailReceiptsPage({
 
                   {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
                     .readable_summary.highlights.length > 0 ? (
-                    <div className="flex flex-wrap gap-2.5 pt-0.5 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap gap-2.5 pt-0.5 text-xs text-muted-foreground max-w-full min-w-0">
                       {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
                         (item) => (
-                          <Badge key={item} variant="outline">
+                          <Badge
+                            key={item}
+                            variant="outline"
+                            className="max-w-full whitespace-normal break-words h-auto text-left leading-normal py-1.5 px-3"
+                          >
                             {item}
                           </Badge>
                         ),
@@ -2293,14 +2297,12 @@ export default function GmailReceiptsPage({
                 </p>
               ) : isSyncingState ? (
                 <p className="text-xs text-muted-foreground">
-                  We&apos;ll prepare your shopping summary after Mail finishes
-                  syncing.
+                  Summary will be generated after sync completes.
                 </p>
               ) : null}
               {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
                 <p className="text-xs text-muted-foreground">
-                  Set up your private vault to create and save this summary to
-                  memory.
+                  Unlock your vault to save this summary.
                 </p>
               ) : null}
               {receiptMemoryArtifact && receiptMemorySaveState !== "saved" ? (
@@ -2331,11 +2333,10 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {receiptsContentActive && isSyncingState && gmail.syncRun ? (
-            <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
+            <SurfaceInset className="space-y-1.5 px-4 py-3 text-sm">
               <p className="font-medium text-foreground">Latest scan</p>
-              <p className="text-muted-foreground">
-                Your receipt emails show what you&apos;ve bought, helping One
-                learn the brands you care about.
+              <p className="text-xs text-muted-foreground">
+                Scanning receipts to understand your favorite brands.
               </p>
               {latestRunMetrics ? (
                 <div className="space-y-2 pt-1">
@@ -2498,6 +2499,7 @@ export default function GmailReceiptsPage({
               </Button>
             </div>
           ) : null}
+          </div>
         </SurfaceStack>
       </AppPageContentRegion>
 

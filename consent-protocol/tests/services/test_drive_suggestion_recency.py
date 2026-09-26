@@ -525,6 +525,94 @@ async def test_file_request_reads_the_selected_statements_not_the_first_eight(mo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("coverage_status", ["complete", "partial"])
+async def test_selector_over_limit_preserves_partial_coverage(monkeypatch, coverage_status):
+    job = content_job()
+    # No period requirement: truncation itself must prevent false completeness.
+    job["purpose"].update(periodStart=None, periodEnd=None)
+    matches = twelve_matches()
+    document_ids = [str(uuid4()) for _ in range(8)]
+    source_refs = ["document:" + f"{index:032x}" for index in range(8)]
+    content = [
+        {
+            "document_ref": identifier,
+            "source_ref": ref,
+            "name": match["name"],
+            "text": "Synthetic statement text.",
+        }
+        for identifier, ref, match in zip(document_ids, source_refs, matches[:8], strict=True)
+    ]
+    reader = create_autospec(DriveLiveReader, instance=True)
+    reader.find.return_value = {"matches": matches, "truncated": False}
+
+    async def read_matches(*, matches, truncated):
+        return {"untrusted_external_content": content, "truncated": truncated}
+
+    reader.read_matches.side_effect = read_matches
+    reader._rows = [
+        {
+            "document_id": identifier,
+            "file_id": match["file_id"],
+            "name": match["name"],
+            "source_version": "3",
+            "connection_generation": 1,
+            "_live": True,
+        }
+        for identifier, match in zip(document_ids, matches[:8], strict=True)
+    ]
+    store = content_store(job)
+    interpreter = AsyncMock(
+        return_value={
+            "files": [
+                {"document_ref": identifier, "source_refs": [ref]}
+                for identifier, ref in zip(document_ids, source_refs, strict=True)
+            ],
+            "coverage_summary": "Synthetic matching statements.",
+            "coverage_status": coverage_status,
+            "gaps": [] if coverage_status == "complete" else ["Additional matching files exist."],
+        }
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        interpreter=interpreter,
+        search_planner=AsyncMock(return_value={"terms": ["statement"], "mode": "read"}),
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock(),
+        candidate_selector=AsyncMock(
+            return_value={"selected": [f"c{index}" for index in range(1, 13)]}
+        ),
+    )
+    stages = []
+    result = await service.run_one(
+        user_id="owner", request_id=job["request_id"], on_stage=stages.append
+    )
+
+    reader.read_matches.assert_awaited_once_with(matches=matches[:8], truncated=True)
+    assert stages == ["searching", "choosing", "checking", "checking"]
+    assert (
+        json.loads(interpreter.await_args.kwargs["prompt"])["retrieved_documents"]["truncated"]
+        is True
+    )
+    if coverage_status == "complete":
+        assert result == "unavailable"
+        store.prepare_review.assert_not_awaited()
+        store.fail_preparation.assert_awaited_once()
+    else:
+        assert result == "review_ready"
+        store.fail_preparation.assert_not_awaited()
+        coverage = store.prepare_review.await_args.kwargs["coverage"]
+        assert coverage["truncated"] is True
+        assert coverage["selection"] == {
+            "stage": "completed_over_limit",
+            "candidates": 12,
+            "selected": 8,
+            "over_limit": True,
+        }
+
+
+@pytest.mark.asyncio
 async def test_the_owner_private_suggestions_prompt_names_unreadable_files(monkeypatch):
     job = content_job()
     matches = twelve_matches()[6:8]

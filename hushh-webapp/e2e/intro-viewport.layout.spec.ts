@@ -33,7 +33,7 @@ for (const dark of [false, true]) {
           return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
         };
         const button = element.querySelector("button")!;
-        const privacy = [...element.querySelectorAll("span")].find(e => e.textContent === "You have full control over your data.Your data. Your rules.")!;
+        const privacy = [...element.querySelectorAll("span")].find(e => e.textContent === "You choose what to share.")!;
         const lines = [...privacy.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => {
           const range = document.createRange();
           range.selectNodeContents(n);
@@ -44,17 +44,29 @@ for (const dark of [false, true]) {
           ancestors.push({ tag: e.tagName, x: e.scrollWidth - e.clientWidth, y: e.scrollHeight - e.clientHeight });
         }
         const visibleImages = [...element.querySelectorAll("img")].filter(e => getComputedStyle(e).display !== "none");
-        return { button: rect(button), privacy: rect(privacy), lines, ancestors, images: visibleImages.map(e => ({ alt: e.alt, loaded: e.complete && e.naturalWidth > 0, ...rect(e) })) };
+        const privacyRow = privacy.parentElement!;
+        const subtitle = [...element.querySelectorAll("p")].find(e => e.textContent === "Your private network of AI agents")!;
+        const privacyStyle = getComputedStyle(privacy);
+        const buttonStyle = getComputedStyle(button);
+        return { subtitle: rect(subtitle), privacyRow: rect(privacyRow), privacyFont: privacyStyle.fontSize, privacyLine: privacyStyle.lineHeight, buttonFont: buttonStyle.fontSize, buttonWeight: buttonStyle.fontWeight, button: rect(button), privacy: rect(privacy), lines, ancestors, images: visibleImages.map(e => ({ alt: e.alt, loaded: e.complete && e.naturalWidth > 0, ...rect(e) })) };
       });
       for (const ancestor of result.ancestors) {
         expect(ancestor.x, `${ancestor.tag} horizontal overflow`).toBeLessThanOrEqual(1);
-        expect(ancestor.y, `${ancestor.tag} vertical overflow`).toBeLessThanOrEqual(1);
+        if (viewport.height >= 667) expect(ancestor.y, `${ancestor.tag} vertical overflow`).toBeLessThanOrEqual(1);
       }
-      expect(result.lines).toEqual([1, 1]);
+      expect(result.lines).toEqual([1]);
+      expect(result.privacyFont).toBe("14px");
+      expect(result.privacyLine).toBe("20px");
+      expect(result.buttonFont).toBe("17px");
+      expect(result.buttonWeight).toBe("500");
+      expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48, 0);
+      expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(10, 0);
+      expect(result.button.height).toBeCloseTo(52, 0);
+      expect(result.button.width).toBeCloseTo(Math.min(viewport.width, 440) - 48, 0);
       expect(result.button.x).toBeGreaterThanOrEqual(0);
       expect(result.button.right).toBeLessThanOrEqual(viewport.width);
-      expect(result.button.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
-      expect(result.privacy.bottom).toBeLessThan(result.button.y);
+      if (viewport.height >= 667) expect(result.button.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
+      expect(result.button.y - result.privacy.bottom).toBeCloseTo(10, 0);
       for (const image of result.images) {
         expect(image.loaded).toBe(true);
         // Decorative exports include intentionally oversized transparent/cropped
@@ -70,16 +82,42 @@ for (const dark of [false, true]) {
         const bounds = (await links.boundingBox())!;
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - viewport.bottom + 1);
       }
-      // The approved native frame must not move or shrink.
-      if (viewport.width === 402) {
-        expect(result.button.x).toBeCloseTo(36, 0);
-        expect(result.button.y).toBeCloseTo(759, 0);
-        expect(result.button.width).toBeCloseTo(330, 0);
-        expect(result.button.height).toBeCloseTo(52, 0);
-      }
-      await page.mouse.wheel(0, 500);
-      expect(await screen.evaluate(e => e.scrollTop)).toBe(0);
+      // Very short/landscape views scroll instead of shrinking controls.
+      await screen.getByRole("button", { name: "Claim your One" }).scrollIntoViewIfNeeded();
+      await expect(screen.getByRole("button", { name: "Claim your One" })).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath("intro.png") });
+    });
+  }
+}
+
+for (const theme of ["light", "dark"]) {
+  for (const viewport of [{ width: 320, height: 568 }, { width: 402, height: 874 }, { width: 1440, height: 900 }]) {
+    test(`sign-in ${theme} ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.addInitScript(value => localStorage.setItem("theme", value), theme);
+      await page.goto("/login");
+      const screen = page.getByTestId("auth-step-primary");
+      await expect(screen).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const heading = screen.getByRole("heading", { name: "Welcome to One" });
+      await expect(heading).toHaveCSS("font-size", "30px");
+      await expect(heading).toHaveCSS("font-weight", "600");
+      await expect(heading).toHaveCSS("line-height", "36px");
+      for (const provider of ["Apple", "Google"]) {
+        const button = screen.getByRole("button", { name: `Continue with ${provider}`, exact: true });
+        await expect(button).toBeVisible();
+        await expect(button).toHaveCSS("border-top-width", "1px");
+        await expect(button).toHaveCSS("border-top-style", "solid");
+      }
+      const footer = screen.locator("[data-auth-supporting-content]");
+      await expect(footer.locator("p")).toHaveCSS("font-size", "13px");
+      await expect(footer.locator("p")).toHaveCSS("line-height", "18px");
+      await expect(footer).toHaveCSS("text-align", "center");
+      await expect(footer.locator("img")).toHaveCount(0);
+      await footer.scrollIntoViewIfNeeded();
+      await expect(footer).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: testInfo.outputPath("sign-in.png") });
     });
   }
 }

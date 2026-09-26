@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 import unicodedata
 from typing import Any
 
@@ -17,6 +19,7 @@ from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 
 PRIVATE_SOURCE = "google_drive_selected_status"
 MAX_MATCHES = 3
+logger = logging.getLogger(__name__)
 
 
 def _service() -> DriveSelectionService:
@@ -56,10 +59,12 @@ async def _owner(tool_context: ToolContext) -> str | None:
     return user_id if await validate_first_party_owner_token(user_id, token) else None
 
 
-async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext) -> dict[str, Any]:
+async def inspect_selected_drive_files(
+    file_name: str = "", tool_context: ToolContext | None = None
+) -> dict[str, Any]:
     """Check the owner's current Drive connection and selected-file status.
 
-    For general Drive access or selection questions, pass file_name="". That
+    For general Drive access or selection questions, omit file_name or pass file_name="". That
     returns only connection state and selected count, without any filenames.
     For a named file, pass only its name, not a recipient or action. Resolve
     "it" or "that file" only from an unambiguous name in this conversation;
@@ -67,11 +72,34 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
     This reads only the owner's selected metadata. It cannot search all of
     Drive, read contents, identify a recipient, create a draft, or share.
     """
-    owner = await _owner(tool_context)
-    if owner is None:
-        return {"status": "blocked", "message": "Unlock One to check selected Drive files."}
+    started = time.monotonic()
+
+    def finish(result: dict[str, Any], reason: str, error_type: str = "none") -> dict[str, Any]:
+        # Authored enums and elapsed time only: no owner, filename, token,
+        # provider diagnostics or selected metadata enter telemetry.
+        logger.info(
+            "drive_status.check status=%s reason=%s error_type=%s duration_ms=%.2f",
+            result["status"],
+            reason,
+            error_type,
+            (time.monotonic() - started) * 1000,
+        )
+        return result
+
+    owner = await _owner(tool_context) if tool_context is not None else None
+    if tool_context is None or owner is None:
+        return finish(
+            {
+                "status": "blocked",
+                "message": "Unlock One to check Drive status. This does not mean Drive is disconnected.",
+            },
+            "owner_not_admitted",
+        )
     if not isinstance(file_name, str) or len(file_name) > 200:
-        return {"status": "unavailable", "message": "Name a shorter file to check."}
+        return finish(
+            {"status": "unavailable", "message": "Name a shorter file to check."},
+            "invalid_file_name",
+        )
     try:
         service = _service()
         before = await service.oauth.lifecycle.read(user_id=owner, connector_id="google_drive")
@@ -83,13 +111,26 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
         # file, and fail closed when the two snapshots differ.
         latest_documents = await service.documents(user_id=owner) if after and not live else []
         final = await service.oauth.lifecycle.read(user_id=owner, connector_id="google_drive")
-    except Exception:  # noqa: BLE001 - never surface provider or storage diagnostics
+    except Exception as error:  # noqa: BLE001 - never surface provider or storage diagnostics
         # Provider, database and encrypted-metadata diagnostics stay private.
-        return {"status": "unavailable", "message": "Drive status could not be checked."}
+        return finish(
+            {
+                "status": "unavailable",
+                "message": "Drive status could not be checked. This does not mean Drive is disconnected.",
+            },
+            "status_read_failed",
+            type(error).__name__,
+        )
     if await _owner(tool_context) != owner:
-        return {"status": "blocked", "message": "The Drive session changed. Try again."}
+        return finish(
+            {"status": "blocked", "message": "The Drive session changed. Try again."},
+            "owner_changed",
+        )
     if documents != latest_documents:
-        return {"status": "unavailable", "message": "Selected files changed. Try again."}
+        return finish(
+            {"status": "unavailable", "message": "Selected files changed. Try again."},
+            "selection_changed",
+        )
     if (
         (before is None) != (after is None)
         or (after is None) != (final is None)
@@ -105,7 +146,10 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
             )
         )
     ):
-        return {"status": "unavailable", "message": "The Drive connection changed. Try again."}
+        return finish(
+            {"status": "unavailable", "message": "The Drive connection changed. Try again."},
+            "connection_changed",
+        )
     connection = (
         "disconnected"
         if not final or final["status"] == "revoked"
@@ -114,32 +158,38 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
         else "reconnect_required"
     )
     if live:
-        return {
-            "source": PRIVATE_SOURCE,
-            "status": "ok",
-            "connection": connection,
-            "accessMode": "live",
-            "liveReadAvailable": connection == "connected"
-            and connector_feature_enabled("google_drive_live", owner),
-            "message": (
-                "Use ask_documents_agent to find or read files. No file selection is required."
-                if connection == "connected"
-                and connector_feature_enabled("google_drive_live", owner)
-                else "Live Drive reading is unavailable. Check the connection."
-            ),
-        }
+        return finish(
+            {
+                "source": PRIVATE_SOURCE,
+                "status": "ok",
+                "connection": connection,
+                "accessMode": "live",
+                "liveReadAvailable": connection == "connected"
+                and connector_feature_enabled("google_drive_live", owner),
+                "message": (
+                    "Use ask_documents_agent to find or read files. No file selection is required."
+                    if connection == "connected"
+                    and connector_feature_enabled("google_drive_live", owner)
+                    else "Live Drive reading is unavailable. Check the connection."
+                ),
+            },
+            connection,
+        )
     selected = documents if connection == "connected" else []
     # The empty name is the aggregate status request. Never enumerate selected
     # filenames merely to answer whether Drive is connected or has selections.
     matches = _matches(selected, file_name) if file_name.strip() else []
-    return {
-        "source": PRIVATE_SOURCE,
-        "status": "ok",
-        "connection": connection,
-        "selectedCount": len(selected),
-        "matchCount": len(matches),
-        "matches": [
-            {"name": item["name"], "status": item["status"]} for item in matches[:MAX_MATCHES]
-        ],
-        "matchesTruncated": len(matches) > MAX_MATCHES,
-    }
+    return finish(
+        {
+            "source": PRIVATE_SOURCE,
+            "status": "ok",
+            "connection": connection,
+            "selectedCount": len(selected),
+            "matchCount": len(matches),
+            "matches": [
+                {"name": item["name"], "status": item["status"]} for item in matches[:MAX_MATCHES]
+            ],
+            "matchesTruncated": len(matches) > MAX_MATCHES,
+        },
+        connection,
+    )

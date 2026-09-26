@@ -53,6 +53,7 @@ class VerifiedGoogleRecipient:
     subject: str = field(repr=False)
     email: str = field(repr=False)
     verified_at: datetime
+    kind: Literal["google_provider", "verified_email"] = "google_provider"
 
 
 def recipient_from_verified_firebase_claims(
@@ -112,6 +113,26 @@ def recipient_from_google_provider(
     ):
         raise DriveSharingError("recipient_google_identity_required")
     return VerifiedGoogleRecipient(user_id, subject, email, now or datetime.now(UTC))
+
+
+def recipient_from_verified_firebase_email(
+    user_id: str, user: object, *, now: datetime | None = None
+) -> VerifiedGoogleRecipient:
+    """Use B's current verified One email for an owner-initiated share."""
+    email = getattr(user, "email", None)
+    if (
+        getattr(user, "uid", None) != user_id
+        or getattr(user, "disabled", None) is not False
+        or getattr(user, "email_verified", None) is not True
+        or not isinstance(email, str)
+        or not email.isascii()
+        or not 3 <= len(email) <= 254
+        or not _EMAIL.fullmatch(email)
+    ):
+        raise DriveSharingError("recipient_verified_email_required")
+    return VerifiedGoogleRecipient(
+        user_id, user_id, email, now or datetime.now(UTC), "verified_email"
+    )
 
 
 class ShareRequestPurpose(BaseModel):
@@ -239,6 +260,11 @@ class DriveSharingCipher:
         ).hexdigest()
 
     def recipient_binding(self, recipient: VerifiedGoogleRecipient) -> str:
+        if recipient.kind == "verified_email":
+            return self.digest(
+                "recipient", [recipient.kind, recipient.user_id, recipient.subject, recipient.email]
+            )
+        # Preserve bindings for existing Google-provider requests and rules.
         return self.digest("recipient", [recipient.user_id, recipient.subject, recipient.email])
 
     def file_lock(self, provider_file_id: str) -> str:

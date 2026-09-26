@@ -1,18 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowRight,
   Briefcase,
   Check,
+  FinanceAgentIcon,
   Heart,
+  LifeBuoy,
   MapPin,
-  MessageCircle,
   Plus,
   ShieldCheck,
   TrendingUp,
   UserPlus,
-  Wallet,
 } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/lib/morphy-ux/button";
@@ -32,33 +32,25 @@ import { CONNECT_HERO_CLASSNAME } from "./connect-living-layout";
 
 const STARTER_ICONS = {
   family: Heart,
-  finance: Wallet,
+  finance: FinanceAgentIcon,
   investor: TrendingUp,
   business: Briefcase,
   location: MapPin,
-  sms: MessageCircle,
+  sms: LifeBuoy,
 };
 
-// The supplied design uses simple solid glyphs. Keep its exact wallet, pin,
-// and message silhouettes, then render the remaining product icons filled too.
-const FIGMA_STARTER_PATHS: Partial<Record<CircleStarterId, string>> = {
-  finance: "M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.11.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
-  location: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
-  sms: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z",
-};
-
-// Reuse the home palette, but map it to the supplied design's semantic tones
-// across both Connect tabs. These colours do not imply access has been granted.
+// Match the home palette and its duotone icon language. These colours do not
+// imply access has been granted; SMS means Save My Soul, not text messaging.
 const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
   family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-  finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+  finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
   investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
   business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
   location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-  sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.marketplace,
+  sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
 };
 const STARTER_TONE_CLASSNAME =
-  "[--circle-tint:color-mix(in_srgb,var(--agent-icon-profile-bg)_60%,white)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
+  "[--circle-tint:var(--agent-icon-profile-bg)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
 const CIRCLE_TOUR_INTERVAL_MS = 3_000;
 
 export type CircleDiscoveryCardProps = {
@@ -168,12 +160,12 @@ export function CircleDiscoveryCard({
   const memberSlot = (index: number) => {
     const member = previewMembers[index];
     return member ? (
-      <span key={index} data-testid="circle-discovery-member-avatar" title={member.displayName} className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm sm:size-9">
+      <span key={index} data-testid="circle-discovery-member-avatar" title={member.displayName} className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm min-[390px]:size-8 sm:size-9">
         <ConnectionPersonAvatar size="compact" className="!size-full" photoUrl={member.photoUrl} label={member.displayName} />
       </span>
     ) : (
-      <span key={index} data-testid="circle-discovery-empty-slot" className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] shadow-sm sm:size-9">
-        <UserPlus className="size-3 sm:size-4" />
+      <span key={index} data-testid="circle-discovery-empty-slot" className="flex size-7 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] shadow-sm min-[390px]:size-8 sm:size-9">
+        <UserPlus className="size-3 min-[390px]:size-3.5 sm:size-4" />
       </span>
     );
   };
@@ -219,14 +211,15 @@ export function CircleDiscoveryCard({
     <section
       aria-labelledby={headingId}
       data-testid="connect-living-connections"
+      data-circle-discovery-card=""
       data-auto-tour={autoTourActive ? "running" : "stopped"}
       className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
     >
-      <div className="relative grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] text-center md:block">
-        <h2 id={headingId} className="ui-text-major-section-title col-start-2 !text-lg sm:!text-2xl text-[color:var(--app-label)]">
+      <div className="relative grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-center md:block">
+        <h2 id={headingId} className="ui-text-major-section-title col-start-2 text-[color:var(--app-label)] sm:!text-2xl">
           Circles
         </h2>
-        <p className="col-start-1 col-span-2 mx-auto mt-0.5 max-w-80 text-[10px] leading-3 sm:mt-1 sm:text-sm sm:leading-5 text-[color:var(--app-secondary-label)]">
+        <p data-circle-discovery-intro="" className="ui-text-caption col-span-3 mx-auto mt-1 max-w-80 !text-[color:var(--app-secondary-label)] sm:mt-1 sm:!text-sm sm:!leading-5">
           Group people you trust. Choose what they can access.
         </p>
         <button
@@ -235,17 +228,18 @@ export function CircleDiscoveryCard({
           title="Create your own circle"
           disabled={Boolean(creating)}
           onClick={onCreateCircle}
-          className="col-start-3 row-start-1 row-span-2 inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50 md:absolute md:right-0 md:top-0 md:px-2"
+          className="col-start-3 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50 md:absolute md:right-0 md:top-0 md:px-2"
         >
-          <Plus aria-hidden="true" className="size-4" />
+          <Plus aria-hidden="true" className="size-5" />
           <span className="sr-only md:not-sr-only md:text-xs md:font-medium">Custom circle</span>
         </button>
       </div>
 
-      <div className="mx-auto mt-0.5 grid w-full max-w-[52rem] min-w-0 items-center gap-1 sm:mt-4 sm:gap-2 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:gap-6 lg:gap-8">
+      <div data-circle-discovery-content="" className="mx-auto mt-1 grid w-full max-w-[52rem] min-w-0 items-center gap-2 sm:mt-4 sm:gap-2 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:gap-6 lg:gap-8">
         <div
-          className="relative mx-auto aspect-square w-[min(100%,11.25rem)] min-[390px]:w-[12rem] min-[420px]:w-[13rem] sm:w-[18rem] lg:w-[20rem]"
+          className="relative mx-auto aspect-square w-[min(76vw,18rem,calc(100svh-26rem))] sm:w-[18rem] lg:w-[20rem]"
           data-testid="circle-discovery-orbit"
+          data-circle-discovery-orbit=""
         >
           <svg aria-hidden="true" viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 size-full">
             <circle cx="50" cy="50" r="36" fill="none" stroke="var(--app-card-border-standard)" strokeWidth="0.4" />
@@ -255,20 +249,20 @@ export function CircleDiscoveryCard({
             aria-hidden="true"
           />
           <div
-            className="absolute left-1/2 top-1/2 flex w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center sm:w-28"
+            className="absolute left-1/2 top-1/2 flex w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center min-[390px]:w-24 sm:w-28"
             data-testid="circle-discovery-owner"
           >
             <div className="flex items-center -space-x-2 sm:-space-x-2.5" aria-hidden="true">
               {memberSlot(0)}
-              <span className="relative z-10 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm">
-                <ConnectionPersonAvatar size="list" className="!size-9 sm:!size-11 [&_[data-slot=avatar-fallback]]:!text-base" photoUrl={ownerPhotoUrl} label={ownerName} />
+              <span data-circle-discovery-owner-avatar="" className="relative z-10 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] shadow-sm">
+                <ConnectionPersonAvatar size="list" className="!size-12 max-[359px]:!size-10 min-[390px]:!size-13 sm:!size-11 [&_[data-slot=avatar-fallback]]:!text-base" photoUrl={ownerPhotoUrl} label={ownerName} />
               </span>
               {memberSlot(1)}
             </div>
-            <span className="mt-1.5 max-w-full truncate text-xs font-semibold text-[color:var(--app-label)] sm:text-sm">
+            <span data-circle-discovery-owner-label="" className="max-w-full truncate text-sm font-semibold text-[color:var(--app-label)] sm:mt-2">
               {starter.label}
             </span>
-            <span className="text-[10px] leading-3 text-[color:var(--app-secondary-label)] sm:text-xs">
+            <span data-circle-discovery-owner-status="" className="text-xs leading-4 text-[color:var(--app-secondary-label)]">
               <span className="sm:hidden">
                 {circle ? (circle.memberCount <= 1 ? "Just you" : `${circle.memberCount} people`) : "Start with you"}
               </span>
@@ -302,33 +296,29 @@ export function CircleDiscoveryCard({
                 onClick={() => selectStarter(item.id)}
                 title={existing?.name ?? item.name}
                 data-testid={`circle-starter-${item.id}`}
+                data-circle-orbit-bottom-node={item.id === "business" ? "" : undefined}
                 className={cn(
                   STARTER_TONE_CLASSNAME,
-                  "group absolute flex w-14 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-xl py-0.5 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait sm:w-[4.5rem]",
+                  "group absolute top-[var(--circle-node-mobile-top)] flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-xl py-0.5 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait sm:top-[var(--circle-node-desktop-top)]",
                 )}
                 style={{
                   ...STARTER_ICON_STYLES[item.id],
-                  left: `${50 + Math.cos(angle) * 42}%`,
-                  top: `${50 + Math.sin(angle) * 38}%`,
-                }}
+                  left: `${50 + Math.cos(angle) * 44}%`,
+                  "--circle-node-mobile-top": `${50 + Math.sin(angle) * 36}%`,
+                  "--circle-node-desktop-top": `${50 + Math.sin(angle) * 40}%`,
+                } as CSSProperties}
               >
                 <span className="motion-step-enter flex flex-col items-center gap-0.5" style={{ animationDelay: `${80 + index * 45}ms` }}>
                   <span
                     data-circle-starter-icon={item.id}
                     className={cn(
-                      "relative flex size-8 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-sm transition-[transform,box-shadow,border-color] duration-200 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
+                      "relative flex size-12 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-sm transition-[transform,box-shadow,border-color] duration-200 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
                       active
                         ? "scale-105 border-[color:var(--app-accent)] ring-[3px] ring-[color:var(--app-accent-ring)]"
                         : "border-[color:color-mix(in_oklab,var(--circle-ink)_14%,transparent)]",
                     )}
                   >
-                    {FIGMA_STARTER_PATHS[item.id] ? (
-                      <svg aria-hidden="true" data-circle-icon-fill="true" data-icon-source="figma" viewBox="0 0 24 24" fill="currentColor" className="size-4 sm:size-5">
-                        <path d={FIGMA_STARTER_PATHS[item.id]} />
-                      </svg>
-                    ) : (
-                      <Icon aria-hidden="true" data-circle-icon-fill="true" weight="fill" className="size-4 sm:size-5" />
-                    )}
+                    <Icon aria-hidden="true" data-circle-icon-style="duotone" weight="duotone" color="currentColor" className="size-5.5" />
                     {existing ? (
                       <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] sm:size-4">
                         <Check aria-hidden="true" className="size-2.5 sm:size-3" />
@@ -336,7 +326,7 @@ export function CircleDiscoveryCard({
                     ) : null}
                   </span>
                   <span className={cn(
-                    "max-w-full text-[10px] leading-3 sm:text-xs sm:leading-4",
+                    "max-w-full text-xs leading-4",
                     active ? "font-semibold text-[color:var(--app-label)]" : "text-[color:var(--app-secondary-label)]",
                   )}>
                     {item.label}
@@ -352,21 +342,25 @@ export function CircleDiscoveryCard({
             id={descriptionId}
             key={selected}
             data-testid="circle-discovery-preview"
-            className="motion-step-enter bg-[color:var(--app-secondary-surface)] px-1 py-0.5 text-center md:rounded-[var(--app-card-radius-compact)] md:border md:border-[color:var(--app-card-border-standard)] md:bg-[color:var(--app-card-surface-default-solid)] md:px-5 md:py-5 md:text-left"
+            data-circle-discovery-preview=""
+            className="motion-step-enter rounded-[var(--app-radius-sm)] bg-[color:var(--app-secondary-surface)] px-3 py-2.5 text-center md:rounded-[var(--app-card-radius-compact)] md:border md:border-[color:var(--app-card-border-standard)] md:bg-[color:var(--app-card-surface-default-solid)] md:px-5 md:py-5 md:text-left"
             aria-live={autoTourActive ? "off" : "polite"}
             aria-atomic="true"
           >
             <p className="hidden text-xs font-medium text-[color:var(--app-secondary-label)] md:block">
               {circle ? "Your circle" : "Make it yours"}
             </p>
-            <h3 className="sr-only md:not-sr-only md:mt-1 md:text-lg md:font-semibold md:text-[color:var(--app-label)]">
+            <h3 className="text-sm font-semibold leading-5 text-[color:var(--app-label)] md:mt-1 md:text-lg">
               {circle?.name ?? starter.name}
             </h3>
-            <p className="mx-auto max-w-[28rem] text-[10px] leading-3.5 text-[color:var(--app-secondary-label)] sm:text-sm sm:leading-5 md:mx-0 md:mt-2">
+            <p className="ui-text-caption mx-auto mt-1 max-w-[28rem] !text-xs !leading-[1.35] !text-[color:var(--app-secondary-label)] sm:!text-sm sm:!leading-5 md:mx-0 md:mt-2">
               {starter.description}
             </p>
           </div>
-          <div className="mt-1 grid gap-1.5 min-[360px]:grid-cols-2 sm:gap-2 md:mt-4 md:grid-cols-1">
+          <div className={cn(
+            "mt-1 grid gap-1.5 sm:gap-2 md:mt-4 md:grid-cols-1",
+            !needsSetup && !circlesUnavailable && "grid-cols-2 max-[299px]:grid-cols-1",
+          )} data-circle-discovery-actions="">
             {needsSetup ? (
               <Button type="button" size="standard" variant="blue" effect="fill" onClick={onSetupCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)]">
                 Finish setting up One
@@ -391,7 +385,7 @@ export function CircleDiscoveryCard({
                 onFocus={stopAutoTour}
                 onClick={handlePrimaryAction}
                 aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle — ${starter.name}`}
-                className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3 !text-xs sm:!text-base"
+                className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3"
                 data-testid="circle-discovery-primary"
               >
                 {creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : "Create a Circle"}
@@ -404,7 +398,7 @@ export function CircleDiscoveryCard({
               size="standard"
               disabled={loading || Boolean(creating)}
               onClick={connectionsUnavailable ? onRetry : onFindPeople}
-              className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)] !text-xs !text-[color:var(--app-accent)] sm:!text-base"
+              className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)] !text-[color:var(--app-accent)]"
             >
               {connectionsUnavailable ? "Try again" : "Add connection"}
             </Button>
@@ -412,7 +406,7 @@ export function CircleDiscoveryCard({
         </div>
       </div>
 
-      <div className="mx-auto mt-1 flex max-w-[52rem] min-w-0 items-center justify-center gap-2 border-t border-[color:var(--app-card-border-standard)] pt-1 text-[11px] text-[color:var(--app-secondary-label)] md:justify-start md:pt-3">
+      <div className="mx-auto mt-1 flex max-w-[52rem] min-w-0 items-center justify-center gap-2 border-t border-[color:var(--app-card-border-standard)] pt-1 text-xs leading-4 text-[color:var(--app-secondary-label)] md:justify-start md:pt-3">
         {loading ? (
           <p>Loading your connections…</p>
         ) : connectionsUnavailable ? (
@@ -428,7 +422,7 @@ export function CircleDiscoveryCard({
                 </span>
               ))}
               {moreConnections ? (
-                <span className="relative flex size-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[10px] font-semibold">
+                <span className="relative flex size-6 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[9px] font-semibold sm:size-7 sm:text-[10px]">
                   +{moreConnections}
                 </span>
               ) : null}

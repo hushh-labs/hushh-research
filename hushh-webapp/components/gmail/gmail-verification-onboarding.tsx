@@ -213,7 +213,7 @@ export function GmailVerificationOnboarding({
         value={details}
         onChange={(event) => onDetailsChange(event.target.value)}
         placeholder="Paste your KYC details here…"
-        className="min-h-32 resize-y text-sm"
+        className="min-h-32 resize-y text-sm border-primary/40 ring-1 ring-primary/20 bg-background/80"
         aria-label="KYC details"
         disabled={saving}
       />

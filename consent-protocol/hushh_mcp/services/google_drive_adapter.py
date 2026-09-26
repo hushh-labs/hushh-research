@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -164,10 +165,55 @@ class GoogleDriveAdapter:
     async def _get(
         self, path: str, *, access_token: str, params: dict[str, str], limit: int
     ) -> bytes:
+        # Fixed operation names only. The path can contain a private provider ID
+        # and params can contain the owner's search, so neither is logged.
+        operation = (
+            "list"
+            if path == "/files"
+            else "account"
+            if path == "/about"
+            else "export"
+            if path.endswith("/export")
+            else "content"
+            if params.get("alt") == "media"
+            else "metadata"
+            if path.startswith("/files/")
+            else "invalid"
+        )
+        started = time.perf_counter()
+        outcome = "error"
         # Provider identifiers must not reach the global HTTPX trace exporter.
-        with suppress_instrumentation():
-            return await self._get_private(
-                path, access_token=access_token, params=params, limit=limit
+        try:
+            with suppress_instrumentation():
+                result = await self._get_private(
+                    path, access_token=access_token, params=params, limit=limit
+                )
+            outcome = "ok"
+            return result
+        except DriveReadError as error:
+            outcome = (
+                str(error)
+                if str(error)
+                in {
+                    "reconnect_required",
+                    "source_unavailable",
+                    "provider_unavailable",
+                    "provider_response_invalid",
+                    "file_too_large",
+                    "operation_not_allowed",
+                }
+                else "error"
+            )
+            raise
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            logger.info(
+                "drive_rest.timing operation=%s outcome=%s duration_ms=%.2f",
+                operation,
+                outcome,
+                (time.perf_counter() - started) * 1000,
             )
 
     async def _get_private(

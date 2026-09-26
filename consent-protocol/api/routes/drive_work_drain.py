@@ -18,7 +18,11 @@ from hushh_mcp.services.connector_attempt_retention import (
     ConnectorAttemptRetention,
     safe_retention_result,
 )
-from hushh_mcp.services.drive_work_drain import DriveWorkDrain, safe_work_drain_result
+from hushh_mcp.services.drive_work_drain import (
+    MAX_JOBS_PER_WORKER,
+    DriveWorkDrain,
+    safe_work_drain_result,
+)
 
 router = APIRouter(prefix="/api/internal/drive-work", tags=["internal-drive-work"])
 
@@ -35,7 +39,6 @@ _UAT_SCHEDULER_AUDIENCES = frozenset(
         "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",
     }
 )
-_MAX_JOBS_PER_WORKER = 1
 _DRAIN_DEADLINE_SECONDS = 205
 _DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing"})
 _MAX_DRAIN_BODY_BYTES = 64
@@ -197,7 +200,7 @@ async def drain_drive_work(
         retention = safe_retention_result(await ConnectorAttemptRetention().purge_batch())
         result = await DriveWorkDrain().run(
             stage=stage,
-            max_jobs_per_worker=_MAX_JOBS_PER_WORKER,
+            max_jobs_per_worker=MAX_JOBS_PER_WORKER,
             deadline_seconds=_DRAIN_DEADLINE_SECONDS,
         )
     except Exception:

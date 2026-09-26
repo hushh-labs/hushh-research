@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -189,3 +190,19 @@ async def test_revoked_owner_during_read_releases_no_names(monkeypatch):
     result = await selected_drive_status.inspect_selected_drive_files("private", context())
     assert result["status"] == "blocked"
     assert "private.pdf" not in str(result)
+
+
+async def test_failed_status_is_unknown_and_logs_no_private_diagnostics(monkeypatch, caplog):
+    selected = service()
+    selected.oauth.lifecycle.read.side_effect = RuntimeError("PRIVATE_CREDENTIAL_DIAGNOSTIC")
+    monkeypatch.setattr(selected_drive_status, "_service", lambda: selected)
+    with caplog.at_level(logging.INFO, logger=selected_drive_status.__name__):
+        result = await selected_drive_status.inspect_selected_drive_files(
+            "PRIVATE_FILENAME.pdf", context()
+        )
+    assert result["status"] == "unavailable"
+    assert "connection" not in result
+    assert "does not mean Drive is disconnected" in result["message"]
+    assert "reason=status_read_failed error_type=RuntimeError duration_ms=" in caplog.text
+    assert "PRIVATE_" not in caplog.text
+    assert "PRIVATE_CREDENTIAL" not in str(result)

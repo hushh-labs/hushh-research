@@ -26,7 +26,7 @@ describe("Navbar bottom chrome contract", () => {
 
   it("keeps voice owned by the persistent AgentBar while Chat belongs to navigation", () => {
     const navbar = read("components/navbar.tsx");
-    const searchBar = read("components/kai/kai-search-bar.tsx");
+    const searchBar = read("components/kai/kai-command-bar-global.tsx");
     const agentBar = read("components/agent/command-agent-bar.tsx");
     const providers = read("app/providers.tsx");
 

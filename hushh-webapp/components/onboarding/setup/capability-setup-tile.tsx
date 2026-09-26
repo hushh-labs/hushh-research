@@ -122,7 +122,6 @@ export function SetupNavigationTile({
           id={id}
           icon={icon}
           tone={tone}
-          isActive={isComplete}
           size="setup"
         />
       }

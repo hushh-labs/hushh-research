@@ -103,8 +103,8 @@ export function SetupCompletionFooter({
       className={cn(
         "mt-6 sm:mt-8",
         insetBottom
-          ? "pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:pb-8"
-          : "pb-6",
+          ? "pb-[calc(var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))+3rem)] sm:pb-14"
+          : "pb-[calc(var(--onboarding-agent-bar-clearance,4rem)+1.5rem)] sm:pb-10",
       )}
     >
       <div className="relative z-20 space-y-2 bg-transparent py-2">

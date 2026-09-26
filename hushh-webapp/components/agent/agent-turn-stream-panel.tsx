@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
@@ -36,6 +36,7 @@ export type AgentVisibleStreamEvent = {
   /** Opaque owner connector id on a restored step, resolved to the owner's name from the vault. */
   connectorId?: string;
   createdAtMs: number;
+  durationMs?: number;
   batchProgress?: DriveBatchProgress;
 };
 
@@ -239,6 +240,32 @@ export function AgentTurnStreamPanel({
   onDownloadDriveNotes,
   driveCompilation,
 }: AgentTurnStreamPanelProps) {
+  const turnStartedAt = useRef<number | null>(null);
+  const [firstTextMs, setFirstTextMs] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [timingPhase, setTimingPhase] = useState<"idle" | "running" | "done">("idle");
+  useEffect(() => {
+    if (isStreaming && timingPhase !== "running") {
+      turnStartedAt.current = performance.now();
+      setFirstTextMs(null);
+      setElapsedMs(0);
+      setTimingPhase("running");
+    } else if (!isStreaming && timingPhase === "running") {
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+      setTimingPhase("done");
+    }
+    if (!isStreaming) return;
+    const timer = window.setInterval(() => {
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isStreaming, timingPhase]);
+  useEffect(() => {
+    if (firstTextMs === null && responseText.trim() && turnStartedAt.current !== null)
+      setFirstTextMs(Math.max(0, performance.now() - turnStartedAt.current));
+  }, [firstTextMs, responseText]);
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
       streamEvents.map((event) => ({
@@ -248,6 +275,7 @@ export function AgentTurnStreamPanel({
         status: event.status,
         tag: event.tag,
         ...(event.brand ? { mark: <ConnectorBrandMark brand={event.brand} size="sm" /> } : {}),
+        durationMs: event.durationMs,
       })),
     [streamEvents]
   );
@@ -287,6 +315,9 @@ export function AgentTurnStreamPanel({
           currentBatchProgress.phase === "summarizing" ||
           currentBatchProgress.phase === "finalizing"),
       )}
+      statusMessage={elapsedMs === null || (isStreaming ? timingPhase !== "running" : timingPhase !== "done") ? undefined : isStreaming
+        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+        : `${isError ? "Stopped" : "Response complete"} in ${(elapsedMs / 1000).toFixed(1)}s${firstTextMs === null ? "" : ` · first text in ${(firstTextMs / 1000).toFixed(1)}s`}`}
       responseText={responseText}
       response={response}
       thinkingTitle="Thinking summary"

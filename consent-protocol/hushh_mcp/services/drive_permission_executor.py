@@ -13,6 +13,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     VerifiedGoogleRecipient,
     recipient_from_google_provider,
+    recipient_from_verified_firebase_email,
 )
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -23,19 +24,31 @@ from hushh_mcp.services.google_drive_permission_adapter import (
 
 
 async def require_recipient_identity(recipient: dict) -> None:
-    """Recheck the same verified Google provider identity, not primary/cache email."""
+    """Recheck the same verified address before access or link delivery."""
     try:
         async with asyncio.timeout(6):
             user = await asyncio.to_thread(
                 firebase_auth.get_user, recipient["user_id"], app=get_firebase_auth_app()
             )
-        candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
-        if (
-            user.disabled
-            or len(candidates) != 1
-            or candidates[0].uid != recipient["subject"]
-            or candidates[0].email != recipient["email"]
-        ):
+        kind = recipient.get("kind", "google_provider")
+        if kind == "verified_email":
+            try:
+                current = recipient_from_verified_firebase_email(recipient["user_id"], user)
+            except DriveSharingError:
+                raise DriveSharingError("recipient_changed") from None
+            if current.subject != recipient["subject"] or current.email != recipient["email"]:
+                raise DriveSharingError("recipient_changed")
+        elif kind == "google_provider":
+            candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
+            if (
+                user.uid != recipient["user_id"]
+                or user.disabled
+                or len(candidates) != 1
+                or candidates[0].uid != recipient["subject"]
+                or candidates[0].email != recipient["email"]
+            ):
+                raise DriveSharingError("recipient_changed")
+        else:
             raise DriveSharingError("recipient_changed")
     except DriveSharingError:
         raise
@@ -44,7 +57,7 @@ async def require_recipient_identity(recipient: dict) -> None:
 
 
 async def recipient_identity_for_user(user_id: str) -> VerifiedGoogleRecipient:
-    """B's current, exactly-one linked Google identity from Firebase Admin."""
+    """B's current Google identity, or a verified One email without one."""
     try:
         async with asyncio.timeout(6):
             user = await asyncio.to_thread(
@@ -53,9 +66,11 @@ async def recipient_identity_for_user(user_id: str) -> VerifiedGoogleRecipient:
     except Exception:
         raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
     candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
-    if user.disabled or len(candidates) != 1:
+    if user.uid != user_id or user.disabled or len(candidates) > 1:
         raise DriveSharingError("recipient_google_identity_required")
-    return recipient_from_google_provider(user_id, candidates[0])
+    if candidates:
+        return recipient_from_google_provider(user_id, candidates[0])
+    return recipient_from_verified_firebase_email(user_id, user)
 
 
 def existing_individual_permission(snapshot, *, email: str) -> dict | None:
@@ -137,6 +152,9 @@ class DrivePermissionExecutor:
                     **inspect_options,
                 )
                 before = await self.adapter.list_permissions(**args)
+                # File inspection and permission listing can be slow. Recheck
+                # B's address immediately before committing any share outcome.
+                await self.verify_recipient(plan["recipient"])
                 existing = existing_individual_permission(before, email=plan["recipient"]["email"])
                 if existing is not None:
                     # Never downgrade an existing writer/owner or claim its provenance.

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -25,6 +27,8 @@ from hushh_mcp.services.google_drive_adapter import (
     SUPPORTED_TYPES,
     DriveReadError,
 )
+
+logger = logging.getLogger(__name__)
 
 DEADLINE_SECONDS = 20
 RESPONSE_LIMIT = 256 * 1024
@@ -155,6 +159,63 @@ class GoogleDrivePermissionAdapter:
         permission_id: str | None = None,
         page_token: str | None = None,
     ) -> dict:
+        started = time.perf_counter()
+        outcome = "error"
+        safe_operation = (
+            operation if operation in {"inspect", "list", "create", "remove"} else "invalid"
+        )
+        try:
+            result = await self._exchange_private(
+                operation,
+                file_id=file_id,
+                access_token=access_token,
+                require_current=require_current,
+                email=email,
+                permission_id=permission_id,
+                page_token=page_token,
+            )
+            outcome = "ok"
+            return result
+        except DrivePermissionError as error:
+            outcome = (
+                str(error)
+                if str(error)
+                in {
+                    "reconnect_required",
+                    "permission_target_unavailable",
+                    "permission_outcome_unknown",
+                    "permission_provider_unavailable",
+                    "permission_rejected",
+                    "permission_response_invalid",
+                    "operation_not_allowed",
+                    "recipient_not_verified",
+                }
+                else "error"
+            )
+            raise
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            # No file/permission ID, email, URL, token, or provider body in telemetry.
+            logger.info(
+                "drive_permission_rest.timing operation=%s outcome=%s duration_ms=%.2f",
+                safe_operation,
+                outcome,
+                (time.perf_counter() - started) * 1000,
+            )
+
+    async def _exchange_private(
+        self,
+        operation: str,
+        *,
+        file_id: str,
+        access_token: str,
+        require_current: Fence,
+        email: str | None = None,
+        permission_id: str | None = None,
+        page_token: str | None = None,
+    ) -> dict:
         path = f"/files/{_identifier(file_id)}"
         body, method = None, "GET"
         params = {"supportsAllDrives": "true"}
@@ -174,7 +235,9 @@ class GoogleDrivePermissionAdapter:
         elif operation == "create" and permission_id is page_token is None:
             method, path = "POST", path + "/permissions"
             body = {"type": "user", "role": "reader", "emailAddress": _email(email)}
-            params.update({"fields": PERMISSION_FIELDS, "sendNotificationEmail": "false"})
+            # The owner approved this recipient. Google's email carries the
+            # file link and, where enabled, the visitor verification flow.
+            params.update({"fields": PERMISSION_FIELDS, "sendNotificationEmail": "true"})
         elif operation == "remove" and email is page_token is None:
             method = "DELETE"
             path += f"/permissions/{_identifier(permission_id)}"

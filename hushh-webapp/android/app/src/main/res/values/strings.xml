@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">One | Your Personal Agent</string>
-    <string name="title_activity_main">One | Your Personal Agent</string>
+    <string name="app_name">Agent One</string>
+    <string name="title_activity_main">Agent One</string>
     <string name="package_name">com.hussh.app</string>
     <string name="custom_url_scheme">com.hussh.app</string>
     <string name="sms_emergency_channel_name">Emergency SMS alerts</string>

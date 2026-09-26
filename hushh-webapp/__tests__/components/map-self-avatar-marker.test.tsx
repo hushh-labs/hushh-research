@@ -185,6 +185,50 @@ describe("MapSelfAvatarMarker", () => {
     expect(photo).toHaveAttribute("alt", "");
   });
 
+  it("keeps the same photo and focus in the renderer pane throughout camera movement", async () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const rendererOverlay = { element, setPoint: vi.fn(), destroy: vi.fn() };
+    const { rerender, unmount } = renderMarker({
+      rendererOverlay,
+      avatarUrl: "https://avatars.test/ankit.jpg",
+    });
+    const photo = await screen.findByTestId(
+      "one-location-map-self-avatar-photo",
+    );
+    const button = screen.getByTestId("one-location-map-self-avatar");
+    button.focus();
+    for (const camera of [
+      null,
+      { ...CAMERA, bearing: 42 },
+      { ...CAMERA, zoom: 16 },
+    ]) {
+      rerender(
+        <MapSelfAvatarMarker
+          point={CENTRE_POINT}
+          camera={camera}
+          viewport={VIEWPORT}
+          avatarUrl="https://avatars.test/ankit.jpg"
+          displayName="Ankit"
+          rendererOverlay={rendererOverlay}
+          showAvatar={false}
+        />,
+      );
+      expect(screen.getByTestId("one-location-map-self-avatar-photo")).toBe(
+        photo,
+      );
+      expect(photo).toBeVisible();
+      expect(button.parentElement).toBe(element);
+      expect(button.style.transform).toBe(
+        "translate3d(0px, 0px, 0) translate(-50%, -50%)",
+      );
+      expect(document.activeElement).toBe(button);
+    }
+    unmount();
+    expect(element.children).toHaveLength(0);
+    element.remove();
+  });
+
   it("uses the app's existing initials fallback when there is no photo", () => {
     renderMarker({ avatarUrl: null });
 

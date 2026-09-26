@@ -248,7 +248,7 @@ function PrimaryButton({
       className={cn(
         "w-full disabled:cursor-not-allowed disabled:opacity-50",
         inverse
-          ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
+          ? "bg-white text-[color:var(--app-accent-deep)] hover:bg-white/90 hover:text-[color:var(--app-accent-deep)] dark:bg-white dark:hover:bg-white/90 dark:text-[#07111f] dark:hover:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         className,
       )}
@@ -392,7 +392,10 @@ function WelcomeRadar() {
           className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
           data-one-welcome-core
         >
-          <MapPin className="h-6 w-6 fill-current/10" strokeWidth={2.7} />
+          <MapPin
+            className="h-6 w-6 fill-[#087ff5]/16 stroke-[#087ff5]"
+            strokeWidth={2.7}
+          />
         </span>
         <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
           You

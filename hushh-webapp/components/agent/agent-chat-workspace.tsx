@@ -372,8 +372,15 @@ function upsertVisibleStreamEvent(
   const current = events ?? [];
   const existingIndex = current.findIndex((item) => item.id === event.id);
   if (existingIndex >= 0) {
+    const prior = current[existingIndex]!;
     return current.map((item, index) =>
-      index === existingIndex ? event : item,
+      index === existingIndex ? {
+        ...event,
+        createdAtMs: prior.createdAtMs,
+        ...(event.status !== "running"
+          ? { durationMs: Math.max(0, event.createdAtMs - prior.createdAtMs) }
+          : {}),
+      } : item,
     );
   }
   return [...current, event].slice(-10);
@@ -392,7 +399,11 @@ function settleVisibleStreamEvents(
         message: "Document batch stopped before completion.",
       };
     }
-    return { ...event, status };
+    return {
+      ...event,
+      status,
+      durationMs: Math.max(0, Date.now() - event.createdAtMs),
+    };
   });
 }
 

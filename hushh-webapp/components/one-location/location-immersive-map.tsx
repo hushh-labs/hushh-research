@@ -46,6 +46,7 @@ import { MapNameLabels } from "@/components/one-location/map-name-labels";
 import {
   MapSelfAvatarLegend,
   MapSelfAvatarMarker,
+  SELF_AVATAR_MARKER_SIZE_PX,
 } from "@/components/one-location/map-self-avatar-marker";
 import {
   NearbyCheckInSheet,
@@ -88,6 +89,10 @@ import {
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
+import {
+  createWebSelfAvatarOverlay,
+  type WebSelfAvatarOverlay,
+} from "@/lib/one-location/web-self-avatar-overlay";
 import {
   filterPeopleByQuery,
   sortPeopleByName,
@@ -743,6 +748,9 @@ export function LocationImmersiveMap({
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
+  const [webAvatarOverlay, setWebAvatarOverlay] =
+    useState<WebSelfAvatarOverlay | null>(null);
+  const webAvatarOverlayRef = useRef<WebSelfAvatarOverlay | null>(null);
   const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   // Measures the tray's real rendered pieces -- the toggle header and the
@@ -1756,6 +1764,24 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      if (!isNative()) {
+        try {
+          const overlay = await createWebSelfAvatarOverlay(
+            map,
+            element,
+            initialCenter,
+          );
+          if (superseded()) {
+            overlay.destroy();
+            return;
+          }
+          webAvatarOverlayRef.current = overlay;
+          setWebAvatarOverlay(overlay);
+        } catch {
+          // Legacy web adapters retain the existing safe geographic fallback.
+        }
+      }
+      if (superseded()) return;
       cameraReportsAuthorizedRef.current = rendererReady;
       const currentInstance = () => !superseded() && mapRef.current === map;
       setCameraProjectionEnabled(false);
@@ -1952,6 +1978,9 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
       setMapReady(false);
+      webAvatarOverlayRef.current?.destroy();
+      webAvatarOverlayRef.current = null;
+      setWebAvatarOverlay(null);
       if (cameraFrameRef.current !== null) {
         window.cancelAnimationFrame(cameraFrameRef.current);
         cameraFrameRef.current = null;
@@ -2210,8 +2239,8 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, mapSelfMarker, markers, nearbyPlaceMarker]);
 
   /**
-   * Both Your Map and Check-in use the same HTML avatar while the camera is
-   * settled and safe to project. A separately managed renderer circle remains
+   * Web uses a renderer-owned overlay throughout gestures. The legacy/native
+   * HTML avatar is visible only while the camera is safe to project. Its circle remains
    * geographically anchored underneath it and takes over whenever the camera
    * moves or rotates. Keeping that fallback alive removes the asynchronous
    * remove/add handoff that could blink or redraw every private pin during a
@@ -2302,6 +2331,13 @@ export function LocationImmersiveMap({
       })),
       camera: mapCamera,
       viewport: mapBox,
+      reservedMarker:
+        webAvatarOverlay && mapSelfMarker
+          ? {
+              point: mapSelfMarker.point,
+              radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
+            }
+          : undefined,
       minAnchorDistancePx: clusteringActive
         ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
         : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
@@ -2312,11 +2348,13 @@ export function LocationImmersiveMap({
     freshnessSeconds,
     mapBox,
     mapCamera,
+    mapSelfMarker,
     rendererReady,
     selfPinDrawnAsAvatar,
     staleClockMs,
     status,
     visibleMarkers,
+    webAvatarOverlay,
   ]);
 
   useEffect(() => {
@@ -2789,6 +2827,9 @@ export function LocationImmersiveMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
+    // Web OverlayView already owns an always-visible geographic avatar and
+    // needs no dot underneath it (a meter-radius dot grows during zoom). Native
+    // and compatibility adapters retain the geographic fallback.
     // Keep the geographically authoritative owner dot out of the shared marker
     // batch. A Circle is centred on its coordinate and cannot join a marker
     // cluster. It is replaced only when the coordinate, settled zoom, or stale
@@ -2836,6 +2877,7 @@ export function LocationImmersiveMap({
         cancelled ||
         !rendererReady ||
         !mapSelfMarker ||
+        webAvatarOverlay ||
         settledCameraZoom === null
       ) {
         return;
@@ -2909,6 +2951,7 @@ export function LocationImmersiveMap({
     rendererReady,
     selfRendererMarkerStale,
     settledCameraZoom,
+    webAvatarOverlay,
   ]);
 
   useEffect(() => {
@@ -3747,9 +3790,9 @@ export function LocationImmersiveMap({
       {/*
         You, as yourself.
 
-        Rendered after the pills so it paints over a name that lands on the same
-        pixels, and only once the renderer has reported a camera to project
-        with. Once renderer consent exists, the same semantic button stays
+        Web name labels reserve the renderer-owned avatar's footprint. The
+        legacy/native avatar paints after the pills once a safe camera exists.
+        Once renderer consent exists, the same semantic button stays
         mounted through motion; when its photo cannot be projected it becomes a
         keyboard-only control while the separately managed renderer circle
         stays tied to the coordinate.
@@ -3762,6 +3805,7 @@ export function LocationImmersiveMap({
         <MapSelfAvatarMarker
           point={mapSelfMarker.point}
           camera={mapCamera}
+          rendererOverlay={webAvatarOverlay}
           viewport={mapBox}
           avatarUrl={selfAvatarUrl}
           displayName={selfDisplayName}

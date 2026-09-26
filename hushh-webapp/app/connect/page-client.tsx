@@ -2807,6 +2807,7 @@ export default function ConnectPageClient() {
   return (
     <AppPageShell
       as="main"
+      data-connect-page=""
       fitContent
       width="agent"
       className="relative isolate"

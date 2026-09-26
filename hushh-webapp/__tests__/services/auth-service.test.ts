@@ -1160,6 +1160,104 @@ describe("AuthService native Google provider parity", () => {
     expect(result.idToken).toBeTruthy();
   });
 
+  it("ends the Android loading toast on success", async () => {
+    const { toast } = await import("sonner");
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    vi.mocked(HushhAuth.signIn).mockResolvedValue({
+      idToken: createIdToken(3_600),
+      accessToken: "google-provider-token",
+      user: { id: "android-user", email: "", displayName: "", photoUrl: "" },
+    });
+
+    await AuthService.signInWithGoogle();
+
+    expect(toast.loading).toHaveBeenCalledWith("Signing in with Google...");
+    expect(toast.success).toHaveBeenCalledWith("Signed in successfully", {
+      id: "toast-id",
+    });
+  });
+
+  it("dismisses the Android loading toast silently when the user cancels", async () => {
+    const { toast } = await import("sonner");
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    vi.mocked(HushhAuth.signIn).mockRejectedValue(
+      Object.assign(new Error("User cancelled sign-in"), {
+        code: "USER_CANCELLED",
+      }),
+    );
+
+    await expect(AuthService.signInWithGoogle()).rejects.toMatchObject({
+      code: "auth/user-cancelled",
+    });
+    expect(toast.dismiss).toHaveBeenCalledWith("toast-id");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "auth/network-request-failed",
+      "Network error. Check your connection and try again.",
+    ],
+    [
+      "auth/google-sign-in-failed",
+      "Firebase sign-in failed: provider rejected the credential",
+    ],
+  ])(
+    "replaces the Android loading toast with a useful %s error",
+    async (code, message) => {
+      const { toast } = await import("sonner");
+      mockCapacitor.getPlatform.mockReturnValue("android");
+      vi.mocked(HushhAuth.signIn).mockRejectedValue(
+        Object.assign(
+          new Error(
+            code === "auth/network-request-failed"
+              ? "Network error. Check your connection and try again."
+              : "Firebase sign-in failed: provider rejected the credential",
+          ),
+          { code },
+        ),
+      );
+
+      await expect(AuthService.signInWithGoogle()).rejects.toMatchObject({
+        code,
+        message,
+      });
+      expect(toast.error).toHaveBeenCalledWith(message, { id: "toast-id" });
+      expect(mockSignInWithPopup).not.toHaveBeenCalled();
+    },
+  );
+
+  it("never leaves 'Signing in with Google...' up when the bridge never answers", async () => {
+    const { toast } = await import("sonner");
+    vi.useFakeTimers();
+    try {
+      mockCapacitor.getPlatform.mockReturnValue("android");
+      vi.mocked(HushhAuth.signIn).mockImplementation(
+        () => new Promise(() => undefined),
+      );
+
+      const result = AuthService.signInWithGoogle();
+      const rejected = expect(result).rejects.toMatchObject({
+        code: "auth/timeout",
+        message: "Google sign-in is taking too long. Check your connection and try again.",
+      });
+      await vi.advanceTimersByTimeAsync(
+        AuthService.ANDROID_GOOGLE_SIGN_IN_TIMEOUT_MS,
+      );
+      await rejected;
+
+      expect(toast.error).toHaveBeenCalledWith(
+        "Google sign-in is taking too long. Check your connection and try again.",
+        { id: "toast-id" },
+      );
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the FirebaseAuthentication provider contract on iOS", async () => {
     mockCapacitor.getPlatform.mockReturnValue("ios");
     const nativeUser = {

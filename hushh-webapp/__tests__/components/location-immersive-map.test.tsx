@@ -81,6 +81,17 @@ const serviceHarness = vi.hoisted(() => ({
   updateMapPreferences: vi.fn(),
 }));
 
+const overlayHarness = vi.hoisted(() => ({
+  enabled: false,
+  create: vi.fn(),
+  setPoint: vi.fn(),
+  destroy: vi.fn(),
+}));
+vi.mock("@/lib/one-location/web-self-avatar-overlay", () => ({
+  createWebSelfAvatarOverlay: (...args: unknown[]) =>
+    overlayHarness.create(...args),
+}));
+
 const navigationHarness = vi.hoisted(() => ({
   beginRouteTransition: vi.fn((_href: string, navigate: () => void) =>
     navigate(),
@@ -438,6 +449,21 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  overlayHarness.enabled = false;
+  overlayHarness.create.mockImplementation(async () => {
+    if (!overlayHarness.enabled)
+      throw new Error("Legacy adapter without overlay host");
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    return {
+      element,
+      setPoint: overlayHarness.setPoint,
+      destroy: () => {
+        overlayHarness.destroy();
+        element.remove();
+      },
+    };
+  });
   platformHarness.native = false;
   mapsKeyHarness.present = true;
   identityHarness.displayName = "Ankit Kumar Singh";
@@ -4273,6 +4299,50 @@ describe("LocationImmersiveMap reported map defects", () => {
       0,
     );
   });
+
+  it.each([
+    ["Your Map", "map" as const],
+    ["Check-in", "check-in" as const],
+  ])(
+    "keeps the renderer-owned photo mounted throughout drag and zoom on %s",
+    async (_name, surface) => {
+      overlayHarness.enabled = true;
+      stubPhoneGeometry();
+      await renderReadyMap({ surface });
+      const photo = await screen.findByTestId(
+        "one-location-map-self-avatar-photo",
+      );
+      const control = screen.getByTestId("one-location-map-self-avatar");
+      const point = overlayHarness.setPoint.mock.calls.at(-1)?.[0];
+      expect(point).toBeDefined();
+      mapHarness.map.addMarkers.mockClear();
+      mapHarness.map.removeMarkers.mockClear();
+      for (let count = 0; count < 3; count++) {
+        await act(async () => {
+          mapHarness.listeners.cameraMoveStarted?.({ isGesture: true });
+        });
+        expect(photo).toBeVisible();
+        await reportCamera({ zoom: 12 + count });
+        expect(screen.getByTestId("one-location-map-self-avatar-photo")).toBe(
+          photo,
+        );
+        expect(control).not.toHaveClass("sr-only");
+        expect(overlayHarness.setPoint.mock.calls.at(-1)?.[0]).toEqual(point);
+      }
+      expect(overlayHarness.create).toHaveBeenCalledTimes(1);
+      expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+      expect(mapHarness.map.removeMarkers).not.toHaveBeenCalled();
+      serviceHarness.getMapPreferences.mockResolvedValue({
+        presenceMode: "ghost",
+        rendererConsentVersion: null,
+      });
+      dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+      await waitFor(() => expect(photo.isConnected).toBe(false));
+      await waitFor(() => expect(overlayHarness.destroy).toHaveBeenCalled());
+      cleanup();
+      expect(photo.isConnected).toBe(false);
+    },
+  );
 
   it.each([
     ["Your Map", "map" as const],

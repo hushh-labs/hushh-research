@@ -167,6 +167,37 @@ async def test_request_is_private_idempotent_and_does_not_share(sharing):
 
 
 @pytest.mark.asyncio
+async def test_request_accepts_a_connected_recipient_without_their_drive_connector(
+    sharing, monkeypatch
+):
+    """The owner supplies Drive authority; database pair order must not matter."""
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,Mixed")
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO connections VALUES (:id,'owner','Mixed','active')"),
+            {"id": str(uuid4())},
+        )
+        recipient_drive_rows = connection.execute(
+            text("""SELECT count(*) FROM user_external_connector_connections
+                    WHERE user_id='Mixed' AND connector_id='google_drive'""")
+        ).scalar_one()
+    assert recipient_drive_rows == 0
+    assert sorted(("owner", "Mixed")) != ["owner", "Mixed"]
+
+    created = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "Mixed", "1234567", "mixed@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Share an exact Drive file"),
+    )
+
+    assert created["requestId"]
+    assert len(rows(sharing, "drive_share_permission_operations")) == 0
+
+
+@pytest.mark.asyncio
 async def test_concurrent_identical_request_retries_return_one_request(sharing):
     client = str(uuid4())
     results = await asyncio.gather(*(request(sharing, client) for _ in range(4)))

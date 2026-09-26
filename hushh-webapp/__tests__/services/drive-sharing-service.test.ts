@@ -529,6 +529,40 @@ describe("drive question transport", () => {
     expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
   });
 
+  it("restores an owner's reserved answer selection and accepts older answers without one", () => {
+    const answer = {
+      text: "Found files", titles: [], truncated: false,
+      files: [{ ref: "f1", name: "a.pdf" }, { ref: "f2", name: "b.pdf" }],
+      shareRequestId: null,
+    };
+    expect(parseDriveQueryView(rawView({ direction: "incoming", status: "answered", answer })).answer)
+      .not.toHaveProperty("selectedFileRefs");
+    expect(parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered", answer: { ...answer, selectedFileRefs: ["f2"] },
+    })).answer).toMatchObject({ selectedFileRefs: ["f2"] });
+  });
+
+  it.each([
+    ["empty", []], ["duplicate", ["f1", "f1"]], ["not a list", "f1"],
+    ["not in the answer", ["f2"]], ["invalid reference", ["f9"]],
+    ["not a string", [1]], ["too many", Array(9).fill("f1")],
+  ])("rejects an owner's %s reserved answer selection", (_label, selectedFileRefs) => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered",
+      answer: {
+        text: "Found files", titles: [], truncated: false,
+        files: [{ ref: "f1", name: "a.pdf" }], selectedFileRefs,
+      },
+    }))).toThrow(DriveSharingError);
+  });
+
+  it("rejects owner reservation references in the asker's answer", () => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "outgoing", status: "answered",
+      answer: { text: "Found files", titles: [], truncated: false, selectedFileRefs: ["f1"] },
+    }))).toThrow(DriveSharingError);
+  });
+
   it("searches the owner's own Drive by person reference and shares only found references", async () => {
     const personRef = "33333333-3333-4333-8333-333333333333";
     const clientRequestId = "44444444-4444-4444-8444-444444444444";
@@ -572,6 +606,27 @@ describe("drive question transport", () => {
       ).rejects.toThrow(DriveSharingError);
     }
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores only valid reserved selections and their terminal expiry", async () => {
+    const raw = {
+      requestId, status: "ready", recipientName: "Bo", shareRequestId: null,
+      files: [{ ref: "f1", name: "Notes", modifiedTime: null }],
+      selectedFileRefs: ["f1"], selectionExpired: true,
+    };
+    fetcher.mockResolvedValueOnce(reply(raw));
+    const draft = { recipientPersonRef: requestId, clientRequestId: documentId, query: "Notes" };
+    await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+      .resolves.toMatchObject({ selectedFileRefs: ["f1"], selectionExpired: true });
+    for (const invalid of [
+      { selectedFileRefs: [] }, { selectedFileRefs: ["f2"] },
+      { selectedFileRefs: ["f1", "f1"] }, { selectedFileRefs: null },
+      { selectionExpired: "true" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...raw, ...invalid }));
+      await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
   });
 
   it("keeps a no-match search empty and refuses a found file carrying a Drive id", async () => {
@@ -621,7 +676,7 @@ describe("drive question transport", () => {
       guard,
     );
     expect(view.recipients).toEqual([
-      { requestId, name: "Bo", status: "ready", shareRequestId: null },
+      { requestId, name: "Bo", status: "ready", shareRequestId: null, selectedFileRefs: null, selectionExpired: false },
     ]);
     expect(view.excluded.map((item) => item.reason)).toEqual(["contacts", "not_connected"]);
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({

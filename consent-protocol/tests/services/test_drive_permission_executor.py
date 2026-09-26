@@ -3,15 +3,17 @@
 # ruff: noqa: F811, S106 -- imported pytest fixtures; synthetic provider credential
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services import drive_permission_executor as identity_module
 from hushh_mcp.services.drive_permission_executor import DrivePermissionExecutor
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError, VerifiedGoogleRecipient
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import (
     CreatedReader,
@@ -29,6 +31,47 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     rows,
     sharing,
 )
+
+
+@pytest.mark.asyncio
+async def test_verified_email_recipient_needs_no_drive_connector_and_is_rechecked(monkeypatch):
+    user = SimpleNamespace(
+        uid="recipient",
+        disabled=False,
+        email="personal@example.invalid",
+        email_verified=True,
+        provider_data=[],
+    )
+    monkeypatch.setattr(identity_module.firebase_auth, "get_user", lambda uid, app: user)
+    monkeypatch.setattr(identity_module, "get_firebase_auth_app", lambda: object())
+
+    recipient = await identity_module.recipient_identity_for_user("recipient")
+    assert recipient.kind == "verified_email"
+    sealed = {
+        "user_id": recipient.user_id,
+        "subject": recipient.subject,
+        "email": recipient.email,
+        "kind": recipient.kind,
+    }
+    await identity_module.require_recipient_identity(sealed)
+    user.email = "changed@example.invalid"
+    with pytest.raises(DriveSharingError, match="recipient_changed"):
+        await identity_module.require_recipient_identity(sealed)
+
+
+@pytest.mark.asyncio
+async def test_owner_share_rejects_an_unverified_recipient_email(monkeypatch):
+    user = SimpleNamespace(
+        uid="recipient",
+        disabled=False,
+        email="personal@example.invalid",
+        email_verified=False,
+        provider_data=[],
+    )
+    monkeypatch.setattr(identity_module.firebase_auth, "get_user", lambda uid, app: user)
+    monkeypatch.setattr(identity_module, "get_firebase_auth_app", lambda: object())
+    with pytest.raises(DriveSharingError, match="recipient_verified_email_required"):
+        await identity_module.recipient_identity_for_user("recipient")
 
 
 @pytest.fixture
@@ -76,10 +119,22 @@ def outcome(store, operation_id):
 @pytest.mark.asyncio
 async def test_provider_success_becomes_encrypted_receipt_and_batch_outcome(permission_setup):
     store, executor, adapter, ids = permission_setup
+    with store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM user_external_connector_connections
+                    WHERE user_id='recipient' AND connector_id='google_drive'""")
+            ).scalar_one()
+            == 0
+        )
     assert await asyncio.gather(
         *(executor.grant(user_id="owner", operation_id=identifier) for identifier in ids)
     ) == ["succeeded", "succeeded"]
     assert adapter.create_reader.await_count == 2
+    assert all(
+        call.kwargs["user_id"] == "owner"
+        for call in executor.oauth.current_credential.await_args_list
+    )
     assert rows(store, "drive_share_requests")[0]["status"] == "completed"
     for identifier in ids:
         row = outcome(store, identifier)
@@ -102,6 +157,68 @@ async def test_provider_success_becomes_encrypted_receipt_and_batch_outcome(perm
             ]
         )
         == 2
+    )
+
+
+@pytest.mark.asyncio
+async def test_verified_email_recipient_flows_from_request_to_owner_grant(sharing, monkeypatch):
+    recipient = VerifiedGoogleRecipient(
+        "recipient", "recipient", "personal@example.invalid", datetime.now(UTC), "verified_email"
+    )
+    create_request = sharing.create_request
+
+    async def create_with_verified_email(**kwargs):
+        return await create_request(**{**kwargs, "recipient": recipient})
+
+    monkeypatch.setattr(sharing, "create_request", create_with_verified_email)
+    prepared, document_ids = await review(sharing)
+    await approve(sharing, prepared, document_ids)
+    with sharing.db.engine.connect() as connection:
+        request_row = dict(
+            connection.execute(text("SELECT * FROM drive_share_requests")).mappings().one()
+        )
+    assert sharing._open_request(request_row)["recipient"]["kind"] == "verified_email"
+
+    store = DrivePermissionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+    adapter = SimpleNamespace(
+        inspect_shareable=AsyncMock(),
+        list_permissions=AsyncMock(return_value=PermissionSnapshot(())),
+        create_reader=AsyncMock(
+            return_value=CreatedReader("synthetic-permission", "personal@example.invalid")
+        ),
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=(
+                {"connection_generation": 1},
+                {
+                    "accessToken": "synthetic-token",
+                    "subject": "12345",
+                    "oauthClientId": "synthetic-client",
+                },
+            )
+        )
+    )
+    verify_recipient = AsyncMock()
+    executor = DrivePermissionExecutor(
+        store=store, oauth=oauth, adapter=adapter, verify_recipient=verify_recipient
+    )
+    operation_ids = [
+        str(row["operation_id"]) for row in rows(store, "drive_share_permission_operations")
+    ]
+    assert [
+        await executor.grant(user_id="owner", operation_id=identifier)
+        for identifier in operation_ids
+    ] == ["succeeded", "succeeded"]
+    assert all(
+        call.kwargs["user_id"] == "owner" for call in oauth.current_credential.await_args_list
+    )
+    assert all(
+        call.kwargs["verified_email"] == "personal@example.invalid"
+        for call in adapter.create_reader.await_args_list
+    )
+    assert all(
+        call.args[0]["kind"] == "verified_email" for call in verify_recipient.await_args_list
     )
 
 
@@ -191,6 +308,19 @@ async def test_changed_recipient_blocks_provider_mutation(permission_setup):
     executor.verify_recipient.side_effect = DriveSharingError("recipient_changed")
     assert await executor.grant(user_id="owner", operation_id=ids[0]) == "not_dispatched"
     adapter.create_reader.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recipient_changed_after_permission_listing_blocks_provider_mutation(
+    permission_setup,
+):
+    store, executor, adapter, ids = permission_setup
+    executor.verify_recipient.side_effect = [None, DriveSharingError("recipient_changed")]
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "not_dispatched"
+    assert executor.verify_recipient.await_count == 2
+    adapter.list_permissions.assert_awaited_once()
+    adapter.create_reader.assert_not_awaited()
+    assert outcome(store, ids[0])["state"] == "not_dispatched"
 
 
 @pytest.mark.asyncio

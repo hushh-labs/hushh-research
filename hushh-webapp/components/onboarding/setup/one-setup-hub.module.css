@@ -16,40 +16,14 @@
   line-height: 1.45 !important;
 }
 
-.setupProgress {
-  display: grid;
-  gap: 7px;
-  margin-bottom: 24px;
-}
-
-.setupProgressLabel {
-  font-family: var(--font-app-text);
-  font-size: 0.8125rem;
-  font-weight: 400;
-  line-height: 1.125rem;
-  color: var(--muted-foreground);
-}
-
-.setupProgressTrack {
-  position: relative;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foundation-hairline) 82%, transparent);
-}
-
-.setupProgressFill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--app-accent);
-  transition: width 160ms ease;
+.setupContent.setupContent {
+  margin-top: 24px;
 }
 
 /* Focused checklist — one grouped white list with inset hairlines. */
 .flatChecklist {
   display: grid;
-  gap: 1.125rem;
+  gap: 16px;
 }
 
 .flatChecklist [data-slot="settings-group-shell"] {
@@ -83,12 +57,6 @@
   font-size: 0.8125rem !important;
   line-height: 1.125rem !important;
   color: var(--muted-foreground) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .setupProgressFill {
-    transition: none;
-  }
 }
 
 .stepHeader :global([data-slot="page-header-description"]) {

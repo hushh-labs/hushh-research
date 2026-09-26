@@ -49,7 +49,7 @@ export interface GmailStatusSummary {
  * `describeGmailReceiptScanProgress`, which carries live counts.
  */
 export const GMAIL_INBOX_SIGNAL_EXPLANATION =
-  "One syncs purchase receipts into a private shopping summary. You can separately turn on KYC-request monitoring after connecting.";
+  "Syncs receipts to build your private shopping memory.";
 
 export function describeGmailReceiptScanProgress(params: {
   scanned: number;
@@ -60,10 +60,10 @@ export function describeGmailReceiptScanProgress(params: {
   const scannedLabel = `${scanned} mail message${scanned === 1 ? "" : "s"} checked`;
   const matchedLabel =
     matched > 0
-      ? `${matched} receipt${matched === 1 ? "" : "s"} matched so far.`
-      : "Looking for receipt mail messages now.";
+      ? `${matched} receipt${matched === 1 ? "" : "s"} matched.`
+      : "Scanning inbox for receipts.";
 
-  return `${scannedLabel}. ${matchedLabel} Receipt-based purchase interactions help One understand the brands you care about.`;
+  return `${scannedLabel}. ${matchedLabel}`;
 }
 
 const GMAIL_OAUTH_RETURN_STATUS_KEY = "profile_gmail_oauth_return_status";
@@ -366,7 +366,7 @@ export function resolveGmailStatusSummary(options: {
     return {
       tone: "loading",
       title: "Syncing receipts",
-      detail: "Fetching recent purchases.",
+      detail: "Fetching your latest purchases…",
       helper: lastUpdated || connectedLabel,
     };
   }

@@ -20,7 +20,7 @@ import {
   GuidedConnectionScreen,
   VaultExplainerScreens,
 } from "@/components/onboarding/setup/local-first-vault-sequence";
-import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -197,6 +197,12 @@ export function OneSetupHub() {
         ? ("complete" as const)
         : ("required" as const),
     });
+    const unsubscribe = CacheService.getInstance().subscribe((event) => {
+      if (!active || event.type !== "set" || event.key !== CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) return;
+      const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      if (saved) setPrereqSnapshot(project(saved));
+    });
+    const cleanup = () => { active = false; unsubscribe(); };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setPrereqSnapshot(project(cached));
@@ -211,9 +217,7 @@ export function OneSetupHub() {
           if (active) setPrereqSnapshot(project(state));
         })
         .catch(() => undefined);
-      return () => {
-        active = false;
-      };
+      return cleanup;
     }
     setPrereqSnapshot({
       userId: user.uid,
@@ -234,9 +238,7 @@ export function OneSetupHub() {
           });
         }
       });
-    return () => {
-      active = false;
-    };
+    return cleanup;
   }, [user?.uid]);
 
   // The cloud setup runs as a background job; while it does, the row says so
@@ -764,7 +766,7 @@ export function OneSetupHub() {
         </AppPageHeaderRegion>
       ) : null}
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className={styles.setupContent}>
         {localFirstSequenceActive ? (
           localFirstStage === "guided_connection" ||
           localFirstStage === "migrating" ? (
@@ -988,25 +990,23 @@ export function OneSetupHub() {
               ) : null}
             </div>
             <div>
-              <SetupCompletionFooter
-                label={masterActionLabel}
-                onComplete={() => void handleMasterAck()}
-                busy={dismissing}
-                disabled={!setupPrerequisitesComplete}
-                controlId="one-setup-master-ack"
-                actionId="setup.hub_master_ack"
-                testId="one-setup-master-ack"
-                purpose={"Finish setup and protect what you save."}
-                supportingText={
-                  !cloudComplete
-                    ? "Choose where your agent lives first."
-                    : !runtimeChoiceComplete
-                      ? "Choose your AI first."
-                      : "Set up the rest later."
-                }
-                variant="blue-gradient"
+              <Button
+                type="button"
+                variant="blue"
                 effect="fill"
-              />
+                size="prominent"
+                fullWidth
+                disabled={!setupPrerequisitesComplete}
+                loading={dismissing}
+                onClick={() => void handleMasterAck()}
+                data-testid="one-setup-master-ack"
+                data-voice-control-id="one-setup-master-ack"
+                data-voice-action-id="setup.hub_master_ack"
+                data-voice-label={masterActionLabel}
+                data-voice-purpose="Finish setup and protect what you save."
+              >
+                {masterActionLabel}
+              </Button>
             </div>
           </>
         )}

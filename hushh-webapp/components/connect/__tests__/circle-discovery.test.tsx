@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { LifeBuoy } from "@/components/icons";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleMember,
@@ -235,11 +237,11 @@ describe("circle discovery actions", () => {
     render(ui());
     const expected = {
       family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.wallet,
+      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
       investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
       business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
       location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.marketplace,
+      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
     };
     for (const [id, style] of Object.entries(expected)) {
       const node = screen.getByTestId(`circle-starter-${id}`);
@@ -247,10 +249,8 @@ describe("circle discovery actions", () => {
         expect(node.style.getPropertyValue(property)).toBe(value);
       }
       fireEvent.click(node);
-      expect(node.querySelector("[data-circle-icon-fill]")).toBeTruthy();
-      if (["finance", "location", "sms"].includes(id)) {
-        expect(node.querySelector("[data-icon-source='figma']")).toBeTruthy();
-      }
+      expect(node.querySelector("[data-circle-icon-style='duotone']")).toBeTruthy();
+      expect(node.querySelector("[data-icon-source='figma']")).toBeNull();
       expect(node).toHaveAttribute("aria-pressed", "true");
       expect(
         screen
@@ -266,6 +266,17 @@ describe("circle discovery actions", () => {
     }
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.sms).not.toHaveBeenCalled();
+  });
+
+  it("uses the Save My Soul lifebuoy for SMS instead of a message bubble", () => {
+    render(ui());
+    const icon = screen.getByTestId("circle-starter-sms").querySelector("[data-circle-icon-style='duotone']");
+    expect(icon).toBeTruthy();
+    const expected = document.createElement("div");
+    expected.innerHTML = renderToStaticMarkup(<LifeBuoy weight="duotone" />);
+    expect(icon?.querySelector("path:last-child")?.getAttribute("d")).toBe(
+      expected.querySelector("path:last-child")?.getAttribute("d"),
+    );
   });
 
   it("removes the privacy banner and the extra primary-action arrow", () => {

@@ -79,13 +79,15 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       <div className={styles.stage}>
         <div className={styles.composition}>
           <FigmaHushhLogo className={styles.brand} />
-          <FigmaIllustration variant="intro" className={styles.illustration} />
+          <div className={styles.artwork} aria-hidden="true">
+            <div className={styles.artworkCanvas}>
+              <FigmaIllustration variant="intro" className={styles.illustration} />
+              {/* The light export keeps its emoji separate from the artwork. */}
+              <span className={styles.quietMark}>🤫</span>
+            </div>
+          </div>
 
           <div className={styles.hero}>
-            {/* Figma 145:6108 is a separate emoji, not part of the source image. */}
-            <span aria-hidden="true" className={styles.quietMark}>
-              🤫
-            </span>
 
             <h1 className={styles.title} aria-label="One">
               <span className={styles.srOnly}>One</span>
@@ -101,7 +103,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <div className={styles.footer}>
             <div className={styles.privacy}>
               <FigmaPrivacyNote>
-                You have full control over your data.
+                You choose what to share.
               </FigmaPrivacyNote>
             </div>
             <button

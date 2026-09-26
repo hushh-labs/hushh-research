@@ -1,9 +1,11 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { UserRound } from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import type { WebSelfAvatarOverlay } from "@/lib/one-location/web-self-avatar-overlay";
 import {
   projectToMapBox,
   type MapNameLabelCamera,
@@ -22,9 +24,12 @@ import {
  * exactly one styling knob per marker, `tintColor`. Its `iconUrl` cannot help
  * either: the iOS bridge accepts an `https:` URL or a file bundled under
  * `public/`, so a locally composed avatar (which is what a ring around a photo
- * is) has nowhere to live, and it re-fetches the image on every marker pass.
+ * is) has nowhere to live. Renderer markers also join global clustering.
  *
- * So this follows the pattern the map already established for name pills in
+ * On web, a Google OverlayView owns the transform and the same React photo
+ * stays in its map pane throughout gestures. Native retains the safe settled
+ * projection because its bridge does not expose an equivalent HTML map pane.
+ * The native fallback follows the pattern already established for name pills in
  * `map-name-labels.tsx`: project the coordinate into the map box with
  * `projectToMapBox` and draw HTML over the renderer. Same projection, same
  * camera, same staleness rule -- one more layer, not a second mechanism.
@@ -41,8 +46,8 @@ import {
  *   avatar is rendered by the WebView from a URL the app already holds for the
  *   top bar and the profile screen.
  *
- * The semantic button stays mounted while the map owns a self location. When
- * the camera is moving, unsafe to project, or the coordinate is off-screen,
+ * The semantic button stays mounted while the map owns a self location. In the
+ * native/legacy fallback, when the camera is unsafe or the point is off-screen,
  * only its visual avatar is hidden. This preserves keyboard focus across the
  * handoff to the renderer-owned geographic fallback without clamping the owner
  * somewhere they are not.
@@ -60,6 +65,7 @@ export const SELF_AVATAR_LEGEND_SIZE_PX = 18;
 export interface MapSelfAvatarMarkerProps {
   point: { latitude: number; longitude: number };
   camera: MapNameLabelCamera | null;
+  rendererOverlay?: WebSelfAvatarOverlay | null;
   viewport: MapNameLabelViewport;
   /** The app's existing avatar URL for this user. Null falls back to initials. */
   avatarUrl: string | null;
@@ -147,6 +153,7 @@ export function MapSelfAvatarLegend({
 function MapSelfAvatarMarkerImpl({
   point,
   camera,
+  rendererOverlay,
   viewport,
   avatarUrl,
   displayName,
@@ -155,20 +162,24 @@ function MapSelfAvatarMarkerImpl({
   showAvatar = true,
   onSelect,
 }: MapSelfAvatarMarkerProps) {
+  useLayoutEffect(() => {
+    rendererOverlay?.setPoint(point);
+  }, [rendererOverlay, point]);
   const anchor = camera ? projectToMapBox(point, camera, viewport) : null;
-  const visibleAnchor =
-    showAvatar &&
-    anchor &&
-    anchor.x >= 0 &&
-    anchor.y >= 0 &&
-    anchor.x <= viewport.width &&
-    anchor.y <= viewport.height
+  const visibleAnchor = rendererOverlay
+    ? { x: 0, y: 0 }
+    : showAvatar &&
+        anchor &&
+        anchor.x >= 0 &&
+        anchor.y >= 0 &&
+        anchor.x <= viewport.width &&
+        anchor.y <= viewport.height
       ? anchor
       : null;
 
   const initials = initialsOf(displayName);
 
-  return (
+  const marker = (
     <button
       type="button"
       data-testid="one-location-map-self-avatar"
@@ -178,8 +189,9 @@ function MapSelfAvatarMarkerImpl({
       // where the owner intentionally chose to appear.
       aria-label={accessibleLabel}
       onClick={onSelect}
-      // z-10 puts the visible avatar in the same band as the name pills and
-      // under the people tray/top controls. During the renderer handoff this
+      // Web labels reserve this avatar's footprint in their collision layout.
+      // The fallback z-10 shares the pills' band, below tray/top controls.
+      // During the native/legacy renderer handoff this
       // exact button becomes a keyboard-focus-revealed chip, so focus is never
       // discarded by unmounting and remounting two different controls. Pointer
       // focus stays visually hidden while the renderer owns camera motion.
@@ -250,6 +262,9 @@ function MapSelfAvatarMarkerImpl({
       )}
     </button>
   );
+  return rendererOverlay
+    ? createPortal(marker, rendererOverlay.element)
+    : marker;
 }
 
 export const MapSelfAvatarMarker = memo(MapSelfAvatarMarkerImpl);

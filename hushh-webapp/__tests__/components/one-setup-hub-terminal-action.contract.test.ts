@@ -11,8 +11,8 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain('actionId="setup.hub_master_ack"');
-    expect(source).toContain('variant="blue-gradient"');
+    expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
+    expect(source).toContain('variant="blue"');
     expect(source).toContain('effect="fill"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(
@@ -26,8 +26,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("<SetupCompletionFooter");
-    expect(source).toContain('testId="one-setup-master-ack"');
+    expect(source).toContain("data-testid="one-setup-master-ack"");
+    expect(source).toContain('data-testid="one-setup-master-ack"');
     // Cloud, verified phone, and AI choice gate the exit together.
     expect(source).toContain("disabled={!setupPrerequisitesComplete}");
     expect(source).toContain(
@@ -48,9 +48,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
     );
-    expect(source).toContain("<SetupCompletionFooter");
+    expect(source).toContain("data-testid="one-setup-master-ack"");
     expect(source).toContain("<div className={styles.flatChecklist}>");
-    expect(source.indexOf("<SetupCompletionFooter")).toBeGreaterThan(
+    expect(source.indexOf("data-testid="one-setup-master-ack"")).toBeGreaterThan(
       source.indexOf("<div className={styles.flatChecklist}>"),
     );
     expect(source).not.toContain("actions={");
@@ -328,7 +328,7 @@ describe("One setup hub terminal action contract", () => {
     // bottom-safe-area clearance, so mobile does not need a separate header CTA.
     expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
     expect(source).not.toContain('<div className="hidden sm:block">');
-    expect(source).toContain("<SetupCompletionFooter");
+    expect(source).toContain("data-testid="one-setup-master-ack"");
   });
 
   it("does not reserve header space for a duplicate mobile action", () => {

@@ -15,10 +15,10 @@ const keyboardInsetSource = readFileSync(
 
 describe("Kai command palette contract", () => {
   it("prioritizes an explicit natural-language handoff above generated actions", () => {
-    expect(source).toContain('heading="Ask One"');
-    expect(source).toContain("onSelect={submitPromptSuggestion}");
-    expect(source.indexOf('heading="Ask One"')).toBeLessThan(
-      source.indexOf('heading="Commands"'),
+    expect(source).toContain('heading: "Ask One"');
+    expect(source).toContain("run: askOne");
+    expect(source.indexOf('heading: "Ask One"')).toBeLessThan(
+      source.indexOf('heading: "Commands"'),
     );
   });
 
@@ -28,14 +28,15 @@ describe("Kai command palette contract", () => {
   });
 
   it("anchors the mobile palette above the keyboard without the centered-dialog shift", () => {
+    // Phones get their own bottom-anchored dialog; the desktop command dialog
+    // never renders below the mobile breakpoint, so it carries no phone styles.
     expect(source).toContain('data-keyboard-anchor="bottom"');
     expect(source).toContain(
-      "bottom-[calc(var(--kb-height,0px)+var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))+0.5rem)]",
+      "!bottom-[calc(var(--kb-height,0px)+var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))+0.5rem)]",
     );
-    expect(source).toContain(
-      "max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))-1rem),34rem)]",
-    );
-    expect(source).toContain("max-sm:!translate-y-0");
+    expect(source).toContain("!top-auto");
+    expect(source).toContain("!translate-y-0");
+    expect(source).not.toContain("max-sm:");
   });
 
   it("stops reserving the tab bar's height while a keyboard covers or hides it", () => {

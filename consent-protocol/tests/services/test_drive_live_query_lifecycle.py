@@ -365,7 +365,9 @@ async def test_a_second_question_needs_its_own_allow(cancellable, monkeypatch):
     # The asker sees the stored answer without the owner-only file list.
     assert "files" not in first_view["answer"]
     assert first_view["answer"] == {
-        key: value for key, value in answered["answer"].items() if key != "files"
+        key: value
+        for key, value in answered["answer"].items()
+        if key not in {"files", "selectedFileRefs"}
     }
     with pytest.raises(DriveSharingError, match="request_already_decided"):
         await queries.allow(

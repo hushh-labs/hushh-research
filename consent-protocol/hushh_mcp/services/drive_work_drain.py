@@ -18,7 +18,8 @@ from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
 
-MAX_JOBS_PER_WORKER = 1
+MAX_JOBS_PER_WORKER = 20
+WORKER_JOB_LIMITS = {"documents": 1, "suggestions": 1, "permissions": 20, "notifications": 20}
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions"}),
@@ -163,7 +164,7 @@ class DriveWorkDrain:
             type(stage) is not str
             or stage not in STAGE_WORKERS
             or type(max_jobs_per_worker) is not int
-            or max_jobs_per_worker != MAX_JOBS_PER_WORKER
+            or not 1 <= max_jobs_per_worker <= MAX_JOBS_PER_WORKER
             or type(deadline_seconds) is not int
             or not 20 <= deadline_seconds <= 205
         ):
@@ -183,7 +184,7 @@ class DriveWorkDrain:
             try:
                 async with asyncio.timeout(budget):
                     result = await worker.run(
-                        max_jobs=max_jobs_per_worker,
+                        max_jobs=min(max_jobs_per_worker, WORKER_JOB_LIMITS[name]),
                         deadline_seconds=budget,
                     )
             except TimeoutError:

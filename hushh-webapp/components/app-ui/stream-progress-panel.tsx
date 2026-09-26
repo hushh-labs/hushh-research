@@ -36,6 +36,7 @@ export type AppStreamProgressItem = {
   tag?: string;
   /** Optional decorative mark before the label (e.g. an official connector logo). */
   mark?: ReactNode;
+  durationMs?: number;
 };
 
 type AppStreamEventListProps = {
@@ -97,6 +98,11 @@ export const AppStreamEventList = memo(function AppStreamEventList({
                   {item.tag ? (
                     <span className="rounded-full bg-accent-surface px-1.5 py-px text-[0.6875rem] font-semibold text-accent-strong">
                       {item.tag}
+                    </span>
+                  ) : null}
+                  {typeof item.durationMs === "number" && Number.isFinite(item.durationMs) && status !== "running" ? (
+                    <span className="ml-2 font-normal tabular-nums text-muted-foreground" data-operation-timing={status}>
+                      {(Math.max(0, item.durationMs) / 1000).toFixed(1)}s
                     </span>
                   ) : null}
                 </p>

@@ -1627,21 +1627,25 @@ export function PkmNaturalPanel({
               separatorInset
               testId="memory-export-group"
             >
-              <SettingsRow
-                title="Download what One remembers"
-                description={
-                  isVaultUnlocked
-                    ? "Readable, plus an encrypted copy that can put it back. The readable part is plain text once it is on your device."
-                    : "Unlock first. Without your key, nothing here can be read."
-                }
-                stackTrailingOnMobile
-                trailing={
+              <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Download what One remembers
+                  </h3>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {isVaultUnlocked
+                      ? "Readable, plus an encrypted copy that can put it back. The readable part is plain text once it is on your device."
+                      : "Unlock first. Without your key, nothing here can be read."}
+                  </p>
+                </div>
+                <div className="flex w-full items-center justify-center pt-1">
                   <Button
                     type="button"
                     variant="muted"
                     size="sm"
                     disabled={!isVaultUnlocked || exportBusy}
                     onClick={() => void handleExportMemory()}
+                    className="w-full justify-center sm:w-auto sm:min-w-[180px]"
                     data-testid="memory-export-button"
                   >
                     {exportBusy ? (
@@ -1653,8 +1657,8 @@ export function PkmNaturalPanel({
                       "Download"
                     )}
                   </Button>
-                }
-              />
+                </div>
+              </div>
             </SettingsGroup>
 
             {exportStatus ? (

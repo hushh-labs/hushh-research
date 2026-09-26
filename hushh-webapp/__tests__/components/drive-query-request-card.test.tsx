@@ -435,6 +435,100 @@ describe("sharing files from an answered question", () => {
     expect(state.service.shareQueryFiles).not.toHaveBeenCalled();
   });
 
+  it("keeps the first attempted selection through a failed share and a newer revision", async () => {
+    state.service.getQuery.mockResolvedValueOnce(withFiles())
+      .mockResolvedValueOnce({ ...withFiles(), revision: 3 });
+    state.service.shareQueryFiles.mockRejectedValueOnce(new TypeError("Connection lost"))
+      .mockResolvedValueOnce(withFiles({ shareRequestId: shareId }));
+    mount();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Meeting notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't share these files. Try again.");
+    expect(screen.getByRole("checkbox", { name: "Meeting notes" })).not.toBeChecked();
+    for (const checkbox of screen.getAllByRole("checkbox")) expect(checkbox).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Share 1 file" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+    await screen.findByTestId("share-review");
+    expect(state.service.shareQueryFiles.mock.calls.map((call) => call[2])).toEqual([["f1"], ["f1"]]);
+  });
+
+  it("restores the server's reserved selection when reopening an answered question", async () => {
+    state.service.getQuery.mockResolvedValue(withFiles({ selectedFileRefs: ["f2"] }));
+    state.service.shareQueryFiles.mockResolvedValue(withFiles({ shareRequestId: shareId }));
+    mount();
+    const notes = await screen.findByRole("checkbox", { name: "Meeting notes" });
+    expect(notes).toBeChecked();
+    expect(notes).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /March statement/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select all" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+    await screen.findByTestId("share-review");
+    expect(state.service.shareQueryFiles.mock.calls[0][2]).toEqual(["f2"]);
+  });
+
+  it.each(["request_failed", "request_already_decided"])(
+    "reconciles a committed receipt recovered after %s without another share",
+    async (code) => {
+      const reconcile = vi.fn();
+      window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+      try {
+        state.service.getQuery.mockResolvedValueOnce(withFiles())
+          .mockResolvedValueOnce(withFiles({ shareRequestId: shareId, selectedFileRefs: ["f1"] }));
+        state.service.shareQueryFiles.mockRejectedValueOnce(new DriveSharingError(code, 409));
+        mount();
+        fireEvent.click(await screen.findByRole("checkbox", { name: "Meeting notes" }));
+        fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+        expect(await screen.findByTestId("share-review")).toHaveTextContent(shareId);
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.queryByRole("checkbox")).toBeNull();
+        expect(state.service.shareQueryFiles).toHaveBeenCalledOnce();
+        expect(state.service.getQuery).toHaveBeenCalledTimes(2);
+        expect(state.invalidate).toHaveBeenCalledExactlyOnceWith("a");
+        expect(reconcile).toHaveBeenCalledOnce();
+        expect((reconcile.mock.calls[0][0] as CustomEvent).detail).toEqual({ reconcile: true });
+        expect(screen.getByRole("status")).toHaveFocus();
+      } finally {
+        window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
+      }
+    },
+  );
+
+  it("clears the snapshot on a failed recovery read but retains the attempted selection for Refresh", async () => {
+    state.service.getQuery.mockResolvedValueOnce(withFiles())
+      .mockRejectedValueOnce(new TypeError("Connection lost"))
+      .mockResolvedValueOnce({ ...withFiles(), revision: 3 });
+    state.service.shareQueryFiles.mockRejectedValueOnce(new TypeError("Connection lost"));
+    mount();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Meeting notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load this question. Try again.");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText("These Drive files match your question.")).toBeNull();
+    expect(state.invalidate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByRole("button", { name: "Share 1 file" })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "Meeting notes" })).not.toBeChecked();
+    for (const checkbox of screen.getAllByRole("checkbox")) expect(checkbox).toBeDisabled();
+    expect(state.service.shareQueryFiles).toHaveBeenCalledOnce();
+  });
+
+  it("does not reconcile a recovered receipt after the vault session changes", async () => {
+    let finish!: (result: DriveQueryView) => void;
+    state.service.getQuery.mockResolvedValueOnce(withFiles())
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    state.service.shareQueryFiles.mockRejectedValueOnce(new TypeError("Connection lost"));
+    const rendered = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Share 2 files" }));
+    await waitFor(() => expect(state.service.getQuery).toHaveBeenCalledTimes(2));
+    state.unlocked = false;
+    state.epoch++;
+    rendered.rerender(<DriveQueryRequestCard requestId={requestId} />);
+    await act(async () => finish(withFiles({ shareRequestId: shareId })));
+    expect(screen.queryByTestId("share-review")).toBeNull();
+    expect(state.invalidate).not.toHaveBeenCalled();
+  });
+
   it("explains when the asker has no Google account to share with", async () => {
     state.service.getQuery.mockResolvedValue(withFiles());
     state.service.shareQueryFiles.mockRejectedValue(
