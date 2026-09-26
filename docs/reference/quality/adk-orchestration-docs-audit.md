@@ -1137,3 +1137,10 @@ older predecessor, and its registry lacks `serviceUid` and an immutable image
 observation. This is not a verified normal upgrade path. Keep the predecessor
 compatibility list closed until machine admission, incarnation and encrypted
 recovery evidence establish that transition. Do not reset or recreate the pod.
+
+
+Protected machine checks returned `/pod/info` 200 with matching pod identity and
+`/api/one/pod/upgrade/status` 404 on the reviewer predecessor. The missing handoff
+is a legacy bootstrap prerequisite, not a normal update success or permission to
+bypass approval. The temporary integration checkout was removed after its commits
+were preserved on the original branch; unrelated PDF edits remained hash-identical.

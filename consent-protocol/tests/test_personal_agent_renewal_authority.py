@@ -1997,7 +1997,7 @@ def test_stale_restore_marker_cannot_bypass_erasure_barriers(provision_pg, barri
     pg = provision_pg
     pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
     for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
-        if 918 <= int(path.name.split("_", 1)[0]) <= 937:
+        if 918 <= int(path.name.split("_", 1)[0]) <= 940:
             pg.apply_file(path)
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,backend_metadata) VALUES ('synthetic-owner','ha1_restore','provisioned','{}')"
