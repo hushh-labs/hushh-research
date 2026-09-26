@@ -178,13 +178,7 @@ def test_a_hub_outage_is_a_clean_503_not_a_raw_500():
     assert "401" not in resp.text
 
 
-# -- /pod/info reports what is MOUNTED, not what someone typed --------------------
-#
-# The literal it replaced is the same pattern that produced a false proof of life
-# two files away: /health advertised a hardcoded ["one","kai","nav","kyc"] roster, a
-# live-validation document quoted that string as evidence the fleet ran inside pods,
-# and no Python anywhere loaded kyc's YAML. A capability list that CANNOT be wrong is
-# worth less than no list at all, because people believe it.
+# /pod/info must report mounted capabilities, not a hardcoded roster.
 
 
 def test_the_mount_list_is_derived_from_the_app():
@@ -220,12 +214,7 @@ def test_the_health_route_is_always_reported():
     assert "/health" in pod_server.pod_info()["mounts"]
 
 
-# -- the machine wall ----------------------------------------------------------------
-#
-# Once a pod admits its owner directly its ingress is public and Cloud Run IAM no
-# longer keeps the machine routes hub-only. `PodIngressPolicy` does, per path, and it
-# is always on. These drive the real app over HTTP so a route that mounts but is not
-# walled fails here rather than in a public project.
+# Public ingress must preserve authenticated machine routes.
 
 
 def _hub_identity(email="hub@example.iam.gserviceaccount.com", aud=None):
@@ -369,17 +358,7 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
     )
 
 
-# -- the app surface is pinned path by path -------------------------------------------
-#
-# The wall and the route allowlist are two different lists, and a route can mount
-# while staying unreachable by its owner. That is not hypothetical: three of the four
-# memory doors mounted, declared both admission headers, had owner-local tests, and
-# still answered the wall's 404 to every owner-direct request, because nothing
-# compared the two lists. These do.
-
-#: Every mounted path an owner may reach directly, with no hub identity. Anything
-#: mounted and absent from here is on the machine wall. Both directions are asserted,
-#: so widening the wall's allowlist without reviewing it here fails.
+# Exact external reachability, independently pinned against ingress policy.
 OWNER_REACHABLE_PATHS = frozenset(
     {
         "/health",
