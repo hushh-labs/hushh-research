@@ -3,7 +3,7 @@ import { ApiService } from "@/lib/services/api-service";
 import {
   projectCustomConnectorTurnConfigurations,
   type CustomConnectorConfiguration,
-} from "@/lib/connections/custom-connector-configuration";
+} from "@/lib/connections/custom-connector-schema";
 import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,

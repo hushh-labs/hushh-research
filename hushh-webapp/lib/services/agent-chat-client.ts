@@ -1,5 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
-import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
 import {
