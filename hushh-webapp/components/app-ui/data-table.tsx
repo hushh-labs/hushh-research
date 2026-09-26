@@ -506,14 +506,14 @@ export function DataTable<TData, TValue>({
       {hasMultiplePages && (
         <div
           className={cn(
-            "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between",
+            "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between min-w-0 max-w-full flex-wrap",
             renderMobileCard && "hidden md:flex",
           )}
         >
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex w-full items-center justify-between gap-3 text-xs text-muted-foreground sm:w-auto sm:justify-start sm:text-sm"
+            className="flex w-full flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground sm:w-auto sm:justify-start sm:text-sm min-w-0 max-w-full"
             data-slot="data-table-range-controls"
           >
             <DropdownMenu>
@@ -546,13 +546,13 @@ export function DataTable<TData, TValue>({
           </div>
 
           <div
-            className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end"
+            className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end min-w-0 max-w-full"
             data-slot="data-table-page-controls"
           >
-            <Pagination className="mx-0 w-auto">
+            <Pagination className="mx-0 w-auto max-w-full overflow-x-auto">
               <PaginationContent
                 data-no-route-swipe
-                className="flex-nowrap gap-1"
+                className="flex-wrap gap-1"
               >
                 <PaginationItem>
                   <PaginationPrevious

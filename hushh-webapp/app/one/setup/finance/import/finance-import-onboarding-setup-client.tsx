@@ -36,7 +36,7 @@ export function FinanceImportOnboardingSetupClient() {
   }
 
   return (
-    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] ">
+    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[calc(var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))+2rem)]">
       <NativeTestBeacon
         routeId="/one/setup/finance/import"
         marker="native-route-one-setup-finance-import"
@@ -100,6 +100,7 @@ export function FinanceImportOnboardingSetupClient() {
         isOperationallyReady={true}
         coordinator={coordinator}
         finishLabel={sourceSettled ? "Finish Finance setup" : "I'll link this later"}
+        insetBottom={true}
       />
     </FullscreenFlowShell>
   );
