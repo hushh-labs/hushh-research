@@ -234,6 +234,12 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Open drawer", exact: true })
       .click();
+    const openConnectors = page.getByLabel("Open Connectors", { exact: true });
+    // The fixture discovers connector availability asynchronously. Let that
+    // parent update settle before editing the controlled history search; this
+    // mirrors the production state where the Connectors action is ready before
+    // the person can switch views and avoids a WebKit-only stale render race.
+    await expect(openConnectors).toBeVisible();
     const historySearch = page.getByRole("searchbox", { name: "Search chats" });
     await historySearch.fill("History filter");
     // Wait for React's controlled value to commit before switching the
@@ -241,7 +247,7 @@ for (const width of [320, 390, 768, 1440])
     // in the same frame as the input event and expose an empty stale value on
     // the next open even though the component itself stayed mounted.
     await expect(historySearch).toHaveValue("History filter");
-    await page.getByLabel("Open Connectors", { exact: true }).click();
+    await openConnectors.click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
