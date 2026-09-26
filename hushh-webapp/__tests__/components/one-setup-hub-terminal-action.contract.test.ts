@@ -138,9 +138,9 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("hover:!text-[var(--app-accent)]");
-    expect(source).toContain("disabled:!text-muted-foreground");
-    expect(source).toContain("disabled:!opacity-100");
+    expect(source).toContain('size="prominent"');
+    expect(source).toContain("disabled={disabled || blocked}");
+    expect(source).not.toContain("disabled:!opacity-100");
   });
 
   it("prevents KYC setup settlement while its server preference is saving", () => {
@@ -267,11 +267,9 @@ describe("One setup hub terminal action contract", () => {
     expect(page).toContain("RUNTIME_PROVIDER_CATALOG");
     expect(gate).not.toContain("data-runtime-provider-lane");
 
-    // Taking the recommended option is the entire decision, so it finishes the
-    // step. Bring-your-own-key still continues through the footer, because it
-    // has a form left to fill.
-    expect(page).toContain('if (choice === "hushh_managed_vertex") {');
-    expect(page).toContain("void finishSetupAndGoHome();");
+    // Saving either choice requires a separate, enabled Continue action.
+    expect(page).not.toContain("void finishSetupAndGoHome();");
+    expect(page).toContain("disabled={!canContinue || finishing}");
   });
 
   it("names the recommended AI option so the default is not worked out by elimination", () => {

@@ -6224,7 +6224,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               >
                 <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
               </ShellActionSurface>
-              <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center">
                 {isPuppySurface ? (
                   <Laptop
                     className="h-5 w-5 text-[color:var(--app-accent-deep)]"

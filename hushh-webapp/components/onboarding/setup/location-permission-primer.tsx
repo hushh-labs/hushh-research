@@ -96,11 +96,11 @@ export function LocationPermissionPrimerGate({
         <div className="mt-10 w-full">
           <Button
             type="button"
-            variant="blue-gradient"
+            variant="blue"
             effect="fill"
-            size="lg"
+            size="prominent"
             fullWidth
-            className="min-h-14 justify-center"
+
             disabled={phase === "asking"}
             onClick={() => void allow()}
             data-testid="location-permission-primer-allow"
@@ -111,7 +111,7 @@ export function LocationPermissionPrimerGate({
             type="button"
             variant="none"
             effect="fade"
-            size="lg"
+            size="prominent"
             fullWidth
             className="mt-2 text-muted-foreground"
             onClick={() => setPhase("done")}

@@ -20,7 +20,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain(
       "var(--app-scroll-bottom-pad,var(--app-bottom-inset))",
     );
-    expect(source).toContain('"h-12 text-base"');
+    expect(source).toContain('size="prominent"');
     expect(source).toContain("bg-transparent");
     expect(source).not.toContain("SurfaceInset");
   });
@@ -36,10 +36,10 @@ describe("setup completion footer contract", () => {
 
     expect(source).toContain("variant?: ColorVariant");
     expect(source).toContain("effect?: ComponentEffect");
-    expect(source).toContain('variant = "blue-gradient"');
+    expect(source).toContain('variant = "blue"');
     expect(source).toContain('effect = "fill"');
     expect(source).toContain('variant === "none" && effect === "fade"');
-    expect(source).toContain('const visualVariant = isQuietSetupAction ? "blue" : variant');
+    expect(source).toContain('const visualVariant = variant === "blue-gradient" ? "blue" : variant');
     expect(source).toContain("!text-[var(--app-accent)]");
     expect(source).toContain("data-voice-action-id={actionId}");
   });
@@ -53,8 +53,8 @@ describe("setup completion footer contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('className="relative z-20 space-y-2 bg-transparent py-2"');
-    expect(source).toContain("space-y-2 bg-transparent py-2");
+    expect(source).toContain('className="relative z-20 space-y-2 bg-transparent"');
+    expect(source).toContain("space-y-2 bg-transparent");
     expect(source).not.toContain("sticky bottom-");
     expect(source).not.toContain('placement?: "sticky" | "fixed"');
     expect(source).not.toContain("max-w-[var(--app-shell-standard)]");

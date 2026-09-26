@@ -11,13 +11,7 @@ type SetupCompletionFooterProps = {
   onComplete: () => void;
   busy?: boolean;
   disabled?: boolean;
-  /**
-   * Looks unavailable but still accepts the tap, so `onComplete` can say what
-   * is missing. Use this instead of `disabled` whenever a blocked action has a
-   * reason worth speaking: a real `disabled` button swallows the event, and the
-   * explanation then has to live in permanent copy nobody reads until after
-   * they have already tapped.
-   */
+  /** A prerequisite that keeps the shared primary action disabled. */
   blocked?: boolean;
   controlId: string;
   actionId?: string;
@@ -44,18 +38,7 @@ type SetupCompletionFooterProps = {
   effect?: ComponentEffect;
 };
 
-/**
- * Shared terminal setup action.
- *
- * Routes may show this while a prerequisite is pending, but must mark it
- * `disabled` (inert) or `blocked` (tappable, and it names what is missing)
- * until their own completion condition is verified. Either way it drops the
- * accent fill: the blue is the promise that the tap finishes setup, so it is
- * spent only on an action that can. Prefer `blocked` when there is a specific
- * reason to give -- an inert control cannot tell anyone why. The canonical
- * bottom inset keeps it above app chrome on safe-area and keyboard-resized
- * native viewports, with the same calm full-width action cadence everywhere.
- */
+/** Shared primary action for setup flows. */
 export function SetupCompletionFooter({
   label,
   onComplete,
@@ -68,71 +51,38 @@ export function SetupCompletionFooter({
   purpose,
   supportingText,
   insetBottom = true,
-  variant = "blue-gradient",
+  variant = "blue",
   effect = "fill",
 }: SetupCompletionFooterProps) {
-  // A pending setup is deliberately secondary, but it must retain the same
-  // Foundation accent and tactile feedback as the Agent Bar. Keeping callers
-  // on the existing `none` + `fade` contract avoids creating a second setup
-  // action vocabulary while preventing the light-theme gray container look.
   const isQuietSetupAction = variant === "none" && effect === "fade";
-  const visualVariant = isQuietSetupAction ? "blue" : variant;
-  // Accent means "this works". The stock disabled treatment only fades the
-  // accent fill to 50%, which still reads as the blue primary action on a
-  // light surface -- so a blocked finish looked tappable, absorbed the tap,
-  // and explained itself only in the supporting line underneath. A blocked
-  // action takes the same neutral container the quiet variant already uses.
-  //
-  // It keeps a border, and the border is the whole reason it stays a control.
-  // In the light theme `muted` and the page surface are the same colour to
-  // within 1:1 contrast (measured: rgb(242,242,245) on rgb(242,242,247)), so
-  // the fill alone draws nothing -- the pill vanished and left a grey label
-  // floating on the page. `border-border` is the same hairline every card on
-  // this surface uses, and the enabled state already reserves 1px for a
-  // transparent one, so making it visible costs no geometry.
-  const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction;
-  // Same neutral container as above, for the case where the tap must still
-  // land. Tailwind's `disabled:` variants key off the real disabled attribute
-  // and never apply to an enabled button, so the blocked look is spelled out
-  // unprefixed here. Hover stays put: the container is not promising passage.
-  const isBlockedTappableAction =
-    blocked && !disabled && !busy && !isQuietSetupAction;
+  const visualVariant = variant === "blue-gradient" ? "blue" : variant;
 
   return (
     <div
       className={cn(
-        "mt-6 sm:mt-8",
+        "mt-4",
         insetBottom
           ? "pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:pb-8"
           : "pb-6",
       )}
     >
-      <div className="relative z-20 space-y-2 bg-transparent py-2">
+      <div className="relative z-20 space-y-2 bg-transparent">
         {supportingText ? (
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-[13px] leading-5 text-muted-foreground">
             {supportingText}
           </p>
         ) : null}
-        <div className="mx-auto w-full sm:max-w-[22rem]">
+        <div className="mx-auto w-full">
           <Button
             type="button"
             onClick={onComplete}
-            disabled={disabled}
-            aria-disabled={isBlockedTappableAction || undefined}
+            disabled={disabled || blocked}
             loading={busy}
             variant={visualVariant}
             effect={effect}
-            size="lg"
+            size="prominent"
             fullWidth
-            className={cn(
-              "h-12 text-base",
-              isQuietSetupAction &&
-                "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
-              isBlockedFilledAction &&
-                "disabled:!border-border disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
-              isBlockedTappableAction &&
-                "!border-border !bg-muted/60 !text-muted-foreground !opacity-100 hover:!bg-muted/60 hover:!text-muted-foreground",
-            )}
+            className={isQuietSetupAction ? "!border-0 !bg-transparent !text-[var(--app-accent)]" : undefined}
             data-testid={testId}
             data-voice-control-id={controlId}
             data-voice-action-id={actionId}

@@ -542,7 +542,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     model.mode === "bar-with-tabs" && topChromeFullyCollapsed;
 
   /**
-   * Whether this screen's only way back is the arrow in this bar.
+   * Whether this screen needs persistent navigation chrome. Setup keeps its
+   * breadcrumb and menu visible even when its back arrow is hidden.
    *
    * Read inside the scroll handler, so it is a ref rather than a dependency —
    * re-subscribing the scroll listener on every breadcrumb change would undo
@@ -550,7 +551,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
    */
   const hasBackControlRef = useRef(false);
   hasBackControlRef.current = Boolean(
-    topShellBreadcrumb && !topShellBreadcrumb.hideBack,
+    (topShellBreadcrumb && !topShellBreadcrumb.hideBack) ||
+    normalizedPathname === ROUTES.ONE_SETUP ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_SETUP}/`),
   );
 
   useEffect(() => {

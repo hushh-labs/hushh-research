@@ -111,7 +111,7 @@ for (const viewport of [{width:320,height:568}, {width:393,height:852}, {width:4
       const country = page.getByRole("button", {name:/^Country code:/});
       await expect(country).toContainText("US");
       const helper = page.locator("[data-figma-phone-helper]");
-      await expect(helper).toHaveCSS("font-size", "14px");
+      await expect(helper).toHaveCSS("font-size", "13px");
       await expect(helper).toHaveCSS("line-height", "20px");
       await expect(helper).toHaveText("By using your mobile number, you may receive SMS notifications from us. Learn more");
       const button = page.getByRole("button", {name:"Continue", exact:true});

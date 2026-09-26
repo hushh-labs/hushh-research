@@ -12,7 +12,8 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
-import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import { Button } from "@/lib/morphy-ux/button";
+import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -48,6 +49,7 @@ export function GeminiRuntimeConfigurationPage({
   const [setupChoice, setSetupChoice] = useState<OneRuntimeSetupChoice | null>(
     null,
   );
+  const [canContinue, setCanContinue] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [setupVaultDialogOpen, setSetupVaultDialogOpen] = useState(false);
@@ -253,7 +255,7 @@ export function GeminiRuntimeConfigurationPage({
   }, [completeSetupAndGoHome, isVaultUnlocked, router, user?.uid]);
 
   const finishConnections = useCallback(async () => {
-    if (!hasRuntimeChoice) {
+    if (!canContinue) {
       return {
         status: "blocked" as const,
         summary: "Choose your AI first.",
@@ -266,7 +268,7 @@ export function GeminiRuntimeConfigurationPage({
       };
     }
     return finishSetupAndGoHome();
-  }, [finishing, hasRuntimeChoice, finishSetupAndGoHome]);
+  }, [finishing, canContinue, finishSetupAndGoHome]);
 
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
@@ -279,7 +281,7 @@ export function GeminiRuntimeConfigurationPage({
     title: setupMode ? "AI access setup" : "Gemini settings",
     purpose: "Choose how the private agent reaches Gemini.",
     actions:
-      setupMode && hasRuntimeChoice && !finishing
+      setupMode && canContinue && !finishing
         ? [
             {
               id: "finish_connections",
@@ -355,12 +357,13 @@ export function GeminiRuntimeConfigurationPage({
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
+          className={setupMode ? setupStyles.setupHeader : undefined}
         />
       </AppPageHeaderRegion>
       {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
-      <AppPageContentRegion className="space-y-6">
+      <AppPageContentRegion className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}>
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
@@ -370,7 +373,11 @@ export function GeminiRuntimeConfigurationPage({
           onRequestVaultCreation={() => setUnlockOpen(true)}
           onRequestVaultUnlock={() => setUnlockOpen(true)}
           requiresExplicitSelection={setupMode}
-          initiallyConfigured={hasRuntimeChoice === true}
+          initiallyConfigured={hasRuntimeChoice === true && (
+            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
+          )}
+          onCanContinueChange={setupMode ? setCanContinue : undefined}
           initialSetupChoice={setupChoice}
           onSelectionReadyChange={
             setupMode && user?.uid
@@ -381,14 +388,7 @@ export function GeminiRuntimeConfigurationPage({
                   );
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
-                  // Taking the recommended option IS the whole decision —
-                  // there is nothing further to enter — so it finishes this
-                  // step instead of parking the person on a Continue button
-                  // they have to find. Bringing your own key still continues
-                  // below, because that path has a form left to fill.
-                  if (choice === "hushh_managed_vertex") {
-                    void finishSetupAndGoHome();
-                  }
+
                 }
               : undefined
           }
@@ -403,19 +403,19 @@ export function GeminiRuntimeConfigurationPage({
               : undefined
           }
         />
+        {setupMode ? (
+          <Button
+            type="button" variant="blue" effect="fill" size="prominent" fullWidth
+            onClick={() => void finishConnections()}
+            loading={finishing} disabled={!canContinue || finishing}
+            data-testid="one-setup-connections-terminal"
+            data-voice-control-id="one-setup-connections-terminal"
+            data-voice-action-id="setup.finish_connections"
+            data-voice-label="Continue"
+            data-voice-purpose="Record the selected Gemini runtime and finish setup."
+          >Continue</Button>
+        ) : null}
       </AppPageContentRegion>
-      {setupMode ? (
-        <SetupCompletionFooter
-          label="Continue"
-          onComplete={() => void finishConnections()}
-          busy={finishing}
-          disabled={!hasRuntimeChoice || finishing}
-          controlId="one-setup-connections-terminal"
-          actionId="setup.finish_connections"
-          purpose="Record the selected Gemini runtime and finish setup."
-          supportingText="Pick one to continue."
-        />
-      ) : null}
       {setupMode && finalizationError ? (
         <div
           role="alert"

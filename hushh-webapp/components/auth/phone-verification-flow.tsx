@@ -1366,11 +1366,11 @@ export function PhoneVerificationFlow({
             data-figma-otp-primary="true"
             loading={busy}
             disabled={busy || verificationCode.length !== 6}
-            variant="none"
+            variant={codePresentation === "onboarding" ? "blue" : "none"}
             effect="fill"
-            size="default"
+            size={codePresentation === "onboarding" ? "prominent" : "default"}
             fullWidth
-            className={cn(
+            className={codePresentation === "onboarding" ? undefined : cn(
               "type-headline",
               FLOW_CTA_CLASS_NAME,
               primaryActionClassName,

@@ -200,11 +200,11 @@ export function CapabilityCinematicIntroGate({
       <div className="mt-10 w-full max-w-[30rem] self-center">
         <Button
           type="button"
-          variant="blue-gradient"
+          variant="blue"
           effect="fill"
-          size="lg"
+          size="prominent"
           fullWidth
-          className="min-h-14 justify-center text-center"
+
           onClick={() => {
             markCapabilityIntroSeen(capabilityId);
             setShouldFocusCapabilityBody(true);
