@@ -1,26 +1,17 @@
 .shell {
-  /* The frame includes 62px above / 34px below its content. Account for
-     native insets only when they exceed those scaled authored margins. */
-  --intro-height: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   --intro-safe-top: var(--app-safe-area-top-effective, 0px);
   --intro-safe-bottom: var(--app-safe-area-bottom-effective, 0px);
-  --intro-frame-bottom: 34px;
-  --intro-scale: max(0, min(
-    1,
-    calc(100vw / 402px),
-    calc(var(--intro-height) / 874px),
-    calc((var(--intro-height) - var(--intro-safe-bottom)) / (874px - var(--intro-frame-bottom))),
-    calc((var(--intro-height) - var(--intro-safe-top) - var(--intro-safe-bottom)) / (812px - var(--intro-frame-bottom)))
-  ));
+  /* Only decorative artwork adapts to short viewports. Text and controls stay
+     at their readable sizes; landscape and enlarged text can scroll. */
+  --intro-art-height: clamp(140px, calc(100svh - 400px - var(--intro-safe-top) - var(--intro-safe-bottom)), 360px);
   position: relative;
-  display: flex;
   block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
-  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
-  flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #f6f5fc;
   color: #0a0a0a;
+  font-family: var(--font-app-body);
 }
 
 :global(.dark) .shell {
@@ -31,67 +22,99 @@
 .stage {
   position: relative;
   z-index: 10;
-  display: block;
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
-  min-height: 0;
+  display: flex;
+  min-height: 100%;
   width: 100%;
   max-width: 440px;
   margin: 0 auto;
-  padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
-    16px 10px;
+  padding: calc(var(--intro-safe-top) + 24px) 24px
+    calc(var(--intro-safe-bottom) + 24px);
   text-align: center;
 }
 
 .composition {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin: auto 0;
 }
 
 .brand {
-  position: absolute;
-  top: 102px;
-  left: 50%;
-  z-index: 2;
-  transform: translateX(-50%);
+  flex: none;
+  margin-bottom: 8px;
 }
 
-.illustration {
-  position: absolute;
-  top: 135px;
-  left: 50%;
-  z-index: 1;
-  transform: translateX(-50%);
+.artwork {
+  position: relative;
+  width: 100%;
+  height: var(--intro-art-height);
+  flex: none;
+  /* WebKit includes untransformed decorative bounds in scroll extents. */
+  overflow: clip;
 }
 
-.hero {
+.artworkCanvas {
   position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
+  top: 50%;
+  left: 50%;
+  width: 402px;
+  height: 360px;
+  transform: translate(-50%, -50%) scale(calc(var(--intro-art-height) / 360px));
+}
+
+/* Keep the original image crop and separate light emoji inside a decorative
+   canvas. No text, control, or interactive ancestor is scaled. */
+:global(html:not(.dark)) .illustration {
+  position: absolute;
+  top: 0;
+  left: 70px;
+  width: 287px;
+  height: 360px;
+  aspect-ratio: auto;
+  overflow: hidden;
+}
+
+:global(html:not(.dark)) .illustration img {
+  position: absolute;
+  top: -7.54717%;
+  left: 0;
+  width: 100%;
+  height: 141.95975%;
+  max-width: none;
+  object-fit: fill;
+}
+
+:global(.dark) .illustration {
+  position: absolute;
+  top: 20px;
+  left: -31px;
+  width: 471px;
+  height: 314px;
 }
 
 .quietMark {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+  top: 266px;
+  left: 182px;
+  width: 45px;
+  height: 53px;
+  font-family: var(--font-app-emoji);
+  font-size: 44.7px;
+  line-height: 53px;
 }
+
+:global(.dark) .quietMark { display: none; }
+
+.hero { width: 100%; }
 
 .title {
-  position: absolute;
-  top: 465px;
-  left: 50%;
   width: 221px;
   height: 91px;
-  margin: 0;
-  transform: translateX(-50%);
+  margin: 0 auto 12px;
 }
 
-.title :global(img) {
-  width: 100%;
-  height: 100%;
-}
+.title img { width: 100%; height: 100%; }
 
 .srOnly {
   position: absolute;
@@ -106,501 +129,97 @@
 }
 
 .tagline {
-  position: absolute;
-  top: 568px;
-  left: 16px;
-  right: 16px;
   margin: 0;
   color: inherit;
   font-size: 19px;
   font-weight: 600;
   letter-spacing: -0.2px;
-  line-height: 1.25;
+  line-height: 24px;
 }
 
 .subtitle {
-  position: absolute;
-  top: 595px;
-  left: 16px;
-  right: 16px;
-  margin: 0;
-  color: rgba(122, 122, 128, 0.92);
-  font-size: 12px;
-  line-height: 1.35;
+  margin: 4px 0 0;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .footer {
-  position: absolute;
-  right: 16px;
-  bottom: max(18px, var(--app-safe-area-bottom-effective, 0px));
-  left: 16px;
-  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
+  width: 100%;
+  margin-top: 48px;
 }
 
-.privacy {
-  display: flex;
-  justify-content: center;
-  width: 100%;
+.privacy { display: flex; justify-content: center; width: 100%; }
+
+.shell .privacy > div {
+  width: auto;
+  max-width: 100%;
+  gap: 10px;
+  color: #626b80;
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
 }
+
+:global(.dark) .shell .privacy > div { color: #bfbfc8; }
 
 .cta {
   position: relative;
   display: inline-flex;
-  min-height: 60px;
+  flex: none;
   width: 100%;
-  max-width: 344px;
+  height: 52px;
+  min-height: 52px;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  padding: 0 20px;
   border: 0;
   border-radius: 999px;
-  background: var(--app-accent);
-  color: var(--app-accent-fg);
-  font-family: var(--font-app-body);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
-  transition:
-    background-color var(--motion-duration-sm) var(--motion-ease-standard),
-    transform var(--motion-duration-sm) var(--motion-ease-standard);
-}
-
-.cta:hover {
-  background: var(--app-accent-hover);
-}
-
-.cta:active {
-  transform: scale(0.99);
-}
-
-.links {
-  position: absolute;
-  right: 16px;
-  bottom: 8px;
-  left: 16px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  color: rgba(122, 122, 128, 0.9);
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.link {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: center;
-  border-left: 1px solid rgba(122, 122, 128, 0.18);
-  text-align: center;
-}
-
-.link:first-child {
-  border-left: 0;
-}
-
-@media (min-width: 640px) and (min-height: 860px) {
-  .shell {
-    /* Visible Explore links extend below the mobile frame's footer. */
-    --intro-frame-bottom: 8px;
-  }
-
-  .links {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-@media (max-height: 740px) {
-  .brand {
-    top: 78px;
-  }
-
-  .illustration {
-    top: 100px;
-  }
-
-  .title {
-    top: 360px;
-    width: 180px;
-    height: 74px;
-  }
-
-  .tagline {
-    top: 445px;
-    font-size: 17px;
-  }
-
-  .subtitle {
-    top: 470px;
-  }
-
-  .footer {
-    gap: 9px;
-  }
-}
-
-/* Dark frame 194:2950 keeps its authored 402 × 874 coordinates.
-   The shared scale fits the complete composition into the safe viewport. */
-:global(.dark) .shell {
-  --intro-font: "SF Pro", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-x: hidden;
-  overflow-y: hidden;
-}
-
-:global(.dark) .stage {
-  display: flex;
-  justify-content: center;
-  flex: none;
-  max-width: none;
-  min-height: 0;
-  /* Contain transformed layout bounds, without creating another scroller. */
-  overflow: clip;
-  padding: 0;
-}
-
-:global(.dark) .composition {
-  /* Absolute positioning removes the unscaled 874px layout box. */
-  position: absolute;
-  top: max(0px, calc(var(--intro-safe-top) - 62px * var(--intro-scale)));
-  left: calc(50% - 201px);
-  display: block;
-  flex: none;
-  width: 402px;
-  height: 874px;
-  transform: scale(var(--intro-scale));
-  transform-origin: top center;
-}
-
-:global(.dark) .brand {
-  top: 89px;
-  left: 153px;
-  transform: none;
-}
-
-/* The source PNG includes the floating tiles, envelope, light and 🤫.
-   Keep its 3:2 canvas and authored offset; do not add a second emoji. */
-:global(.dark) .illustration {
-  top: 140px;
-  margin-left: 3.5px;
-}
-
-:global(.dark) .title {
-  top: 465px;
-  left: 90px;
-  width: 221.000763px;
-  height: 90.830093px;
-  transform: none;
-}
-
-:global(.dark) .tagline,
-:global(.dark) .subtitle {
-  left: 76px;
-  right: auto;
-  width: 250px;
-  font-family: var(--intro-font);
+  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
   color: #fff;
-  letter-spacing: 0;
-}
-
-:global(.dark) .tagline {
-  top: 575.997559px;
-  height: 23px;
-  font-size: 19px;
-  font-weight: 590;
-  line-height: 23px;
-}
-
-:global(.dark) .subtitle {
-  top: 602px;
-  height: 16px;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 16px;
-}
-
-:global(.dark) .footer {
-  inset: 0;
-  display: block;
-}
-
-:global(.dark) .privacy {
-  position: absolute;
-  top: 716px;
-  left: 50%;
-  width: max-content;
-  transform: translateX(-50%);
-  height: 26px;
-}
-
-:global(.dark) .privacy > div {
-  width: max-content;
-  max-width: none;
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  gap: 12.029842px;
-  font-family: var(--intro-font);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 13px;
-  color: #bfbfbf;
-}
-
-:global(.dark) .privacy img {
-  width: 32.245548px;
-  height: 25.76586px;
-}
-
-:global(.dark) .privacy span {
-  flex: none;
-  width: max-content;
-  height: auto;
+  font-family: var(--font-app-body);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
 }
 
 :global(.dark) .cta {
-  position: absolute;
-  top: 759px;
-  left: 36px;
-  width: 330px;
-  max-width: none;
-  min-height: 52px;
-  height: 52px;
-  padding: 16px 20px;
-  overflow: visible;
-  border-radius: 1000px;
-  background: transparent;
-  color: #fff;
-  font-family: var(--intro-font);
-  font-size: 17px;
-  font-weight: 510;
-  line-height: 18px;
-  letter-spacing: 0;
+  background-image: url("/onboarding/figma/intro-dark-cta-material.png");
 }
 
-/* Exact frame-8 BG export includes the glass rendered over its black
-   backdrop. The label and existing ripple remain live interactive elements. */
-:global(.dark) .cta::before {
-  position: absolute;
-  inset: -0.5px;
-  content: "";
-  pointer-events: none;
-  background: url("/onboarding/figma/intro-dark-cta-material.png") center / 100% 100% no-repeat;
-  border-radius: inherit;
-}
+.ctaLabel { position: relative; }
 
-:global(.dark) .ctaLabel {
-  display: block;
-  width: auto;
-  height: 18px;
-  text-align: center;
-  white-space: nowrap;
-}
+.cta:focus-visible,
+.link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 
-:global(.dark) .links {
-  bottom: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cta {
-    transition: none;
-  }
-}
-
-/* Light frame 144:6039 uses the same safe-viewport fit as dark.
-   All authored element coordinates and reference-size alignment stay intact. */
-:global(html:not(.dark)) .shell {
-  --intro-font: "SF Pro", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-x: hidden;
-  overflow-y: hidden;
-}
-
-:global(html:not(.dark)) .stage {
-  display: flex;
-  justify-content: center;
-  flex: none;
-  max-width: none;
-  min-height: 0;
-  /* Contain transformed layout bounds, without creating another scroller. */
-  overflow: clip;
-  padding: 0;
-}
-
-:global(html:not(.dark)) .composition {
-  /* Absolute positioning removes the unscaled 874px layout box. */
-  position: absolute;
-  top: max(0px, calc(var(--intro-safe-top) - 62px * var(--intro-scale)));
-  left: calc(50% - 201px);
-  display: block;
-  flex: none;
-  width: 402px;
-  height: 874px;
-  transform: scale(var(--intro-scale));
-  transform-origin: top center;
-}
-
-:global(html:not(.dark)) .brand {
-  top: 89px;
-  left: 153px;
-  transform: none;
-}
-
-:global(html:not(.dark)) .illustration {
-  top: 107px;
-  left: 70px;
-  width: 287px;
-  height: 360px;
-  aspect-ratio: auto;
-  overflow: hidden;
-  transform: none;
-}
-
-/* Inverse of the Figma CROP matrix [[1,0,0],[0,.7044250369,.0531641543]].
-   Both axes are explicit: using contain or the PNG's natural aspect ratio
-   changes the authored crop. The nine tiles and box are baked into this PNG. */
-:global(html:not(.dark)) .illustration img {
-  position: absolute;
-  top: -7.54717%;
-  left: 0;
+.links {
+  display: none;
   width: 100%;
-  height: 141.95975%;
-  max-width: none;
-  object-fit: fill;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  color: #626b80;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-:global(html:not(.dark)) .quietMark {
-  top: 373px;
-  left: 182px;
-  width: 45px;
-  height: 53px;
-  overflow: visible;
-  clip: auto;
-  font-family: var(--intro-font), "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
-  font-size: 44.695049px;
-  font-weight: 510;
-  line-height: 52.582409px;
-  letter-spacing: -1.130522px;
-  text-align: left;
-  color: #000;
-}
+:global(.dark) .links { color: #bfbfc8; }
 
-:global(html:not(.dark)) .title {
-  top: 465px;
-  left: 90px;
-  width: 221.000763px;
-  height: 90.830093px;
-  transform: none;
-}
-
-:global(html:not(.dark)) .tagline,
-:global(html:not(.dark)) .subtitle {
-  left: 76px;
-  right: auto;
-  width: 250px;
-  font-family: var(--intro-font);
-  color: #000;
-  letter-spacing: 0;
-}
-
-:global(html:not(.dark)) .tagline {
-  top: 575.997559px;
-  height: 23px;
-  font-size: 19px;
-  font-weight: 590;
-  line-height: 23px;
-}
-
-:global(html:not(.dark)) .subtitle {
-  top: 602px;
-  height: 16px;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 16px;
-}
-
-:global(html:not(.dark)) .footer {
-  inset: 0;
-  display: block;
-}
-
-:global(html:not(.dark)) .privacy {
-  position: absolute;
-  top: 716px;
-  left: 50%;
-  width: max-content;
-  transform: translateX(-50%);
-  height: 26px;
-}
-
-:global(html:not(.dark)) .privacy > div {
-  /* Preserve the authored center/minimum geometry, but allow device font
-     metrics to widen the row instead of wrapping the first sentence. */
-  width: max-content;
-  min-width: 233px;
-  flex-shrink: 0;
-  max-width: none;
-  height: 26px;
+.link {
+  display: flex;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
-  gap: 12.029842px;
-  font-family: var(--intro-font);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 13px;
-  color: #76829d;
+  border-radius: 8px;
 }
 
-:global(html:not(.dark)) .privacy img {
-  width: 32.245548px;
-  height: 25.76586px;
-}
-
-:global(html:not(.dark)) .privacy span {
-  flex: none;
-  width: max-content;
-  height: auto;
-}
-
-:global(html:not(.dark)) .cta {
-  position: absolute;
-  top: 759px;
-  left: 36px;
-  width: 330px;
-  max-width: none;
-  min-height: 52px;
-  height: 52px;
-  padding: 16px 20px;
-  overflow: visible;
-  border-radius: 1000px;
-  background: transparent;
-  color: #fff;
-  font-family: var(--intro-font);
-  font-size: 17px;
-  font-weight: 510;
-  line-height: 18px;
-  letter-spacing: 0;
-}
-
-/* Exported BG instance includes the authored half-point backing outside the
-   330 × 52 control. Text and the existing ripple/handler remain live HTML. */
-:global(html:not(.dark)) .cta::before {
-  position: absolute;
-  inset: -0.5px;
-  content: "";
-  pointer-events: none;
-  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
-  border-radius: inherit;
-}
-
-:global(html:not(.dark)) .ctaLabel {
-  display: block;
-  width: auto;
-  height: 18px;
-  text-align: center;
-  white-space: nowrap;
+@media (min-width: 640px) and (min-height: 860px) {
+  .links { display: grid; }
+  .shell { --intro-art-height: 320px; }
 }
