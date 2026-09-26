@@ -504,8 +504,8 @@ function UnlockedDriveQueryCard({
             ))}
           </ul>
           <HelperText>
-            {name ? `${name} gets` : "They get"} Viewer access to the original files in Google
-            Drive. You can remove access anytime.
+            {name ? `${name} gets` : "They get"} Viewer access. Google emails new access links.
+            You can remove access anytime.
           </HelperText>
           <Button
             size="prominent"

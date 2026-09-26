@@ -326,6 +326,19 @@ UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT` o
 `CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are mutually exclusive;
 `*` and `all` remain invalid cohort values, and production cannot enable either mode.
 Google's OAuth app audience must independently allow the intended Google accounts.
+For a Trusted-circle share that returns `no_recipients`, inspect the backend's
+`drive_share.timing` entries for `trusted_members` and `recipient_identity` counts,
+then the request-summary trace and the card's closed `data-outcome` tag. The
+first count is roster candidates; the second is identity checks for otherwise
+eligible recipients. A zero roster count means the share stopped before Drive.
+The card's **Not included** list gives the owner closed eligibility reasons.
+The card shows elapsed search/share time; the Activity panel shows completed tool
+time, total response time, and time to first text. These diagnostics contain
+stage, outcome, duration and count only, never Drive query text or file names.
+`drive_rest.timing` records each Drive list/read operation, and
+`drive_permission_rest.timing` records each permission operation with fixed
+operation and outcome labels. Neither log includes provider URLs, file IDs,
+recipient identities, or request content.
 The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
 audience or an unverified service-account email.

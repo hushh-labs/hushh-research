@@ -71,27 +71,36 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain("<AuthLegalDialog");
   });
 
-  it("centers the legal group on Android only, leaving the iOS Figma offsets intact", () => {
+  it("keeps the legal footer centered on every platform, including 360px Android", () => {
     const source = readFileSync(join(process.cwd(), "components/onboarding/AuthStep.tsx"), "utf8");
     const css = readFileSync(join(process.cwd(), "components/onboarding/AuthStepLight.module.css"), "utf8");
+    const rule = (selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, `missing rule ${selector}`).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf("}", start));
+    };
 
-    // Scoped by platform so iOS and web keep the approved layout.
-    expect(source).toContain("isAndroid() && lightStyles.androidFooter");
     for (const theme of [":global(html:not(.dark))", ":global(html.dark)"]) {
-      expect(css).toContain(`${theme} .footer.androidFooter`);
-      expect(css).toContain(`${theme} .androidFooter .legalRow`);
-      expect(css).toContain(`${theme} .androidFooter .legalRow p`);
-      // The iOS offsets stay exactly as designed.
-      expect(css).toContain(`${theme} .footer {`);
+      // The footer centers its content with symmetric insets. A one-sided
+      // left offset is what pushed the group off-center on Android phones.
+      const footer = rule(`${theme} .footer`);
+      expect(footer).toMatch(/justify-content:\s*center/);
+      expect(footer).not.toMatch(/padding-left:/);
+      const row = rule(`${theme} .legalRow`);
+      expect(row).toMatch(/justify-content:\s*center/);
+      expect(row).toMatch(/text-align:\s*center/);
+      expect(row).not.toMatch(/width:\s*\d+(\.\d+)?px/);
     }
-    const android = css.slice(css.indexOf(".footer.androidFooter"));
-    expect(android).toContain("justify-content: center;");
-    expect(android).toContain("text-align: center;");
-    expect(android).not.toMatch(/padding-bottom|position:\s*absolute/);
-    expect(css).toContain("padding-left: 90px;");
+    // No narrow-viewport override re-introduces a fixed left offset.
+    expect(css).not.toMatch(/\.footer\s*\{\s*padding-left:/);
+    // One layout for all platforms: no platform-only footer class needed.
+    expect(source).not.toContain("androidFooter");
+    expect(source).toContain("lightStyles.footer)");
 
     // Terms and Privacy stay real, tappable controls.
     expect(source).toContain('data-voice-control-id="auth_terms"');
     expect(source).toContain('data-voice-control-id="auth_privacy"');
+    expect(source).toContain('onClick={() => void openLegalDoc("terms")}');
+    expect(source).toContain('onClick={() => void openLegalDoc("privacy")}');
   });
 });

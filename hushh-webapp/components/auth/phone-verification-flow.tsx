@@ -1207,7 +1207,7 @@ export function PhoneVerificationFlow({
                     handlePhoneNumberChange(event.target.value)
                   }
                   onPaste={handlePhoneNumberPaste}
-                  placeholder="6505550101"
+                  placeholder="Phone number"
                   className={FLOW_CONTROL_CLASS_NAME}
                 />
               </InputGroup>

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,32 +17,40 @@ import {
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "../components/calendar/calendar-agent-page-layout";
 
-/**
- * One screenshot: the Calendar setup screen rendered as a blue "Connect
- * Calendar" button cutting through a ~2rem white sliver, on an otherwise empty
- * page. No card header, no title, no footer.
- *
- * The cause was the shell, not the card. It pinned itself with
- *
- *   fixed inset-x-0 top-[64px] bottom-[115px] ... justify-center overflow-hidden
- *
- * so its height came from the viewport, it could not scroll, and its children
- * kept the flex default `flex-shrink: 1`. On a viewport shorter than the card,
- * every child shrank until it fit and `overflow-hidden` cut what was left. The
- * button kept its `h-11` and so hung out of the collapsed card.
- *
- * None of that is visible to the JSDOM suite, which applies no CSS and measures
- * every element as 0x0 -- a className assertion passed for as long as the screen
- * was broken. So the sibling JSDOM test proves the component still renders these
- * class strings, and this file proves what the strings DO, at the viewport
- * heights the bug was reported on.
- *
- * The screen is behind sign-in and a setup journey, so this renders the real
- * class strings imported from the module the screen itself imports, exactly as
- * circle-member-row.layout.spec.ts does.
- *
- * Run with: npx playwright test e2e/calendar-setup-shell.layout.spec.ts
- */
+/** Layout proof uses the production disconnected component and product CSS.
+ * This is a geometry fixture, not authenticated application-flow verification. */
+let presentation = "";
+test.beforeAll(async () => {
+  const { createServer } = await import("vite");
+  const { default: react } = await import("@vitejs/plugin-react");
+  // Next's image optimizer is irrelevant to layout; preserve the actual img geometry.
+  const adapterDir = fs.mkdtempSync(path.join(os.tmpdir(), "calendar-image-"));
+  const imageAdapter = path.join(adapterDir, "image.mjs");
+  fs.writeFileSync(imageAdapter, `import { createRequire } from "node:module";
+const { createElement } = createRequire(${JSON.stringify(path.join(process.cwd(), "package.json"))})("react");
+export default function Image({ unoptimized, ...props }) { return createElement("img", props); }`);
+  const server = await createServer({
+    configFile: false,
+    plugins: [react()],
+    optimizeDeps: { noDiscovery: true, include: [] },
+    root: process.cwd(),
+    resolve: { alias: { "@": process.cwd(), "next/image": imageAdapter } },
+    server: { middlewareMode: true, hmr: false },
+    appType: "custom",
+  });
+  try {
+    const { CalendarConnectOnboarding } = await server.ssrLoadModule(
+      "/components/calendar/calendar-connect-onboarding.tsx",
+    );
+    presentation = renderToStaticMarkup(createElement(CalendarConnectOnboarding, {
+      onboarding: true, busy: false, skipping: false,
+      onConnect: () => {}, onSkip: () => {},
+    }));
+  } finally {
+    await server.close();
+    fs.rmSync(adapterDir, { recursive: true, force: true });
+  }
+});
 
 /** The reported break was a short window. 320 is also a landscape phone. */
 const VIEWPORT_HEIGHTS = [320, 420, 560, 800] as const;
@@ -95,7 +105,7 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
     },
   });
 
-  return stripAppFontFaces(compiler.build(candidates));
+  return stripAppFontFaces(compiler.build([...candidates, "mx-auto", "max-w-[720px]", ...Array.from(presentation.matchAll(/class="([^"]+)"/g)).flatMap((match) => match[1].split(/\s+/))]));
 }
 
 async function buildFixture(name: string, body: string, candidates: string[]) {
@@ -110,6 +120,9 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
     css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
   }
 
+  fs.mkdirSync(path.join(dir, "icons/agents"), { recursive: true });
+  fs.copyFileSync(path.join(webappRoot, "public/icons/agents/calendar.svg"), path.join(dir, "icons/agents/calendar.svg"));
+  body = body.replaceAll('/icons/agents/calendar.svg', './icons/agents/calendar.svg');
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
@@ -128,27 +141,8 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
  */
 function screenMarkup(shellClassName: string) {
   return `
-<main class="app-page-shell ${shellClassName}" data-app-shell-width="reading" data-testid="shell">
-  <div class="app-page-header-region w-full min-w-0 ${CALENDAR_SETUP_REGION_CLASSNAME} text-center">
-    <h1 class="type-display" data-testid="page-title">Calendar</h1>
-  </div>
-  <div class="app-page-content-region w-full min-w-0 ${CALENDAR_SETUP_REGION_CLASSNAME}">
-    <section class="overflow-hidden w-full shadow-md text-center rounded-[var(--app-card-radius)] border border-border bg-card" data-testid="card">
-      <div class="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
-        <div class="flex size-11 items-center justify-center rounded-[12px] bg-primary/10 text-primary mb-2"></div>
-        <div class="text-lg font-semibold tracking-tight">Connect Google Calendar</div>
-        <div class="text-xs text-muted-foreground">One reads your schedule to help you plan.</div>
-      </div>
-      <div class="space-y-4 pt-0 px-4 pb-4">
-        <div class="border-t border-border/60 pt-4 pb-1">
-          <div class="flex flex-col items-center justify-center text-center space-y-3 w-full">
-            <button class="w-full justify-center h-11 text-base font-semibold shadow-sm rounded-full bg-[var(--app-accent)] text-[var(--app-accent-fg)]" data-testid="connect">Connect Calendar</button>
-            <p class="text-xs text-muted-foreground text-center">Private by default. Disconnect anytime.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
+<main class="app-page-shell mx-auto max-w-[720px] ${shellClassName}" data-app-shell-width="reading" data-testid="shell">
+  <div class="app-page-content-region w-full min-w-0" data-testid="card">${presentation}</div>
 </main>`;
 }
 
@@ -230,7 +224,7 @@ const CANDIDATES = [
 async function boxes(page: Page) {
   return page.evaluate(() => {
     const read = (id: string) => {
-      const el = document.querySelector(`[data-testid="${id}"]`);
+      const el = document.querySelector(id === "connect" ? '[data-voice-control-id="open_calendar_connector"]' : `[data-testid="${id}"]`);
       if (!el) return null;
       const r = el.getBoundingClientRect();
       return { top: r.top, bottom: r.bottom, height: r.height, width: r.width };
@@ -302,12 +296,12 @@ test.describe("Calendar setup shell", () => {
     });
   }
 
-  test("centres the card when the screen has room for it", async ({ page }) => {
+  test("centres the composition when the screen has room for it", async ({ page }) => {
     // What "clean" means on a desktop-height screen, and what the first fix
     // gave away: the card sat at the very top of a tall empty page. `min-h` +
     // justify-center restores the composition without reintroducing the clip,
     // because a floor grows and a fixed height does not.
-    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 900 });
+    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 1100 });
     const url = await buildFixture(
       "calendar-shell-tall",
       `<div style="padding:0 ${PAGE_PADDING_PX}px">${screenMarkup(
@@ -322,6 +316,8 @@ test.describe("Calendar setup shell", () => {
     const above = m.card!.top - m.shell!.top;
     const below = m.shell!.bottom - m.card!.bottom;
 
+    const contentWidth = await page.locator("[data-calendar-connect-onboarding]").evaluate((el) => el.getBoundingClientRect().width);
+    expect(contentWidth).toBeLessThanOrEqual(448);
     // Not pinned to the top: there is real space above the card.
     expect(above).toBeGreaterThan(40);
     // And it is balanced. Generous tolerance -- the header sits above the card
@@ -338,7 +334,7 @@ test.describe("Calendar setup shell", () => {
     // `--app-top-content-offset` above it and `--app-bottom-content-clearance`
     // below it first. Subtracting the chrome again made the floor taller than
     // the space by exactly those two reserves.
-    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 900 });
+    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 1100 });
 
     const measure = async (shellClassName: string) => {
       const url = await buildFixture(
@@ -407,4 +403,70 @@ test.describe("Calendar setup shell", () => {
       "and being `fixed`, it should leave no scroll to reach the cut-off part",
     ).toBe(true);
   });
+});
+
+for (const theme of ["light", "dark"]) {
+  for (const width of [320, 390, 720]) {
+    test(`onboarding actions remain reachable at ${width}px in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 420 });
+      const url = await buildFixture("calendar-responsive", scrollRootMarkup(CALENDAR_SETUP_SHELL_CLASSNAME), CANDIDATES);
+      await page.goto(url);
+      await page.evaluate((theme) => {
+        document.documentElement.classList.toggle("dark", theme === "dark");
+        document.documentElement.style.fontSize = "24px";
+      }, theme);
+      await awaitProductFont(page);
+      const connect = page.getByRole("button", { name: "Connect" });
+      const skip = page.getByRole("button", { name: "Not now" });
+      await connect.scrollIntoViewIfNeeded();
+      await expect(connect).toBeInViewport();
+      expect((await connect.boundingBox())!.height).toBeGreaterThanOrEqual(56);
+      await skip.scrollIntoViewIfNeeded();
+      await expect(skip).toBeInViewport();
+      expect((await skip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const overflow = await page.evaluate(() => {
+        const root = document.querySelector('[data-testid="scroll-root"]')!;
+        return root.scrollWidth - root.clientWidth;
+      });
+      expect(overflow).toBeLessThanOrEqual(1);
+      expect(await page.getByRole("heading", { level: 2 }).count()).toBe(3);
+    });
+  }
+}
+
+test("slider knobs travel in opposite directions and respect reduced motion", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 1100 });
+  const url = await buildFixture("calendar-controls-motion", screenMarkup(CALENDAR_SETUP_SHELL_CLASSNAME), CANDIDATES);
+  await page.goto(url);
+  const row = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "You’re in control" }) });
+  const first = row.locator('[data-slider-knob="first"]');
+  const second = row.locator('[data-slider-knob="second"]');
+  const positions = async () => [(await first.boundingBox())!.x, (await second.boundingBox())!.x];
+  const initial = await positions();
+  await row.hover();
+  await expect.poll(async () => (await positions())[0] - initial[0]).toBeGreaterThan(4);
+  await expect.poll(async () => (await positions())[1] - initial[1]).toBeLessThan(-4);
+  await page.mouse.move(0, 0);
+  await expect.poll(async () => Math.abs((await positions())[0] - initial[0])).toBeLessThan(0.1);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await row.hover();
+  await expect.poll(async () => Math.abs((await positions())[0] - initial[0])).toBeLessThan(0.1);
+  expect(Math.abs((await positions())[1] - initial[1])).toBeLessThan(0.1);
+});
+
+test("clock and eye keep distinct artwork and animate only their details", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 1100 });
+  await page.goto(await buildFixture("calendar-detail-motion", screenMarkup(CALENDAR_SETUP_SHELL_CLASSNAME), CANDIDATES));
+  const hands = page.locator('[data-clock-hands]');
+  const pupil = page.locator('[data-eye-pupil]');
+  const pupilX = (await pupil.boundingBox())!.x;
+  await page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "See what’s ahead" }) }).hover();
+  await expect.poll(() => hands.evaluate(el => getComputedStyle(el).rotate)).toBe("360deg");
+  expect((await pupil.boundingBox())!.x).toBeCloseTo(pupilX, 1);
+  await page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Review before confirming" }) }).hover();
+  await expect.poll(async () => (await pupil.boundingBox())!.x - pupilX).toBeGreaterThan(1);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(async () => Math.abs((await pupil.boundingBox())!.x - pupilX)).toBeLessThan(0.1);
+  await page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "See what’s ahead" }) }).hover();
+  expect(await hands.evaluate(el => getComputedStyle(el).rotate)).toBe("none");
 });

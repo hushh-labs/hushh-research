@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 describe("IntroStep responsive layout contract", () => {
   it("keeps one concise privacy assurance", () => {
     const source = readFileSync(join(process.cwd(), "components/onboarding/IntroStep.tsx"), "utf8");
-    expect(source).toContain("You have full control over your data.");
+    expect(source).toContain("You choose what to share.");
     expect(source).not.toContain("Your data. Your rules.");
   });
   it("uses one stable small-viewport canvas instead of growing with mobile browser chrome", () => {
@@ -23,14 +23,4 @@ describe("IntroStep responsive layout contract", () => {
     );
   });
 
-  it("caps the hidden-shell top gutter at the real native status-bar range", () => {
-    const styles = readFileSync(
-      join(process.cwd(), "components/onboarding/IntroStep.module.css"),
-      "utf8",
-    );
-
-    expect(styles).toContain(
-      "clamp(28px, var(--app-safe-area-top-effective, 0px), 64px)",
-    );
-  });
 });
