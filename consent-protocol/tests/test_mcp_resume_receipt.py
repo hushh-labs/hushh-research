@@ -262,3 +262,46 @@ async def test_first_call_uses_native_confirmation_without_executing(monkeypatch
             other, binding, "search", "revision", {"q": "PRIVATE_ARGUMENT"}
         )
     assert authorize.await_count == 1
+
+
+async def test_review_ledger_outage_is_reported_as_review_unavailable(monkeypatch):
+    """A database without the review ledger must not read as a declined approval."""
+    from google.adk.agents.context import Context
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.sessions import InMemorySessionService, Session
+
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id="turn",
+            session=Session(
+                id="thread",
+                user_id="owner",
+                app_name="hussh_one",
+                state={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "thread",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        ),
+        function_call_id="call",
+    )
+    issue = AsyncMock(side_effect=ActionDirectiveAuthorityError("private ledger diagnostic"))
+    monkeypatch.setattr(approval.McpCallApproval, "issue", issue)
+    binding = McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp")
+    result = await approval.review_or_resume_call(
+        context, binding, "write", "revision", {"q": "PRIVATE_ARGUMENT"}
+    )
+    assert result == {
+        "status": "unavailable",
+        "error": "MCP_REVIEW_UNAVAILABLE",
+        "retryable": False,
+    }
+    assert not context.actions.requested_tool_confirmations
+    # Owner/conversation mismatch stays an authority failure, not an outage.
+    context.state["temp:one_execution_surface"] = "voice"
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await approval.review_or_resume_call(context, binding, "write", "revision", {})

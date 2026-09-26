@@ -49,7 +49,13 @@ async def review_or_resume_call(context, binding, tool_name, revision, arguments
             context, binding, tool_name, revision, arguments, require_pending=True
         )
     approval = McpCallApproval.from_call(context, binding, tool_name, revision, arguments)
-    issued = await approval.issue(ActionDirectiveStore())
+    try:
+        issued = await approval.issue(ActionDirectiveStore())
+    except ActionDirectiveAuthorityError:
+        # The review ledger could not record this call (e.g. a database without
+        # migration 248). Nothing was dispatched. Say so, rather than implying
+        # the person declined or an approval expired.
+        return {"status": "unavailable", "error": "MCP_REVIEW_UNAVAILABLE", "retryable": False}
     public_name = mcp_tool_name(binding.connector_id, tool_name)
     pending = capture_pending_call(
         context,
