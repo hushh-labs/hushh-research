@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
@@ -27,6 +27,7 @@ export type AgentVisibleStreamEvent = {
   message: string;
   status: AgentVisibleStreamStatus;
   createdAtMs: number;
+  durationMs?: number;
   batchProgress?: DriveBatchProgress;
 };
 
@@ -208,6 +209,32 @@ export function AgentTurnStreamPanel({
   onDownloadDriveNotes,
   driveCompilation,
 }: AgentTurnStreamPanelProps) {
+  const turnStartedAt = useRef<number | null>(null);
+  const [firstTextMs, setFirstTextMs] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [timingPhase, setTimingPhase] = useState<"idle" | "running" | "done">("idle");
+  useEffect(() => {
+    if (isStreaming && timingPhase !== "running") {
+      turnStartedAt.current = performance.now();
+      setFirstTextMs(null);
+      setElapsedMs(0);
+      setTimingPhase("running");
+    } else if (!isStreaming && timingPhase === "running") {
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+      setTimingPhase("done");
+    }
+    if (!isStreaming) return;
+    const timer = window.setInterval(() => {
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isStreaming, timingPhase]);
+  useEffect(() => {
+    if (firstTextMs === null && responseText.trim() && turnStartedAt.current !== null)
+      setFirstTextMs(Math.max(0, performance.now() - turnStartedAt.current));
+  }, [firstTextMs, responseText]);
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
       streamEvents.map((event) => ({
@@ -215,6 +242,7 @@ export function AgentTurnStreamPanel({
         label: event.label,
         message: event.message,
         status: event.status,
+        durationMs: event.durationMs,
       })),
     [streamEvents]
   );
@@ -254,6 +282,9 @@ export function AgentTurnStreamPanel({
           currentBatchProgress.phase === "summarizing" ||
           currentBatchProgress.phase === "finalizing"),
       )}
+      statusMessage={elapsedMs === null || (isStreaming ? timingPhase !== "running" : timingPhase !== "done") ? undefined : isStreaming
+        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+        : `${isError ? "Stopped" : "Response complete"} in ${(elapsedMs / 1000).toFixed(1)}s${firstTextMs === null ? "" : ` · first text in ${(firstTextMs / 1000).toFixed(1)}s`}`}
       responseText={responseText}
       response={response}
       structuredContent={

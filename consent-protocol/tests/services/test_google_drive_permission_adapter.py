@@ -120,7 +120,7 @@ async def test_fixed_individual_viewer_contract(monkeypatch):
     assert dict(request.url.params) == {
         "supportsAllDrives": "true",
         "fields": acl.PERMISSION_FIELDS,
-        "sendNotificationEmail": "false",
+        "sendNotificationEmail": "true",
     }
     assert result.permission_id == "synthetic-permission"
     assert "recipient" not in repr(result)

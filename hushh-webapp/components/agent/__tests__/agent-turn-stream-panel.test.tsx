@@ -122,7 +122,10 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
   });
   it("renders tool progress without leaking raw action payloads", () => {
-    const event = agentToolEventToVisibleStreamEvent("waiting", makeToolEvent(), 1_700_000);
+    const event = {
+      ...agentToolEventToVisibleStreamEvent("result", makeToolEvent(), 1_700_000),
+      durationMs: 1300,
+    };
 
     render(
       <AgentTurnStreamPanel
@@ -135,9 +138,31 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByText("Activity")).toBeInTheDocument();
     expect(screen.getByText("Open workspace")).toBeInTheDocument();
     expect(screen.getByText("Opening the right workspace.")).toBeInTheDocument();
+    expect(screen.getByText("1.3s").getAttribute("data-operation-timing")).toBe("done");
     expect(screen.queryByText("route.private.internal")).not.toBeInTheDocument();
     expect(screen.queryByText("hidden")).not.toBeInTheDocument();
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
+  });
+
+  it("shows time to first text and total response time without request content in timing tags", async () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
+    now = 1800;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming />);
+    now = 3000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming={false} />);
+    expect(await screen.findByText("Response complete in 2.0s · first text in 0.8s")).toBeInTheDocument();
+    expect(screen.queryByText(/A private answer.*time/)).not.toBeInTheDocument();
+    now = 5000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
+    expect(screen.queryByText("Response complete in 2.0s · first text in 0.8s")).not.toBeInTheDocument();
+    now = 5400;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Another answer" isStreaming />);
+    now = 6000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Another answer" isStreaming={false} />);
+    expect(await screen.findByText("Response complete in 1.0s · first text in 0.4s")).toBeInTheDocument();
+    clock.mockRestore();
   });
 
   it("uses the originating call for a parked directive so one tool stays one activity", () => {

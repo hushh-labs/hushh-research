@@ -47,13 +47,13 @@
 }
 
 :global(html:not(.dark)) .shell {
-  --auth-font: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  --auth-font: var(--font-app-body);
   display: flex;
   flex-direction: column;
   height: 100dvh !important;
   min-height: 100svh !important;
-  padding-top: max(204px, calc(var(--app-safe-area-top-effective, 0px) + 156px));
-  padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
+  padding-top: calc(var(--app-safe-area-top-effective, 0px) + clamp(80px, 20svh, 156px));
+  padding-bottom: max(28px, calc(var(--app-safe-area-bottom-effective, 0px) + 28px));
   overflow-y: auto;
   background: #f6f5fc;
   color: #000;
@@ -86,25 +86,26 @@
 }
 
 :global(html:not(.dark)) .title {
-  --foundation-title1-size: 34px;
-  --foundation-title1-line: 1.05;
-  --foundation-title1-weight: 800;
-  --foundation-title1-tracking: -1.1px;
+  --foundation-title1-size: 30px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -0.5px;
   width: auto;
   height: auto;
   margin: 0;
   font-family: var(--auth-font);
-  font-size: 34px;
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -1.1px;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.5px;
   color: #17130c;
 }
 
 :global(html:not(.dark)) .title > span { color: var(--app-accent); }
 
 :global(html:not(.dark)) .actions {
-  width: min(344px, calc(100% - 52px));
+  width: calc(100% - 48px);
+  max-width: none;
   transform: none;
 }
 
@@ -113,7 +114,7 @@
   height: 60px !important;
   min-height: 60px;
   padding: 0 8px 0 20px !important;
-  border: 0 !important;
+  border: 1px solid #d8d9e3 !important;
   border-radius: 16px !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
@@ -180,12 +181,14 @@
   width: min(100%, 402px);
   margin: auto auto 0;
   padding-top: 40px;
-  justify-content: flex-start;
-  padding-left: 90px;
+  justify-content: center;
+  padding-inline: 24px;
 }
 
 :global(html:not(.dark)) .legalRow {
-  width: 233px;
+  width: 100%;
+  justify-content: center;
+  text-align: center;
   margin-left: 0;
   gap: 12.029842px;
   align-items: flex-start;
@@ -201,20 +204,20 @@
 :global(html:not(.dark)) .legalRow p,
 :global(html:not(.dark)) .legalRow button {
   font-family: var(--auth-font) !important;
-  font-size: 11px !important;
+  font-size: 13px !important;
   font-weight: 400 !important;
-  line-height: 13px !important;
+  line-height: 18px !important;
   letter-spacing: 0 !important;
 }
 
 :global(html:not(.dark)) .legalRow p {
-  width: 188.724258px;
+  width: auto;
   flex: none;
   margin: 0;
-  color: #76829d;
+  color: #626b80;
 }
 
-:global(html:not(.dark)) .legalRow button { color: #0088ff; }
+:global(html:not(.dark)) .legalRow button { color: #006dcc; }
 
 :global(html:not(.dark)) .back {
   position: absolute;
@@ -238,20 +241,17 @@
   letter-spacing: -0.4px;
 }
 
-@media (max-width: 360px) {
-  :global(html:not(.dark)) .footer { padding-left: 48px; }
-}
 
 /* Dark Figma frame 194:2874: 402 × 874, including native safe areas. */
 .darkAppleIcon, .darkPrivacyIcon { display: none; }
 :global(html.dark) .shell {
-  --auth-font: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  --auth-font: var(--font-app-body);
   display: flex;
   flex-direction: column;
   height: 100dvh !important;
   min-height: 100svh !important;
-  padding-top: max(204px, calc(var(--app-safe-area-top-effective, 0px) + 156px));
-  padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
+  padding-top: calc(var(--app-safe-area-top-effective, 0px) + clamp(80px, 20svh, 156px));
+  padding-bottom: max(28px, calc(var(--app-safe-area-bottom-effective, 0px) + 28px));
   overflow-y: auto;
   background: #000;
   isolation: isolate;
@@ -271,23 +271,24 @@
 :global(html.dark) .clusters { gap: 24px; padding: 0; }
 :global(html.dark) .hero { gap: 34px; }
 :global(html.dark) .title {
-  --foundation-title1-size: 34px;
-  --foundation-title1-line: 1.05;
-  --foundation-title1-weight: 800;
-  --foundation-title1-tracking: -1.1px;
+  --foundation-title1-size: 30px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -0.5px;
   width: auto;
   height: auto;
   margin: 0;
   font-family: var(--auth-font);
-  font-size: 34px;
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -1.1px;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.5px;
   color: #faf6ee;
 }
 :global(html.dark) .title > span { color: var(--app-accent); }
 :global(html.dark) .actions {
-  width: min(344px, calc(100% - 52px));
+  width: calc(100% - 48px);
+  max-width: none;
   transform: none;
 }
 :global(html.dark) .providerButton {
@@ -295,7 +296,7 @@
   height: 60px !important;
   min-height: 60px;
   padding: 0 !important;
-  border: 0 !important;
+  border: 1px solid #45454b !important;
   border-radius: 16px !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
@@ -349,11 +350,13 @@
   width: min(100%, 402px);
   margin: auto auto 0;
   padding-top: 40px;
-  padding-left: 90px;
-  justify-content: flex-start;
+  padding-inline: 24px;
+  justify-content: center;
 }
 :global(html.dark) .legalRow {
-  width: 233px;
+  width: 100%;
+  justify-content: center;
+  text-align: center;
   margin-left: 0;
   gap: 12.029842px;
   align-items: flex-start;
@@ -367,13 +370,13 @@
 :global(html.dark) .legalRow p,
 :global(html.dark) .legalRow button {
   font-family: var(--auth-font) !important;
-  font-size: 11px !important;
+  font-size: 13px !important;
   font-weight: 400 !important;
-  line-height: 13px !important;
+  line-height: 18px !important;
   letter-spacing: 0 !important;
 }
-:global(html.dark) .legalRow p { width: 188.724258px; flex: none; margin: 0; color: #d9d9d9; }
-:global(html.dark) .legalRow button { color: #0088ff; }
+:global(html.dark) .legalRow p { width: auto; flex: none; margin: 0; color: #bfbfc8; }
+:global(html.dark) .legalRow button { color: #57acff; }
 :global(html.dark) .back {
   position: absolute;
   left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
@@ -395,8 +398,4 @@
       var(--app-safe-area-top-effective, 0px)
     ) + 10px
   );
-}
-
-@media (max-width: 360px) {
-  :global(html.dark) .footer { padding-left: 48px; }
 }
