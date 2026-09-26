@@ -1230,7 +1230,7 @@ Trusted Devices now writes its confirmed list, including an empty list, through 
 service-owned memory cache. Owner/session changes and revocation fence stale
 responses; account invalidation clears this metadata. The warm-navigation assertion
 remains intact. Focused web routing, admission, readiness and cache checks pass;
-canonical CI and live readback are still required for this follow-up candidate.
+canonical CI and live readback outcomes for this follow-up are recorded below.
 
 Freshness review found newer main `3219483cb` and committed local ADK `15635d4b6`.
 Those revisions are not represented by the deployment evidence above. The newer
@@ -1243,3 +1243,49 @@ need their isolated database fixture; ordinary green CI does not establish that
 cutover's safety. Preserve the canonical reviewer and the four active ADK UI edits.
 This blocker belongs to `repo-operations` and the database release gate, while the
 bounded enrollment/cache correction can ship independently.
+
+
+#### Verified frontend delivery
+
+Application `91af9a1eafb26d77310e381a524656c784e01a8d` passed complete local CI
+(10,126 frontend tests, 6,770 backend tests and the 92-test PKM gate) and
+[GitHub validation 36242066086](https://github.com/hushh-labs/hushh-research/actions/runs/36242066086).
+Existing skips remain skips; manual-dispatch PR-only gates were intentionally
+skipped, and local DCO verification passed. The architecture ratchet reports no
+new or worsened findings.
+
+[Governed dev deployment 36243025693](https://github.com/hushh-labs/hushh-research/actions/runs/36243025693)
+completed successfully using the main-owned definition at `3219483cb`, Cloud Build,
+and that exact branch application SHA. Auto scope selected only the frontend.
+Serving readback confirmed `hushh-webapp-00070-mng`, digest
+`sha256:53446638cfa12d7f75d59ea2cbef4bfde8dc01b094305e1d78305d3bea7a864e`,
+Ready at 100% traffic. Backend `consent-protocol-00099-rwb` remains on `4b7e86bb7`.
+No migration, owner-pod installation or stable-channel publication was part of this
+frontend correction. The predeploy frontend rollback target was
+`hushh-webapp-00069-qq6`; no live rollback was performed.
+
+A real signed-out browser passed both locally and on dev: the exact authorization
+page returned a state-bound `login_required` loopback result, with no approval code
+and zero device-authorization POSTs. This uses a synthetic callback listener; it
+is not evidence of a successfully enrolled real Puppy device. Companion commit
+`c39a9751e8` contains the friendly callback/status message and is local to the
+existing Hermes checkout. Its new behavior requires that client version to be
+running. The companion environment has MCP 2.0.0 but lacks `mcp.server.fastmcp`,
+which prevents the separate full MCP server test from passing; 43 focused identity
+and loopback tests passed. Unrelated unpublished companion commits were preserved.
+
+The canonical reviewer Trusted Devices rehearsal now passes, including the formerly
+failing empty-list warm revisit, identity-authenticated API, read-only mutation guard
+and same-session vault continuity. Hosting/Updates checks also passed again: existing
+BYOC assignment, check feedback, honest unverified-version presentation and separate
+cold-session unlock with matching key commitment. No device was enrolled and no
+update was approved or installed. The legacy-pod and real-device acceptance gaps
+above remain open.
+
+Read-only dev inventory confirms migration 249 would affect existing history.
+Aggregate evidence was recorded locally outside the repository; no message contents
+were retrieved, no database rows changed, and the temporary proxy was stopped.
+Newer ADK/main content is not silently included in this bounded frontend release.
+Unrelated root PDF edits remain hash-identical, and the active ADK worktree remains
+untouched. The application branch remains `claude/hushh-infrastructure-analysis-7o991c`;
+no application merge to main or UAT/production deployment occurred.
