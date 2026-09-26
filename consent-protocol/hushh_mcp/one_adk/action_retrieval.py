@@ -752,31 +752,12 @@ def search_actions_for_command_palette(
     app_runtime_state: dict[str, Any] | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """Same as ``search_actions`` but aware of the current app screen."""
+    """Same as ``search_actions`` but aware of the current app screen.
+
+    ``search_actions`` already returns results best-first by fused score, so
+    the palette takes its top ``limit`` as they come.
+    """
     if not query or not query.strip():
         return []
-    base = search_actions(query, gateway, app_runtime_state=app_runtime_state)
-    if not base:
-        return []
-    ordered = sorted(base, key=lambda r: r.score, reverse=True)
-    return [r.to_dict() for r in ordered[:limit]]
-
-
-# ---------------------------------------------------------------------------
-# Convenience: load and search in one call
-# ---------------------------------------------------------------------------
-
-
-def load_and_search(
-    query: str,
-    *,
-    limit: int = 10,
-) -> list[dict[str, Any]]:
-    """Load actions from gateway and return top-N semantic search results."""
-    from hushh_mcp.one_adk.action_tools import (  # deferred to break circular import
-        list_action_gateway_actions,
-    )
-
-    entries = list_action_gateway_actions()
-    gateway = {"actions": entries}
-    return search_actions_for_command_palette(query, gateway, limit=limit)
+    results = search_actions(query, gateway, limit=limit, app_runtime_state=app_runtime_state)
+    return [r.to_dict() for r in results]

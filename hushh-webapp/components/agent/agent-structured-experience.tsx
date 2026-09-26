@@ -15,6 +15,8 @@ import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-sum
 import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
+import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
+import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DriveOwnerShareCard } from "@/components/consent/drive-owner-share-card";
 import { DriveCircleShareCard } from "@/components/consent/drive-circle-share-card";
@@ -54,14 +56,22 @@ export const AgentPersonSelectionContext = createContext<
 export function AgentStructuredExperienceView({
   experience,
   onOpenConnections,
+  onCompileDriveNotes,
+  onDownloadDriveNotes,
+  driveCompilation,
 }: {
   experience: AgentStructuredExperience;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
+  onDownloadDriveNotes?: () => void;
+  driveCompilation?: DriveCompilationUiState;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
     case "one.connector_read.v1":
-      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections} />;
+      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections}
+        onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes}
+        driveCompilation={driveCompilation} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person to continue." icon={<UserRound className="size-5" />}>

@@ -117,11 +117,14 @@ import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+  driveBatchProgressToVisibleStreamEvent,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import type { DriveBatchProgress, DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
+import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
 import {
   parseAgentActivityExperience,
@@ -231,6 +234,11 @@ import {
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  DriveCompilationError,
+  streamOwnerDriveCompilation,
+} from "@/lib/services/drive-owner-compilation-service";
+import { exportPrivateDriveMarkdown } from "@/lib/utils/private-markdown-export";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
@@ -303,6 +311,7 @@ type AgentMessage = {
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
+  driveCompilation?: DriveCompilationUiState;
 };
 
 export type AgentStructuredExperienceEntry = {
@@ -365,9 +374,34 @@ function settleVisibleStreamEvents(
   events: AgentVisibleStreamEvent[] | undefined,
   status: Extract<AgentVisibleStreamStatus, "done" | "blocked" | "error">,
 ): AgentVisibleStreamEvent[] {
-  return (events ?? []).map((event) =>
-    event.status === "running" ? { ...event, status } : event,
-  );
+  return (events ?? []).map((event) => {
+    if (event.status !== "running") return event;
+    if (event.batchProgress) {
+      return {
+        ...event,
+        status: status === "error" ? "error" as const : "blocked" as const,
+        message: "Document batch stopped before completion.",
+      };
+    }
+    return { ...event, status };
+  });
+}
+
+function stopDriveCompilationProgress(
+  events: AgentVisibleStreamEvent[] | undefined,
+): AgentVisibleStreamEvent[] | undefined {
+  return events?.map((event) => event.batchProgress && event.status === "running"
+    ? { ...event, status: "blocked" as const,
+        message: "Document batch stopped before completion." }
+    : event);
+}
+
+function clearDriveCompilationFromMessages(messages: AgentMessage[]): AgentMessage[] {
+  if (!messages.some((message) => message.driveCompilation)) return messages;
+  return messages.map((message) => message.driveCompilation
+    ? { ...message, driveCompilation: undefined,
+        streamEvents: stopDriveCompilationProgress(message.streamEvents) }
+    : message);
 }
 
 type AgentPkmActivity = {
@@ -1517,6 +1551,8 @@ export function GmailInformationRequestAttachment({
 function AgentBubble({
   message,
   onOpenConnections,
+  onCompileDriveNotes,
+  onDownloadDriveNotes,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1534,6 +1570,8 @@ function AgentBubble({
 }: {
   message: AgentMessage;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
+  onDownloadDriveNotes?: () => void;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1674,6 +1712,9 @@ function AgentBubble({
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
               onOpenConnections={onOpenConnections}
+              onCompileDriveNotes={onCompileDriveNotes}
+              onDownloadDriveNotes={onDownloadDriveNotes}
+              driveCompilation={message.driveCompilation}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -2054,6 +2095,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
+  const compiledDriveMarkdownRef = useRef(new Map<string, string>());
+  const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
     null,
   );
@@ -2400,6 +2443,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken &&
     tokenIsFresh,
   );
+  useEffect(() => {
+    if (hasChatAccess) return;
+    driveCompilationAbortRef.current?.abort();
+    driveCompilationAbortRef.current = null;
+    compiledDriveMarkdownRef.current.clear();
+    setMessages(clearDriveCompilationFromMessages);
+  }, [hasChatAccess, user?.uid]);
+
+  useEffect(() => () => {
+    driveCompilationAbortRef.current?.abort();
+    compiledDriveMarkdownRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    driveCompilationAbortRef.current?.abort();
+    driveCompilationAbortRef.current = null;
+    compiledDriveMarkdownRef.current.clear();
+    setMessages(clearDriveCompilationFromMessages);
+  }, [conversationId]);
   const handleEnableGmailSend = useCallback(async () => {
     if (!user?.uid || !user?.getIdToken) return;
     try {
@@ -3146,6 +3208,101 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : message,
       ),
     );
+  };
+
+  const compileOwnerDriveNotes = async (
+    messageId: string, query: string, window: DriveOwnerCompileWindow,
+  ) => {
+    if (!hasChatAccess || !user?.uid || !query || !window) return;
+    const token = getVaultOwnerToken();
+    if (!token) return;
+    driveCompilationAbortRef.current?.abort();
+    const controller = new AbortController();
+    driveCompilationAbortRef.current = controller;
+    compiledDriveMarkdownRef.current.clear();
+    setMessages(clearDriveCompilationFromMessages);
+    const ownerId = user.uid;
+    const sourceKey = driveOwnerCompileKey(query, window);
+    const eventId = `owner-compile:${messageId}`;
+    let lastProgress: DriveBatchProgress = {
+      phase: "searching", completed: 0, total: 0, failed: 0,
+    };
+    updateMessage(messageId, (message) => ({
+      ...message,
+      driveCompilation: { status: "running", sourceKey },
+    }));
+    upsertMessageStreamEvent(messageId,
+      driveBatchProgressToVisibleStreamEvent(lastProgress, eventId));
+    try {
+      const result = await streamOwnerDriveCompilation({
+        token,
+        message: query,
+        window,
+        signal: controller.signal,
+        guard: () => {
+          if (workspaceOwnerIdRef.current !== ownerId || controller.signal.aborted ||
+            !getVaultOwnerToken()) throw new Error("owner_changed");
+        },
+        onStage: (stage) => {
+          if (stage === "fetching") {
+            lastProgress = { ...lastProgress, phase: "fetching" };
+          } else if (stage === "finalizing") {
+            lastProgress = { ...lastProgress, phase: "finalizing" };
+          }
+          upsertMessageStreamEvent(messageId,
+            driveBatchProgressToVisibleStreamEvent(lastProgress, eventId));
+        },
+        onFile: (progress) => {
+          lastProgress = progress;
+          upsertMessageStreamEvent(messageId,
+            driveBatchProgressToVisibleStreamEvent(progress, eventId));
+        },
+      });
+      if (controller.signal.aborted || workspaceOwnerIdRef.current !== ownerId) return;
+      compiledDriveMarkdownRef.current.set(messageId, result.markdown);
+      updateMessage(messageId, (message) => ({
+        ...message,
+        driveCompilation: {
+          status: result.status === "partial" || result.truncated ? "partial" : "ready",
+          sourceKey,
+          matched: result.matched,
+          included: result.included,
+          failed: result.failed,
+        },
+      }));
+      upsertMessageStreamEvent(messageId,
+        driveBatchProgressToVisibleStreamEvent({
+          phase: result.status === "partial" || result.truncated ? "partial" : "complete",
+          completed: result.included,
+          total: result.matched,
+          failed: result.failed,
+        }, eventId));
+    } catch (error) {
+      if (controller.signal.aborted || workspaceOwnerIdRef.current !== ownerId) return;
+      const code = error instanceof DriveCompilationError ? error.code : "unavailable";
+      const errorReason: NonNullable<DriveCompilationUiState["errorReason"]> =
+        code === "connect_required" || code === "reconnect_required" ||
+        code === "input_required" || code === "source_changed" || code === "interrupted"
+          ? code
+          : "unavailable";
+      updateMessage(messageId, (message) => ({
+        ...message,
+        driveCompilation: { status: "error", sourceKey, errorReason },
+      }));
+      upsertMessageStreamEvent(messageId,
+        driveBatchProgressToVisibleStreamEvent({ ...lastProgress, phase: "error" }, eventId));
+    } finally {
+      if (driveCompilationAbortRef.current === controller) {
+        driveCompilationAbortRef.current = null;
+      }
+    }
+  };
+
+  const downloadCompiledDriveNotes = async (messageId: string) => {
+    if (!hasChatAccess) return;
+    const markdown = compiledDriveMarkdownRef.current.get(messageId);
+    if (!markdown) return;
+    await exportPrivateDriveMarkdown(markdown, `drive-notes-${new Date().toISOString().slice(0, 10)}.md`);
   };
 
   useEffect(() => {
@@ -4883,6 +5040,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               sources,
             }));
           },
+          onDriveBatchProgress: (progress, eventId) => {
+            if (streamAbortController.signal.aborted) return;
+            upsertTurnStreamEvent(
+              driveBatchProgressToVisibleStreamEvent(progress, eventId),
+            );
+          },
           onStructuredExperience: (structuredExperience, eventId) => {
             if (streamAbortController.signal.aborted) return;
             const stableId =
@@ -6390,6 +6553,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <AgentBubble
                       message={message}
                       onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
+                      onCompileDriveNotes={hasChatAccess && message.status === "done"
+                        ? (query, window) => void compileOwnerDriveNotes(
+                          message.id, query, window,
+                        )
+                        : undefined}
+                      onDownloadDriveNotes={hasChatAccess && compiledDriveMarkdownRef.current.has(message.id)
+                        ? () => void downloadCompiledDriveNotes(message.id)
+                        : undefined}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       gmailInformationRequestAttachment={

@@ -271,16 +271,17 @@ def filter_long_range_matches(
     *,
     now_utc: datetime,
     timezone: str,
+    require_title_terms: bool = True,
+    window: tuple[date, date] | None = None,
 ) -> list[dict]:
-    """Keep title-matching, date-bounded candidates in newest-first order.
+    """Keep title-matching or verified-folder children by date, newest first.
 
     A valid title date wins over Drive timestamps; an invalid or conflicting
     title date fails closed. Each result preserves provider-validated fields
     and adds ``listing_day`` for the owner's visible date label.
     """
-    first, last = spec.window(now_utc=now_utc, timezone=timezone)
+    first, last = window or spec.window(now_utc=now_utc, timezone=timezone)
     zone = _zone(timezone)
-    title_patterns = tuple(_term_pattern(term) for term in spec.title_terms)
     kept = []
     for match in matches:
         if not isinstance(match, dict):
@@ -288,7 +289,8 @@ def filter_long_range_matches(
         title = match.get("name")
         if (
             not isinstance(title, str)
-            or not all(pattern.search(title) for pattern in title_patterns)
+            or require_title_terms
+            and not matches_long_range_subject(spec, title)
             or match.get("mime_type") == _FOLDER_MIME
         ):
             continue
@@ -302,4 +304,32 @@ def filter_long_range_matches(
     return sorted(kept, key=lambda item: item["listing_day"], reverse=True)
 
 
-__all__ = ["LongRangeListing", "filter_long_range_matches", "parse_long_range_listing"]
+def matches_long_range_subject(spec: LongRangeListing, title: str) -> bool:
+    return isinstance(title, str) and all(
+        _term_pattern(term).search(title) for term in spec.title_terms
+    )
+
+
+def owner_compile_query(spec: LongRangeListing) -> str:
+    """Round-trip the owner's validated intent into a small compilation query."""
+    subject = " ".join(spec.title_terms)
+    if spec.offset_days:
+        query = (
+            f"all {subject} from {spec.relative_days} days before the last {spec.offset_days} days"
+        )
+    else:
+        query = f"all last {spec.relative_days} days {subject}"
+    if spec.requested_count is not None:
+        query += f" i need all {spec.requested_count}"
+    if parse_long_range_listing(query) != spec:
+        raise ValueError("invalid owner compilation query")
+    return query
+
+
+__all__ = [
+    "LongRangeListing",
+    "filter_long_range_matches",
+    "matches_long_range_subject",
+    "owner_compile_query",
+    "parse_long_range_listing",
+]

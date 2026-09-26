@@ -139,6 +139,14 @@ class SpecialistReadSource(BaseModel):
     page: int | None = Field(default=None, ge=1, le=100)
 
 
+class OwnerCompileWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
 class SpecialistReadResult(BaseModel):
     """Additive, bounded provenance/status; never credentials or raw content."""
 
@@ -162,6 +170,11 @@ class SpecialistReadResult(BaseModel):
     sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
     truncated: bool = False
     metadata_only: bool = False
+    # Owner-only UI affordance. It never grants a read or a share; the separate
+    # compilation route rechecks the owner and discovers the files again.
+    owner_compile_available: bool = False
+    owner_compile_query: str | None = Field(default=None, max_length=2048)
+    owner_compile_window: OwnerCompileWindow | None = None
 
 
 @dataclass(frozen=True)

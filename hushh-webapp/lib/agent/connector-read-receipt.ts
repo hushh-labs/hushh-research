@@ -1,5 +1,14 @@
 /** Only authored metadata may leave the read result boundary. No provider text or URLs. */
 export const CONNECTOR_READ_EXPERIENCE_TYPE = "one.connector_read.v1" as const;
+export type DriveOwnerCompileWindow = {
+  start_date: string;
+  end_date: string;
+  timezone: string;
+};
+
+export function driveOwnerCompileKey(query: string, window: DriveOwnerCompileWindow): string {
+  return JSON.stringify([query, window.start_date, window.end_date, window.timezone]);
+}
 const STATUSES = [
   "ok", "input_required", "connect_required", "reconnect_required", "connection_changed",
   "permission_denied", "source_changed", "response_too_large", "invalid_argument", "unavailable",
@@ -13,6 +22,12 @@ export type ConnectorReadExperience = {
   truncated: boolean;
   metadataOnly: boolean;
   sourcePages?: (number | null)[];
+  /** The owner may explicitly compile this bounded title/date result in chat. */
+  ownerCompileAvailable?: boolean;
+  /** Canonical owner query validated by the Drive listing parser. */
+  ownerCompileQuery?: string;
+  /** Fixed discovery window; compiling later must not slide the date range. */
+  ownerCompileWindow?: DriveOwnerCompileWindow;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -20,17 +35,59 @@ function record(value: unknown): Record<string, unknown> | null {
     ? value as Record<string, unknown> : null;
 }
 
+function utcDay(value: unknown): number | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const milliseconds = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString().slice(0, 10) === value
+    ? milliseconds : null;
+}
+
+export function parseDriveOwnerCompileWindow(value: unknown): DriveOwnerCompileWindow | null {
+  const input = record(value);
+  if (!input || Object.keys(input).length !== 3 ||
+    Object.keys(input).some(key => !["start_date", "end_date", "timezone"].includes(key))) return null;
+  const start = utcDay(input.start_date);
+  const end = utcDay(input.end_date);
+  if (start === null || end === null || end < start || end - start > 30 * 86_400_000 ||
+    typeof input.timezone !== "string" || input.timezone.length > 64 ||
+    !/^[A-Za-z0-9_+\/-]+$/.test(input.timezone)) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: input.timezone });
+  } catch {
+    return null;
+  }
+  return input as DriveOwnerCompileWindow;
+}
+
 export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperience | null {
   const input = record(value);
   if (!input || Object.keys(input).some((key) => ![
     "schema_version", "connector", "status", "sources", "truncated", "metadata_only",
+    "owner_compile_available", "owner_compile_query", "owner_compile_window",
   ].includes(key))) return null;
+  const ownerCompileQuery = input.owner_compile_query;
+  const ownerCompileWindow = input.owner_compile_window;
+  const validOwnerQuery = typeof ownerCompileQuery === "string" &&
+    ownerCompileQuery === ownerCompileQuery.trim() &&
+    ownerCompileQuery.length > 0 &&
+    new TextEncoder().encode(ownerCompileQuery).byteLength <= 2_048 &&
+    !/[\x00-\x1f\x7f]/.test(ownerCompileQuery);
+  const validWindow = parseDriveOwnerCompileWindow(ownerCompileWindow);
   if (input.schema_version !== "specialist_read.v1" || !["mail", "drive"].includes(input.connector as string) ||
     !STATUSES.includes(input.status as ConnectorReadExperience["status"]) ||
     typeof input.metadata_only !== "boolean" ||
     (input.connector === "mail" && input.metadata_only !== true) ||
     typeof input.truncated !== "boolean" ||
-    !Array.isArray(input.sources) || input.sources.length > 25) return null;
+    !Array.isArray(input.sources) || input.sources.length > 60 ||
+    (input.owner_compile_available !== undefined &&
+      typeof input.owner_compile_available !== "boolean") ||
+    (ownerCompileQuery != null &&
+      (!validOwnerQuery || input.owner_compile_available !== true)) ||
+    (ownerCompileWindow != null &&
+      (!validWindow || input.owner_compile_available !== true)) ||
+    ((ownerCompileQuery == null) !== (ownerCompileWindow == null)) ||
+    (input.owner_compile_available === true &&
+      (input.connector !== "drive" || input.status !== "ok" || input.metadata_only !== true))) return null;
   const refs: string[] = [];
   const pages: (number | null)[] = [];
   for (const value of input.sources) {
@@ -54,5 +111,8 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
+    ...(input.owner_compile_available === true && validOwnerQuery && validWindow
+      ? { ownerCompileAvailable: true, ownerCompileQuery: ownerCompileQuery as string,
+        ownerCompileWindow: validWindow } : {}),
   };
 }
