@@ -138,7 +138,7 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("hover:!text-[var(--app-accent)]");
+    expect(source).toContain("hover:!text-[var(--app-accent-ink)]");
     expect(source).toContain("disabled:!text-muted-foreground");
     expect(source).toContain("disabled:!opacity-100");
   });

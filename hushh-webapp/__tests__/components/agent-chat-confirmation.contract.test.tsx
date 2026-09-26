@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { SpecialistDirectiveCard } from "@/components/agent/specialist-directive-card";
 
 /**
  * One confirmation means one tap.
@@ -90,10 +92,6 @@ describe("the confirm card itself", () => {
     // the other half: that ONE press reaches onConfirm. Together they are the
     // whole claim -- one press, one execution -- which is what the removed
     // Authorize step broke by consuming the first press and doing nothing.
-    const { render, screen, fireEvent } = await import("@testing-library/react");
-    const { SpecialistDirectiveCard } = await import(
-      "@/components/agent/specialist-directive-card"
-    );
 
     const onConfirm = vi.fn();
     render(

@@ -204,16 +204,14 @@ export function writeStoredConnectSearchQuery(query: string): void {
  * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
  * header that is supposed to be covering them.
  *
- * `bg-background`, at full opacity, NOT `bg-background/85`. Fifteen percent of a
- * roster row is still a roster row: names and avatars read straight through the
- * strips at phone width, which is the "list scrolls behind the header" this
- * fixes. The blur went with it -- it has nothing left to blur, and it cost a
- * compositing layer on every scroll frame.
+ * The settings canvas is fully opaque. A translucent background lets names and
+ * avatars read through the strips at phone width. The blur went with it -- it
+ * has nothing left to blur, and it cost a compositing layer on every scroll frame.
  *
  * Held by e2e/connect-sticky-header.layout.spec.ts.
  */
 const CONNECT_STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
+  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-[color:var(--app-settings-canvas)] px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
 
 /**
  * The search row pins UNDER the header, not with it.
@@ -230,7 +228,7 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * this field filters read straight through it as they scroll past.
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-[color:var(--app-settings-canvas)] px-[var(--page-inline-gutter-standard)] py-2";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -2810,6 +2808,7 @@ export default function ConnectPageClient() {
       data-connect-page=""
       fitContent
       width="agent"
+      data-one-workspace="connect"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -3288,7 +3287,7 @@ export default function ConnectPageClient() {
                                   )}
                                 >
                                   <div className="relative">
-                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-[color:var(--app-secondary-label)]">
                                       <SearchIcon className="h-4.5 w-4.5" />
                                     </span>
                                     <Input
@@ -3361,7 +3360,7 @@ export default function ConnectPageClient() {
                                           setQuery("");
                                           searchInputRef.current?.focus();
                                         }}
-                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] motion-reduce:transition-none"
                                       >
                                         <X
                                           className="h-5 w-5"
@@ -3386,7 +3385,7 @@ export default function ConnectPageClient() {
                                       ? "Advisors are unavailable"
                                       : "People are unavailable"
                                   }
-                                  description={error}
+                                  description="We couldn't load this directory. Try again."
                                   trailing={
                                     <Button
                                       type="button"
@@ -3402,7 +3401,6 @@ export default function ConnectPageClient() {
                                     </Button>
                                   }
                                   density="compact"
-                                  tone="destructive"
                                 />
                               ) : people.length === 0 ? (
                                 // Tested against the list that is actually rendered below,

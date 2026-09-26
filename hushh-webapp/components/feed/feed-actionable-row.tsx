@@ -78,7 +78,7 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
+        "min-h-11 w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-normal px-4 text-center [overflow-wrap:anywhere] sm:min-w-24",
         action.tone === "danger" &&
           !showConfirm &&
           "text-destructive hover:bg-destructive/10",
@@ -242,9 +242,12 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       <span className="inline-flex min-w-0 items-center gap-1.5">
         <span
           aria-hidden="true"
+          data-testid="feed-actionable-live-indicator"
           className={cn(
             "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
-            isLive ? "bg-emerald-500" : "bg-accent",
+            isLive
+              ? "bg-[color:var(--app-success)]"
+              : "bg-[color:var(--app-accent)]",
           )}
         />
         <span className="whitespace-normal [overflow-wrap:anywhere]">

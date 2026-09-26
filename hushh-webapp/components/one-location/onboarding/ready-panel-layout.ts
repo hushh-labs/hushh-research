@@ -69,7 +69,7 @@ export const READY_MAP_SHORT_WINDOW_CSS = `
  * trusting the arithmetic.
  */
 export const READY_CODE_CLASSNAME =
-  "mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]";
+  "mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[color:var(--app-label)]";
 
 /**
  * Phones keep the full-width sheet in normal flow -- that is also what the iOS

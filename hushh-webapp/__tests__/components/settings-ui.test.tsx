@@ -181,10 +181,10 @@ describe("SettingsRow", () => {
     );
 
     expect(globalsCss).toContain(
-      '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+      '--font-family-product: "DMSansVariable", "DM Sans", system-ui, sans-serif;',
     );
     expect(globalsCss).not.toContain(
-      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "DMSansVariable"',
     );
   });
 

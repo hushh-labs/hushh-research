@@ -38,7 +38,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
-    expect(history).toContain("bg-[linear-gradient(180deg");
+    expect(history).toContain("bg-[color:var(--app-settings-canvas)]");
     expect(history).not.toContain('"border-r border-border/70');
   });
 
@@ -167,7 +167,7 @@ describe("private-agent chat shell contract", () => {
     // the "Puppy" chip does not slide out from under the thumb that pressed
     // it. This is the same jump the status slot beside it was widened to stop.
     expect(workspace).toContain(
-      'className="flex w-[7.5rem] shrink-0 justify-end sm:w-[9.5rem]"',
+      'className="flex min-w-0 flex-1 justify-end sm:w-[9.5rem] sm:flex-none"',
     );
     // And the control names the agent it configures, not just "Model".
     expect(workspace).toContain('aria-label="One\'s model"');

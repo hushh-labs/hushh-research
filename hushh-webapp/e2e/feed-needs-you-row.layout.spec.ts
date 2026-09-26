@@ -10,7 +10,27 @@ import {
 } from "./fixtures/product-font";
 
 // Captured from the current real components by verify:feed, never handwritten DOM.
-const WIDTHS = [320, 375, 390, 430, 1280] as const;
+const WIDTHS = [320, 375, 390, 430, 768, 1280, 1440] as const;
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (color: string) => {
+    const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+    if (!channels || channels.length !== 3) {
+      throw new Error(`Unexpected color: ${color}`);
+    }
+    const [red, green, blue] = channels.map((value) => {
+      const channel = value / 255;
+      return channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  };
+  const values = [luminance(foreground), luminance(background)].sort(
+    (left, right) => right - left,
+  );
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
 async function buildFixture(dark: boolean): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
@@ -58,7 +78,7 @@ async function buildFixture(dark: boolean): Promise<string> {
       productFontStyle() +
       "body{margin:0;background:var(--background);color:var(--foreground)}" +
       "main{max-width:1040px;margin:auto;padding:16px}</style></head><body>" +
-      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one">' +
+      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one" data-one-workspace="feed">' +
       markup +
       "</main></body></html>",
   );
@@ -101,6 +121,40 @@ for (const dark of [false, true]) {
         const rows = page.locator('[data-row-layout="person"]');
         // A missing selector used to silently pass this entire suite.
         await expect(rows).toHaveCount(6);
+        const visualState = await page.evaluate(() => {
+          const row = document.querySelector<HTMLElement>(
+            '[data-row-layout="person"]',
+          )!;
+          const card = row.closest<HTMLElement>(
+            '[data-slot="settings-group-shell"]',
+          )!;
+          const title = row.querySelector<HTMLElement>(
+            '[data-slot="settings-row-title"]',
+          )!;
+          const description = row.querySelector<HTMLElement>(
+            '[data-slot="feed-event-description"]',
+          )!;
+          const time = row.querySelector<HTMLElement>(
+            '[data-slot="feed-event-time"]',
+          )!;
+          return {
+            cardBackground: getComputedStyle(card).backgroundColor,
+            titleColor: getComputedStyle(title).color,
+            descriptionColor: getComputedStyle(description).color,
+            titleFont: getComputedStyle(title).fontFamily,
+            timeFont: getComputedStyle(time).fontFamily,
+            pageWidth: document.documentElement.scrollWidth,
+          };
+        });
+        expect(visualState.titleFont).toContain("DMSansVariable");
+        expect(visualState.timeFont).toContain("InterNumeric");
+        expect(visualState.pageWidth).toBeLessThanOrEqual(width + 1);
+        expect(
+          contrastRatio(visualState.titleColor, visualState.cardBackground),
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(visualState.descriptionColor, visualState.cardBackground),
+        ).toBeGreaterThanOrEqual(4.5);
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
@@ -189,6 +243,13 @@ for (const dark of [false, true]) {
         if (width === 390 || width === 1280) {
           await page.screenshot({
             path: testInfo.outputPath("feed-person-rows.png"),
+            fullPage: true,
+          });
+        }
+        if (process.env.ONE_THEME_EVIDENCE_DIR && (width === 320 || width === 1440)) {
+          fs.mkdirSync(process.env.ONE_THEME_EVIDENCE_DIR, { recursive: true });
+          await page.screenshot({
+            path: path.join(process.env.ONE_THEME_EVIDENCE_DIR, `feed-${dark ? "dark" : "light"}-${width}.png`),
             fullPage: true,
           });
         }

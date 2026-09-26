@@ -179,6 +179,7 @@ import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+import { LocationUtilityIcon } from "@/components/one-location/location-utility-icon";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -2335,11 +2336,11 @@ function LocationSharePulseIcon() {
     <span
       aria-hidden="true"
       data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] ring-1 ring-inset ring-[color:var(--app-card-border-standard)] sm:h-16 sm:w-16"
     >
       <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
       <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] ring-4 ring-[color:var(--app-primary-surface)]" />
     </span>
   );
 }
@@ -2560,15 +2561,11 @@ function LocationMenuGlyph({
 
 function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]"
-      data-location-menu-list-icon=""
-    >
+    <LocationUtilityIcon size="compact" className="[&>span]:leading-none">
       <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
         <LocationMenuGlyph name={name} size={18} />
       </span>
-    </span>
+    </LocationUtilityIcon>
   );
 }
 
@@ -3301,6 +3298,11 @@ function LocationSettingsFlow({
           className="[--settings-row-description-gap:2px] [--type-row-description-size:13px] [--type-row-description-line:18px]"
         >
           <SettingsRow
+            leading={
+              <LocationUtilityIcon size="compact">
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              </LocationUtilityIcon>
+            }
             title="Auto-approve requests"
             description={activeScopeLabel}
             trailing={
@@ -3327,6 +3329,11 @@ function LocationSettingsFlow({
           shellClassName="[--settings-group-radius:16px] shadow-none"
         >
           <SettingsRow
+            leading={
+              <LocationUtilityIcon size="compact">
+                <UsersRound className="h-4 w-4" aria-hidden="true" />
+              </LocationUtilityIcon>
+            }
             title="Emergency contacts"
             trailing={
               <TrailingValue as="span">{smsContactCount}</TrailingValue>
@@ -3546,7 +3553,7 @@ function ActiveShareAvatar({
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
       <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
-      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
+      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-success)]" />
     </span>
   );
 }
@@ -3566,7 +3573,7 @@ function ActiveShareMetadata({
       <span>Active</span>
       <span aria-hidden="true">·</span>
       {sms ? (
-        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
+        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[color:var(--app-destructive-tint)] px-1.5 text-[10px] font-semibold leading-none text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">
           SMS
         </span>
       ) : null}
@@ -3896,7 +3903,7 @@ function CircleIdentityStack({
                 index > 0 && "-ml-6",
                 isSmsCircle
                   ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                  : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+                  : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]",
               )}
             >
               {isSmsCircle ? (
@@ -4114,7 +4121,7 @@ function CircleInvitationsDialog({
                 >
                   <span
                     aria-hidden="true"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] bg-[color:var(--app-neutral-fill-strong)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
                   >
                     {circleInitials(circleName) || (
                       <UsersRound className="h-[17px] w-[17px]" />
@@ -6748,7 +6755,7 @@ function InviteFlow({
                   : "Invite expires soon"}
               </p>
             </div>
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/12 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+            <span className="rounded-full border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] px-2.5 py-0.5 text-xs font-semibold text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]">
               Pending
             </span>
           </div>
@@ -6775,7 +6782,7 @@ function InviteFlow({
             variant="ghost"
             onClick={() => vm.onRevokeCircleInvite(invite)}
             isLoading={vm.busy === "circleRevoke"}
-            className="h-11 w-full rounded-full text-sm text-red-600 hover:text-red-700 dark:text-red-300"
+            className="h-11 w-full rounded-full text-sm text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] dark:text-[color:var(--app-destructive-bright)]"
           >
             Revoke invite
           </Button>

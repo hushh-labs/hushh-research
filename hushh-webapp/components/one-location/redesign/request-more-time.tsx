@@ -126,7 +126,7 @@ export function AskForMoreTime({
             <Button
               variant="ghost"
               size="sm"
-              className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
+              className="h-11 px-2 text-[15px] font-medium text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] hover:text-[color:var(--app-destructive-deep)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:text-[color:var(--app-destructive-bright)] dark:hover:text-[color:var(--app-destructive-bright)]"
               onClick={() => onWithdrawRequest(pendingExtension.id)}
               disabled={withdrawingRequestId === pendingExtension.id}
             >

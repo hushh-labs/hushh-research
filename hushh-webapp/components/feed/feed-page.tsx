@@ -18,7 +18,11 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 
-import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import {
+  RowDescription,
+  MediumRowLabel,
+  SectionLabel as AppSectionLabel,
+} from "@/components/app-ui/typography";
 import { Button as StockButton } from "@/components/ui/button";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -602,6 +606,7 @@ function FeedPageSession({
     <AppPageShell
       as="main"
       width="reading"
+      data-one-workspace="feed"
       className="pb-[calc(var(--app-screen-footer-pad)+16px)]"
     >
       <NativeTestBeacon
@@ -637,11 +642,11 @@ function FeedPageSession({
           {hasRegularActionables ? (
             <section aria-label="Needs you">
               <SectionLabel>Needs you</SectionLabel>
-              <div className="divide-y divide-[color:var(--foundation-hairline)]">
+              <SettingsGroup separatorInset>
                 {regularActionables.map((item) => (
                   <FeedActionableRow key={item.id} item={item} />
                 ))}
-              </div>
+              </SettingsGroup>
             </section>
           ) : null}
 
@@ -652,16 +657,17 @@ function FeedPageSession({
             {showColdError ? (
               <div
                 role="alert"
-                className="flex min-h-[100px] flex-col items-center justify-center gap-2.5 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
+                className="flex min-h-[100px] flex-col items-center justify-center gap-2.5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <MediumRowLabel as="p">
                   Activity unavailable
-                </p>
+                </MediumRowLabel>
                 <Button
                   type="button"
                   variant="none"
                   effect="fade"
                   size="compact"
+                  className="min-h-11"
                   onClick={() => void retryFeed()}
                 >
                   Retry
@@ -672,9 +678,9 @@ function FeedPageSession({
             {showStaleWarning ? (
               <div
                 role="status"
-                className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-xs text-muted-foreground"
+                className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-warning-tint)] px-3 py-2 text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]"
               >
-                <span>
+                <span className="min-w-0 flex-1 text-[length:var(--type-row-description-size)] leading-[var(--type-row-description-line)]">
                   Showing saved activity. Some updates couldn't refresh.
                 </span>
                 <Button
@@ -682,6 +688,7 @@ function FeedPageSession({
                   variant="none"
                   effect="fade"
                   size="compact"
+                  className="min-h-11 shrink-0"
                   onClick={() => void retryFeed()}
                 >
                   Retry
@@ -692,14 +699,14 @@ function FeedPageSession({
             {showEmpty ? (
               <div
                 role="status"
-                className="flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
+                className="flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <MediumRowLabel as="p">
                   No activity yet
-                </p>
-                <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                </MediumRowLabel>
+                <RowDescription as="p">
                   Your recent activity will appear here.
-                </p>
+                </RowDescription>
               </div>
             ) : null}
 
@@ -722,7 +729,7 @@ function FeedPageSession({
                       ? "Confirm clear feed notifications on this device"
                       : "Clear feed notifications on this device"
                   }
-                  className="w-auto max-w-full whitespace-nowrap bg-destructive/10 px-4 text-destructive hover:bg-destructive/15"
+                  className="min-h-11 w-auto max-w-full whitespace-normal bg-[color:var(--app-destructive-tint)] px-4 text-center text-[13px] font-semibold text-[color:var(--app-destructive-deep)] [overflow-wrap:anywhere] hover:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
                 >
                   {clearing
                     ? "Clearing…"
@@ -756,8 +763,11 @@ function FeedPageSession({
             {hasHistory && pagination.nextCursor ? (
               <div className="flex flex-col items-center gap-1 py-3">
                 {loadMoreError ? (
-                  <p role="alert" className="text-xs text-muted-foreground">
-                    {loadMoreError} Try again.
+                  <p
+                    role="alert"
+                    className="text-[length:var(--type-row-description-size)] leading-[var(--type-row-description-line)] text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]"
+                  >
+                    Couldn't load more activity. Try again.
                   </p>
                 ) : null}
                 <Button
@@ -765,6 +775,7 @@ function FeedPageSession({
                   variant="none"
                   effect="fade"
                   size="compact"
+                  className="min-h-11"
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
                 >
@@ -801,7 +812,7 @@ function FeedRowsSkeleton() {
     <div
       role="status"
       aria-label="Loading feed"
-      className="overflow-hidden rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
+      className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
     >
       {Array.from({ length: 4 }).map((_, index) => (
         <div

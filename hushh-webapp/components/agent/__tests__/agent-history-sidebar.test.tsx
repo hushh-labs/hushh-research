@@ -127,7 +127,7 @@ describe("AgentHistorySidebar", () => {
     expect(screen.getByRole("button", { name: "Start new chat" })).toBeInTheDocument();
   });
 
-  it("highlights the active chat with a solid filled accent background and omits repetitive row icons", () => {
+  it("highlights the active chat with a neutral selected surface and omits repetitive row icons", () => {
     render(
       <AgentHistorySidebar
         conversations={conversations}
@@ -141,8 +141,8 @@ describe("AgentHistorySidebar", () => {
     );
 
     const activeItem = screen.getByRole("listitem");
-    expect(activeItem).toHaveClass("bg-[color:var(--app-accent)]");
-    expect(activeItem).toHaveClass("text-white");
+    expect(activeItem).toHaveClass("bg-[color:var(--app-settings-icon-surface)]");
+    expect(activeItem).toHaveClass("text-foreground");
     expect(activeItem).not.toHaveClass("border-[color:var(--app-accent)]/25");
 
     // In expanded mode, the button directly displays the title without a leading icon

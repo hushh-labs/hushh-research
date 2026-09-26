@@ -33,7 +33,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "w-full rounded-[20px] border border-border/70 px-4 py-3 text-center shadow-lg shadow-black/5 sm:max-w-[22rem] sm:text-left",
+            "w-full rounded-[16px] border px-4 py-3 shadow-lg sm:max-w-[22rem]",
           // Clamped, and this is the only place a toast's height is
           // actually bounded. `toast.error("...")` sets the TITLE, which is
           // nearly every toast in this app, and the title used to have no
@@ -45,25 +45,25 @@ const Toaster = ({ ...props }: ToasterProps) => {
           // is 160 characters. So the ceiling lives here, where every string
           // ends up regardless of who wrote it.
           title:
-            "line-clamp-2 text-[13px] font-medium leading-5 tracking-[-0.01em] text-center sm:text-left",
+            "line-clamp-2 text-[14px] font-semibold leading-5 tracking-[-0.01em] text-left",
           // One line, so a toast carrying both still reads as a glance rather
           // than a paragraph.
           description:
-            "line-clamp-1 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
-          content: "flex-1 gap-1.5 text-center sm:text-left",
+            "line-clamp-1 text-[13px] leading-[18px] text-left",
+          content: "min-w-0 flex-1 gap-1 text-left",
           closeButton:
-            "left-auto right-3 top-3 border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground",
+            "left-auto right-1 top-1 text-muted-foreground hover:bg-muted hover:text-foreground",
         },
       }}
       style={
         {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
+          "--normal-bg": "var(--app-settings-surface)",
+          "--normal-text": "var(--app-label)",
+          "--normal-border": "var(--app-settings-border)",
+          "--border-radius": "16px",
           "--offset": "1rem",
-          "--mobile-offset-left": "1rem",
-          "--mobile-offset-right": "1rem",
+          "--mobile-offset-left": "max(1rem, env(safe-area-inset-left, 0px))",
+          "--mobile-offset-right": "max(1rem, env(safe-area-inset-right, 0px))",
           "--mobile-offset-top": "calc(var(--top-inset, 0px) + 12px)",
           "--width": "22rem",
         } as CSSProperties

@@ -168,8 +168,11 @@ describe("Profile canonical page layout", () => {
     }
     expect(source).not.toMatch(/icon=\{Fingerprint\}\s+iconTone="gray"/);
     expect(source).toContain('className="profile-account-inline-action"');
-    expect(css).toMatch(
-      /\.profile-home-content \[data-icon-tone="purple"\] \{\s+background: var\(--app-purple\) !important;/,
+    expect(css).toContain(
+      ".profile-home-content [data-icon-tone] {",
+    );
+    expect(css).toContain(
+      "background: var(--app-settings-icon-surface) !important;",
     );
   });
 

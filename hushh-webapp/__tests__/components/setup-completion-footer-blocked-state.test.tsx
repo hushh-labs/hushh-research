@@ -12,7 +12,7 @@ import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-compl
  * and got nothing but a line of supporting text. These tests pin the rule:
  * accent while the tap can finish, neutral while it cannot.
  */
-const ACCENT_FILL = "bg-[var(--app-accent)]";
+const ACCENT_FILL = "bg-[var(--app-accent-action)]";
 
 function renderFooter(overrides: Partial<Parameters<typeof SetupCompletionFooter>[0]> = {}) {
   const onComplete = vi.fn();

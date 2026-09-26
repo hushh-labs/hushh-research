@@ -20,7 +20,8 @@ describe("setup completion footer contract", () => {
     expect(source).toContain(
       "var(--app-scroll-bottom-pad,var(--app-bottom-inset))",
     );
-    expect(source).toContain('"h-12 text-base"');
+    expect(source).toContain('size="prominent"');
+    expect(source).toContain("FLOW_ACTION_MEASURE_CLASSNAME");
     expect(source).toContain("bg-transparent");
     expect(source).not.toContain("SurfaceInset");
   });
@@ -40,7 +41,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain('effect = "fill"');
     expect(source).toContain('variant === "none" && effect === "fade"');
     expect(source).toContain('const visualVariant = isQuietSetupAction ? "blue" : variant');
-    expect(source).toContain("!text-[var(--app-accent)]");
+    expect(source).toContain("!text-[var(--app-accent-ink)]");
     expect(source).toContain("data-voice-action-id={actionId}");
   });
 

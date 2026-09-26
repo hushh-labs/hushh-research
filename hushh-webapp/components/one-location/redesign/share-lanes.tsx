@@ -113,7 +113,7 @@ export function ShareLaneRow({
         {onStop ? (
         <button
           type="button"
-          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[color:var(--app-destructive-deep)] transition-colors hover:bg-[color:var(--app-destructive-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 dark:text-[color:var(--app-destructive-bright)]"
           onClick={onStop}
           disabled={stopping}
           aria-label={
@@ -210,8 +210,8 @@ export function ShareLanesDisclosure({
     <Button
       type="button"
       variant="ghost"
-      size="sm"
-      className="h-9 shrink-0 gap-1 rounded-full px-3 text-[15px] font-semibold"
+      size="compact"
+      className="shrink-0 gap-1"
       onClick={onToggle}
       aria-expanded={expanded}
       aria-controls={controlsId}

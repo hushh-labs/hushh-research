@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
@@ -28,30 +30,38 @@ export function SpecialistDirectiveCard({
 }: SpecialistCardProps) {
   return (
     <div
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-4"
       data-testid="specialist-directive-card"
     >
       <p className="text-sm font-medium text-foreground/90">{summary}</p>
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          data-testid="specialist-directive-confirm"
-        >
-          {busy ? "Working…" : confirmLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
-          data-testid="specialist-directive-cancel"
-        >
-          Cancel
-        </button>
-      </div>
+      <FlowActionGroup
+        className="mt-4"
+        primary={
+          <Button
+            type="button"
+            size="prominent"
+            className="h-auto max-w-full whitespace-normal py-3 text-center [overflow-wrap:anywhere]"
+            onClick={onConfirm}
+            disabled={busy}
+            isLoading={busy}
+            data-testid="specialist-directive-confirm"
+          >
+            {confirmLabel}
+          </Button>
+        }
+        secondary={
+          <Button
+            type="button"
+            size="standard"
+            variant="secondary"
+            onClick={onCancel}
+            disabled={busy}
+            data-testid="specialist-directive-cancel"
+          >
+            Cancel
+          </Button>
+        }
+      />
     </div>
   );
 }
@@ -110,36 +120,43 @@ export function SpecialistFreeTextPromptCard({
   return (
     <div
       data-testid="specialist-free-text-prompt-card"
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-4"
     >
       <p className="text-sm font-medium">{question}</p>
-      <textarea
-        className="mt-3 min-h-20 w-full resize-none rounded-xl border border-[color:var(--app-card-border-standard)] bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+      <Textarea
+        aria-label={question}
+        className="mt-3 min-h-24 w-full resize-y"
         placeholder={placeholder || undefined}
         value={value}
         disabled={busy}
         onChange={(event) => setValue(event.target.value)}
       />
-      <div className="mt-3 flex gap-2">
-        <Button
-          data-testid="specialist-free-text-submit"
-          size="sm"
-          isLoading={busy}
-          disabled={busy || !trimmed}
-          onClick={() => onSubmit(trimmed)}
-        >
-          {confirmLabel ?? "Continue"}
-        </Button>
-        <Button
-          data-testid="specialist-free-text-cancel"
-          size="sm"
-          variant="ghost"
-          disabled={busy}
-          onClick={onCancel}
-        >
-          {cancelLabel ?? "Cancel"}
-        </Button>
-      </div>
+      <FlowActionGroup
+        className="mt-4"
+        primary={
+          <Button
+            data-testid="specialist-free-text-submit"
+            size="prominent"
+            className="h-auto max-w-full whitespace-normal py-3 text-center [overflow-wrap:anywhere]"
+            isLoading={busy}
+            disabled={busy || !trimmed}
+            onClick={() => onSubmit(trimmed)}
+          >
+            {confirmLabel ?? "Continue"}
+          </Button>
+        }
+        secondary={
+          <Button
+            data-testid="specialist-free-text-cancel"
+            size="standard"
+            variant="secondary"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            {cancelLabel ?? "Cancel"}
+          </Button>
+        }
+      />
     </div>
   );
 }
@@ -198,10 +215,10 @@ export function SpecialistConsentRequiredCard({
   return (
     <div
       data-testid="specialist-consent-required-card"
-      className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]">
           <ShieldCheck className="h-4 w-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
@@ -209,13 +226,13 @@ export function SpecialistConsentRequiredCard({
           <p className="mt-1 text-sm text-foreground/75">
             Allow {agentName} to {scopeName} before it continues in this chat.
           </p>
-          {reason ? <p className="mt-2 text-xs text-foreground/55">{reason}</p> : null}
+          {reason ? <p className="mt-2 text-xs text-muted-foreground">{reason}</p> : null}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2 [&>button]:w-full sm:[&>button]:w-auto">
         <Button
           data-testid="specialist-consent-open"
-          size="sm"
+          size="compact"
           disabled={busy}
           onClick={onOpenConsent}
         >
@@ -224,7 +241,7 @@ export function SpecialistConsentRequiredCard({
         </Button>
         <Button
           data-testid="specialist-consent-cancel"
-          size="sm"
+          size="compact"
           variant="ghost"
           disabled={busy}
           onClick={onCancel}
@@ -296,10 +313,10 @@ export function SpecialistConsentActionsCard({
   return (
     <div
       data-testid="specialist-consent-actions-card"
-      className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]">
           <ShieldCheck className="h-4 w-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
@@ -337,7 +354,7 @@ export function SpecialistConsentActionsCard({
                 <p className="mt-1 text-sm text-foreground/70">{item.summary}</p>
               ) : null}
               {expiry ? (
-                <p className="mt-1 text-xs font-medium text-foreground/55">
+                <p className="mt-1 text-xs font-medium text-muted-foreground">
                   Until {expiry}
                 </p>
               ) : null}
@@ -345,7 +362,7 @@ export function SpecialistConsentActionsCard({
                 {actions.has("revoke") ? (
                   <Button
                     data-testid="specialist-consent-revoke"
-                    size="sm"
+                    size="compact"
                     variant="destructive"
                     disabled={busy}
                     isLoading={busy}
@@ -358,7 +375,7 @@ export function SpecialistConsentActionsCard({
                 {revoked ? (
                   <Button
                     data-testid="specialist-consent-revoked"
-                    size="sm"
+                    size="compact"
                     variant="ghost"
                     disabled
                   >
@@ -369,7 +386,7 @@ export function SpecialistConsentActionsCard({
                 {actions.has("details") ? (
                   <Button
                     data-testid="specialist-consent-details"
-                    size="sm"
+                    size="compact"
                     variant="ghost"
                     disabled={busy}
                     onClick={() => onDetails(item)}
@@ -519,10 +536,10 @@ export function SpecialistPendingConsentRequestCard({
   return (
     <div
       data-testid="specialist-pending-consent-request-card"
-      className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]">
           <ShieldCheck className="h-4 w-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
@@ -535,7 +552,7 @@ export function SpecialistPendingConsentRequestCard({
                 : `${requester} wants to see something`}
             </p>
             {status === "approved" ? (
-              <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
+              <span className="rounded-full bg-[color:var(--app-settings-icon-surface)] px-2 py-0.5 text-xs font-medium text-[color:var(--app-settings-icon-foreground)]">
                 Approved
               </span>
             ) : status === "denied" ? (
@@ -579,21 +596,21 @@ export function SpecialistPendingConsentRequestCard({
             <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
           ) : null}
           {item.reason ? (
-            <p className="mt-2 text-xs text-foreground/55">Reason: {item.reason}</p>
+            <p className="mt-2 text-xs text-muted-foreground">Reason: {item.reason}</p>
           ) : null}
           {timeout ? (
-            <p className="mt-1 text-xs font-medium text-foreground/55">
+            <p className="mt-1 text-xs font-medium text-muted-foreground">
               Review by {timeout}.
             </p>
           ) : null}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2 [&>button]:w-full sm:[&>button]:w-auto">
         {resolved ? null : (
           <>
             <Button
               data-testid="specialist-pending-consent-approve"
-              size="sm"
+              size="compact"
               disabled={busy}
               isLoading={busy}
               onClick={() => onApprove(item)}
@@ -603,7 +620,7 @@ export function SpecialistPendingConsentRequestCard({
             </Button>
             <Button
               data-testid="specialist-pending-consent-deny"
-              size="sm"
+              size="compact"
               variant={denyArmed ? "destructive" : "ghost"}
               disabled={busy}
               aria-label={denyTap.ariaLabel("Deny")}
@@ -620,7 +637,7 @@ export function SpecialistPendingConsentRequestCard({
         )}
         <Button
           data-testid="specialist-pending-consent-details"
-          size="sm"
+          size="compact"
           variant="ghost"
           disabled={busy}
           onClick={() => onDetails(item)}

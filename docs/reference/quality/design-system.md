@@ -150,7 +150,50 @@ Forbidden:
    - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/300), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
    - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
    - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
-   - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
+   - Product typography: `--font-family-product` uses the self-hosted, OFL-licensed DM Sans variable family. Fixed-width clocks and counters use the existing licensed Inter face through `--font-app-numeric`, since DM Sans has proportional digits. The semantic `--font-app-*` aliases and type roles remain the only way to set product text. Do not bundle platform or third-party proprietary font files. The measured scales and principles above are references, not copied assets.
+
+## Muse-inspired settings direction
+
+Profile, pushed Profile screens, and Connectors use one quiet settings palette:
+`--app-settings-canvas`, `--app-settings-surface`, `--app-settings-border`,
+`--app-settings-link`, and the neutral icon-well tokens. These have explicit light and dark values in
+`app/globals.css`. Use `SettingsGroup` and `SettingsRow` for grouped actions;
+keep service marks, text hierarchy, and action placement consistent across the
+three surfaces. Accent color marks actions and focus, while status and destructive
+states keep their own semantics.
+
+This direction comes from Meta's [Muse design essay](https://introducing.muse.ai/),
+its [iPhone listing](https://apps.apple.com/us/app/muse-from-meta/id6760173601),
+and the [Mac preview](https://ai.meta.com/muse/download/). Public imagery shows
+neutral surfaces, soft separators, compact grouped rows, thin icons, and blue
+actions. The public Muse site uses an `optimisticAI` font stack; authenticated
+Profile/Settings screens and the app font files are not publicly available, so
+their exact values are not treated as implementation specifications.
+
+### Home, setup, and Agent Chat
+
+Use the same neutral canvas, grouped surfaces, typography, and regular utility
+icon weight across Home, setup, and Agent Chat. Capability artwork retains its
+existing identity colors; utility controls use semantic foreground tokens.
+
+- Use `--app-accent-action` / `--app-accent-action-hover` for filled actions and
+  `--app-accent-ink` for small accent text. These roles preserve text contrast in
+  light/dark and blue/gold modes; `--app-accent` remains the identity color.
+- Inline actions and icon targets are at least 44px. Terminal setup actions use
+  `prominent` (50px) and `FLOW_ACTION_MEASURE_CLASSNAME` (fluid, capped at 30rem).
+  Desktop action groups wrap when their host is narrow. Dynamic action labels
+  wrap inside their control rather than being clipped.
+- Capability rows put multiple actions below the description on phones. Setup
+  introductions own a vertical scroll area so Continue stays reachable in short
+  landscape views and with larger text.
+- Chat uses two header rows below 1024px and one above. Keep the model slot
+  reserved when switching agents, retain the user's avatar, and preserve the
+  existing keyboard/safe-area composer offsets and voice action authority.
+
+Verification uses real component captures for Home/setup, source-coupled Chat
+header fixtures, shared control contrast measurements, and component interaction
+suites. Chromium/WebKit fixtures do not replace authenticated journey testing
+or a physical iPhone test of keyboard, OAuth, location permission, and voice.
 
 ## Typography and CTA contract
 

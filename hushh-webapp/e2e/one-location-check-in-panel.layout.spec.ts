@@ -188,9 +188,9 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 
   let css = await buildStylesheet(candidates);
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
+  const fontSource = path.join(webappRoot, "public/fonts/DM-Sans");
   if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
+    fs.cpSync(fontSource, path.join(dir, "fonts/DM-Sans"), { recursive: true });
     css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
   }
 

@@ -132,7 +132,7 @@ export function AppStreamSection({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="ui-text-section-label group flex w-full items-center justify-between gap-3 px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="ui-text-section-label group flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] px-3 py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -223,8 +223,8 @@ export function AppStreamPanel({
   return (
     <section
       className={cn(
-        "w-full max-w-none rounded-[24px] bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent-soft)_46%,transparent),color-mix(in_srgb,var(--background)_96%,var(--app-accent)))] p-3.5 shadow-[0_22px_60px_-46px_var(--app-accent-deep)] backdrop-blur-xl",
-        "dark:bg-white/[0.035] dark:shadow-none",
+        "w-full max-w-none rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-3.5",
+
         className
       )}
       aria-label={title}

@@ -128,7 +128,7 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 /**
  * Write a fixture directory and return its `file://` URL.
  *
- * The real Inter face is copied in and the stylesheet's absolute `/fonts/...`
+ * The product font files are copied in and the stylesheet's absolute `/fonts/...`
  * URLs rewritten to point at it. Without that step the page falls back to a
  * system font, and a row measured here would be a row of the wrong typeface.
  */
@@ -138,9 +138,9 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
 
   let css = await buildStylesheet(candidates);
 
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
+  const fontSource = path.join(webappRoot, "public/fonts/DM-Sans");
   if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
+    fs.cpSync(fontSource, path.join(dir, "fonts/DM-Sans"), { recursive: true });
     css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
   }
 
@@ -1070,23 +1070,26 @@ test.describe("Circle detail responsive layout", () => {
         return {
           titleClientWidth: title.clientWidth,
           titleScrollWidth: title.scrollWidth,
-          titleClientHeight: title.clientHeight,
-          titleScrollHeight: title.scrollHeight,
+          titleOverflowY: style.overflowY,
+          copyOverflowY: getComputedStyle(title.parentElement!.parentElement!).overflowY,
           textOverflow: style.textOverflow,
           whiteSpace: style.whiteSpace,
           editRight: edit.getBoundingClientRect().right,
           headerRight: header.getBoundingClientRect().right,
+          pageScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
         };
       });
 
       expect(result.titleScrollWidth).toBeLessThanOrEqual(
         result.titleClientWidth + 1,
       );
-      expect(result.titleScrollHeight).toBeLessThanOrEqual(
-        // Integer DOM metrics round a fractional line box in opposite
-        // directions; two pixels is browser rounding, not clipped content.
-        result.titleClientHeight + 2,
-      );
+      // DM Sans glyphs extend beyond the line box by a few pixels; scrollHeight
+      // counts that visible ink even when nothing clips it. Check the actual
+      // clipping and viewport conditions instead.
+      expect(result.titleOverflowY).toBe("visible");
+      expect(result.copyOverflowY).toBe("visible");
+      expect(result.pageScrollWidth).toBeLessThanOrEqual(result.viewportWidth + 1);
       expect(result.textOverflow).not.toBe("ellipsis");
       expect(result.whiteSpace).not.toBe("nowrap");
       expect(result.editRight).toBeLessThanOrEqual(result.headerRight + 1);

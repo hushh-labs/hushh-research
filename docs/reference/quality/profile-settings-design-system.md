@@ -5,11 +5,13 @@
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-This document is the canonical contract for Apple-like settings surfaces in Hussh. The current reference implementation is the Profile page, backed by shared primitives in `hushh-webapp/components/app-ui/settings-ui.tsx` and a compatibility re-export at `hushh-webapp/components/profile/settings-ui.tsx`.
+This document is the canonical contract for grouped settings surfaces in Hushh. The current reference implementation is the Profile page, backed by shared primitives in `hushh-webapp/components/app-ui/settings-ui.tsx` and a compatibility re-export at `hushh-webapp/components/profile/settings-ui.tsx`.
 
 For broader page-shell, header, and content-surface rules beyond settings, use [App Surface Design System](./app-surface-design-system.md).
 
 Signed-in settings surfaces inherit the app-wide compact density contract by default. That means grouped settings, privacy managers, and audit lists should feel efficient above the fold while auth, onboarding, and form-first overlays remain readable.
+
+The Profile stack, Connectors manager, Feed, Connect, and route-level Connected Systems screens share `--app-settings-canvas`, `--app-settings-surface`, `--app-settings-border`, and neutral utility icon tokens in both themes. Feature components keep their own layout and state behavior. Success, warning, error, and branded connector marks retain semantic colors. The central Sonner renderer uses these surface tokens for all app notifications, with 44px dismiss and action controls and native safe-area offsets.
 
 ## Design Intent
 
@@ -96,7 +98,7 @@ Rules:
 
 ### Typography
 
-1. Row titles follow the calm iPhone Settings optical baseline for this web shell: 15px SF Text at regular weight. The shared CSS exception must keep them out of generic title-slot sizing; reserve semibold for explicit hierarchy rather than ordinary rows.
+1. Row titles use the shared DM Sans product face at regular weight. The Profile recipe is 16px; reserve semibold for explicit hierarchy rather than ordinary rows.
 2. Supporting text is smaller and tighter than titles.
 3. Avoid oversized subtitles.
 4. Supporting text should explain action or state in one short sentence.
@@ -107,6 +109,7 @@ Rules:
 1. Hover and press behavior must belong to the whole row, not just the text.
 2. Ripple is allowed only on actionable controls and rows.
 3. Icons should inherit the same emphasis as text in active or highlighted states.
+   Settings utility icons use regular-weight canonical glyphs on the shared neutral icon surface; branded connector marks and semantic status icons keep their identity.
 4. Chevrons remain right-aligned and vertically centered.
 5. Actionable cards are treated the same way as actionable rows: if a card is clickable, the whole card owns one ripple surface.
 6. Decorative icon choices must be semantically grounded. Do not default to generic `Sparkles` for onboarding, optimization, AI, or premium states unless the feature meaning is explicitly “sparkle” or celebratory.
