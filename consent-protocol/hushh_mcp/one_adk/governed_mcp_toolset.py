@@ -26,11 +26,20 @@ from google.adk.tools.mcp_tool.mcp_session_manager import (
 from google.adk.tools.mcp_tool.mcp_tool import _RESERVED_TOOL_NAMES, McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from jsonschema import Draft202012Validator
-from mcp.types import CallToolResult, Tool
+from mcp.types import Tool
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.consent.audit_logger import get_audit_logger
 from hushh_mcp.one_adk.external_read_boundary import mcp_call_may_skip_review
+from hushh_mcp.one_adk.mcp_result_projection import (
+    _credential_values as _credential_values,
+)
+from hushh_mcp.one_adk.mcp_result_projection import (
+    _redact_credentials as _redact_credentials,
+)
+from hushh_mcp.one_adk.mcp_result_projection import (
+    project_mcp_result,
+)
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
@@ -46,7 +55,6 @@ from hushh_mcp.services.external_mcp_client import (
     ExternalMcpError,
     _http_status_from_error,
     _list_session_tools,
-    _normalize_and_cap,
 )
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
 
@@ -320,39 +328,6 @@ def mcp_tool_fingerprint(descriptor: dict[str, Any]) -> str:
     return _digest({key: value for key, value in descriptor.items() if key != "annotations"})
 
 
-def _credential_values(headers: dict[str, str]) -> list[str]:
-    values = []
-    for value in headers.values():
-        values.append(value)
-        scheme, _, credential = value.partition(" ")
-        if credential and scheme.isalpha():
-            values.append(credential.strip())
-    # Very short values would redact ordinary words; credentials are longer.
-    return sorted({value for value in values if len(value) >= 8}, key=len, reverse=True)
-
-
-def _redact_credentials(value: Any, secrets: list[str]) -> Any:
-    """Best effort against a server echoing the credential it received verbatim.
-
-    It cannot stop a hostile server (encoded, split or re-cased echoes, or
-    values under 8 characters); that server already holds the credential.
-    """
-    if not secrets:
-        return value
-    if isinstance(value, str):
-        for secret in secrets:
-            value = value.replace(secret, "[redacted]")
-        return value
-    if isinstance(value, list):
-        return [_redact_credentials(item, secrets) for item in value]
-    if isinstance(value, dict):
-        return {
-            _redact_credentials(key, secrets): _redact_credentials(item, secrets)
-            for key, item in value.items()
-        }
-    return value
-
-
 class GovernedMcpToolset(McpToolset):
     """Use ADK's native session/tool machinery without ambient owner authority.
 
@@ -593,16 +568,8 @@ class _GovernedMcpTool(McpTool):
             headers = await owner._current_headers(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
-            secrets = _credential_values(headers)
-
-            def projection(payload: dict[str, Any]) -> dict[str, Any]:
-                if owner.result_policy is not None:
-                    payload = owner.result_policy(self.descriptor["name"], payload)
-                # Before serialization and capping, so a cut cannot split a secret.
-                return cast(dict[str, Any], _redact_credentials(payload, secrets))
-
-            normalized = _normalize_and_cap(
-                CallToolResult.model_validate(result), project=projection
+            normalized = project_mcp_result(
+                result, headers, self.descriptor["name"], owner.result_policy
             )
             if normalized.is_error:
                 return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}

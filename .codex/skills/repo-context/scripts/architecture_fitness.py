@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Advisory gene/operon/organ fitness report for maintained source files.
 
-This is the measurement stage of the bacterial-software ratchet. It reports
-size, dependency-direction, and import-initialization risks but exits zero for
-repository findings. Existing debt becomes blocking only after a clean,
-reviewed baseline and a successful compatibility-preserving pilot exist.
+Without --baseline this reports size, dependency-direction and import-initialization
+risks without failing on repository findings. Governance supplies the reviewed
+post-pilot baseline: new or worsened findings then fail with exit status 1.
+Retained legacy debt remains visible; a baseline update requires explicit review.
 """
 
 from __future__ import annotations

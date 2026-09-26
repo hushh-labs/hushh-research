@@ -50,8 +50,8 @@ ENFORCEMENT = {
     "Project-Wide Bacterial Software Architecture Gate": (
         "partial",
         "agent_orchestration_check.py string-checks the heading and markers. "
-        "architecture_fitness.py measures real violations but exits 0 by design -- measured, "
-        "never enforced.",
+        "architecture_fitness.py reports measured debt; governance supplies the reviewed "
+        "post-pilot --baseline and rejects new or worsened findings. Existing debt remains advisory.",
     ),
     "Project-Wide Runtime Telemetry Default & Chat Session Naming": ("asserted", "No automated enforcement."),
     "Project-Wide Agent Architecture Doctrine": (

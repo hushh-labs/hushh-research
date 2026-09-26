@@ -1041,3 +1041,44 @@ case required a retry in each project (three flaky results); its isolated Chromi
 confirmation passed twice without retries. This remains recorded test instability,
 not a reason to change unrelated product behavior or weaken assertions. These
 fixture-only changes require a new exact-head remote CI result.
+
+### Dev reviewer candidate — 2026-09-26
+
+The frozen refresh integrates ADK `2b3b7590f3c4e38d3bf9b124c396e088533bff16`
+through `60e5daac78ebf9368530abb559a3788744de2f71`, preserving the infrastructure
+branch's vault-consent header requirement. The incoming selected-email fixture now
+supplies that required header. Four frozen dirty frontend files already matched;
+the local bootstrap's Drive credential-source correction is carried separately.
+Concurrent PDF work and the original ADK worktree remain untouched.
+
+The independent read-only security review passed 247 focused tests on the frozen
+ADK revision. Pure history/activity restoration now lives behind the existing
+route entrypoints; MCP result projection/redaction is separate from dispatch.
+176 integrated projection, admission and privacy checks pass after those
+extractions. Owner lookup, exact approval, single dispatch and post-call authority
+checks retain their ordering. No public route or response contract changed.
+
+The architecture review records 11 specific retained imported size findings,
+including the bootstrap correction, with individual reasons in the existing
+baseline. The extractions remove history endpoint/module growth and the dispatch
+function overage. No dependency, import-initialization, threshold or comparison
+rule was relaxed. Large frontend facades and security scenario suites remain
+measured debt; this is not a claim that their structure is optimal. The fitness
+and alignment descriptions now accurately state that governance enforces the
+post-pilot new-or-worsened ratchet. Complete canonical CI is required on the final
+candidate.
+
+Pipeline-only PR #7104 landed through the authorized Admin SOP after its exact-head
+checks passed; the ordinary request enabled auto-merge but did not enter the queue.
+Main `fa566cfbc0790fb96af45ae087d5a4638dfd4917` passed post-merge smoke. This changes
+only dev's model substitution to 3.7. The application branch was not merged into
+main, and publishing an image still cannot install it on an owner pod.
+
+The pre-deploy dev reviewer secret/review-mode preflight passes, but the current
+serving application did not complete browser session bootstrap in three attempts.
+No browser acceptance or update installation is inferred from preflight. Preserve
+the canonical reviewer and diagnose/retest against the verified deployment; do not
+reset identity or create a replacement fixture. Custom MCP tools remain excluded
+from pod mode, so the shared ADK checks do not prove BYOC custom-connector support.
+Real separate-network Puppy, actual pod restart/recovery, Files queue delivery and
+resource measurements remain live acceptance requirements.
