@@ -2778,7 +2778,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   }
 
   [data-connect-page] [data-circle-discovery-actions] button {
-    font-size: var(--type-compact-button-label-size) !important;
+    font-size: calc(var(--type-compact-button-label-size) - 1px) !important;
     line-height: var(--type-compact-button-label-line) !important;
   }
 }
