@@ -6,29 +6,11 @@ against a project hushh does not own.
 
 THE CREDENTIAL MODEL, AND A CORRECTION TO THE PLAN'S OWN LANGUAGE
 -----------------------------------------------------------------
-``render_bootstrap_plan`` describes federation as a **Workload Identity Federation**
-pool and provider. For a hushh control plane that runs *outside* Google -- the Anypoint
-/ CloudHub deployment is a real part of this architecture -- that is exactly right: WIF
-is how a non-Google workload obtains Google credentials without an exported key.
-
-For the GCP-hosted hub it is the wrong primitive, and using it would add a pool and a
-provider that buy nothing. Hushh's consent plane is *already* a Google identity
-(``consent-protocol-runtime@…``, via the metadata server). A Google identity reaching
-another project does not federate; it is granted. So the keyless mechanism here is
-**short-lived service-account impersonation**:
-
-* The user creates one least-privilege bootstrap service account in their project and
-  grants hushh's consent-plane identity ``roles/iam.serviceAccountTokenCreator`` **on
-  that one account** -- not on the project.
-* Hushh calls ``iamcredentials.generateAccessToken`` per session, receives a token that
-  expires in minutes, applies the plan, and holds nothing afterwards.
-
-Both models are keyless in the sense that matters: no service-account key is ever
-created or exported. What neither model removes is *standing authorization* -- the
-binding persists until revoked, under WIF exactly as much as under impersonation. The
-plan's phrase "no standing credential" is true and worth keeping; "no standing
-authority" would not be, and is not claimed. Revocation is one binding removal, which
-is the property to hold on to.
+The GCP control plane uses short-lived service-account impersonation. The owner
+creates one bootstrap service account and grants the control plane token-creator
+authority on that account. Each token expires after 900 seconds. No exported
+service-account key is created; the standing impersonation grant remains until
+revoked. Resources and IAM are applied only in the selected owner project.
 
 INERT BY DEFAULT
 ----------------
@@ -158,6 +140,18 @@ class LivenessVerdict:
     @property
     def is_conclusive(self) -> bool:
         return self.state in ("live", "forbidden", "gone")
+
+
+def bootstrap_permissions(
+    *, files_enabled: bool = False
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """Optional authority must be selected in the owner's frozen setup request."""
+    if not files_enabled:
+        return BOOTSTRAP_ROLES, REQUIRED_SERVICES
+    return (
+        BOOTSTRAP_ROLES + (("roles/cloudtasks.queueAdmin", "manage the private Files queue"),),
+        REQUIRED_SERVICES + ("cloudtasks.googleapis.com",),
+    )
 
 
 def _generate_access_token(
@@ -330,7 +324,9 @@ class UserGcpBootstrap:
         keyring = "hushh-one"
         kms_key = by_type.get("kms_key", {}).get("id", "")
         bucket = by_type.get("gcs_bucket", {}).get("id", "")
-        pod_sa = by_type.get("service_account", {}).get("id", "")
+        pod_sa = by_type.get("cloud_run_service", {}).get("service_account") or by_type.get(
+            "service_account", {}
+        ).get("id", "")
         pod_sa_id = pod_sa.split("@")[0] if pod_sa else ""
         topic = by_type.get("pubsub_topic", {}).get("id", "")
         sub = by_type.get("pubsub_subscription", {}).get("id", "")
@@ -365,7 +361,11 @@ class UserGcpBootstrap:
                     f"https://serviceusage.googleapis.com/v1/projects/{project}"
                     "/services:batchEnable"
                 ),
-                "body": {"serviceIds": list(REQUIRED_SERVICES)},
+                "body": {
+                    "serviceIds": list(
+                        bootstrap_permissions(files_enabled=bool(plan.get("filesLibrary")))[1]
+                    )
+                },
                 "tolerate": [],
                 # batchEnable returns a LONG-RUNNING OPERATION, and every step below
                 # fails with "API has not been used in this project" until it finishes.
@@ -614,7 +614,10 @@ class UserGcpBootstrap:
                     "name": bucket,
                     "location": region.upper(),
                     "encryption": {"defaultKmsKeyName": key_path},
-                    "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}},
+                    "iamConfiguration": {
+                        "uniformBucketLevelAccess": {"enabled": True},
+                        "publicAccessPrevention": "enforced",
+                    },
                 },
                 "tolerate": [409],
             },
@@ -780,6 +783,9 @@ class UserGcpBootstrap:
                 "project_level": True,
             }
         )
+        from hushh_mcp.services.pod_files.provisioning import bootstrap_calls
+
+        calls.extend(bootstrap_calls(plan, project=project, region=region, runtime=pod_sa))
         return calls
 
     # -- execution -----------------------------------------------------------------
@@ -867,6 +873,34 @@ class UserGcpBootstrap:
             )
             code = getattr(response, "status_code", 0)
             ok = code in (200, 201) or code in call.get("tolerate", [])
+            if call["step"] == "files_queue" and code in (200, 201, 409):
+                from hushh_mcp.services.pod_files.provisioning import queue_matches
+
+                observed_queue = self._session.get(
+                    f"https://cloudtasks.googleapis.com/v2/{call['body']['name']}",
+                    headers=headers,
+                    timeout=30,
+                    allow_redirects=False,
+                )
+                ok = observed_queue.status_code == 200 and queue_matches(
+                    _json_or_empty(observed_queue), call["body"]
+                )
+
+            if ok and call["step"] == "cmek_bucket" and plan.get("filesLibrary"):
+                from hushh_mcp.services.pod_files.provisioning import bucket_matches
+
+                bucket_name = call["body"]["name"]
+                observed_bucket = self._session.get(
+                    f"https://storage.googleapis.com/storage/v1/b/{bucket_name}",
+                    headers=headers,
+                    timeout=30,
+                    allow_redirects=False,
+                )
+                ok = observed_bucket.status_code == 200 and bucket_matches(
+                    _json_or_empty(observed_bucket),
+                    bucket=bucket_name,
+                    kms_key=call["body"]["encryption"]["defaultKmsKeyName"],
+                )
 
             # A 409 on the bucket is NOT success. GCS bucket names are globally unique,
             # so "already exists" can mean the name belongs to a completely different
@@ -922,6 +956,18 @@ class UserGcpBootstrap:
             }
             if ok and waited.get("resourceObservation"):
                 result["resourceObservation"] = waited["resourceObservation"]
+            if ok and code in (200, 201) and call["step"] == "files_queue":
+                from hushh_mcp.services.pod_files.provisioning import queue_creation_observation
+
+                name = call["body"]["name"]
+                identity = queue_creation_observation(_json_or_empty(observed_queue), name)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "cloud_tasks_queue",
+                        "id": name.rsplit("/", 1)[-1],
+                        "disposition": "created",
+                        "identity": identity,
+                    }
             if ok and code in (200, 201) and call["step"] == "cmek_bucket":
                 from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
 
@@ -939,7 +985,11 @@ class UserGcpBootstrap:
                             "disposition": "created",
                             "identity": identity,
                         }
-            if ok and code in (200, 201) and call["step"] == "pod_service_account":
+            if (
+                ok
+                and code in (200, 201)
+                and call["step"] in {"pod_service_account", "files_worker_account"}
+            ):
                 from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
 
                 account_id = (call.get("body") or {}).get("accountId")
@@ -1510,7 +1560,7 @@ def _bindings_equal(existing: list, wanted: list) -> bool:
 
 
 def authorization_request(
-    *, project: str, bootstrap_sa: str, consent_plane_sa: str
+    *, project: str, bootstrap_sa: str, consent_plane_sa: str, files_enabled: bool = False
 ) -> dict[str, Any]:
     """Exactly what to ask a user to run once, stated so they can audit it.
 
@@ -1526,7 +1576,7 @@ def authorization_request(
         },
         "grants_to_bootstrap_sa": [
             {"role": role, "why": why, "scope": f"project {project}"}
-            for role, why in BOOTSTRAP_ROLES
+            for role, why in bootstrap_permissions(files_enabled=files_enabled)[0]
         ],
         "grants_to_hushh": [
             {
@@ -1554,7 +1604,12 @@ def authorization_request(
 
 
 def render_authorization_script(
-    *, project: str, bootstrap_sa: str, hushh_caller: str, bootstrap_sa_id: str = "one-bootstrap"
+    *,
+    project: str,
+    bootstrap_sa: str,
+    hushh_caller: str,
+    bootstrap_sa_id: str = "one-bootstrap",
+    files_enabled: bool = False,
 ) -> str:
     """The script a person runs in their own cloud, GENERATED from what the applier binds.
 
@@ -1579,8 +1634,9 @@ def render_authorization_script(
     person can see what happens in their own cloud; asking them to execute something
     unread would contradict the thing being asked for. It is written to be read first.
     """
-    roles = "\n".join(f'  "{role}"  # {why}' for role, why in BOOTSTRAP_ROLES)
-    services = "\n".join(f'  "{svc}"' for svc in REQUIRED_SERVICES)
+    selected_roles, selected_services = bootstrap_permissions(files_enabled=files_enabled)
+    roles = "\n".join(f'  "{role}"  # {why}' for role, why in selected_roles)
+    services = "\n".join(f'  "{svc}"' for svc in selected_services)
     return f"""#!/usr/bin/env bash
 # Authorize hussh to build your private agent pod INSIDE YOUR OWN GCP PROJECT.
 #

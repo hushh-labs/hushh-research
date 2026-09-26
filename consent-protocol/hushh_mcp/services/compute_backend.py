@@ -1,37 +1,10 @@
-"""The compute-backend seam for the sovereign per-user agent.
+"""Cloud Run compute contracts for the private agent.
 
-One logical agent (HusshID + spaceID + PCHP + the zero-knowledge pod), many
-compute backends underneath. This module is the **provider abstraction**: a
-``ComputeBackend`` Protocol plus the backend-neutral value types the provisioning
-brain speaks (``PodSpec`` / ``BackendHandle`` / ``BackendStatus``), and a
-``NullBackend`` no-op default so Phase 0 stays a pure registry stamp with **no
-host call**.
-
-Which backend is "primary" is a deployment CHOICE per WORKLOAD CLASS, not a
-property of this seam. The current posture (docs/future/personal-agent/
-ARCHITECTURE.md §2, ROADMAP.md):
-
-  * ``AnypointBackend`` — **primary for general / mass-market deployments**: a Mule
-                         app on CloudHub 2.0 / Runtime Fabric, operated by the
-                         dedicated MuleSoft team. Primary here because Hushh holds
-                         **pre-purchased Titanium capacity** (already paid for ->
-                         best cost at 1B scale); it hosts the pod AND carries the
-                         enterprise lane. FedRAMP Moderate (Gov Cloud). Renders the
-                         AMC descriptor today; live is gated (raises until wired).
-  * ``GcpBackend``      — **primary for the FedRAMP-High / government / regulated
-                         tier** (Cloud Run + Confidential Space): GCP carries
-                         **FedRAMP High** (vs MuleSoft Government Cloud's Moderate)
-                         and is the validated, live-wired backend.
-  * ``UserGcpBackend``  — the BYOC sovereign tier (the pod in the user's own GCP).
-
-Every backend implements the same contract, so provisioning, teardown, and the
-reconcile loop are uniform across hosts. Selection is by the
-``PERSONAL_AGENT_BACKEND`` setting, resolved through ``resolve_compute_backend``:
-unset resolves to ``NullBackend``, so a half-configured environment can never
-silently attempt a real host call.
-
-Nothing here reaches user data or consent: a backend receives only the opaque
-HusshID/spaceID, the HMAC phone hash, the pod's PUBLIC key, and version pins.
+GCP is the only supported cloud provider. ``user_gcp`` provisions in the owner's
+project; ``gcp`` serves the gated Hussh-managed tier. ``NullBackend`` is an inert
+unconfigured state, not a deployment provider. Live provisioning still requires
+explicit configuration and owner authority. The backend protocol keeps lifecycle,
+identity and recovery contracts independent of provider adapters.
 """
 
 from __future__ import annotations
@@ -57,17 +30,11 @@ RESOURCE_TIERS = (RESOURCE_TIER_ECONOMY, RESOURCE_TIER_WARM)
 # Canonical backend ids (the ``PERSONAL_AGENT_BACKEND`` values).
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
-BACKEND_ANYPOINT = "anypoint"
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
 
 # --- the pod's resource profile, in ONE place -------------------------------------
 #
-# Both renderers derive from these. They used to be independent literals -- GCP at
-# "500m" CPU and Anypoint at "0.1" vCores -- which sized the same pod FIVE TIMES
-# differently depending on which backend provisioned it. The parity test did not
-# catch it because it only asserted each backend stated *a* size, never that the
-# two stated the *same* one. A shared constant makes the disagreement impossible
-# rather than merely unlikely.
+# GCP renderers share this baseline. Per-owner configuration may override it.
 #
 # The numbers are measured, not guessed (MULTI-POD-DEV-SIMULATION.md): 211.9 MB
 # idle, 212.7 MB after 150 requests, 3.94 s cold start of which 58% is `google.adk`
@@ -82,27 +49,6 @@ POD_MEMORY = "1Gi"
 POD_CPU = f"{POD_CPU_MILLIS}m"
 
 
-def pod_vcores(cpu_millis: int | None = None) -> str:
-    """The same size expressed the way CloudHub asks for it.
-
-    CloudHub 2.0 sizes a replica in vCores where 1 vCore is one vCPU, so the
-    conversion is a unit change and not a policy decision -- which is exactly why
-    it belongs in a function next to the constant rather than as a second literal
-    in the Anypoint renderer.
-
-    Rendered to 2dp because CloudHub's replica sizes are discrete; a value that
-    does not land on one is a deploy-time rejection, and rounding here at least
-    makes the intended size legible in the descriptor.
-
-    ``None`` reads ``POD_CPU_MILLIS`` *at call time*, deliberately. Writing the
-    constant as a default argument would bind it when this module is imported, so
-    changing the profile would move the GCP renderer and silently leave this one
-    behind -- reintroducing the exact divergence the shared constant exists to
-    remove. A test that reloads the modules catches this; a test that only reads
-    today's values does not.
-    """
-    millis = POD_CPU_MILLIS if cpu_millis is None else cpu_millis
-    return f"{millis / 1000:.2f}".rstrip("0").rstrip(".")
 
 
 @dataclass(frozen=True)
@@ -189,6 +135,8 @@ class PodSpec:
     user_cloud_project: Optional[str] = None
     user_cloud_region: Optional[str] = None
     user_cloud_bootstrap_sa: Optional[str] = None
+    # Frozen owner setup selection; a fleet flag cannot grant this capability.
+    files_library_enabled: bool = False
 
     # -- the third axis: how warm THIS person's pod is kept -----------------------
     #
@@ -331,20 +279,7 @@ class NullBackend:
 
 
 def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
-    """Map the ``PERSONAL_AGENT_BACKEND`` setting to a backend instance.
-
-    Unset / empty / ``null`` / ``none`` -> ``NullBackend`` (inert), so a
-    half-configured env can never silently attempt a real host call. The primary is
-    chosen per workload class: ``anypoint`` is **primary for general / mass-market
-    deployments** (CloudHub 2.0 / Runtime Fabric; primary because of Hushh's
-    pre-purchased Titanium capacity; FedRAMP Moderate; dedicated MuleSoft team);
-    ``gcp`` is **primary for the FedRAMP-High / regulated tier** (Cloud Run +
-    Confidential Space; FedRAMP High, and the validated, live-wired backend);
-    ``user_gcp`` is the BYOC sovereign tier. Each is built but starts in
-    plan/dry-run mode — it renders the deploy artifact + handle and makes NO live
-    call until explicitly enabled with credentials. ``backend_id`` overrides the
-    setting (used by tests).
-    """
+    """Resolve configured GCP hosting; empty/null remains safely unconfigured."""
     from hushh_mcp.runtime_settings import personal_agent_backend
 
     chosen = (backend_id if backend_id is not None else personal_agent_backend()).strip().lower()
@@ -357,21 +292,16 @@ def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
         # but makes NO live GCP call until explicitly enabled with credentials.
         gcp: ComputeBackend = GcpBackend()
         return gcp
-    if chosen == BACKEND_ANYPOINT:
-        from hushh_mcp.services.anypoint_backend import AnypointBackend
-
-        anypoint: ComputeBackend = AnypointBackend()
-        return anypoint
     if chosen == BACKEND_USER_GCP:
         from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
-        # BYOC: renders the pod + a keyless WIF bootstrap plan for the USER's project.
-        # Plan-mode by default; live raises until the WIF bootstrap exists.
+        # BYOC: renders the pod + a keyless impersonation bootstrap plan for the USER's project.
+        # Plan-mode by default; live raises until the owner bootstrap exists.
         user_gcp: ComputeBackend = UserGcpBackend()
         return user_gcp
     raise NotImplementedError(
         f"compute backend '{chosen}' is not recognized "
-        "(expected: null | gcp | anypoint | user_gcp; see docs/future/personal-agent/ROADMAP.md M4/M6/M7)"
+        "(expected: null | gcp | user_gcp)"
     )
 
 

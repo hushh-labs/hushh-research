@@ -420,6 +420,13 @@ tests/test_plaid_server_custody_retire.py
 tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
 tests/test_pod_session_authority.py
+tests/test_pod_files_library.py
+tests/test_pod_files_jobs.py
+tests/test_pod_files_provisioning.py
+tests/test_pod_files_selection_postgres.py
+tests/test_puppy_activation.py
+tests/test_pod_command_routes.py
+tests/test_personal_agent_renewal_authority.py
 tests/test_pod_session_routes.py
 tests/test_pod_puppy_relay_route.py
 tests/test_puppy_envelope.py

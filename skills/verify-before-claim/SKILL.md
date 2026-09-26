@@ -225,8 +225,8 @@ So make it fail on purpose, once, before you trust it:
   it only tells you both agree with the suite's bugs. Order matters: oracle, then port.
 - **When porting or adding a platform, watch it fail against the unported one.** A parity
   test authored alongside the parity fix proves nothing about either. Written first, it
-  failed on exactly four capabilities on Anypoint and on nothing else on GCP — that
-  *selectivity* is what made the subsequent green meaningful.
+  must fail on the missing capabilities while passing for the verified baseline.
+  That selectivity makes the subsequent green meaningful.
 
 The number is a free assertion here too (§2d): a guard you expect to fail that passes
 immediately is a finding, not luck.
@@ -238,12 +238,11 @@ exist, the types match, the calls return. That is worth having and it is not wha
 promises. An implementation can satisfy every signature and still produce an artifact that
 cannot do the job — the interface stays green while the platforms silently diverge.
 
-The Anypoint backend passed the interchangeability contract for months while rendering a pod
-with no hub to read, no key to verify consent with, no model to call, and its feature flag
-off. Every method was correct. The pod was inert.
+A pod can implement every lifecycle method yet render without a hub endpoint,
+consent verification key, usable model connection, or enabled turn route. Test those
+capabilities at the rendered artifact, not just the method signature.
 
-When implementations produce **differently-shaped outputs** (a knative Service vs an AMC
-descriptor), you cannot assert parity by comparing them. Give each implementation a small
+When implementations produce **differently-shaped outputs** (for example, a service descriptor and an owner-project bootstrap plan), you cannot assert parity by comparing them. Give each implementation a small
 **extractor** that reduces its own shape to the same handful of semantic facts, and assert
 against that reduction. Adding a platform then costs one extractor, not a rewrite — and the
 assertions state capabilities in the language of the domain rather than of one vendor.
@@ -295,8 +294,9 @@ Cloud Run plane) printed:
 
 > The journey is complete: this person has a private agent that serves.
 
-Nothing failed. Nothing was checked either. Observed 2026-08-13 running
-`--backend anypoint` with no DB in the environment.
+Nothing failed. Nothing was checked either. The historical observation was recorded on 2026-08-13 with no database access.
+The current regression in `test_pod_journey_trace.py` preserves the unread-state check
+using the supported owner-project GCP path.
 
 **The shape, and the fix:**
 

@@ -53,7 +53,7 @@ sys.path.insert(0, str(ROOT))
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
 
-INFORMATION_SOURCES = ("pkm_projection", "hub_door", "none", "hub")
+INFORMATION_SOURCES = ("pkm_projection", "hub_door", "none", "hub", "owner_bucket")
 WRITE_SCOPES = ("none", "proposal_only", "confirmed_action")
 CONFIRMATION_OWNERS = ("owner_browser", "owner", "none", "hub")
 DECLARATION_FIELDS = (
@@ -324,12 +324,32 @@ def _manifests() -> list[Any]:
     return manifests
 
 
+def local_agent_tools() -> set[str]:
+    """Join manifest loads to AgentTool construction inside the pod-only roster branch."""
+    tree = _module(ROOT / "hushh_mcp" / "one_adk" / "agent_tree.py")
+    result: set[str] = set()
+    for function in tree.body:
+        if not isinstance(function, ast.FunctionDef) or function.name != "_one_roster_tools":
+            continue
+        for block in ast.walk(function):
+            if not isinstance(block, ast.If) or "pod_mode()" not in ast.unparse(block.test):
+                continue
+            calls = [node for statement in block.body for node in ast.walk(statement) if isinstance(node, ast.Call)]
+            if not any(isinstance(call.func, ast.Name) and call.func.id == "AgentTool" for call in calls):
+                continue
+            for call in calls:
+                if isinstance(call.func, ast.Name) and call.func.id == "_load_product_agent_manifest" and call.args and isinstance(call.args[0], ast.Constant):
+                    result.add(str(call.args[0].value))
+    return result
+
+
 def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     if declarations is None:
         declarations = declaration_table()
 
     registered = registered_specialists()
     accepted = service_for_accepts()
+    agent_tools = local_agent_tools()
     ports = pod_port_hub_reads()
     doors = specialist_door_names()
     door_names = pod_data_door_names()
@@ -365,6 +385,7 @@ def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[
         derived = {
             "registered_specialist": manifest.id in registered,
             "pod_dispatchable": manifest.id in accepted,
+            "pod_agent_tool": manifest.id in agent_tools,
             "hub_doors": sorted(hub_doors_by_agent.get(manifest.id, set())),
             "door": doors.get(manifest.id),
             "door_required_scope": door_scopes.get(doors.get(manifest.id, ""), None),
@@ -459,6 +480,11 @@ def _check_row(agent_id: str, declared: dict[str, Any], derived: dict[str, Any])
             problems.append("agent_one: the routing head runs in the pod turn route")
         if source != "pkm_projection":
             problems.append("agent_one: the head grounds on the PKM projection")
+        return problems
+
+    if derived.get("pod_agent_tool"):
+        if not executes or source != "owner_bucket":
+            problems.append(f"{agent_id}: local Files AgentTool requires pod execution and owner_bucket custody")
         return problems
 
     if executes != derived["pod_dispatchable"]:

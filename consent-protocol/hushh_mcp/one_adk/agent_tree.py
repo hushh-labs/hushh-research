@@ -2260,6 +2260,20 @@ def _one_roster_tools(
                 RegisteredMcpToolset(),
             ]
         )
+    if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
+        from hushh_mcp.one_adk.files_tools import (
+            create_folder,
+            list_files,
+            organize_file,
+            read_file,
+        )
+
+        files_manifest = _load_product_agent_manifest("agent_files")
+        tools.append(AgentTool(agent=LlmAgent(
+            name="files", mode="task", model=text_model, description=files_manifest.description,
+            instruction=files_manifest.system_instruction,
+            tools=[create_folder, list_files, read_file, organize_file],
+        )))
     return tools
 
 

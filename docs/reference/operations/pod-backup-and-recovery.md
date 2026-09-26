@@ -129,9 +129,9 @@ back *from Cloud Run* and reached `live`. (A first attempt failed its startup pr
 breaking boot, and is not. It also shows the startup probe is genuinely HTTP: a TCP probe
 would have been satisfied by gunicorn's bind before the worker died.)
 
-**Still open:** `HUSSH_POD_PRIVATE_KEY` (per-pod identity, task #114), the Anypoint
-renderer, and BYOC — where the log key must come from the person's own KMS key rather than
-any hushh-held master. See §5.
+**At the original review:** pod identity and BYOC key custody were open. The
+following dated section records the BYOC correction; current recovery still needs
+verification against the serving image.
 
 ### 5. The user-owned GCP bootstrap designs the substrate — and now connects it (fixed 2026-08-11)
 
@@ -164,24 +164,14 @@ the bootstrap writes, not a sentence in a document.
 
 ## Answering the question directly: is GCS required?
 
-**An object store is required.** On both production paths. The commit log is the system of
-record and the SQLite index is a rebuildable projection over it, so without a durable
-object store there is nothing to rebuild from and a restart is indistinguishable from a
-new agent.
+**A durable object store is required.** The commit log is the system of record;
+SQLite is a rebuildable projection. On the supported GCP deployment paths,
+`GcsObjectStore` supplies durable storage with generation-based conditional writes.
+The local filesystem adapter supports local development and tests; it does not
+establish another supported cloud deployment.
 
-**GCS specifically is not required.** The `ObjectStore` Protocol is four async methods with
-no GCS types, and already has two implementers with entirely different mechanics. But:
-
-| Concern | On user-owned GCP (path A) | On Anypoint (path B) |
-|---|---|---|
-| Object store implementation | `GcsObjectStore` exists | none — see [the Anypoint evaluation](../architecture/anypoint-vs-user-gcp.md) |
-| Credential path | keyless, GCE metadata server | no ambient Google identity to borrow |
-| CAS primitive | `ifGenerationMatch`, numeric generation | unresolved; an ETag CAS may or may not map |
-| Substrate provisioned | yes, by the bootstrap | no equivalent rendered |
-
-So on path A, GCS is effectively the answer because it is the only implementation that
-exists. On path B something must be built before backup or recovery can be discussed at
-all.
+BYOC bootstrap provisions the owner-project bucket and its KMS policy. Recovery
+requires both the encrypted objects and access to their original key material.
 
 ## What recovery would and would not restore
 
@@ -334,7 +324,7 @@ probe that proved memory is erased today.
 ## Sources
 
 - Verified reading of `pod_storage.py`, `pod_commit_log.py`, `pod_pkm_store.py`, `user_gcp_backend.py`, `personal_agent_reconcile_worker.py`, `runtime_settings.py` and `api/routes/account.py`, plus an exhaustive caller search for the storage resolver and commit log across `consent-protocol/`, 2026-08-07.
-- Companion records: [the north star](../architecture/private-agent-north-star.md), [Anypoint vs user-owned GCP](../architecture/anypoint-vs-user-gcp.md), and [the plan of record](../architecture/private-agent-one-plan-of-record.md).
+- Companion records: [the north star](../architecture/private-agent-north-star.md) and [the plan of record](../architecture/private-agent-one-plan-of-record.md).
 
 ## Upgrading a running pod to the hub's current image
 

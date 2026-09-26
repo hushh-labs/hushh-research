@@ -136,6 +136,7 @@ class LocationCommandBrain:
         client: Any = None,
         manifest: Any = None,
         adk_model: Any = None,
+        transcriber_adk_model: Any = None,
         user_id: str = "location-transcriber",
         consent_token: str = _LOCATION_CONSENT_SCOPE,
     ):
@@ -147,6 +148,7 @@ class LocationCommandBrain:
         self.client = client or build_managed_runtime_client(runtime_provider="gemini")
         self.model = resolve_fleet_model_name(self.manifest.model_config_for_runtime().name)
         self.adk_model = adk_model
+        self.transcriber_adk_model = transcriber_adk_model
         self.user_id = user_id
         self.consent_token = consent_token
 
@@ -181,7 +183,7 @@ class LocationCommandBrain:
             from google.adk.models import Gemini
             from google.genai import Client
 
-            if isinstance(self.client, Client):
+            if self.transcriber_adk_model is not None or isinstance(self.client, Client):
                 from hushh_mcp.hushh_adk.single_turn import (
                     build_single_turn_agent,
                     run_single_turn,
@@ -189,11 +191,11 @@ class LocationCommandBrain:
                 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
                 gene = _load_transcriber_gene()
-                model_name = resolve_fleet_model_name(gene.model_config_for_runtime().name)
+                model_name = resolve_fleet_model_name(gene.model.name)
                 agent = build_single_turn_agent(
                     gene,
                     output_schema=_TRANSCRIPTION_SCHEMA,
-                    model=Gemini(model=model_name, client=self.client),
+                    model=self.transcriber_adk_model or Gemini(model=model_name, client=self.client),
                 )
                 result = await run_single_turn(
                     agent,

@@ -80,6 +80,36 @@ def _reader(seen):
     return _run
 
 
+@pytest.mark.parametrize("failure", [None, "foreign_owner", "wrong_agent", "revoked_during_read"])
+async def test_command_context_requires_exact_scope_owner_and_continuing_grant(flags_on, monkeypatch, failure):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    _identity(monkeypatch, "hushh-owner")
+    read = AsyncMock(return_value={"projection": {"status": "observed"}, "observations": []})
+    monkeypatch.setattr(broker, "read_command_projection", read)
+    calls = 0
+    async def check(token, *, expected_scope):
+        nonlocal calls
+        calls += 1
+        assert expected_scope == "cap.location.command.read"
+        return (failure != "revoked_during_read" or calls == 1, None,
+                SimpleNamespace(user_id="other" if failure == "foreign_owner" else "u-owner",
+                                agent_id="other" if failure == "wrong_agent" else "personal_agent"))
+    payload = broker.PodSpecialistReadRequest(scopeToken="synthetic", commandRead={"kind": "settings"})
+    async def run():
+        return await broker.broker_specialist_read(_Request(), "location", "Bearer synthetic", payload,
+            validator=check, registry=_registry({"u-owner": "hushh-owner", "other": "hushh-other"}))
+    if failure:
+        with pytest.raises(broker.HTTPException) as exc:
+            await run()
+        assert exc.value.status_code == 403
+        assert read.await_count == (1 if failure == "revoked_during_read" else 0)
+    else:
+        assert (await run())["state"]["projection"]["status"] == "observed"
+        read.assert_awaited_once()
+
+
 async def _call(monkeypatch, *, hushh_id, validator, registry, reader):
     return await broker.broker_specialist_read(
         _Request(),

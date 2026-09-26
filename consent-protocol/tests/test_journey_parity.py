@@ -35,10 +35,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.anypoint_backend import AnypointBackend
 from hushh_mcp.services.byoc_substrate import NoSubstrateRequired
 from hushh_mcp.services.compute_backend import (
-    BACKEND_ANYPOINT,
     BACKEND_GCP,
     BACKEND_USER_GCP,
     BackendHandle,
@@ -78,7 +76,6 @@ POD_PUBLIC_KEY_B64 = base64.b64encode(
 
 LIVE_FLAGS = {
     BACKEND_GCP: "HUSSH_GCP_BACKEND_LIVE",
-    BACKEND_ANYPOINT: "HUSSH_ANYPOINT_BACKEND_LIVE",
     BACKEND_USER_GCP: "HUSSH_USER_GCP_LIVE",
 }
 
@@ -172,7 +169,6 @@ def _backends():
     the inert default is not inert."""
     return [
         (BACKEND_GCP, GcpBackend(project="p", image="i", live=False)),
-        (BACKEND_ANYPOINT, AnypointBackend(env_id="e", live=False)),
         (BACKEND_USER_GCP, UserGcpBackend(user_project="up", image="i")),
     ]
 
@@ -345,7 +341,6 @@ def test_the_live_path_is_gated_by_its_own_flag(name, _real, monkeypatch):
     monkeypatch.delenv(flag, raising=False)
     builders = {
         BACKEND_GCP: lambda: GcpBackend(project="p", image="i"),
-        BACKEND_ANYPOINT: lambda: AnypointBackend(env_id="e"),
         BACKEND_USER_GCP: lambda: UserGcpBackend(user_project="up", image="i"),
     }
     assert builders[name]()._live is False, (

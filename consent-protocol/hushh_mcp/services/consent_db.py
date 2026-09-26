@@ -52,6 +52,12 @@ from hushh_mcp.consent.export_envelope import normalize_refresh_policy
 from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
+from hushh_mcp.services.consent_event_authority import (
+    append_event_receipt,
+    event_is_newer,
+    owner_lineage_is_active,
+    persist_external_event,
+)
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
@@ -817,7 +823,7 @@ class ConsentDBService:
         query = db.table("consent_audit").select("*")
         built_query = (
             self._apply_user_filter(query, user_id, user_ids)
-            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
             .order("issued_at", desc=True)
         )
         response = await asyncio.to_thread(built_query.execute)
@@ -829,6 +835,8 @@ class ConsentDBService:
                 continue
             row_scope = row.get("scope")
             row_agent_id = row.get("agent_id") or ""
+            if row.get("action") == "CONSENT_DENIED" and row_agent_id != "personal_agent":
+                continue
             if not row_scope:
                 continue
 
@@ -842,9 +850,7 @@ class ConsentDBService:
                 latest_per_agent_scope[key] = row
                 continue
 
-            current_issued = latest_per_agent_scope[key].get("issued_at", 0)
-            new_issued = row.get("issued_at", 0)
-            if new_issued > current_issued:
+            if event_is_newer(row, latest_per_agent_scope[key]):
                 latest_per_agent_scope[key] = row
 
         # Filter to only active (CONSENT_GRANTED and not expired)
@@ -1219,38 +1225,10 @@ class ConsentDBService:
         if normalized_agent_id == "self" and normalized_scope == "vault.owner" and token_id:
             # One statement sees exact grant + subsequent revocations together.
             # No fallback to a different ledger or a merely newer owner grant.
-            def owner_lineage_is_active():
-                rows = (
-                    self._get_db()
-                    .execute_raw(
-                        """
-                    SELECT grant_event.id FROM internal_access_events AS grant_event
-                    WHERE grant_event.user_id = :user_id AND grant_event.agent_id = 'self'
-                      AND grant_event.scope = 'vault.owner'
-                      AND grant_event.action = 'CONSENT_GRANTED'
-                      AND grant_event.token_id = :token_id
-                      AND grant_event.expires_at > :now_ms
-                      AND grant_event.id = (
-                        SELECT MIN(original.id) FROM internal_access_events AS original
-                        WHERE original.user_id = grant_event.user_id
-                          AND original.agent_id = 'self' AND original.scope = 'vault.owner'
-                          AND original.action = 'CONSENT_GRANTED'
-                          AND original.token_id = grant_event.token_id
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM internal_access_events AS revoked
-                        WHERE revoked.user_id = grant_event.user_id
-                          AND revoked.agent_id = 'self' AND revoked.scope = 'vault.owner'
-                          AND revoked.action = 'REVOKED' AND revoked.id > grant_event.id
-                      ) LIMIT 1
-                """,
-                        {"user_id": user_id, "token_id": token_id, "now_ms": now_ms},
-                    )
-                    .data
-                )
-                return bool(rows)
+            return await asyncio.to_thread(
+                owner_lineage_is_active, self._get_db(), user_id, token_id, now_ms
+            )
 
-            return await asyncio.to_thread(owner_lineage_is_active)
         is_internal_lookup = self._is_internal_event(
             agent_id=normalized_agent_id,
             action="CONSENT_GRANTED",
@@ -1292,6 +1270,16 @@ class ConsentDBService:
                     actions=["CONSENT_GRANTED", "REVOKED"],
                     limit=1,
                 )
+        elif normalized_agent_id == "personal_agent":
+            response = await asyncio.to_thread(
+                self._get_db().execute_raw,
+                "SELECT action, expires_at, issued_at, token_id FROM consent_audit "
+                "WHERE user_id = :user_id AND agent_id = :agent_id AND scope = :scope "
+                "AND action IN ('CONSENT_GRANTED', 'REVOKED', 'CONSENT_DENIED') "
+                "ORDER BY issued_at DESC, id DESC LIMIT 1",
+                {"user_id": user_id, "agent_id": normalized_agent_id, "scope": normalized_scope},
+            )
+            rows = response.data or []
         else:
             db = self._get_db()
             query = (
@@ -1674,19 +1662,27 @@ class ConsentDBService:
         # Remove None values
         data = {k: v for k, v in data.items() if v is not None}
 
-        response = await asyncio.to_thread(lambda: db.table("consent_audit").insert(data).execute())
+        response = await persist_external_event(db, data, metadata)
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
+            persisted_issued_at = response.data[0].get("issued_at")
+            if isinstance(persisted_issued_at, int):
+                issued_at = persisted_issued_at
+            audit_event_id = int(event_id) if isinstance(event_id, int) else None
             logger.info(f"Inserted {action} event: {event_id}")
-            return event_id
         else:
             # Fallback: return issued_at as ID if response doesn't have id
             logger.warning(
                 f"Inserted {action} event but no ID returned, using issued_at: {issued_at}"
             )
-            return issued_at
+            event_id = issued_at
+            audit_event_id = None
+
+        await append_event_receipt(data, issued_at=issued_at, event_id=audit_event_id)
+
+        return event_id
 
     async def insert_internal_event(
         self,
@@ -1720,6 +1716,17 @@ class ConsentDBService:
         }
         data = {k: v for k, v in data.items() if v is not None}
 
+        def insert_event():
+            try:
+                return db.table("internal_access_events").insert(data).execute(), False
+            except DatabaseExecutionError as exc:
+                if not self._is_missing_internal_access_events_error(exc):
+                    raise
+                logger.warning(
+                    "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
+                )
+                return db.table("consent_audit").insert(data).execute(), True
+
         if agent_id == "self" and scope == "vault.owner" and action == "REVOKED":
 
             def insert_owner_revocation():
@@ -1744,31 +1751,18 @@ class ConsentDBService:
                         },
                     ).scalar_one()
 
-            return await asyncio.to_thread(insert_owner_revocation)
+            event_id = await asyncio.to_thread(insert_owner_revocation)
+            landed_in_primary_ledger = False
+        else:
+            response, landed_in_primary_ledger = await asyncio.to_thread(insert_event)
+            event_id = response.data[0].get("id") if response.data else None
 
-        def insert_event():
-            try:
-                return db.table("internal_access_events").insert(data).execute()
-            except DatabaseExecutionError as exc:
-                if not self._is_missing_internal_access_events_error(exc):
-                    raise
-                logger.warning(
-                    "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
-                )
-                return db.table("consent_audit").insert(data).execute()
-
-        response = await asyncio.to_thread(insert_event)
-        if response.data and len(response.data) > 0:
-            event_id = response.data[0].get("id")
-            logger.info("Inserted internal %s event: %s", action, event_id)
-            return event_id
-
-        logger.warning(
-            "Inserted internal %s event but no ID returned, using issued_at: %s",
-            action,
-            issued_at,
+        await append_event_receipt(
+            data, issued_at=issued_at, event_id=event_id,
+            internal=not landed_in_primary_ledger,
         )
-        return issued_at
+
+        return event_id if event_id is not None else issued_at
 
     async def renew_vault_owner_token(self, user_id: str, prior_token: str) -> dict:
         """Renew an authenticated proof only while its durable lineage is intact.

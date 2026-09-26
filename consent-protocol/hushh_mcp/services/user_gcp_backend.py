@@ -1,32 +1,15 @@
-"""User-owned GCP backend (BYOC) — the pod runs in the USER's own cloud.
+"""Owner-project GCP pod lifecycle and encrypted recovery substrate.
 
-This is the sovereignty flagship: instead of Hushh hosting the per-user pod, the
-user runs it in **their own GCP project**, so the compute *and* the storage are
-literally theirs — Hushh never holds their data, not even encrypted-at-our-vault.
-It is the same slim pod image and the same ``ComputeBackend`` contract as
-``GcpBackend``; only the **target project** and the **credential model** differ.
+Uses the same slim image and lifecycle contract as managed GCP, with the owner's
+project, runtime identity, bucket and KMS key. The owner authorizes short-lived
+bootstrap service-account impersonation; no service-account key is exported.
+The runtime mints and wraps its own recovery key. Hub consent and registry
+coordination remain separate authorities.
 
-**Tenancy tier, not the mass default.** Most consumers do not have (or want to pay
-for) a GCP project, so BYOC is the prosumer / enterprise / "own your compute" tier;
-the mass tier stays Hushh-hosted (``GcpBackend``) and the endgame is the user's own
-hardware (edge / Puppy One). All three sit on this one seam.
-
-**Keyless by construction (least privilege).** Hushh never holds standing
-credentials *into* the user's project. Instead the user authorizes a **one-time,
-least-privilege bootstrap** (rendered by ``render_bootstrap_plan``) that stands up,
-in *their* project: a per-user KMS key, a per-user-encrypted GCS bucket, a
-least-privilege pod service account, the Cloud Run pod (the slim image), a
-per-user mail-event trigger (Gmail ``watch`` -> Pub/Sub, daily-renewed), a
-**Workload Identity Federation** trust so Hushh's consent-plane identity is
-*federated in* (no SA key is exported), and a ``run.invoker`` grant so only the
-Hushh A2A gateway can reach the pod. From then on Hushh authenticates *to* the pod
-via federation; the pod calls *back* to Hushh's consent MCP with a per-user HCT.
-The consent authority stays central; the pod holds only its own X25519 key.
-
-**Inert by default.** Plan/dry-run mode renders the deploy artifact + the bootstrap
-plan but makes **no call into any user project**. Live execution is gated behind
-``HUSSH_USER_GCP_LIVE`` + a completed WIF bootstrap and raises until that external
-setup exists (a user project + federation cannot be mocked into being).
+Live calls require ``HUSSH_USER_GCP_LIVE`` and valid owner-project authorization.
+Plan mode renders resources without applying them. Existing owners retain their
+selected resource profile during an image update; widening ingress requires
+separate verified readiness evidence.
 """
 
 from __future__ import annotations
@@ -288,8 +271,6 @@ class UserGcpBackend:
         user_project: Optional[str] = None,
         user_region: Optional[str] = None,
         image: Optional[str] = None,
-        wif_pool: Optional[str] = None,
-        wif_provider: Optional[str] = None,
         hushh_invoker_sa: Optional[str] = None,
         min_instances: Optional[int] = None,
         live: Optional[bool] = None,
@@ -304,11 +285,6 @@ class UserGcpBackend:
             else (_env("HUSSH_USER_GCP_REGION") or "us-central1")
         )
         self._image = image if image is not None else _env("HUSSH_ONE_POD_IMAGE")
-        # Workload Identity Federation coordinates (keyless trust into the project).
-        self._wif_pool = wif_pool if wif_pool is not None else _env("HUSSH_USER_GCP_WIF_POOL")
-        self._wif_provider = (
-            wif_provider if wif_provider is not None else _env("HUSSH_USER_GCP_WIF_PROVIDER")
-        )
         # The Hushh consent-plane identity that the user grants run.invoker to.
         self._hushh_invoker_sa = _bare_service_account(
             hushh_invoker_sa if hushh_invoker_sa is not None else _env("HUSSH_CONSENT_PLANE_SA")
@@ -473,6 +449,12 @@ class UserGcpBackend:
                 },
             }
         )
+        if spec.files_library_enabled:
+            from hushh_mcp.services.pod_files.provisioning import configure_new_service
+
+            configure_new_service(
+                cfg, owner=spec.hushh_id, project=project, region=region, env=kept
+            )
         container["env"] = kept
         return cfg
 
@@ -545,9 +527,9 @@ class UserGcpBackend:
         """The least-privilege setup the USER authorizes in THEIR project (keyless).
 
         A declarative plan (the contract a Terraform/Deployment-Manager module — or
-        the user's own device Agent One over MCP — applies). Hushh holds no standing
-        credential into the project: it is federated in via WIF and invited as an
-        invoker on exactly the pod service.
+        the user's own device Agent One over MCP — applies). The GCP control plane borrows a short-lived token for the owner-authorized
+        bootstrap account and is invited as an invoker on exactly the pod service.
+        The impersonation grant remains until the owner revokes it.
         """
         slug = _slug(spec.hushh_id)
         name = _service_name(spec.hushh_id)
@@ -571,7 +553,7 @@ class UserGcpBackend:
         mail_topic = f"one-mail-{slug}"
         mail_sub = f"one-mail-{slug}-sub"
         watch_job = f"one-mail-{slug}-watch-renew"
-        return {
+        plan = {
             "tenancy": "user-owned",
             "target": {"project": project, "region": self._user_region},
             "resources": [
@@ -679,7 +661,7 @@ class UserGcpBackend:
                     "on": f"project:{project}",
                     "project_level": True,
                     "note": (
-                        "PROJECT-LEVEL, and the only project-wide grant here. Vertex has "
+                        "PROJECT-LEVEL runtime grant. Vertex has "
                         "no per-resource binding to scope to. This is your agent calling "
                         "Vertex as itself, on your own quota and your own bill -- which "
                         "is what lets it work without you handing hushh an AI key"
@@ -728,20 +710,7 @@ class UserGcpBackend:
                 },
             ],
             "federation": {
-                # Two mechanisms, chosen by WHERE the hushh control plane runs. Both are
-                # keyless in the sense that matters -- no service-account key is ever
-                # created or exported -- and neither removes standing *authorization*,
-                # which persists under either until the binding is revoked.
-                #
-                # `impersonation` is correct for the GCP-hosted hub, which is already a
-                # Google identity: a Google principal reaching another project is granted,
-                # not federated, and a WIF pool would add a component that buys nothing.
-                # `workload_identity_federation` is correct for a control plane running
-                # OUTSIDE Google (the Anypoint / CloudHub deployment), which has no Google
-                # identity to grant and must exchange one.
-                "type": "impersonation"
-                if self._hushh_invoker_sa
-                else "workload_identity_federation",
+                "type": "impersonation",
                 "impersonation": {
                     "bootstrap_service_account": bootstrap_sa,
                     "granted_to": invoker,
@@ -752,11 +721,6 @@ class UserGcpBackend:
                         "hushh mints a 15-minute token per bootstrap session and holds "
                         "nothing afterwards; revocation is removing this single binding"
                     ),
-                },
-                "workload_identity_federation": {
-                    "pool": self._wif_pool or "<wif-pool>",
-                    "provider": self._wif_provider or "<wif-provider>",
-                    "applies_to": "a non-Google control plane (CloudHub); unused by the GCP hub",
                 },
             },
             "tunnel": {
@@ -795,6 +759,19 @@ class UserGcpBackend:
                 "holds standing broad credentials into the user's project"
             ),
         }
+        if spec.files_library_enabled:
+            from hushh_mcp.services.pod_files.provisioning import extend_plan
+
+            extend_plan(
+                plan,
+                owner=spec.hushh_id,
+                project=project,
+                region=spec.region or self._user_region,
+                runtime=pod_sa,
+                service=name,
+                bucket=bucket,
+            )
+        return plan
 
     def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
         return {
@@ -885,6 +862,10 @@ class UserGcpBackend:
             self._ensure_pod_image, spec, _digest_from_service(existing)
         )
         config = self.render_deploy_config(spec, image_digest=image_digest)
+        if existing is not None:
+            from hushh_mcp.services.pod_files.provisioning import preserve_existing_configuration
+
+            preserve_existing_configuration(existing, config)
         if existing is None:
             admitted = await _create_once_iam_settles(
                 lambda: (
@@ -967,6 +948,16 @@ class UserGcpBackend:
                 "user_gcp_backend.no_invoker_member service=%s -- HUSSH_CONSENT_PLANE_SA is "
                 "unset, so the hub cannot reach this pod and key collection will fail",
                 name,
+            )
+        files_env = {
+            item["name"]: item.get("value")
+            for item in config["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        if files_env.get("POD_FILES_ENABLED") == "true":
+            await asyncio.to_thread(
+                client.set_invoker_binding,
+                name,
+                f"serviceAccount:{files_env['POD_FILES_WORKER_SERVICE_ACCOUNT']}",
             )
         if pod_ingress_mode(spec) == INGRESS_DIRECT:
             # Inherited from the managed renderer's direct axis: the owner's app and
@@ -1200,6 +1191,33 @@ class UserGcpBackend:
         )
         await asyncio.to_thread(
             reconcile_mail_resource,
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            observation=observation,
+            state=state,
+            retain_receipt=retain_receipt,
+        )
+
+    async def erase_files_resource(
+        self,
+        *,
+        observation: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        import asyncio
+
+        from hushh_mcp.services.pod_files.teardown import reconcile_resource
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("Files cleanup authority unavailable")
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        await asyncio.to_thread(
+            reconcile_resource,
             token=token,
             project=self._user_project,
             region=self._user_region,
@@ -1535,6 +1553,9 @@ class UserGcpBackend:
                 raise RuntimeError("approved upgrade image is not an immutable digest")
             image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, recorded_digest)
             config = self.render_deploy_config(spec, image_digest=image_digest)
+            from hushh_mcp.services.pod_files.provisioning import preserve_existing_configuration
+
+            preserve_existing_configuration(existing, config)
             changed = image_digest != previous_digest
             svc: Optional[dict[str, Any]] = existing
             if changed:

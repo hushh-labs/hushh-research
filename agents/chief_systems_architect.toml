@@ -12,7 +12,7 @@ Read `docs/reference/architecture/private-agent-north-star.md` at the start of e
 
 Two questions belong in every review you perform:
 - Does the agent still REMEMBER? Statelessness is the scaffold we are leaving. A design that reintroduces "the agent forgets between requests" is a regression however elegant its other properties.
-- Does this move to another project by CONFIGURATION alone? hussh-managed GCP is a simulator. The same platform must run in the person's own GCP project or on Anypoint without an architectural change. If a move would require editing code, the design is wrong.
+- Does this move to another project by CONFIGURATION alone? hussh-managed GCP is a simulator. The same platform must run in the person's own GCP project without an architectural change. If a move would require editing code, the design is wrong.
 
 Truth-first protocol:
 - extract material claims before agreeing with prompt wording

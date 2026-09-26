@@ -490,8 +490,7 @@ def personal_agent_backend() -> str:
     The provider abstraction's selector: which host stands a user's agent up.
     Empty/unset (the default) resolves to the inert ``NullBackend`` -- so even with
     the kill-switch on, nothing calls out to a real host until a backend is both
-    implemented and explicitly named here. Reserved values ('gcp', 'anypoint')
-    land with their milestones (docs/future/personal-agent/ROADMAP.md M4/M7)."""
+    explicitly named here. Supported deployment values are 'gcp' and 'user_gcp'."""
     return (_clean_env("PERSONAL_AGENT_BACKEND") or "").strip().lower()
 
 

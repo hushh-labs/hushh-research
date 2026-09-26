@@ -67,8 +67,9 @@ IAM (least privilege only):
 | pod SA | `roles/storage.objectAdmin` | the bucket |
 | **hussh consent-plane SA** | `roles/run.invoker` | **only** the pod service |
 
-Federation: `workload_identity_federation` (pool + provider) — keyless; no owner/editor
-role is ever granted.
+Current authorization: short-lived service-account impersonation in the owner's
+GCP project; no service-account key export or owner/editor grant. The earlier pool
+and provider proposal is not the implemented bootstrap.
 
 ## Authorization paths
 

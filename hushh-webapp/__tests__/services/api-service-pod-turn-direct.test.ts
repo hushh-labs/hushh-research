@@ -77,6 +77,10 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: ownerPodMocks.loadPinnedEndpoint,
   refreshEndpointFromHub: ownerPodMocks.refreshEndpointFromHub,
   currentPodSession: ownerPodMocks.currentPodSession,
+  currentPodConnection: async () => ({
+    endpoint: await ownerPodMocks.loadPinnedEndpoint(),
+    session: await ownerPodMocks.currentPodSession(),
+  }),
   revokeAtPod: ownerPodMocks.revokeAtPod,
 }));
 
@@ -135,6 +139,10 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
   it("dials the pinned pod with the pod session and never touches the hub", async () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    mockFetch.mockResolvedValueOnce(json({
+      subjects: [{ subjectId: "tdv_mac_1", state: "trusted", scopes: ["puppy.inference"] }],
+      puppy: { links: [{ deviceId: "tdv_mac_1", busy: false }] },
+    }));
     mockFetch.mockResolvedValue(
       json({ text: "from your pod", model: "local", provider: "puppy", grounded: false, runtimeMode: "puppy_relay" }),
     );
@@ -147,8 +155,9 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     });
 
     expect(result).toMatchObject({ hushhId: "ha1_owner", provider: "puppy", runtimeMode: "puppy_relay" });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toBe(`${POD_URL}/api/one/pod/status`);
+    const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
     expect(url).toBe(`${POD_URL}/api/one/pod/turn`);
     const headers = init.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer pst1.claims.mac");
@@ -176,7 +185,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
       hostingMode: "byoc", state: "active", hushhId: "ha1_owner",
     });
-    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValueOnce(null).mockResolvedValue(PIN);
     ownerPodMocks.refreshEndpointFromHub.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     mockFetch.mockResolvedValue(json({ text: "direct", model: "m", provider: "gemini", grounded: false, runtimeMode: "pod" }));
@@ -217,12 +226,16 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
   it("names a direct refusal instead of falling back to the hub", async () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    mockFetch.mockResolvedValueOnce(json({
+      subjects: [{ subjectId: "tdv_mac_1", state: "trusted", scopes: ["puppy.inference"] }],
+      puppy: { links: [{ deviceId: "tdv_mac_1", busy: false }] },
+    }));
     mockFetch.mockResolvedValueOnce(json({ detail: { code: "PUPPY_OFFLINE", reason: "device not linked" } }, 409));
 
     await expect(
       ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello", runtimeProvider: "puppy", puppyDeviceId: "tdv_mac_1" }),
     ).rejects.toThrow("PUPPY_OFFLINE");
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
 
     mockFetch.mockResolvedValueOnce(json({ detail: { code: "revoked", message: "no" } }, 403));
     await expect(ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello" })).rejects.toThrow(

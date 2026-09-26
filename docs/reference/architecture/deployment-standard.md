@@ -1,7 +1,7 @@
 # The deployment standard
 
-**Status:** decided, 2026-08-13 · **Scope:** hushh-managed (simulation), BYO GCP
-(production), Anypoint (production), future BYO AWS / Azure · **Supersedes:**
+**Status:** GCP-only scope updated 2026-09-25; original decision 2026-08-13 ·
+**Scope:** managed GCP and user-owned GCP · **Supersedes:**
 `deployment-abstraction-boundary.md` (2026-08-12), retired — its central argument does
 not survive, and the section *Why the earlier answer was wrong* below says exactly how.
 
@@ -14,7 +14,7 @@ previewed).
 
 ```mermaid
 flowchart TB
-  subgraph L1["LAYER 1 — common pod architecture · ZERO provider knowledge"]
+  subgraph L1["LAYER 1 — identity, consent and lifecycle coordination"]
     direction LR
     spec["PodSpec · BackendHandle · BackendStatus"]
     orch["provisioning orchestrator<br/>lifecycle · consent grants · journey trace"]
@@ -22,7 +22,6 @@ flowchart TB
   subgraph L2["LAYER 2 — ComputeBackend · per-person instance"]
     gcp["GcpBackend<br/>Cloud Run"]
     byoc["UserGcpBackend<br/>BYOC"]
-    any["AnypointBackend<br/>CloudHub 2.0"]
   end
   subgraph L3["LAYER 3 — SubstrateEnsurer · per-tenant, once"]
     none["NoSubstrateRequired"]
@@ -51,8 +50,7 @@ detection, dependency ordering and destroy are all queries against that file. No
 else Terraform does is unique to it.
 
 So one question decides Terraform: **who holds the file, and is holding it both
-permitted and useful?** This platform has three kinds of account and the answer has the
-same shape in all three.
+permitted and useful?** This platform supports two GCP account placements.
 
 **1. The customer's own GCP project (BYOC — a production path). Not permitted.**
 The entire BYOC design is that hushh mints a 900-second impersonated token
@@ -63,10 +61,7 @@ resource attributes **verbatim**, it would contain the customer's own pod signin
 the very value `_seed_secret_version` goes out of its way never even to echo. Adopting
 Terraform here does not add bookkeeping. It deletes the product promise.
 
-**2. Anypoint (the other production path). Nothing to hold.**
-A Mule application on CloudHub 2.0 is not Terraform-addressable at all.
-
-**3. hushh's own projects. Permitted — and we already hold it.**
+**2. Hussh's own projects. Permitted — and we already hold it.**
 The record is in git: `config/ci-governance.json`, and the literals at the top of the
 setup scripts (`deploy/iam/setup_production_github_wif.sh` *is* the attribute mapping
 and condition, verbatim). What was missing was never a record. It was a **comparison**
@@ -161,42 +156,23 @@ Terraform *for this system as it stands*, not a claim that Terraform is bad.
 Both halves are now wired. `SubstrateEnsurer` (Layer 3) runs **before**
 `ComputeBackend.provision` (Layer 2), and a substrate that did not apply blocks the pod
 rather than letting it boot into a project with nowhere to write and no key to write
-with. `NoSubstrateRequired` keeps the managed and Anypoint tiers paying nothing for a
-seam they do not need.
+with. `NoSubstrateRequired` applies to the managed GCP lane, where the substrate
+is configured separately.
 
 ## Portability without artificial standardisation
 
-`render_deploy_config` returns a **provider-shaped** artifact that Layer 1 never
-interprets. Cloud Run's knative `Service` and Anypoint's AMC application descriptor
-share no schema and do not need to. Parity is asserted by **capability extractors**
-(`tests/test_compute_backend_parity.py`): each backend reduces its own shape to the same
-small set of facts, and the assertions run against that reduction.
-
-**Standardise the questions, never the schema.**
-
-The failure mode to avoid is a "universal pod descriptor" that renders to every
-provider. It can only be a lowest common denominator that cannot express Confidential
-Space or CloudHub's private endpoint, or a leaky superset where every field is
-conditional on provider anyway. Both are worse than three honest shapes and one set of
-shared questions.
-
-Evidence the abstraction already generalises: **Anypoint is not a container and not
-GCP.** It is a Mule application on CloudHub 2.0 and satisfies the identical five-method
-protocol. The seam has already been carried across a genuinely different execution
-model, which is the only test that means anything.
+`render_deploy_config` returns a Cloud Run artifact behind `ComputeBackend`.
+The managed and owner-project GCP adapters share lifecycle contracts while keeping
+identity, credentials, storage and model access scoped to their owning project.
+`tests/test_compute_backend_parity.py` checks rendered capabilities;
+`tests/test_deployment_boundary_holds.py` guards the orchestrator boundary.
 
 ## Adding a provider
 
-Adding AWS is three artifacts and no Layer 1 change:
-
-1. `AwsBackend(ComputeBackend)` — App Runner or ECS Fargate for the instance lifecycle.
-2. One capability extractor in the parity test.
-3. One `SubstrateEnsurer` implementation, if that provider needs per-tenant substrate.
-
-**If a new provider requires a change in Layer 1, the boundary was wrong.** Treat that
-as a design defect in the boundary, not a task in the provider. This is falsifiable and
-guarded: `tests/test_deployment_boundary_holds.py` fails by name if a provider term
-reaches the orchestrator or the registry.
+GCP is the only implemented deployment provider. AWS and Azure are outside the
+current scope. The typed compute and substrate seams remain, but a future adapter
+must prove identity, encrypted recovery, lifecycle and capability parity before it
+can be selected. A portable image alone does not establish provider support.
 
 ## The three per-person axes
 
@@ -260,8 +236,8 @@ Promote the fields Layer 1 actually reads onto `BackendHandle` as typed optional
   only prove "a hushh pod is calling", never which. This inverts the usual assumption in
   favour of BYO GCP as the production path: the sovereign tier has the *stronger*
   identity story.
-- **The protocol generalises.** It has been carried across a non-container provider
-  already, so "will this abstraction survive AWS" is not an open question.
+- **The protocol separates GCP placement from lifecycle.** Cross-cloud portability
+  remains unverified; the current evidence covers managed and user-owned GCP.
 
 ## The one-line answer
 

@@ -12,8 +12,8 @@ what moves. Do not optimise around the current implementation.
 
 ```mermaid
 flowchart TB
-  subgraph WAS["What main does today — an implementation choice, NOT the end state"]
-    S1["Shared stateless compute<br/>provided by hussh"] --> S2["Agents execute a workload,<br/>reach an LLM, and forget"]
+  subgraph WAS["Shared runtime — supported current topology"]
+    S1["Shared compute<br/>provided by Hussh"] --> S2["Owner-scoped sessions and<br/>consented information"]
   end
   subgraph IS["The end state — Private Agent One"]
     P1["One isolated pod per person"] --> P2["Persistent memory<br/>that survives restarts"]
@@ -21,18 +21,20 @@ flowchart TB
     P1 --> P4["Background services<br/>working between turns"]
     P2 --> P5["Intelligence that<br/>compounds over time"]
   end
-  subgraph HOW["Held true by construction"]
-    Z1["Zero Knowledge"] --- Z2["Consent-first"] --- Z3["Deployment-agnostic"]
+  subgraph HOW["Required trust properties — verify per deployment"]
+    Z1["Encrypted custody boundary"] --- Z2["Consent-first"] --- Z3["Portable runtime contracts"]
   end
   WAS -->|"evolve"| IS
   IS --- HOW
-  HOW --> D1["hussh-hosted pods<br/>(one instance per person)"]
+  HOW --> D1["Hussh Pods: provisioning disabled<br/>(dedicated instance direction)"]
   HOW --> D2["the person's own<br/>GCP project"]
-  HOW --> D3["Anypoint"]
-  D1 -->|"one-click migration,<br/>same agent"| D2
+  D1 -->|"future: verified migration<br/>with owner approval"| D2
 ```
 
 ## The end state, stated plainly
+
+The gated [Private Files library](../operations/private-files-library.md) records
+the current owner-bucket implementation, consent boundaries and live acceptance gaps.
 
 **Every person owns an isolated pod.** Inside it runs their complete agent ecosystem —
 Agent One, every sub-agent, the orchestration between them, and the background services
@@ -97,8 +99,7 @@ never "hussh cannot read that pod."
 | Path | Compute | Model credential |
 |---|---|---|
 | **A. User-owned GCP** | the person's own GCP project | their own Vertex ADC |
-| **B. Anypoint** | user-controlled infrastructure | the person's own AI key |
-| **C. hussh-hosted** | one instance per person, in a dedicated hussh hosting project | turn-bounded credential, or their own key |
+| **C. Hussh-hosted (provisioning disabled)** | proposed dedicated instance per person in a Hussh GCP project | turn-bounded credential, or their own key |
 
 > **Superseded (founder directive, 2026-08-25).** This section previously read "**the
 > production paths — exactly two, both user-owned**" and closed with "**No hussh-hosted
@@ -111,13 +112,14 @@ never "hussh cannot read that pod."
 > is **control plane ≠ custodian**, which is a cryptographic property and is stated as
 > testable conditions below.
 
-Onboarding is therefore a **choice**, made by the person and visible to them: "connect your
-Google Cloud account" — which `user_gcp_backend.render_bootstrap_plan` already designs as a
-keyless, least-privilege, one-time federation — or "connect your Anypoint org", or "host it
-with hussh for now". The third door is not a lesser tier with the properties removed; it is
-the same pod image, one instance per person, under the conditions below, **with a one-click
-migration into the person's own project that carries the same agent and everything it has
-learned**. Portability stops being a promise about the future and becomes a button.
+The current hosting choices are Shared and owner-project GCP (BYOC). Hussh Pods
+remains disabled. Existing assigned pods and pending provisioning must be preserved;
+a missing assignment means Shared only when setup is not pending. Shared is a managed
+runtime, not a dedicated private pod.
+
+BYOC uses keyless, short-lived service-account impersonation. Migration between
+hosting modes remains a recovery and owner-approval requirement, not a proven
+one-click capability. GCP is the only current deployment provider.
 
 ### The hosted production tier — the conditions, each testable
 
@@ -154,28 +156,16 @@ bindings but **not** by workload identity — a pod that could read a sibling's 
 could ask KMS to unwrap it. Per-pod service accounts are the recorded fix, gated on the
 measured 100-per-project ceiling below.
 
-Provisioning after the person's AI key is connected is a **required implementation** on the
-simulation tier *and* on Anypoint.
+Provisioning and model access must be verified for the selected GCP placement.
+BYOC uses the owner's project identity; managed simulation uses the configured
+fleet identity. A model connection alone does not establish pod readiness.
 
-### Why the separation resolves so much
+### Dated deployment evidence
 
-With hussh Vertex ADC confined to development, the questions that made the matrix hard
-stop being production questions. A `roles/aiplatform.user` grant lands in a dev project on
-a dev fleet serving reviewer accounts. The fleet-shared blast radius, the measured 100
-service-accounts-per-project ceiling, and "hussh's infrastructure sees the prompts" all
-become dev-tier facts. And the one cell that was a genuine security problem — Anypoint
-reaching hussh Vertex, which has no ambient Google identity and would need an exported
-credential — **is deleted from the architecture rather than mitigated.**
-
-### The uncomfortable part, recorded so nobody discovers it later
-
-**The path being banned from production is the only one that works today.**
-*(Updated 2026-08-25: no longer true of `UserGcpBackend` — `_execute_live` is real,
-copies the digest-pinned image into the user's own registry, and served the first
-live BYOC pod, Agent One, in a project hussh owns no IAM in. `AnypointBackend._execute`
-still raises `NotImplementedError` when live.)* `GcpBackend` is live-wired and
-functional as the SIMULATION tier; the schema fence below now has a deliberate guard
-rather than an accident.
+The 2026-08-25 record reports a live BYOC pod using a digest-pinned image in the
+owner's project. `UserGcpBackend._execute_live` and `GcpBackend` are implemented.
+This historical observation does not establish the currently serving image,
+current IAM, recovery, or direct-access acceptance; those require live readback.
 
 And the only thing keeping hussh-managed pods out of production right now is an
 **accident**: `personal_agent_registry` lives in the parked migration lane, so UAT and
@@ -251,7 +241,6 @@ health. Re-earn those observations for a release candidate:
 | hussh **dev** GCP | validation and simulation only | live |
 | hussh **hosted** project | one instance per person; the zero-config door, under the conditions above | building |
 | the person's **own** GCP project | they own the compute | live — first BYOC pod served from the person's own registry |
-| **Anypoint** | enterprise / partner deployment | not implemented — `AnypointBackend._execute` raises when live, and there is no durable object store for pod state on it |
 
 The migration between rows two and three is a product feature, not an operations task: the
 same image, the same HusshID, the same commit log, re-sealed inside the destination pod.
@@ -286,7 +275,7 @@ revision-bound judge receipt for completion assertions, not this summary table.
 | **Identity** | the pod proves which person's agent it is, in any project | Per-person service-account and X25519 identity wiring exist. Current live identity after replacement is a separate assertion. |
 | **Capability** | the full agent ecosystem runs inside the pod | In-process agents/tools and transitional scoped hub-read doors exist. Registry or import presence alone does not prove consented specialist execution inside a deployed pod. |
 | **Persistence** | memory survives restarts and compounds | Sealed-log hydration and memory-provider integration exist; earlier simulation reported recall across two restarts. Current compute-replacement, restore and provider-memory proof remain separate. |
-| **Portability** | same platform, three targets, by configuration | Earlier BYOC deployment was reported from the owner's registry. Supported migration, key custody and complete cleanup need evidence for each target; Anypoint remains unimplemented. |
+| **Portability** | same image and contracts across managed and owner-project GCP | Supported migration, key custody and complete cleanup need evidence per placement. Other cloud providers are not implemented. |
 | **Economics** | cost per person far below value per person | Scale-to-zero configuration and liveness policy reduce avoidable work. They do not measure billed cost or establish a cost target. |
 
 Persistence is a named requirement because the target is a persistent private agent.

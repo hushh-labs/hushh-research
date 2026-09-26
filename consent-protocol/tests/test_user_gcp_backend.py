@@ -27,8 +27,6 @@ def _backend() -> UserGcpBackend:
     return UserGcpBackend(
         user_project="acme-user-proj",
         image="gcr.io/hushh-pda-dev/one-pod:slim-x",
-        wif_pool="hushh-pool",
-        wif_provider="hushh-provider",
         hushh_invoker_sa="consent-plane@hushh.iam.gserviceaccount.com",
     )
 
@@ -59,9 +57,6 @@ def test_bootstrap_plan_is_least_privilege_and_keyless():
     assert plan["federation"]["type"] == "impersonation"
     assert plan["federation"]["impersonation"]["role"] == "roles/iam.serviceAccountTokenCreator"
     assert plan["federation"]["impersonation"]["token_lifetime"] == "900s"
-    # WIF is kept, and labelled for the deployment it does serve: a CloudHub control
-    # plane has no Google identity to grant and must exchange one.
-    assert plan["federation"]["workload_identity_federation"]["pool"] == "hushh-pool"
     # Hushh gets ONLY run.invoker on the pod — no broad standing grant.
     invoker = [b for b in plan["iam"] if b["role"] == "roles/run.invoker"]
     assert len(invoker) == 1
@@ -281,6 +276,17 @@ class _BootVerdictClient:
     def __init__(self, ready_condition: dict | None) -> None:
         self._svc = {
             "metadata": {"name": "one-pod-ha1abc234def", "uid": "admitted-uid"},
+            "spec": {
+                "template": {
+                    "metadata": {"annotations": {}},
+                    "spec": {
+                        "containers": [
+                            {"env": [], "resources": {"limits": {"cpu": "500m", "memory": "1Gi"}}}
+                        ],
+                        "containerConcurrency": 1,
+                    },
+                }
+            },
             "status": {
                 "url": "https://one-pod-ha1abc234def.run.app",
                 "conditions": [ready_condition] if ready_condition else [],

@@ -63,6 +63,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "agent.kyc.disclose.llm": ConsentScope.AGENT_KYC_DISCLOSE_LLM,
         "cap.location.live.share": ConsentScope.CAP_LOCATION_LIVE_SHARE,
         "cap.location.live.view": ConsentScope.CAP_LOCATION_LIVE_VIEW,
+        "cap.location.command.read": ConsentScope.CAP_LOCATION_COMMAND_READ,
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
@@ -266,6 +267,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "label": "Share Live Location",
             "description": "Allow One to create a recipient-bound live-location grant",
             "icon_name": "map-pin",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.command.read": {
+            "label": "Read Location command context",
+            "description": "Let your private agent read your connections, circles and Location settings to prepare this command; changing them still requires your approval",
+            "icon_name": "map",
             "color_hex": "#0F766E",
         },
         "cap.location.live.view": {

@@ -1361,6 +1361,7 @@ export async function runAgentChatTurn(input: {
   try {
     const turn = await ApiService.runPodTurn({
       hushhId: String(input.podHushhId),
+      vaultOwnerToken: input.vaultOwnerToken,
       message: input.message,
       conversationId: input.conversationId || undefined,
       timezone: resolveBrowserTimeZone(),

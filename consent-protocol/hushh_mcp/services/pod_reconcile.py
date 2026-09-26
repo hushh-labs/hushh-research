@@ -86,7 +86,6 @@ def _classify_scoped_inventory(
 ) -> dict[str, list[dict[str, Any]]]:
     """Report candidates only; unresolved claims suppress orphan conclusions."""
     from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
-        BACKEND_ANYPOINT,
         BACKEND_GCP,
         BACKEND_NULL,
         BACKEND_USER_GCP,
@@ -113,8 +112,6 @@ def _classify_scoped_inventory(
         backend, status = text(row.get("backend")), text(row.get("status"))
         metadata = row.get("backend_metadata")
         external = text(row.get("external_agent_id"))
-        if backend == BACKEND_ANYPOINT:
-            continue
         if (
             backend in ("", BACKEND_NULL)
             and not external

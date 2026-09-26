@@ -46,6 +46,11 @@ const CONSUMERS: ReadonlyArray<{
     forbidden: [/z-\[71[12]\]/],
   },
   {
+    file: "components/agent/agent-connections-drawer.tsx",
+    tokens: ["z-(--z-sheet-overlay)", "z-(--z-sheet)"],
+    forbidden: [/z-\[52[03]\]/],
+  },
+  {
     file: "components/ui/dialog.tsx",
     tokens: ["z-(--z-dialog-overlay)", "z-(--z-dialog)"],
     forbidden: [/z-\[80[01]\]/],

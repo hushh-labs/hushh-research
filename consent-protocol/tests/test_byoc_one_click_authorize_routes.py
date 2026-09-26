@@ -118,7 +118,7 @@ def _fake_job_repo(monkeypatch):
 
 
 def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
-    monkeypatch.setattr(oauth, "verify_state", lambda state, uid: "hussh-one-fresh1")
+    monkeypatch.setattr(oauth, "verify_state_selection", lambda state, uid: ("hussh-one-fresh1", False))
     monkeypatch.setattr(oauth, "exchange_code", lambda code: "transient-token")
     monkeypatch.setattr(
         oauth,
@@ -142,7 +142,7 @@ def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
 
     monkeypatch.setattr(oauth, "apply_authorization", _authorize)
 
-    async def _fake_save(request, body, firebase_uid):
+    async def _fake_save(request, body, firebase_uid, setup_job_id):
         calls.append("save")
         return runtime_route.ByocProjectSaveResponse(
             projectId=body.projectId,
@@ -153,7 +153,7 @@ def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
             nextStep="done",
         )
 
-    monkeypatch.setattr(runtime_route, "save_byoc_project", _fake_save)
+    monkeypatch.setattr(runtime_route, "_save_byoc_project", _fake_save)
 
 
 async def test_complete_answers_fast_and_the_job_runs_the_chain_in_order(monkeypatch):

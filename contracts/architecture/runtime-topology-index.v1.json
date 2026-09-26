@@ -168,6 +168,39 @@
       }
     },
     {
+      "id": "agent_files",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "POD_FILES_ENABLED",
+        "rollback": "Disable Files entrypoints while preserving encrypted objects and owner recovery keys.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_financial_guard",
       "parent": "agent_one",
       "rollout": {
@@ -5869,7 +5902,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
-    "agent_registry": "fa2723fb36e054f5ad1ff8f2277131ed6fae0dfb89a2bfb2d7515f5d206c5968",
+    "agent_registry": "19097632425038a09000854982adeacab302f0a8884d44d6d18dbfd387862c27",
     "cache_manifest": "fc071d97067933cbc4f5387286018fbfaa8f29ba90743560b0472a44022e1674",
     "data_plane": "9675704d2f3636d13821c504f19655f6c65191c2d83f0f86b75282d7c7f62c30",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
@@ -5883,7 +5916,7 @@
   "summary": {
     "a2a_scope_gated_agents": 5,
     "actions": 233,
-    "agents": 19,
+    "agents": 20,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,

@@ -562,9 +562,17 @@ def test_setup_authorization_survives_retry_and_rejects_foreign_receipts(provisi
 
 
 @pytest.mark.parametrize(
-    "invalid", [None, "owner", "attempt", "engine", "extra", "guard", "provenance"]
+    "invalid,with_files",
+    [
+        (None, False),
+        (None, True),
+        *[
+            (value, False)
+            for value in ("owner", "attempt", "engine", "extra", "guard", "provenance")
+        ],
+    ],
 )
-def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, invalid):
+def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, invalid, with_files):
     pg = provision_pg
     pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
     pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
@@ -613,6 +621,15 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/935_personal_agent_erasure_finalization.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/936_personal_agent_stale_erasure_recovery.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/937_personal_agent_erasure_guard_composition.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/937_personal_agent_erasure_guard_composition.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/937_personal_agent_erasure_guard_composition.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/938_personal_agent_files_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/rollback/938_personal_agent_files_erasure.rollback.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/938_personal_agent_files_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -746,6 +763,45 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         mail_observations.append(observation)
         inventory["plannedResources"].append({"type": kind, "id": "mail-one"})
         inventory["resourceObservations"].append(observation)
+    files_observations = []
+    if with_files:
+        from hushh_mcp.services.pod_files.provisioning import (
+            coordinates,
+            queue_creation_observation,
+        )
+
+        names = coordinates("ha1_erasure", "synthetic-project", "us-central1")
+        queue_identity = queue_creation_observation(
+            {
+                "name": names["queue"],
+                "rateLimits": {"maxDispatchesPerSecond": 1, "maxConcurrentDispatches": 1},
+                "retryConfig": {
+                    "maxAttempts": 3,
+                    "maxRetryDuration": "0s",
+                    "minBackoff": "10s",
+                    "maxBackoff": "60s",
+                    "maxDoublings": 2,
+                },
+            },
+            names["queue"],
+        )
+        for kind, rid, identity in (
+            ("cloud_tasks_queue", names["queueId"], queue_identity),
+            (
+                "service_account",
+                names["worker"],
+                {
+                    "name": "projects/synthetic-project/serviceAccounts/" + names["worker"],
+                    "projectId": "synthetic-project",
+                    "email": names["worker"],
+                    "uniqueId": "987654321",
+                },
+            ),
+        ):
+            observation = {"type": kind, "id": rid, "disposition": "created", "identity": identity}
+            inventory["plannedResources"].append({"type": kind, "id": rid})
+            inventory["resourceObservations"].append(observation)
+            files_observations.append(observation)
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
         "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
@@ -778,7 +834,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ),
     )
     pg.execute(
-        "UPDATE personal_agent_registry SET backend='gcp', user_cloud_project='synthetic-project', user_cloud_region='us-central1', "
+        "UPDATE personal_agent_registry SET backend='gcp', deployment_target='user_gcp', user_cloud_project='synthetic-project', user_cloud_region='us-central1', "
         "user_cloud_bootstrap_sa=%s WHERE user_id='synthetic-owner'",
         (bootstrap_email,),
     )
@@ -1008,6 +1064,47 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_writer("writerAdmission", writer)
     assert not retain_writer("writerAdmission", writer)
     assert retain_writer("writerDisabled", disabled)
+    if with_files:
+
+        def retain_files(kind, stage, value):
+            return pg.execute(
+                "SELECT retain_erasure_files_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s,%s::jsonb)",
+                (
+                    json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                    kind,
+                    stage,
+                    json.dumps(value),
+                ),
+            )[0][0]
+
+        worker_receipt = {
+            "ownerId": "synthetic-owner",
+            "attemptId": "attempt-one",
+            "resourceObservation": files_observations[1],
+            "status": "admitted",
+        }
+        assert not retain_files("worker", "admission", worker_receipt)  # Queue must stop first.
+        for kind, observation in zip(("queue", "worker"), files_observations, strict=True):
+            receipt_base = {
+                "ownerId": "synthetic-owner",
+                "attemptId": "attempt-one",
+                "resourceObservation": observation,
+            }
+            for stage, status in (
+                ("admission", "admitted"),
+                ("quiescence", "quiesced"),
+                ("acknowledgement", "acknowledged"),
+                ("deletion", "absent"),
+            ):
+                value = {**receipt_base, "status": status}
+                assert not retain_files(kind, stage, {**value, "ownerId": "foreign"})
+                assert not retain_files(kind, stage, {**value, "attemptId": "foreign"})
+                assert retain_files(kind, stage, value)
+                assert retain_files(kind, stage, value) is (stage != "admission")
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            pg.execute(
+                "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,filesErasure}' WHERE user_id='synthetic-owner'"
+            )
     assert retain_writer("writerDisabled", disabled)
     assert bucket_preflight()
 
@@ -1880,3 +1977,98 @@ def test_provision_owner_claim_is_exclusive_in_postgres(provision_pg):
         results = list(pool.map(claim, ["a", "b"]))
     assert sum(r is not None for r in results) == 1
     assert provision_row(pg)["backend_metadata"]["provisionAttempt"]["attemptId"] in results
+
+
+@pytest.mark.parametrize(
+    "barrier",
+    [
+        None,
+        "account_tombstone",
+        "pod_tombstone",
+        "wrong_attempt",
+        "job_running",
+        "no_job",
+        "changed_snapshot",
+        "receipt",
+        "stale_snapshot",
+    ],
+)
+def test_stale_restore_marker_cannot_bypass_erasure_barriers(provision_pg, barrier):
+    pg = provision_pg
+    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
+    for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
+        if 918 <= int(path.name.split("_", 1)[0]) <= 937:
+            pg.apply_file(path)
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,backend_metadata) VALUES ('synthetic-owner','ha1_restore','provisioned','{}')"
+    )
+    pg.execute(
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES ('synthetic-owner','setup','owner-project','recorded')"
+    )
+    attempt = "a" * 32
+    reservation = pg.execute(
+        "SELECT reserve_personal_agent_erasure('synthetic-owner',%s)", (attempt,)
+    )[0][0]
+    if barrier == "account_tombstone":
+        pg.execute(
+            "INSERT INTO account_deletion_tombstones(user_id_hash) VALUES ('sha256:'||encode(sha256(convert_to('synthetic-owner','UTF8')),'hex'))"
+        )
+    elif barrier == "pod_tombstone":
+        pg.execute(
+            "INSERT INTO personal_agent_deletion_tombstones(hushh_id) VALUES ('ha1_restore')"
+        )
+    elif barrier == "job_running":
+        pg.execute("UPDATE byoc_setup_jobs SET status='running'")
+    elif barrier == "no_job":
+        pg.execute("DELETE FROM byoc_setup_jobs")
+    elif barrier == "receipt":
+        # Seed a later-stage snapshot as a fixture; the normal guard prohibits this write.
+        pg.execute(
+            "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+        )
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{erasure,memoryBinding}','{}')"
+        )
+        pg.execute(
+            "ALTER TABLE personal_agent_registry ENABLE TRIGGER zz_personal_agent_erasure_registry"
+        )
+    if barrier == "stale_snapshot":
+        with connect(pg) as old, old.cursor() as cursor:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            cursor.execute("SELECT count(*) FROM account_deletion_tombstones")
+            pg.execute(
+                "INSERT INTO account_deletion_tombstones(user_id_hash) VALUES ('sha256:'||encode(sha256(convert_to('synthetic-owner','UTF8')),'hex'))"
+            )
+            cursor.execute("SELECT set_config('hussh.erasure_restore_attempt',%s,true)", (attempt,))
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                cursor.execute(
+                    "UPDATE personal_agent_registry SET status='provisioned',backend_metadata='{}' WHERE user_id='synthetic-owner'"
+                )
+        assert pg.execute("SELECT status FROM personal_agent_registry") == [("suspended",)]
+        return
+    snapshot_metadata = reservation["registrySnapshot"]["backend_metadata"]
+    if barrier == "changed_snapshot":
+        snapshot_metadata = {"unexpected": True}
+
+    def restore():
+        with connect(pg) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('hussh.erasure_restore_attempt',%s,true)",
+                ("b" * 32 if barrier == "wrong_attempt" else attempt,),
+            )
+            cursor.execute(
+                "UPDATE personal_agent_registry SET status='provisioned',backend_metadata=%s::jsonb WHERE user_id='synthetic-owner'",
+                (json.dumps(snapshot_metadata),),
+            )
+
+    if barrier is None:
+        restore()
+        assert pg.execute(
+            "SELECT status,backend_metadata ? 'erasure' FROM personal_agent_registry"
+        ) == [("provisioned", False)]
+    else:
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            restore()
+        assert pg.execute(
+            "SELECT status,backend_metadata ? 'erasure' FROM personal_agent_registry"
+        ) == [("suspended", True)]

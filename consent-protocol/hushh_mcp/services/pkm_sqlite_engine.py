@@ -27,8 +27,7 @@ codebase knows. JSON columns are TEXT holding JSON, exactly as that schema
 declares.
 
 DURABILITY BOUNDARY. This file is a local index and a correct single-node store.
-Restart-surviving durability on an ephemeral-disk platform (Cloud Run,
-CloudHub 2.0) is the commit log's job (``pod_storage``): the log is the system
+Restart-surviving durability on Cloud Run is the commit log's job (``pod_storage``): the log is the system
 of record, this database is rebuildable from it.
 """
 

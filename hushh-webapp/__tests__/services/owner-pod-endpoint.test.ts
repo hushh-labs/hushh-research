@@ -9,10 +9,16 @@
  * done.
  */
 import "fake-indexeddb/auto";
-import { createPublicKey, verify as nodeVerify } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, sign as nodeSign, verify as nodeVerify } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as ownerPod from "@/lib/services/owner-pod-endpoint";
+
+const issuer = generateKeyPairSync("ed25519");
+const publicRaw = issuer.publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
+function hubSignature(payload: Record<string, unknown>): string {
+  return `ed25519.kid.${nodeSign(null, Buffer.from(ownerPod.canonicalJson(payload)), issuer.privateKey).toString("base64url")}`;
+}
 
 const USER = "uid-owner";
 const POD_URL = "https://one-pod-owner-abc.a.run.app";
@@ -27,16 +33,16 @@ function json(body: unknown, status = 200): Response {
 }
 
 function endpointBody(overrides: Record<string, unknown> = {}) {
-  return {
+  const body = {
     kind: "pod_endpoint_v1",
     hushhId: "ha1_owner",
     url: POD_URL,
     podKeyId: "podk_1",
     environment: "dev",
     endpointVersion: 1,
-    signature: "ed25519.kid.sig",
     ...overrides,
   };
+  return { ...body, signature: hubSignature(body) };
 }
 
 class FakeWorld {
@@ -65,22 +71,23 @@ class FakeWorld {
       this.appPublicKey = String((JSON.parse(String(init.body)) as { devicePublicKey: string }).devicePublicKey);
       return json({ device_id: "tdv_app_1", platform: "web", status: "active" });
     }
+    if (path === "/api/one/personal-agent/verification-keys") return json({ kind: "pod_verification_keys_v1", keys: { kid: publicRaw } });
     if (path === "/api/one/personal-agent/endpoint") return json(this.endpoint);
     const binding = {
       kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
       environment: "dev", url: POD_URL, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
       platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: "user_gcp",
-      version: 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 60_000,
+      version: 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 24 * 3600 * 1000,
     };
     if (path.endsWith("/pod-binding") && init.method === "GET") {
       return this.bindingIssued
-        ? json({ binding, signature: "ed25519.kid.b", version: 1 })
+        ? json({ binding, signature: hubSignature(binding), version: 1 })
         : json({ detail: { code: "POD_BINDING_NOT_ISSUED" } }, 404);
     }
     if (path.endsWith("/pod-binding") && init.method === "POST") {
       this.bindingIssued = true;
-      return json({ binding, signature: "ed25519.kid.b", version: 1 });
+      return json({ binding, signature: hubSignature(binding), version: 1 });
     }
     if (path.endsWith("/pod-tombstone")) {
       this.couriered.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -122,6 +129,76 @@ describe("owner pod endpoint", () => {
 
   afterEach(async () => {
     await ownerPod.forgetOwnerPodState(USER);
+  });
+
+  it("rejects a tampered signed destination before any direct request", async () => {
+    world.endpoint.url = "https://attacker.example";
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("HUB_SIGNATURE_INVALID");
+    expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
+  });
+
+  it("refuses an unknown issuer key instead of accepting a signature prefix", async () => {
+    world.endpoint.signature = world.endpoint.signature.replace(".kid.", ".unknown.");
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("HUB_SIGNING_KEY_UNKNOWN");
+    expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
+  });
+
+  it("requires re-admission for pins created before cryptographic verification", async () => {
+    const world = new FakeWorld();
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(ownerPod.OWNER_POD_DB_NAME);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("pins", "readwrite");
+      const store = tx.objectStore("pins");
+      const request = store.get(USER);
+      request.onsuccess = () => {
+        const record = request.result;
+        delete record.endpoint.verificationVersion;
+        store.put(record);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+    await expect(ownerPod.currentPodSession(USER, world.transport())).rejects.toThrow("ENDPOINT_NOT_PINNED");
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    expect(world.admitted).toHaveLength(2);
+  });
+
+  it.each([
+    { scopes: ["pkm.read", "unauthorized.scope"] },
+    { expiresAt: 1_757_500_000_000 + 25 * 3600 * 1000 },
+    { version: 2 },
+    { epoch: 2 },
+  ])("refuses renewal outside its verified binding: %j", async (overrides) => {
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    const transport = world.transport();
+    transport.direct = async (url, init) => url.endsWith("/renew")
+      ? json({ session: "pst1.renewed.mac", sid: "pss_renewed", role: "app",
+          scopes: ["pkm.read"], epoch: 4, version: 1,
+          expiresAt: world.now + 3600 * 1000, ...overrides })
+      : world.direct(url, init);
+    world.now += 11.5 * 3600 * 1000;
+    await expect(ownerPod.currentPodSession(USER, transport)).rejects.toMatchObject({
+      code: "SESSION_BINDING_MISMATCH",
+    });
+  });
+
+  it("renews directly during a hub outage without extending the grant", async () => {
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    const transport = world.transport();
+    transport.hub = async () => { throw new Error("hub unavailable"); };
+    transport.direct = async () => json({ session: "pst1.renewed.mac", sid: "pss_renewed",
+      role: "app", scopes: ["pkm.read"], epoch: 4, version: 1,
+      expiresAt: world.now + 13 * 3600 * 1000 });
+    expect(await ownerPod.renewPodSession(USER, transport)).toMatchObject({
+      epoch: 4, version: 1, grantExpiresAt: world.now + 24 * 3600 * 1000,
+    });
   });
 
   it("enrols the app once with a non-extractable key and reuses the subject", async () => {

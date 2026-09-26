@@ -71,6 +71,7 @@ class DeviceLink:
     pending: dict[str, asyncio.Queue[dict[str, Any]]] = field(default_factory=dict)
     busy_request_id: Optional[str] = None
     last_seen_monotonic: float = field(default_factory=time.monotonic)
+    last_work_monotonic: float = field(default_factory=time.monotonic)
     status: str = "ready"
     replaced: bool = False
 
@@ -224,6 +225,7 @@ class PuppyBroker:
             yield {"type": "inference.error", "requestId": request_id, "code": "PUPPY_BUSY"}
             return
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=MAX_PENDING_FRAMES)
+        link.last_work_monotonic = time.monotonic()
         link.pending[request_id] = queue
         link.busy_request_id = request_id
         started = time.monotonic()
@@ -256,6 +258,7 @@ class PuppyBroker:
                 # The consumer stopped early (cancelled turn, closed stream): tell the
                 # device to stop generating rather than let it run to the end.
                 await self._cancel(link, request_id)
+            link.last_work_monotonic = time.monotonic()
             link.pending.pop(request_id, None)
             if link.busy_request_id == request_id:
                 link.busy_request_id = None

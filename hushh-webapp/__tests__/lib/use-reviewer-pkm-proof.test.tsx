@@ -2,7 +2,8 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useReviewerPkmProof } from "@/lib/testing/use-reviewer-pkm-proof";
 
-const mocks = vi.hoisted(() => ({ load: vi.fn(), epochCurrent: true }));
+const mocks = vi.hoisted(() => ({ load: vi.fn(), build: vi.fn(), epochCurrent: true }));
+vi.mock("@/lib/consent/export-builder", () => ({ buildConsentExportForScope: mocks.build }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadDomainSnapshot: mocks.load },
 }));
@@ -19,7 +20,7 @@ const expectation = { domain: "professional" as const, path: ["projects", "fixtu
 const snapshot = { snapshot: { userId: "owner", domain: "professional", contentRevision: 2 },
   data: { projects: { old: "synthetic prior" } } };
 beforeEach(() => {
-  mocks.load.mockReset(); mocks.epochCurrent = true;
+  mocks.load.mockReset(); mocks.build.mockReset(); mocks.epochCurrent = true;
   window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true,
     pkmProofEnabled: true, pkmProofExpectation: expectation,
     expectedUserId: "owner", reviewerMutationPolicy: "bounded_mutation" };
@@ -80,5 +81,33 @@ describe("reviewer PKM proof hook admission", () => {
     expect((await window.__HUSHH_NATIVE_TEST__!.pkmProof!.begin()).ok).toBe(false);
     expect(mocks.load).toHaveBeenCalledTimes(1);
     second.unmount();
+  });
+});
+
+describe("reviewer projection digest", () => {
+  it("hashes the owner's own projected domain with the rehearsal's canonical form", async () => {
+    mocks.build.mockResolvedValue({ payload: { professional: { routines: { b: 2, a: [1, { d: 4, c: 3 }] } } } });
+    const { unmount } = renderHook(() => useReviewerPkmProof(state));
+    const result = await window.__HUSHH_NATIVE_TEST__!.pkmProof!.projectionDigest("attr.professional.routines.*");
+    const { createHash } = await import("node:crypto");
+    const expected = createHash("sha256").update('{"routines":{"a":[1,{"c":3,"d":4}],"b":2}}').digest("hex");
+    expect(result).toEqual({ ok: true, code: "digest", digest: expected });
+    expect(mocks.build).toHaveBeenCalledWith({ userId: "owner", scope: "attr.professional.routines.*",
+      vaultKey: "test-key", vaultOwnerToken: "test-token" });
+    unmount();
+  });
+  it.each(["attr.financial.accounts.*", "attr.wallet.cards.*", "pkm.read", "attr.professional.*"])(
+    "refuses scope %s without building an export", async scope => {
+      const { unmount } = renderHook(() => useReviewerPkmProof(state));
+      expect(await window.__HUSHH_NATIVE_TEST__!.pkmProof!.projectionDigest(scope))
+        .toEqual({ ok: false, code: "refused" });
+      expect(mocks.build).not.toHaveBeenCalled(); unmount();
+    });
+  it("reports unavailable without detail when the export cannot be built", async () => {
+    mocks.build.mockRejectedValue(new Error("secret detail"));
+    const { unmount } = renderHook(() => useReviewerPkmProof(state));
+    expect(await window.__HUSHH_NATIVE_TEST__!.pkmProof!.projectionDigest("attr.travel.trips.*"))
+      .toEqual({ ok: false, code: "unavailable" });
+    unmount();
   });
 });

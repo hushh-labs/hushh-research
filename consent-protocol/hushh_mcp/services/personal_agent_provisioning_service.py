@@ -937,6 +937,7 @@ class PersonalAgentProvisioningService:
                 user_cloud_project=(cloud.project if cloud else None),
                 user_cloud_region=(cloud.region if cloud else None),
                 user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+                files_library_enabled=bool(cloud and cloud.files_library_enabled),
             )
             # The person's own target wins over the one this service was constructed
             # with. BYOC is the production path, so a pod belonging to someone who has
@@ -1601,6 +1602,7 @@ class PersonalAgentProvisioningService:
             user_cloud_project=(cloud.project if cloud else None),
             user_cloud_region=(cloud.region if cloud else None),
             user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+            files_library_enabled=bool(cloud and cloud.files_library_enabled),
             upgrade_operation_id=upgrade_operation_id,
             upgrade_target_image=(
                 str(approval_metadata.get("targetImage") or "").strip() or None
@@ -2960,7 +2962,10 @@ class PersonalAgentProvisioningService:
         planned = [
             item
             for item in inventory.get("plannedResources", [])
-            if isinstance(item, dict) and item.get("type") == "service_account"
+            if isinstance(item, dict)
+            and item.get("type") == "service_account"
+            and item.get("id")
+            == (reservation.get("writerDisabled") or {}).get("runtimeIdentity", {}).get("email")
         ]
         if len(planned) != 1:
             raise RuntimeError("runtime account erasure inventory unresolved")
@@ -3401,6 +3406,9 @@ class PersonalAgentProvisioningService:
                             await self._erase_reserved_compute(user_id=user_id)
                             await self._retain_reserved_substrate_inventory(user_id=user_id)
                             await self._revoke_reserved_runtime_writer(user_id=user_id)
+                            from hushh_mcp.services.pod_files.erasure import erase_reserved_files
+
+                            await erase_reserved_files(self, user_id=user_id)
                             await self._erase_reserved_mail_resources(user_id=user_id)
                             await self._erase_reserved_bucket(user_id=user_id)
                             await self._erase_reserved_kms_material(user_id=user_id)

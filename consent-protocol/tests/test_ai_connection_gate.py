@@ -272,8 +272,8 @@ async def test_managed_does_not_provision_while_a_pod_cannot_serve_it(monkeypatc
     # The refusal used to be the single generic string "pod cannot serve this
     # connection mode". It now carries the SPECIFIC reason from
     # `model_access_policy`, because the gate asks per deployment path and the
-    # answers differ -- "the fleet flag is off" and "CloudHub has no Vertex at all"
-    # are different facts and a shared sentence hid that. Asserting the substance
+    # managed and owner-project credential failures require distinct remedies.
+    # Asserting the substance
     # keeps this test about behaviour rather than about wording.
     # The refusal must carry a reason a person can act on, and must not name the flag —
     # this value is returned to the browser as `agentReason`.

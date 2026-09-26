@@ -64,6 +64,20 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # Nothing in production reads it: the only references outside this file
         # are its own tests. Founder decision 2026-09-11, on being asked whether
         # the health surface should be world-readable: "some, not all".
+        # Worker verifies a dedicated queue identity; it gains no machine-route access.
+        "/api/one/pod/commands/transcriptions",
+        "/api/one/pod/commands/assess",
+        "/api/one/pod/files/worker",
+        "/api/one/pod/files/jobs",
+        "/api/one/pod/files/repair-index",
+        "/api/one/pod/files/usage",
+        "/api/one/pod/files/settings",
+        "/api/one/pod/files/list",
+        "/api/one/pod/files/entry",
+        "/api/one/pod/files/create",
+        "/api/one/pod/files/chunk",
+        "/api/one/pod/files/complete",
+        "/api/one/pod/files/mutate",
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",

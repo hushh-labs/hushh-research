@@ -115,7 +115,7 @@ def test_the_plan_digest_tracks_resources_not_prose():
 
 
 def test_only_byoc_resolves_to_a_real_ensurer():
-    for target in (None, "", "gcp", "anypoint"):
+    for target in (None, "", "gcp"):
         spec = PodSpec(hushh_id="h", phone_e164_hash="p", pod_pubkey="k", deployment_target=target)
         assert isinstance(resolve_substrate_ensurer(spec), NoSubstrateRequired)
 

@@ -1,54 +1,9 @@
-"""How a pod on each deployment path is allowed to reach a model — stated once.
+"""Model access for GCP private-agent hosting.
 
-THE RULE THIS FILE EXISTS TO MAKE UNAMBIGUOUS
----------------------------------------------
-``ai_connection_gate`` holds the standing rule: **a working AI connection earns a
-pod, a login never does.** That rule is right and unchanged. What it did not say is
-*which* connection counts, and the answer is not the same on every deployment path
-— because the paths do not have the same model access available to them.
-
-Before this module, ``_pod_can_serve`` asked only "managed or BYOK?" and consulted
-one global flag. It never asked which backend the pod would run on. So an Anypoint
-deployment with ``pod_managed_model_enabled()`` on would have provisioned a pod on a
-managed-Vertex connection — and ``AnypointBackend.render_deploy_config`` renders
-``GOOGLE_GENAI_USE_VERTEXAI=false`` on purpose, because "there is no Vertex here and
-no ambient Google identity to borrow". The result is the exact failure the gate was
-built to prevent, one level further up: a billable pod that cannot think.
-
-THE THREE PATHS, AND WHY THEY DIFFER
-------------------------------------
-**Anypoint (CloudHub) — BYOK only, by construction.** CloudHub is not GCP. There is
-no metadata server, no ambient Google identity, and therefore no Vertex ADC that
-could ever be established. Model access is satisfied at RUNTIME by the user's own
-key arriving with each turn. A managed-Vertex connection is not merely
-unconfigured here — it is unreachable, so provisioning on one is refused rather
-than deferred to a flag that could be switched on by mistake.
-
-**BYO GCP — the user's own Vertex ADC, in the user's own project.** The pod runs
-under a service account in the user's project, so ADC is genuinely available: the
-bootstrap grants that account ``roles/aiplatform.user`` and the pod calls Vertex as
-itself, on the user's own quota and bill. Nothing of hushh's is borrowed. Once that
-connection is established the pod can be provisioned and its agents brought up in
-order. BYOK also remains available for a user who prefers to bring a key.
-
-**hushh-managed GCP — the fleet's ADC, and only where that is permitted.** The
-identity is hushh's own, shared across the fleet, which is why it stays behind
-``pod_managed_model_enabled()`` and why per-pod identity (task #114) gates widening
-it. This is the internal development and validation tier.
-
-WHY "ESTABLISHED" MEANS SOMETHING DIFFERENT ON BYOC
----------------------------------------------------
-A BYOK key proves itself by answering a real generation request — that is what the
-validate route does. Vertex ADC **inside a pod** cannot be proven that way before
-the pod exists, so requiring it would be circular. What can be checked beforehand,
-and is what ``byoc_vertex_preconditions`` checks, is that the user's project has the
-Vertex API enabled and that the pod's service account actually holds
-``roles/aiplatform.user``. Those are the two conditions whose absence makes ADC
-impossible; with both present the pod's own boot-time check is a formality rather
-than a gamble.
-
-That is a weaker claim than "a key answered", and it is stated as such rather than
-dressed up as the same thing.
+BYOC uses the owner's Vertex identity after verified project preconditions, or a
+per-turn owner key. Hussh-managed GCP remains behind the fleet model-access gate.
+Unknown deployment targets refuse provisioning. A precondition check establishes
+configuration; successful generation inside the pod requires runtime evidence.
 """
 
 from __future__ import annotations
@@ -58,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from hushh_mcp.services.compute_backend import (
-    BACKEND_ANYPOINT,
     BACKEND_GCP,
     BACKEND_NULL,
     BACKEND_USER_GCP,
@@ -119,25 +73,6 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
     """
     backend = str(backend_id or "").strip().lower()
     managed = _is_managed(provider)
-
-    if backend == BACKEND_ANYPOINT:
-        if managed:
-            return ModelAccessVerdict(
-                can_serve=False,
-                activation="",
-                reason=(
-                    "Anypoint/CloudHub has no Google identity and no Vertex ADC; the "
-                    "renderer sets GOOGLE_GENAI_USE_VERTEXAI=false. A managed connection "
-                    "can never serve a pod here, so provisioning one would create a "
-                    "billable host that refuses every turn."
-                ),
-            )
-        return ModelAccessVerdict(
-            can_serve=True,
-            activation=ACTIVATION_BYOK_PER_TURN,
-            reason="CloudHub serves the user's own key at runtime, per turn",
-            activation_order=AGENT_ACTIVATION_ORDER,
-        )
 
     if backend == BACKEND_USER_GCP:
         if managed:

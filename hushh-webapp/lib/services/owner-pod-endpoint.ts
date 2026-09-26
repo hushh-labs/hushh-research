@@ -16,7 +16,7 @@
  *   * a lower `endpointVersion` is refused (an old record cannot re-point us);
  *   * a changed `podKeyId` without a higher `endpointVersion` is refused;
  *   * the app key is generated non-extractable and only its handle is stored, so
- *     the private half never becomes reachable from JavaScript;
+ *     the private material cannot be exported (the handle can still sign);
  *   * a revocation the pod could not receive is queued as an owner-signed intent
  *     and couriered through the hub as "revocation pending delivery", never
  *     silently dropped and never reported as done.
@@ -47,6 +47,8 @@ export type PinnedEndpoint = {
   endpointVersion: number;
   signature: string;
   pinnedAt: number;
+  /** Pins from the former prefix-only verifier must be admitted again once. */
+  verificationVersion: 1;
 };
 
 export type PodSessionRecord = {
@@ -58,6 +60,8 @@ export type PodSessionRecord = {
   expiresAt: number;
   version: number;
   subjectId: string;
+  /** Verified grant ceiling; renewal cannot extend owner authorization. */
+  grantExpiresAt?: number;
 };
 
 export type PendingRevocation = {
@@ -112,6 +116,40 @@ export type OwnerPodTransport = {
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));
+}
+
+/** Verify issuer bytes before using an endpoint or signing an admission proof. */
+async function verifyHubSignature(
+  payload: Record<string, unknown>,
+  signature: string,
+  transport: OwnerPodTransport,
+): Promise<void> {
+  const parts = signature.split(".");
+  if (parts.length !== 3 || parts[0] !== "ed25519" || !parts[1] || !parts[2]) {
+    throw new OwnerPodError("HUB_SIGNATURE_INVALID");
+  }
+  const response = await transport.hub("/api/one/personal-agent/verification-keys", {
+    method: "GET", cache: "no-store",
+  });
+  if (!response.ok) throw new OwnerPodError("HUB_VERIFICATION_KEYS_UNAVAILABLE");
+  const body = await readJson(response);
+  const keys = body.keys;
+  if (body.kind !== "pod_verification_keys_v1" || !keys || typeof keys !== "object") {
+    throw new OwnerPodError("HUB_VERIFICATION_KEYS_UNAVAILABLE");
+  }
+  const encoded = (keys as Record<string, unknown>)[parts[1]];
+  if (typeof encoded !== "string") throw new OwnerPodError("HUB_SIGNING_KEY_UNKNOWN");
+  try {
+    const raw = base64ToBytes(encoded);
+    const sig = base64ToBytes(parts[2].replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(parts[2].length / 4) * 4, "="));
+    if (raw.length !== 32 || sig.length !== 64) throw new Error("Invalid length");
+    const key = await subtle().importKey("raw", raw, "Ed25519", false, ["verify"]);
+    if (!await subtle().verify("Ed25519", key, sig, new TextEncoder().encode(canonicalJson(payload)))) {
+      throw new Error("Invalid signature");
+    }
+  } catch {
+    throw new OwnerPodError("HUB_SIGNATURE_INVALID");
+  }
 }
 
 function sortKeys(value: unknown): unknown {
@@ -229,14 +267,19 @@ async function writeRecord<T extends { userId: string }>(store: string, record: 
 }
 
 async function readPin(userId: string): Promise<PinRecord> {
-  return (
-    (await readRecord<PinRecord>(PIN_STORE, userId)) ?? {
+  const stored = await readRecord<PinRecord>(PIN_STORE, userId);
+  if (stored?.endpoint && stored.endpoint.verificationVersion !== 1) {
+    return { ...stored, endpoint: null, session: null };
+  }
+  if (stored?.session && !Number.isInteger(stored.session.grantExpiresAt)) {
+    return { ...stored, session: null };
+  }
+  return stored ?? {
       userId,
       endpoint: null,
       session: null,
       pendingRevocations: [],
-    }
-  );
+    };
 }
 
 /** Test and sign-out hook: forget everything held for one account. */
@@ -355,6 +398,9 @@ export async function refreshEndpointFromHub(
     throw new OwnerPodError(code ? `ENDPOINT_UNAVAILABLE:${code}` : `ENDPOINT_UNAVAILABLE:${response.status}`);
   }
   const body = await readJson(response);
+  const { signature: endpointSignature, ...signedEndpoint } = body;
+  if (body.kind !== "pod_endpoint_v1") throw new OwnerPodError("ENDPOINT_MALFORMED");
+  await verifyHubSignature(signedEndpoint, String(endpointSignature ?? ""), transport);
   const candidate: PinnedEndpoint = {
     hushhId: String(body.hushhId ?? ""),
     url: String(body.url ?? "").replace(/\/+$/, ""),
@@ -363,6 +409,7 @@ export async function refreshEndpointFromHub(
     endpointVersion: Number(body.endpointVersion ?? 0),
     signature: String(body.signature ?? ""),
     pinnedAt: (transport.now ?? Date.now)(),
+    verificationVersion: 1,
   };
   let endpointUrl: URL | null = null;
   try {
@@ -420,6 +467,7 @@ async function fetchBinding(
   subjectId: string,
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,
+  refreshGrant = false,
 ): Promise<{ binding: Record<string, unknown>; signature: string }> {
   const path = `/api/account/trusted-devices/${encodeURIComponent(subjectId)}/pod-binding`;
   let response = await transport.hub(path, { method: "GET", cache: "no-store" });
@@ -429,7 +477,7 @@ async function fetchBinding(
     (existing as Record<string, unknown>).pod_key_id !== endpoint.podKeyId ||
     (existing as Record<string, unknown>).url !== endpoint.url
   );
-  if (response.status === 404 || stale) {
+  if (response.status === 404 || stale || refreshGrant) {
     response = await transport.hub(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -446,12 +494,21 @@ async function fetchBinding(
   if (!binding || typeof binding !== "object" || !signature) {
     throw new OwnerPodError("BINDING_MALFORMED");
   }
+  await verifyHubSignature(binding as Record<string, unknown>, signature, transport);
   return { binding: binding as Record<string, unknown>, signature };
 }
 
 function sessionFromResponse(body: Record<string, unknown>, subjectId: string): PodSessionRecord {
   const session = String(body.session ?? "");
-  if (!session.startsWith(POD_SESSION_PREFIX) || body.role !== "app") {
+  if (
+    !session.startsWith(POD_SESSION_PREFIX) || body.role !== "app" ||
+    typeof body.sid !== "string" || !body.sid.startsWith("pss_") ||
+    !Number.isInteger(body.epoch) || Number(body.epoch) < 1 ||
+    !Number.isInteger(body.version) || Number(body.version) < 1 ||
+    !Number.isInteger(body.expiresAt) || !Array.isArray(body.scopes) ||
+    body.scopes.some((scope) => typeof scope !== "string") ||
+    new Set(body.scopes).size !== body.scopes.length
+  ) {
     throw new OwnerPodError("SESSION_MALFORMED");
   }
   return {
@@ -474,10 +531,11 @@ async function admitEndpoint(
   userId: string,
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,
+  refreshGrant = false,
 ): Promise<PodSessionRecord> {
   const record = await ensureAppKey(userId);
   const subjectId = record.subjectId ?? (await ensureAppEnrollment(userId, transport));
-  const { binding, signature } = await fetchBinding(subjectId, transport, endpoint);
+  const { binding, signature } = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
   if (String(binding.pod_key_id ?? "") !== endpoint.podKeyId) {
     throw new OwnerPodError("BINDING_POD_KEY_MISMATCH");
   }
@@ -558,10 +616,13 @@ async function admitEndpoint(
     session.version !== binding.version ||
     session.epoch !== challenge.epoch ||
     session.expiresAt <= now ||
+    session.expiresAt > Number(binding.expires_at_ms) ||
+    session.scopes.some((scope) => !(binding.scopes as string[]).includes(scope)) ||
     !session.scopes.includes("pkm.read")
   ) {
     throw new OwnerPodError("SESSION_BINDING_MISMATCH");
   }
+  session.grantExpiresAt = Number(binding.expires_at_ms);
   const pin = await readPin(userId);
   await writeRecord(PIN_STORE, { ...pin, endpoint, session });
   return session;
@@ -570,10 +631,11 @@ async function admitEndpoint(
 export async function openPodSession(
   userId: string,
   transport: OwnerPodTransport,
+  refreshGrant = false,
 ): Promise<PodSessionRecord> {
   const pin = await readPin(userId);
   if (!pin.endpoint) throw new OwnerPodError("ENDPOINT_NOT_PINNED");
-  return admitEndpoint(userId, transport, pin.endpoint);
+  return admitEndpoint(userId, transport, pin.endpoint, refreshGrant);
 }
 
 export async function renewPodSession(
@@ -581,7 +643,9 @@ export async function renewPodSession(
   transport: OwnerPodTransport,
 ): Promise<PodSessionRecord> {
   const pin = await readPin(userId);
-  if (!pin.endpoint || !pin.session) return openPodSession(userId, transport);
+  if (!pin.endpoint || !pin.session?.grantExpiresAt) return openPodSession(userId, transport);
+  const now = (transport.now ?? Date.now)();
+  if (pin.session.grantExpiresAt <= now) return openPodSession(userId, transport);
   const response = await transport.direct(`${pin.endpoint.url}/api/one/pod/session/renew`, {
     method: "POST",
     headers: { Authorization: `Bearer ${pin.session.session}` },
@@ -595,6 +659,13 @@ export async function renewPodSession(
     return openPodSession(userId, transport);
   }
   const session = sessionFromResponse(await readJson(response), pin.session.subjectId);
+  if (
+    session.version !== pin.session.version || session.epoch < pin.session.epoch ||
+    session.expiresAt <= now || session.expiresAt > pin.session.grantExpiresAt ||
+    !session.scopes.includes("pkm.read") ||
+    session.scopes.some((scope) => !pin.session!.scopes.includes(scope))
+  ) throw new OwnerPodError("SESSION_BINDING_MISMATCH");
+  session.grantExpiresAt = pin.session.grantExpiresAt;
   await writeRecord(PIN_STORE, { ...pin, session });
   return session;
 }
@@ -612,11 +683,25 @@ export async function currentPodSession(
     try {
       return await renewPodSession(userId, transport);
     } catch (error) {
-      if (error instanceof OwnerPodError && error.code === "POD_SESSION_REVOKED") throw error;
+      // A transport outage may keep using a still-valid admission. An explicit
+      // authority/verification refusal must not be hidden by the cached bearer.
+      if (!(error instanceof TypeError)) throw error;
       return session;
     }
   }
   return openPodSession(userId, transport);
+}
+
+/** Read the matching endpoint and bearer together after any async renewal. */
+export async function currentPodConnection(userId: string, transport: OwnerPodTransport): Promise<{
+  endpoint: PinnedEndpoint; session: PodSessionRecord;
+}> {
+  const session = await currentPodSession(userId, transport);
+  const pin = await readPin(userId);
+  if (!pin.endpoint || pin.session?.session !== session.session) {
+    throw new OwnerPodError("POD_CONNECTION_CHANGED");
+  }
+  return { endpoint: pin.endpoint, session };
 }
 
 // -- revocation --------------------------------------------------------------------------

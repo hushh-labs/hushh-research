@@ -770,3 +770,124 @@ including the migration 245 collision, before an application PR is ready.
 - [Mail/Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md)
 - [Backend ADK bridge and agent tree](../../../consent-protocol/hushh_mcp/adk_bridge/__init__.py), [`delegation.py`](../../../consent-protocol/hushh_mcp/adk_bridge/delegation.py), [`agent_tree.py`](../../../consent-protocol/hushh_mcp/one_adk/agent_tree.py)
 - [Runtime model catalog](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py), [Live compatibility rules](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py)
+
+## GCP-only pod deployment correction — 2026-09-25
+
+Evidence base: Research `c850cd53e44e92eb108723f6d582f351ac7331d3` plus the
+working-tree correction. Anypoint pod deployment has been removed from the backend
+resolver, renderer, model policy and trace CLI. GCP remains the only deployment
+provider: managed `gcp` and owner-project `user_gcp`; `null` is inert, not hosting.
+Unsupported persisted targets fail closed and are not converted or deleted.
+MuleSoft/Agentforce CRM, including its CloudHub gateway, remains a separate connector.
+No AWS or Azure adapter is introduced. No cloud resource is changed by this cleanup.
+
+The obsolete Anypoint comparison and provider-specific deployment snapshot are
+removed or reduced to navigation. Their useful historical lessons are retained here:
+
+- The 2026-08-11 bootstrap rehearsal found that API enablement is asynchronous,
+  Cloud Resource Manager must be enabled before use, the Storage service agent needs
+  KMS permission, and the deployer needs `actAs` on the exact pod service account.
+- A control-plane bootstrap token could administer KMS but could not wrap the pod
+  key. The resulting design lets the pod mint and wrap its key at first boot with
+  conditional creation; widening the bootstrap token was not the fix.
+- A correct helper without a production caller proves no custody boundary. Check
+  the rendered service and live IAM; interface parity alone does not prove capabilities.
+- Identity, consent and encrypted recovery stay separate from provider lifecycle.
+  PKM remains the information authority; the pod replica and conversational memory
+  do not become replacement stores. Opaque billing identifiers remain separate from
+  user-selected space names. A slim pod must keep hub administration routes closed.
+
+These observations retain their original dates and do not establish current live
+recovery, direct relay acceptance or Files readiness. The Files implementation is
+still being verified behind its gate; command routing and two-network acceptance
+remain open in their existing owning workflows.
+
+### Verification of the GCP-only correction
+
+- 277 compute/model/reconciliation/BYOC tests passed; a separate 161-test BYOC
+  provisioning and custody run passed (overlapping suites, not additive coverage).
+- Documentation parity, links, governance, skill lint and generated-agent mirror
+  checks passed. All 178 remaining Mermaid figures rendered with the pinned local
+  renderer; the two changed deployment figures received visual review.
+- A broader boundary suite passed 103 tests and found one pre-existing failure:
+  `test_the_common_layer_cannot_name_a_cloud_provider` rejects the registry's
+  explicit `user_gcp` SQL predicates. Those predicates already exist at the evidence
+  base and protect BYOC readiness/ingress transitions. Preserve them; the backend
+  runtime-governance owner must reconcile that static rule with repository authority
+  before claiming canonical CI is green.
+- No deployment, owner-row conversion, main merge or automatic pod upgrade occurred.
+
+### Files authority remains gated
+
+The working-tree Files plan is not rollout-ready. Owner selection now travels in
+signed OAuth state, the current setup job, a project/bootstrap-bound registry
+setting and `PodSpec.files_library_enabled`. Legacy state defaults off, and the
+fleet flag alone does not opt in an owner. Migration 928's authorization receipt
+retains its strict field contract. Setup also refuses when the Files erasure
+contract is absent; keep the rollout flag off until combined acceptance passes.
+
+New dev-only migrations 937 and 938 compose stale-reservation recovery with the
+existing erasure transitions and add queue/worker receipts to that same reservation.
+Queue names are checked against recorded creation/configuration evidence; Cloud
+Tasks has no immutable queue incarnation token. Worker operations use its captured
+service-account `uniqueId`. An uncertain mutation acknowledgement retains recovery
+authority and requires reconciliation; it is not silently retried or reported erased.
+These are source changes, not deployed schema or successful live cleanup evidence.
+
+### Files continuation evidence — 2026-09-25
+
+Evidence base remains Research `c850cd53e44e92eb108723f6d582f351ac7331d3`
+plus the uncommitted working tree; Hermes companion changes remain separately
+uncommitted. No owner image was upgraded during these checks.
+
+- Browser admission/renewal checks enforce signed grant ceilings, scope containment,
+  version and epoch. The endpoint and direct-transport suites pass 30 tests.
+- Files storage/provisioning/jobs, selection CAS and pod sessions pass 45 focused
+  tests. Folder indexes can be rebuilt from encrypted manifests in pages of at most
+  100; startup does not replay the library. Metadata reads recheck authority after I/O.
+- PostgreSQL reproduced migration 936 dropping earlier erasure transitions.
+  Migration 937 restores them and independently checks tombstones, eligible setup,
+  exact snapshot and transaction isolation during stale recovery. Nine focused
+  PostgreSQL restoration cases pass, including a stale-snapshot bypass attempt.
+- Three private-agent consent regressions traced to integration commit `0d514ebe2`:
+  automatic issuance bypassed the renewal function, denial could reuse a prior
+  grant, and equal timestamps ignored event ID. Restored the original authority
+  behavior while preserving newer internal-vault lineage handling. Four focused
+  PostgreSQL regression cases and 81 related consent tests pass.
+- Files queue/worker erasure, legacy archive parity and migration rollback/reapply
+  passed eight full PostgreSQL tests. These are isolated-schema results, not live erasure. Canonical CI, live relay, voice,
+  background-work and resource-capacity acceptance remain open.
+
+The continuation now implements pod-only transcription and semantic assessment,
+with typed proposals returning to the existing hub checkpoint/action ledger. Browser
+confirmation remains the effects authority. A fresh typed query is not interpreted
+on the shared server. Seventy focused backend checks, two direct command admission
+checks, 52 browser command/endpoint checks and three resumable-download checks pass.
+The new idle relay controls pass 20 backend cases and 14 Hermes cases; these suites
+overlap earlier runs and their counts are not additive coverage.
+
+The new economy shape closes Puppy after ten idle minutes and accepts only an
+owner-requested metadata activation for an existing grant. The Files UI now has
+paginated organization history, resumable downloads and bucket retention disclosure.
+See [Private Files library](../operations/private-files-library.md) for supported
+formats, pricing assumptions, retention limits and the exact rollout boundary.
+
+The refreshed ADK dirty inventory contained eleven paths. Nine frontend paths were
+applied and their 47 focused checks passed. The two reviewer-auth paths were not
+applied: they restored UID-selected identities, while this branch intentionally
+requires credential-derived identity and rejects an expected-UID mismatch. The ADK
+worktree remains intact.
+
+Canonical CI is not green: generated topology was refreshed, and the architecture
+ratchet exposed new/worsened seams. The Files library now delegates transfers and
+analysis policy through its existing facade; Files presentation has separate directory
+rows and settings. Thirteen storage/job regression cases pass after that extraction.
+Other reported architecture debt remains under review; the baseline was not inflated
+to suppress it. Protocol CI and the final combined checks are still running.
+
+Live separate-network relay, actual spoken commands, Vertex environment permission,
+background delivery, scale-to-zero, capacity and owner-approved image acceptance
+remain required. Lost queue-delivery responses have explicit idempotent retry;
+an autonomous pending-outbox sweep is not claimed. No source check establishes those
+runtime outcomes. The affected private Wiki pod page was corrected and read back;
+its older dated observations remain historical.

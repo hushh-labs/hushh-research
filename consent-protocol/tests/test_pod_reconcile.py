@@ -105,12 +105,6 @@ def test_scoped_inventory_does_not_claim_same_name_from_another_location(field, 
     ]
 
 
-def test_non_gcp_host_does_not_claim_coincidentally_named_service():
-    result = _scoped([_host_claim(backend="anypoint")])
-    assert len(result["direction_b"]) == 1
-    assert not result["unresolved"]
-
-
 @pytest.mark.parametrize(
     "patch",
     [

@@ -438,6 +438,11 @@ class ByocProjectSuggestionResponse(BaseModel):
     editable: bool
     rationale: str
     creationModes: list[str]
+    filesAvailable: bool = Field(
+        default_factory=lambda: (
+            os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+        )
+    )
 
 
 class ByocProjectCheckRequest(BaseModel):
@@ -815,6 +820,16 @@ async def save_byoc_project(
     body: ByocProjectSaveRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> ByocProjectSaveResponse:
+    return await _save_byoc_project(request=request, body=body, firebase_uid=firebase_uid)
+
+
+async def _save_byoc_project(
+    *,
+    request: Request,
+    body: ByocProjectSaveRequest,
+    firebase_uid: str,
+    setup_job_id: str | None = None,
+) -> ByocProjectSaveResponse:
     """Record WHICH cloud is this person's, and prove hushh can actually reach it.
 
     This is the route that ends BYOC's single-tenancy. Until it existed, the target
@@ -885,56 +900,75 @@ async def save_byoc_project(
             )
         )
 
-    wrote = await _attach_cloud()
-    if not wrote:
-        # `set_user_cloud` is an UPDATE, and the row it updates is written at phone
-        # verification ONLY on the legacy trigger. With
-        # PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION at its default of True,
-        # `schedule_provision_personal_agent` returns before `register_pending` -- its
-        # one non-test caller -- so a person who did everything right arrives here with
-        # no row. The cloud step then 409s permanently while telling them to re-verify a
-        # phone that is already verified, which is a loop that cannot terminate.
-        #
-        # Reserving here is the smallest correct repair. `register_pending` mints the
-        # HusshID and writes a `pending` row; it provisions NOTHING, so validate-then-
-        # provision is untouched and a pod still has to be earned by a working AI
-        # connection. Doing it on the failure path keeps the common case one query.
-        if await _reserve_pending_agent_record(firebase_uid):
-            wrote = await _attach_cloud()
-    parked = False
-    if not wrote:
-        # No record can exist yet: the cloud step comes FIRST now, so a person
-        # who has not verified a phone arrives here with a proven cloud and no row
-        # to hang it on. Refusing them (the old 409) sent them to a step the wizard
-        # had not shown yet. Park the cloud on their setup record instead;
-        # ``register_pending`` attaches it the moment phone verification mints the
-        # row. Parking is what fails loudly now, not the person.
-        from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
-            ByocSetupJobRepo,
-        )
+    if setup_job_id is not None:
+        from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
 
-        try:
-            await ByocSetupJobRepo().park_cloud(
-                user_id=firebase_uid,
-                project_id=project,
-                region=body.region,
-                bootstrap_sa=bootstrap_sa,
-                authorized=authorized,
+        if not authorized:
+            raise HTTPException(503, detail={"code": "BYOC_GRANT_UNAVAILABLE"})
+        # Reserve before the atomic publication when phone verification permits it.
+        # The repository binds the write to this exact still-current job and refuses
+        # an assigned/provisioning pod. A superseded job never uses the manual path.
+        await _reserve_pending_agent_record(firebase_uid)
+        parked = await ByocSetupJobRepo().record_proven_cloud(
+            user_id=firebase_uid,
+            job_id=setup_job_id,
+            project=project,
+            region=body.region,
+            bootstrap_sa=bootstrap_sa,
+            deployment_target="user_gcp",
+            model_credential_mode="user_adc",
+        )
+    else:
+        wrote = await _attach_cloud()
+        if not wrote:
+            # `set_user_cloud` is an UPDATE, and the row it updates is written at phone
+            # verification ONLY on the legacy trigger. With
+            # PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION at its default of True,
+            # `schedule_provision_personal_agent` returns before `register_pending` -- its
+            # one non-test caller -- so a person who did everything right arrives here with
+            # no row. The cloud step then 409s permanently while telling them to re-verify a
+            # phone that is already verified, which is a loop that cannot terminate.
+            #
+            # Reserving here is the smallest correct repair. `register_pending` mints the
+            # HusshID and writes a `pending` row; it provisions NOTHING, so validate-then-
+            # provision is untouched and a pod still has to be earned by a working AI
+            # connection. Doing it on the failure path keeps the common case one query.
+            if await _reserve_pending_agent_record(firebase_uid):
+                wrote = await _attach_cloud()
+        parked = False
+        if not wrote:
+            # No record can exist yet: the cloud step comes FIRST now, so a person
+            # who has not verified a phone arrives here with a proven cloud and no row
+            # to hang it on. Refusing them (the old 409) sent them to a step the wizard
+            # had not shown yet. Park the cloud on their setup record instead;
+            # ``register_pending`` attaches it the moment phone verification mints the
+            # row. Parking is what fails loudly now, not the person.
+            from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+                ByocSetupJobRepo,
             )
-            parked = True
-            logger.info("byoc_project.parked_awaiting_record project=%s", project)
-        except Exception:  # noqa: BLE001 - only an unparkable cloud is a refusal
-            logger.warning("byoc_project.park_failed project=%s", project, exc_info=True)
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "NO_AGENT_RECORD",
-                    "message": (
-                        "Your cloud could not be kept for your agent yet. Verify your "
-                        "phone number, then try this step again."
-                    ),
-                },
-            ) from None
+
+            try:
+                await ByocSetupJobRepo().park_cloud(
+                    user_id=firebase_uid,
+                    project_id=project,
+                    region=body.region,
+                    bootstrap_sa=bootstrap_sa,
+                    authorized=authorized,
+                )
+                parked = True
+                logger.info("byoc_project.parked_awaiting_record project=%s", project)
+            except Exception:  # noqa: BLE001 - only an unparkable cloud is a refusal
+                logger.warning("byoc_project.park_failed project=%s", project, exc_info=True)
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "NO_AGENT_RECORD",
+                        "message": (
+                            "Your cloud could not be kept for your agent yet. Verify your "
+                            "phone number, then try this step again."
+                        ),
+                    },
+                ) from None
     if authorized:
         await _write_cloud_setup_marker(firebase_uid)
 
@@ -970,6 +1004,7 @@ async def save_byoc_project(
 
 class ByocAuthorizeBeginRequest(BaseModel):
     projectId: str = Field(min_length=1, max_length=64)
+    filesEnabled: bool = False
 
 
 class ByocAuthorizeBeginResponse(BaseModel):
@@ -1024,7 +1059,17 @@ async def begin_byoc_authorize(
             status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason}
         )
     try:
-        return ByocAuthorizeBeginResponse(authUrl=oauth.begin(firebase_uid, verdict.project_id))
+        if body.filesEnabled:
+            from hushh_mcp.services.pod_files.selection import require_setup_admission
+
+            await require_setup_admission(firebase_uid)
+        return ByocAuthorizeBeginResponse(
+            authUrl=oauth.begin(
+                firebase_uid,
+                verdict.project_id,
+                **({"files_enabled": True} if body.filesEnabled else {}),
+            )
+        )
     except oauth.ByocAuthorizeError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
@@ -1097,7 +1142,7 @@ async def complete_byoc_authorize(
     from hushh_mcp.services.user_gcp_project import suggest_project_id
 
     try:
-        project = oauth.verify_state(body.state, firebase_uid)
+        project, files_enabled = oauth.verify_state_selection(body.state, firebase_uid)
         token = await asyncio.to_thread(oauth.exchange_code, body.code)
     except oauth.ByocAuthorizeError as exc:
         raise HTTPException(
@@ -1106,10 +1151,15 @@ async def complete_byoc_authorize(
 
     suggestion = suggest_project_id(firebase_uid)
     job_id = jobs.new_job_id()
-    await jobs.ByocSetupJobRepo().start(user_id=firebase_uid, job_id=job_id, project_id=project)
+    await jobs.ByocSetupJobRepo().start(
+        user_id=firebase_uid,
+        job_id=job_id,
+        project_id=project,
+        **({"files_enabled": True} if files_enabled else {}),
+    )
 
     async def _save():
-        return await save_byoc_project(
+        return await _save_byoc_project(
             request=request,
             body=ByocProjectSaveRequest(
                 projectId=project,
@@ -1117,6 +1167,7 @@ async def complete_byoc_authorize(
                 bootstrapServiceAccountId=body.bootstrapServiceAccountId,
             ),
             firebase_uid=firebase_uid,
+            setup_job_id=job_id,
         )
 
     task = asyncio.create_task(
@@ -1131,6 +1182,7 @@ async def complete_byoc_authorize(
             ensure_project=oauth.ensure_project,
             ensure_billing=oauth.ensure_billing,
             apply_authorization=oauth.apply_authorization,
+            files_enabled=files_enabled,
             wait_for_grant=_wait_for_bootstrap_grant,
             save=_save,
         )

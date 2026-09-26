@@ -168,6 +168,7 @@ export function AgentSettingsPanel({
             title="Current hosting"
             description={status ? HOST_LABELS[mode] : "Checking hosting…"}
           />
+          {mode === "byoc" ? <SettingsRow title="Files and storage" description="Open your private cloud library and analysis preferences." onClick={() => router.push(ROUTES.ONE_FILES)} /> : null}
           {mode === "byoc" && status?.cloudProject ? (
             <SettingsRow
               title="Your cloud project"

@@ -318,4 +318,17 @@ describe("the Location roster hands a connection request to Connect", () => {
     expect(body).toContain("action=circle-detail");
     expect(body).not.toContain("ConnectionsService.sendRequest");
   });
+  it("keeps automated reviewer sessions from starting the ambient circle reconcile", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"),
+      "utf8",
+    );
+    const gate = source.slice(
+      source.indexOf("const alreadyReconciled ="),
+      source.indexOf("OneLocationService.ensureTrustedSystemCircle("),
+    );
+
+    expect(gate).toContain("shouldSkipReviewerBackgroundWritesForAutomation()");
+    expect(gate).toContain("? Promise.resolve()");
+  });
 });

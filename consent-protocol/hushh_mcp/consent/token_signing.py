@@ -184,6 +184,11 @@ def _public_keys(namespace: SigningNamespace = CONSENT_TOKENS) -> dict[str, byte
     return keys
 
 
+def public_verification_keys(namespace: SigningNamespace = CONSENT_TOKENS) -> dict[str, str]:
+    """Export public verification material only, including retained rotation keys."""
+    return {kid: base64.b64encode(raw).decode("ascii") for kid, raw in _public_keys(namespace).items()}
+
+
 def current_kid(namespace: SigningNamespace = CONSENT_TOKENS) -> str:
     return (os.getenv(namespace.kid_env) or "").strip() or namespace.default_kid
 

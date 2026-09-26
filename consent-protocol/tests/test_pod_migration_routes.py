@@ -462,7 +462,7 @@ async def test_an_empty_caller_allowlist_refuses_everything(monkeypatch):
     """An unconfigured allowlist is a misconfiguration, not permission -- the
     fail-closed rule `verify_scheduler_request` was written to enforce."""
     monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
-    # Canonical deployment identity, also emitted by GcpBackend and AnypointBackend.
+    # Canonical deployment identity, also emitted by GcpBackend and UserGcpBackend.
     monkeypatch.setenv("HUSSH_ID", "ha1_abc")
     monkeypatch.delenv("HUSSH_POD_HUB_CALLER_EMAILS", raising=False)
 

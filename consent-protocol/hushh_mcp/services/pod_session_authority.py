@@ -77,6 +77,8 @@ SCOPE_POD_REVOKE = "pod.revoke"
 SCOPE_POD_UPGRADE = "pod.upgrade"
 SCOPE_PUPPY_INFERENCE = "puppy.inference"
 APP_SCOPES: tuple[str, ...] = (
+    "files.read",
+    "files.manage",
     SCOPE_PKM_READ,
     SCOPE_POD_CONFIG,
     SCOPE_POD_STATUS,
@@ -518,7 +520,7 @@ class PodSessionAuthority:
             "version": binding.version,
             "epoch": self.epoch,
             "iat": now,
-            "exp": now + self._ttl,
+            "exp": min(now + self._ttl, binding.expires_at_ms // 1000),
         }
         body = canonical_json(claims).encode("utf-8")
         mac = hmac.new(self._session_key, body, hashlib.sha256).digest()
@@ -602,8 +604,13 @@ class PodSessionAuthority:
         ) -> ConsentVerdict:
             if _clean(token) != expected_token:
                 return ConsentVerdict(valid=False, available=True, reason="not local authority")
-            if self._store.subject(_clean(session.get("subject_id"))).state != "trusted":
+            subject = self._store.subject(_clean(session.get("subject_id")))
+            if subject.state != "trusted" or subject.trust is None:
                 return ConsentVerdict(valid=False, available=True, reason="subject revoked")
+            if int(session.get("exp") or 0) <= int(self._clock()):
+                return ConsentVerdict(valid=False, available=True, reason="session expired")
+            if int(session.get("version") or 0) < subject.trust.version:
+                return ConsentVerdict(valid=False, available=True, reason="session superseded")
             return ConsentVerdict.from_local_session(session, expected_scope=expected_scope)
 
         return verify

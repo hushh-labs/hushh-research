@@ -512,3 +512,20 @@ def test_the_session_key_is_derived_not_the_dek():
     assert psa.derive_session_key(DEK) != DEK
     assert psa.derive_session_key(DEK) == psa.derive_session_key(DEK)
     assert psa.derive_session_key(b"E" * 32) != psa.derive_session_key(DEK)
+
+
+async def test_local_tool_authority_and_session_end_at_binding_expiry(tmp_path, hub_key):
+    world = World(tmp_path)
+    await world.boot()
+    app = Subject("tdv_app_web_1", "web")
+    now = time.time()
+    world.authority._clock = lambda: now
+    expiry = int((now + 20) * 1000)
+    token, claims = await world.admit(app, _binding(app, expires_at_ms=expiry))
+    assert claims["exp"] == expiry // 1000
+    verifier = world.authority.local_verifier(claims)
+    now += 30
+    with pytest.raises(psa.PodSessionRefused, match="expired"):
+        world.authority.verify_session(token)
+    verdict = await verifier(world.authority.local_token(claims), expected_scope="pkm.read")
+    assert not verdict.valid and verdict.reason == "session expired"

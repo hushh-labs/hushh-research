@@ -70,20 +70,17 @@ on this must treat `2` as "look again with credentials", never as a pass.
 
 ## Which plane the pod lives on
 
-Stages 3–5 and 8 read Cloud Run. That is right for exactly one backend, and the honest
-answers for the other two are *different answers*, not failures. The backend is read
-from the registry row; `--backend {gcp,user_gcp,anypoint}` overrides it when the row
+Stages 3–5 and 8 read Cloud Run. Access differs between managed and owner-project
+GCP. The backend is read from the registry row; `--backend {gcp,user_gcp}` overrides it when the row
 cannot be read.
 
 | Backend | What stages 3–5 and 8 do |
 |---|---|
 | `gcp` | full trace against hushh's own project |
 | `user_gcp` | **SKIP** — the pod is in the person's own project and hushh holds no standing credential there. That absence *is* the BYOC promise, not an outage. Re-run with a consent-gated impersonated token, or from inside their project. |
-| `anypoint` | **SKIP** — the pod is a Mule application on CloudHub 2.0, not a Cloud Run service. The equivalent of stages 3–5 is the application's deployment status and private-endpoint binding in Anypoint Runtime Manager. |
 
-Reporting either of the last two as FAIL would be literally true and completely
-misleading — it would send an operator hunting for a service that was never supposed to
-exist.
+An unavailable owner-project credential is unproven access, not proof of a
+missing service. Unsupported backend identifiers are refused.
 
 With DB credentials in the environment it reads the registry row directly. Without them
 it says so and prints the SQL, rather than reporting "no row" for a query that never ran

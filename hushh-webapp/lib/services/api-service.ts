@@ -1564,6 +1564,7 @@ export class ApiService {
 
   static async beginByocAuthorize(input: {
     projectId: string;
+    filesEnabled?: boolean;
   }): Promise<{ authUrl: string }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/byoc/authorize/begin", {
@@ -1572,7 +1573,7 @@ export class ApiService {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ projectId: input.projectId }),
+      body: JSON.stringify({ projectId: input.projectId, filesEnabled: input.filesEnabled ?? false }),
     });
     if (!response.ok) throw new Error("BYOC_AUTHORIZE_BEGIN_FAILED");
     return response.json();
@@ -1654,6 +1655,7 @@ export class ApiService {
     editable: boolean;
     rationale: string;
     creationModes: string[];
+    filesAvailable?: boolean;
   }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/byoc/project/suggest", {
@@ -3722,6 +3724,7 @@ export class ApiService {
 
   static async runPodTurn(input: {
     hushhId: string;
+    vaultOwnerToken?: string;
     message: string;
     conversationId?: string;
     timezone?: string | null;
@@ -3762,6 +3765,9 @@ export class ApiService {
       input.hushhId,
       body,
       input.signal,
+      input.runtimeProvider === "puppy" && input.puppyDeviceId
+        ? { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken }
+        : undefined,
     );
     if (direct) return direct;
     if (input.runtimeProvider === "puppy") {
@@ -3864,6 +3870,12 @@ export class ApiService {
     );
     if (!response.ok) throw new Error(`memory provider consent failed: HTTP ${response.status}`);
     return response.json().catch(() => null);
+  }
+
+  private static async activatePuppyWhenIdle(deviceId: string, vaultOwnerToken?: string, signal?: AbortSignal): Promise<void> {
+    const activation = await import("./pod-activation");
+    return activation.activatePuppyWhenIdle(deviceId, vaultOwnerToken, signal,
+      { status: (id) => this.ownerDirectPuppyStatus(id, signal), hub: (url, init) => this.apiFetch(url, init) });
   }
 
   static async issuePuppyInferenceGrant(deviceId: string): Promise<{
@@ -4011,29 +4023,23 @@ export class ApiService {
     };
   }
 
+  /** Exact app routes only; content never falls back to the shared hub. */
+  static async ownerPodRequest(path: string, init: RequestInit = {}): Promise<Response> {
+    const access = await import("./pod-app-access");
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: apiFetch });
+  }
+
   static async reconnectOwnerPod(): Promise<void> {
-    const uid = AuthService.getCurrentUser()?.uid;
-    if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
-    const status = await ApiService.getPersonalAgentStatus();
-    if (status.hostingMode !== "byoc" || status.state !== "active") {
-      throw new Error("POD_DIRECT_BYOC_REQUIRED");
-    }
-    const ownerPod = await import("./owner-pod-endpoint");
-    const endpoint = await ownerPod.refreshEndpointFromHub(uid, await ApiService.ownerPodTransport());
-    if (endpoint.hushhId !== status.hushhId) throw new Error("POD_DIRECT_OWNER_MISMATCH");
-    const session = await ownerPod.currentPodSession(uid, await ApiService.ownerPodTransport());
-    const probe = await apiFetch(`${endpoint.url}/api/one/pod/status`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${session.session}` },
-      cache: "no-store",
-    });
-    if (!probe.ok) throw new Error(`POD_DIRECT_UNAVAILABLE:${probe.status}`);
+    const access = await import("./pod-app-access");
+    return access.reconnectOwnerPod({ transport: () => this.ownerPodTransport(), fetch: apiFetch,
+      hosting: () => this.getPersonalAgentStatus() });
   }
 
   private static async ownerDirectPodTurn(
     hushhId: string,
     body: string,
     signal?: AbortSignal,
+    puppy?: { deviceId: string; vaultOwnerToken?: string },
   ): Promise<{
     hushhId: string;
     text: string;
@@ -4069,10 +4075,17 @@ export class ApiService {
     if (pin.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
     let session: import("./owner-pod-endpoint").PodSessionRecord;
     try {
-      session = await ownerPod.currentPodSession(uid, await ApiService.ownerPodTransport());
+      const connection = await ownerPod.currentPodConnection(uid, await ApiService.ownerPodTransport());
+      if (connection.endpoint.hushhId !== hushhId || AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+      pin = connection.endpoint;
+      session = connection.session;
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown";
       throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+    }
+    if (puppy) {
+      await ApiService.activatePuppyWhenIdle(puppy.deviceId, puppy.vaultOwnerToken, signal);
+      if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
     }
     const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
       method: "POST",
@@ -4105,7 +4118,7 @@ export class ApiService {
     return { hushhId, ...answer };
   }
 
-  private static async ownerDirectPuppyStatus(deviceId: string): Promise<{
+  private static async ownerDirectPuppyStatus(deviceId: string, signal?: AbortSignal): Promise<{
     device_id: string;
     state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
     linked: boolean;
@@ -4115,16 +4128,16 @@ export class ApiService {
     const ownerPod = await import("./owner-pod-endpoint");
     const uid = AuthService.getCurrentUser()?.uid;
     if (!uid) return null;
-    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
-    if (!pin) return null;
-    const session = await ownerPod.currentPodSession(
-      uid,
-      await ApiService.ownerPodTransport(),
+    if (!(await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) return null;
+    const { endpoint: pin, session } = await ownerPod.currentPodConnection(
+      uid, await ApiService.ownerPodTransport(),
     );
+    if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
     const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
       method: "GET",
       headers: { Authorization: `Bearer ${session.session}` },
       cache: "no-store",
+      signal,
     });
     if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
     const status = (await response.json()) as {

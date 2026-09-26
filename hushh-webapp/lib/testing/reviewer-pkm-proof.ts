@@ -9,7 +9,26 @@ export type ReviewerPkmProof = {
   begin: (expectation: ReviewerPkmExpectation) => Promise<ReviewerPkmProofResult>;
   verify: (savedRevision: number) => Promise<ReviewerPkmProofResult>;
 };
-export type ReviewerPkmBridge = { begin: () => Promise<ReviewerPkmProofResult>; verify: ReviewerPkmProof["verify"] };
+export type ReviewerProjectionDigest =
+  | { ok: true; code: "digest"; digest: string }
+  | { ok: false; code: "refused" | "unavailable" };
+export type ReviewerPkmBridge = {
+  begin: () => Promise<ReviewerPkmProofResult>;
+  verify: ReviewerPkmProof["verify"];
+  projectionDigest: (scope: string) => Promise<ReviewerProjectionDigest>;
+};
+
+/** SHA-256 over sorted-key JSON; the same canonical form the rehearsal hashes. */
+export async function canonicalJsonDigest(value: unknown): Promise<string> {
+  const canonical = (item: unknown): unknown => Array.isArray(item)
+    ? item.map(canonical)
+    : item && typeof item === "object"
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, canonical((item as Record<string, unknown>)[key])]))
+      : item;
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical(value)));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function equal(a: Json, b: Json): boolean {
   if (a === b) return true;

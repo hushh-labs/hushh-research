@@ -62,6 +62,7 @@ class ConsentScope(str, Enum):
     # scopes, not durable attr.location.* PKM scopes.
     CAP_LOCATION_LIVE_SHARE = "cap.location.live.share"
     CAP_LOCATION_LIVE_VIEW = "cap.location.live.view"
+    CAP_LOCATION_COMMAND_READ = "cap.location.command.read"
     CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
@@ -317,6 +318,7 @@ class ConsentScope(str, Enum):
             cls.CAP_ONE_INVOKE,
             cls.CAP_LOCATION_LIVE_SHARE,
             cls.CAP_LOCATION_LIVE_VIEW,
+            cls.CAP_LOCATION_COMMAND_READ,
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,

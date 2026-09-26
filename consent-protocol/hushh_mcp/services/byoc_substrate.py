@@ -337,7 +337,12 @@ class SubstrateReceipt:
         observations = []
         planned = {(item["type"], item["id"]) for item in self.planned_resources}
         project, _, region = self.tenant_ref.partition("/")
+        from hushh_mcp.services.pod_files.provisioning import queue_creation_observation
+
         validators = {
+            "cloud_tasks_queue": lambda value, rid: queue_creation_observation(
+                value, f"projects/{project}/locations/{region}/queues/{rid}"
+            ),
             "artifact_repository": lambda value, rid: _artifact_repository_creation_identity(
                 value, f"projects/{project}/locations/{region}/repositories/{rid}"
             ),
@@ -435,9 +440,8 @@ class SubstrateEnsurer(Protocol):
 class NoSubstrateRequired:
     """For every target whose infrastructure is not per-tenant.
 
-    The hushh-managed tier shares one project whose substrate ships with the hub, and
-    Anypoint's is an environment provisioned in AMC. Neither has anything to create per
-    person, so this keeps the orchestrator's unconditional ``ensure`` free -- and keeps
+    The Hussh-managed tier shares one project whose substrate ships with the hub.
+    It has no per-owner substrate to create, so this keeps the orchestrator's unconditional ``ensure`` free -- and keeps
     the conditional out of the common layer, where a provider name may not appear.
     """
 

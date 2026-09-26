@@ -1292,6 +1292,7 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
         "ownerId": _UID,
         "attemptId": "erase-one",
         "registrySnapshot": {"user_id": _UID},
+        "writerDisabled": {"runtimeIdentity": {"email": observation["id"]}},
         "substrateInventory": {
             "plannedResources": [
                 {

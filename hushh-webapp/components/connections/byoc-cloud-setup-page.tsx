@@ -102,6 +102,8 @@ export function ByocCloudSetupPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
+  const [filesEnabled, setFilesEnabled] = useState(false);
+  const [filesAvailable, setFilesAvailable] = useState(false);
   const [saved, setSaved] = useState<Awaited<
     ReturnType<typeof ApiService.saveByocProject>
   > | null>(null);
@@ -320,6 +322,18 @@ export function ByocCloudSetupPage() {
     if (searchParams.get("intent") === "migrate") setChoice("own");
   }, [searchParams]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setFilesEnabled(false);
+    setFilesAvailable(false);
+    if (choice === "own" && user?.uid) {
+      void ApiService.suggestByocProject().then(value => {
+        if (!cancelled) setFilesAvailable(value.filesAvailable === true);
+      }).catch(() => {});
+    }
+    return () => { cancelled = true; };
+  }, [choice, user?.uid]);
+
   const handleProjectNamed = useCallback(async (projectId: string) => {
     setSaving(true);
     setError(null);
@@ -329,7 +343,7 @@ export function ByocCloudSetupPage() {
       // billing, applies the authorization plan under their transient token,
       // and records the proven cloud. The manual console/script route stays
       // reachable through the card's create-help, as the fallback.
-      const begun = await ApiService.beginByocAuthorize({ projectId });
+      const begun = await ApiService.beginByocAuthorize({ projectId, filesEnabled });
       window.location.assign(begun.authUrl);
       return;
     } catch (err) {
@@ -338,8 +352,8 @@ export function ByocCloudSetupPage() {
       // The fallback is a lane, not an error.
       const message = err instanceof Error ? err.message : "";
       if (
-        message === "BYOC_AUTHORIZE_BEGIN_FAILED" ||
-        /not configured/i.test(message)
+        !filesEnabled && (message === "BYOC_AUTHORIZE_BEGIN_FAILED" ||
+        /not configured/i.test(message))
       ) {
         try {
           setSaved(await ApiService.saveByocProject({ projectId }));
@@ -367,7 +381,7 @@ export function ByocCloudSetupPage() {
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [filesEnabled]);
 
   const chooseHosted = useCallback(async () => {
     setError(null);
@@ -594,7 +608,19 @@ export function ByocCloudSetupPage() {
             </button>
           </div>
         ) : choice === "own" ? (
-          <ByocCloudCard onProjectNamed={handleProjectNamed} />
+          <div className="space-y-4">
+            {filesAvailable && hostingMode === "shared" ? (
+              <label className="flex items-start gap-3 rounded-2xl border border-[var(--app-border)] p-4">
+                <input type="checkbox" className="mt-1" checked={filesEnabled}
+                  onChange={event => setFilesEnabled(event.target.checked)} disabled={saving} />
+                <span className="space-y-1 text-sm">
+                  <span className="block font-semibold">Include a private Files library</span>
+                  <span className="block text-[var(--app-text-secondary)]">Store encrypted files in your Google Cloud bucket. Setup adds a Cloud Tasks queue and a dedicated worker identity. Your cloud pays storage and processing costs. Content analysis stays off until you enable it in Files.</span>
+                </span>
+              </label>
+            ) : null}
+            <ByocCloudCard onProjectNamed={handleProjectNamed} />
+          </div>
         ) : hostingMode === "shared" || sharedChosen ? (
           <div className="space-y-3" data-testid="shared-hosting-selected">
             <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">

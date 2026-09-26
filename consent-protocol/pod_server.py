@@ -49,6 +49,8 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_commands import router as pod_commands_router
+from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
@@ -129,6 +131,8 @@ _POD_ROUTERS = (
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
+    pod_files_router,
+    pod_commands_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and
     # production; an owner pod brokers its own device. See pod_puppy_relay.py.

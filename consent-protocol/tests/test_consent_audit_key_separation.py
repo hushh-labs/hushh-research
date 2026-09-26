@@ -222,26 +222,47 @@ def test_a_receipt_cannot_be_moved_between_ledgers_without_breaking_its_hash():
     )
 
 
-def test_internal_events_are_written_into_the_chain():
-    """The gap this closed: `insert_internal_event` never reached the chain, so
-    the largest class of actions the system takes had no receipt at all. Asserted
-    against the source because the write path needs a database."""
-    src = (
-        pathlib.Path(cac.__file__).resolve().parents[1] / "services" / "consent_db.py"
-    ).read_text()
-    tree = ast.parse(src)
-    fn = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and n.name == "insert_internal_event"
+@pytest.mark.parametrize("legacy_fallback", [False, True])
+async def test_internal_events_are_written_into_the_chain(monkeypatch, legacy_fallback):
+    """The receipt follows the successful write and names its physical ledger."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from db.db_client import DatabaseExecutionError
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    writes = []
+
+    def table(name):
+        def insert(data):
+            def execute():
+                if legacy_fallback and name == "internal_access_events":
+                    raise DatabaseExecutionError(
+                        table_name=name,
+                        operation="insert",
+                        details='relation "internal_access_events" does not exist',
+                    )
+                writes.append((name, data))
+                return SimpleNamespace(data=[{"id": 7}])
+
+            return SimpleNamespace(execute=execute)
+
+        return SimpleNamespace(insert=insert)
+
+    receipt = AsyncMock()
+    monkeypatch.setattr(cac, "append_consent_receipt_safe", receipt)
+    service = ConsentDBService()
+    service._db = SimpleNamespace(table=table)
+    assert (
+        await service.insert_internal_event("owner", "self", "test.read", "OPERATION_PERFORMED")
+        == 7
     )
-    body = ast.get_source_segment(src, fn)
-    assert "append_consent_receipt_safe" in body
-    assert "LEDGER_INTERNAL" in body
-    # The fallback path physically writes into `consent_audit`, so those rows must
-    # be covered by the chain that claims to cover that table.
-    assert "LEDGER_CONSENT if landed_in_primary_ledger" in body
+    assert len(writes) == 1
+    receipt.assert_awaited_once()
+    captured = receipt.await_args.kwargs
+    assert captured["audit_event_id"] == 7
+    assert captured["ledger"] == (cac.LEDGER_CONSENT if legacy_fallback else cac.LEDGER_INTERNAL)
+    assert writes[0][0] == ("consent_audit" if legacy_fallback else "internal_access_events")
 
 
 def test_the_chain_has_a_verification_surface_somebody_can_actually_reach():

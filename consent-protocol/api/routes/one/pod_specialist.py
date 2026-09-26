@@ -61,6 +61,7 @@ from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
     resolve_serving_owner_hushh_id,
 )
+from hushh_mcp.services.pod_command_reads import CommandReadOptions, read_command_projection
 from hushh_mcp.services.pod_data_door import CalendarReadOptions
 from hushh_mcp.services.pod_email_read import EmailReadOptions
 from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
@@ -88,6 +89,8 @@ class PodSpecialistReadRequest(BaseModel):
     taken from the pod -- so the body cannot be used to read someone else."""
 
     scope_token: str = Field(..., alias="scopeToken", min_length=1, max_length=4096)
+
+    command_read: CommandReadOptions | None = Field(default=None, alias="commandRead")
 
     calendar_read: CalendarReadOptions | None = Field(default=None, alias="calendarRead")
     marketplace_read: MarketplaceReadOptions | None = Field(default=None, alias="marketplaceRead")
@@ -130,6 +133,13 @@ async def broker_specialist_read(
 
     if payload.email_read is not None and name != "email":
         raise HTTPException(status_code=422, detail="email options require email read")
+
+    if payload.command_read is not None:
+        if name != "location" or any(
+            (payload.calendar_read, payload.marketplace_read, payload.email_read)
+        ):
+            raise HTTPException(422, detail="command options require the Location command read")
+        required_scope = "cap.location.command.read"
 
     asserted = await verify_pod_identity(request, authorization)
     if not asserted:
@@ -174,6 +184,26 @@ async def broker_specialist_read(
         # Same 403 shape as an invalid scope: do not reveal whether the mismatch
         # was the binding or the token.
         raise HTTPException(status_code=403, detail="scope is not valid for this read")
+
+    if payload.command_read is not None:
+        if str(getattr(parsed, "agent_id", "")) != "personal_agent":
+            raise HTTPException(403, detail="scope is not valid for this read")
+        projection = await read_command_projection(owner_id, payload.command_read)
+        # The read can block on storage. Revocation and serving ownership must
+        # still hold before any projection leaves the hub.
+        try:
+            valid_after, _, parsed_after = await _run(check, payload.scope_token, required_scope)
+            serving = await resolve_serving_owner_hushh_id(owner_id, registry=registry)
+        except Exception:
+            raise HTTPException(503, detail="command read authority unavailable") from None
+        if (
+            not valid_after
+            or parsed_after is None
+            or parsed_after.user_id != owner_id
+            or serving != asserted
+        ):
+            raise HTTPException(403, detail="scope is not valid for this read")
+        return {"name": name, "state": projection}
 
     run_read = reader
     if run_read is None:

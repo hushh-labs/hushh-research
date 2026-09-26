@@ -43,6 +43,8 @@ flowchart TD
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
+For the owner-pod library, see [Private Files library](./private-files-library.md)
+for storage, analysis consent, recovery, on-demand operation and cost assumptions.
 One-time rollout notes belong in PRs, issues, or git history, not in the active operations surface.
 
 Within the seven-layer architecture, operations is the primary Layer 1 governance surface and the cross-layer enforcement surface for documentation, release, and compatibility rules.

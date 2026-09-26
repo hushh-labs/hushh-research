@@ -224,6 +224,9 @@ async def fence_erasure(
         from hushh_mcp.services.pod_memory_bank import fence_memory_bank_admission
 
         log = _commit_log()
+        from hushh_mcp.services.pod_files.runtime import fence_files
+
+        await fence_files()
         await log.fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
         await fence_memory_bank_admission(
             store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId

@@ -21,10 +21,8 @@ providers they cannot name.
 
 WHY THIS IS NOT A STYLE TEST
 
-It has already been proven possible: Anypoint is a Mule application on CloudHub 2.0 --
-not a container, not GCP -- and it satisfies the same five-method protocol as Cloud
-Run. So a Layer 1 file that needs to know a provider's name is not paying an
-unavoidable cost; it is describing a design defect that has a known-good alternative.
+Managed and owner-project GCP share lifecycle contracts. The common orchestrator
+must not absorb project-specific credentials, cloud calls or rendering details.
 """
 
 from __future__ import annotations
@@ -53,8 +51,6 @@ _PROVIDER_TERMS = (
     "cloudrun",
     "knative",
     "gcp",
-    "cloudhub",
-    "anypoint",
     "mulesoft",
     "fargate",
     "app runner",
@@ -121,19 +117,9 @@ def test_the_common_layer_cannot_name_a_cloud_provider(rel: str) -> None:
 
 
 def test_every_backend_in_the_parity_matrix_is_covered_by_an_extractor() -> None:
-    """A provider added without a reduction is a provider nobody checks.
+    """Both GCP placements must have a capability extractor.
 
-    Parity is asserted by reducing each backend's own artifact shape to a shared set
-    of facts. That design is what lets platforms render genuinely different documents
-    -- knative Service vs AMC descriptor -- without a lowest-common-denominator schema.
-
-    Note what is NOT asserted: one extractor per backend. `gcp` and `user_gcp` both
-    render knative Services, so they SHARE `_extract_knative`, and that is correct --
-    the reduction belongs to the artifact SHAPE, not to the backend. An earlier
-    version of this test demanded a distinct extractor each and failed on exactly that
-    legitimate sharing, which would have pushed someone toward duplicating a correct
-    function to satisfy a test. The real invariant is coverage plus more than one
-    shape actually being exercised.
+    They share the Cloud Run artifact shape, so a second extractor is unnecessary.
     """
     source = (_BACKEND / "tests/test_compute_backend_parity.py").read_text(encoding="utf-8")
     matrix = re.search(r"_BACKENDS[^=]*=\s*\[(.*?)\n\]", source, re.S)
@@ -145,21 +131,13 @@ def test_every_backend_in_the_parity_matrix_is_covered_by_an_extractor() -> None
             f"a backend in the parity matrix has no reduction: {entry.strip()}. Its "
             "rendered artifact is never checked for the capabilities a pod needs to boot."
         )
-    shapes = set(re.findall(r"_extract_(\w+)", matrix.group(1)))
-    assert len(shapes) >= 2, (
-        f"only one artifact shape ({shapes}) is exercised. Cross-provider parity that "
-        "never crosses a shape boundary proves nothing about portability."
-    )
 
 
 def test_the_backend_protocol_stays_small() -> None:
     """Every method is a tax on every future provider.
 
-    Five methods is the current contract and it has carried two genuinely different
-    execution models. Growth here is not neutral: a sixth method must be implemented
-    by AWS, Azure, Anypoint and both GCP backends, and the pressure to add one is
-    always a single provider's need. Add it to the ADAPTER, or put the fact on
-    BackendHandle -- widening the protocol is the last resort, not the first.
+    Each new method adds requirements to managed and owner-project GCP adapters.
+    Prefer adapter details or typed handle fields over widening the lifecycle seam.
     """
     source = (_BACKEND / "hushh_mcp/services/compute_backend.py").read_text(encoding="utf-8")
     tree = ast.parse(source)

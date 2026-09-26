@@ -1,27 +1,13 @@
-"""The per-path model-access rule: which AI connection earns a pod, on which path.
-
-`ai_connection_gate` has always held the right rule — a working AI connection earns a
-pod, a login never does. What it did not ask was which BACKEND the pod would run on,
-and the paths differ: CloudHub has no Vertex ADC at all, BYO GCP has the user's own,
-and only the hushh-managed tier uses the fleet's identity.
-
-The test that matters most here is the one that would have failed before: an Anypoint
-deployment with the managed flag ON must still refuse a managed connection, because
-`AnypointBackend` renders GOOGLE_GENAI_USE_VERTEXAI=false and the pod could never
-serve that turn.
-"""
+"""Verify model access follows managed or owner-project GCP authority."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hushh_mcp.services.compute_backend import (  # noqa: E402
-    BACKEND_ANYPOINT,
     BACKEND_GCP,
     BACKEND_USER_GCP,
 )
@@ -57,30 +43,6 @@ class _Session:
 
     def post(self, url, headers=None, json=None, timeout=None, **kw):
         return self._post
-
-
-# -- Anypoint: BYOK only, and that is structural rather than configured -------------
-
-
-def test_anypoint_refuses_a_managed_connection_even_with_the_fleet_flag_on(monkeypatch) -> None:
-    """The case the old backend-blind check got wrong.
-
-    `pod_managed_model_enabled` is about hushh's fleet identity. On CloudHub there is
-    no Google identity at all, so that flag is not merely irrelevant — deferring to it
-    would let a pod be provisioned onto a connection the platform cannot serve.
-    """
-    monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "true")
-    verdict = model_access_for(BACKEND_ANYPOINT, MANAGED_PROVIDER)
-    assert verdict.can_serve is False
-    assert "no Google identity" in verdict.reason
-    assert verdict.activation_order == ()
-
-
-def test_anypoint_serves_byok(monkeypatch) -> None:
-    verdict = model_access_for(BACKEND_ANYPOINT, BYOK)
-    assert verdict.can_serve is True
-    assert verdict.activation == ACTIVATION_BYOK_PER_TURN
-    assert verdict.activation_order == AGENT_ACTIVATION_ORDER
 
 
 # -- BYO GCP: the user's own Vertex ADC, independent of hushh's fleet flag ----------
@@ -142,10 +104,7 @@ def test_an_undeclared_backend_is_refused_not_assumed_serviceable() -> None:
 
 def test_a_refusal_never_carries_an_activation_order() -> None:
     """A caller that ignores can_serve must still find nothing it may activate."""
-    for backend, provider in (
-        (BACKEND_ANYPOINT, MANAGED_PROVIDER),
-        ("some_future_platform", BYOK),
-    ):
+    for backend, provider in (("some_future_platform", BYOK),):
         verdict = model_access_for(backend, provider)
         assert verdict.can_serve is False
         assert verdict.activation_order == ()
@@ -239,27 +198,6 @@ def test_preconditions_report_rather_than_raise_when_unreadable() -> None:
 
 
 # -- the gate actually consults the policy -----------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_the_gate_refuses_anypoint_plus_managed_end_to_end(monkeypatch) -> None:
-    """The rule is only real if the provisioning entry point enforces it."""
-    from hushh_mcp.services import ai_connection_gate
-
-    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
-    monkeypatch.setenv("PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION", "true")
-    monkeypatch.setenv("PERSONAL_AGENT_BACKEND", BACKEND_ANYPOINT)
-    monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "true")
-
-    scheduled: list = []
-    verdict = await ai_connection_gate.on_ai_connection_verified(
-        user_id="user-1",
-        provider=MANAGED_PROVIDER,
-        scheduler=lambda *a, **k: scheduled.append(a) or True,
-    )
-    assert verdict["scheduled"] is False
-    assert "no Google identity" in verdict["reason"]
-    assert scheduled == [], "a pod must not be scheduled on a connection the path cannot serve"
 
 
 def test_the_inert_backend_vocabulary_matches_compute_backend() -> None:

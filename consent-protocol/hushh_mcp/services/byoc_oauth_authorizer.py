@@ -80,15 +80,15 @@ def _unb64(raw: str) -> bytes:
     return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
 
 
-def make_state(user_id: str, project: str) -> str:
+def make_state(user_id: str, project: str, *, files_enabled: bool = False) -> str:
     """A stateless, signed, expiring binding of (who, which project) for the round-trip."""
     exp = str(int(time.time()) + _STATE_TTL_SECONDS)
-    payload = _b64(f"{user_id}|{project}".encode())
+    payload = _b64(f"{user_id}|{project}|files-v1:{int(files_enabled)}".encode())
     mac = hmac.new(_signing_key(), f"{exp}.{payload}".encode(), hashlib.sha256).hexdigest()
     return f"{_STATE_PREFIX}{exp}.{payload}.{mac}"
 
 
-def verify_state(state: str, user_id: str) -> str:
+def verify_state_selection(state: str, user_id: str) -> tuple[str, bool]:
     """The project the state names — or a refusal. Binds to the CALLER's uid."""
     if not state.startswith(_STATE_PREFIX):
         raise ByocAuthorizeError("Unrecognized authorization state", code="BAD_STATE")
@@ -101,7 +101,13 @@ def verify_state(state: str, user_id: str) -> str:
             raise ByocAuthorizeError(
                 "This authorization expired; start it again", code="STATE_EXPIRED"
             )
-        uid, project = _unb64(payload).decode().split("|", 1)
+        parts = _unb64(payload).decode().split("|")
+        if len(parts) not in (2, 3) or (
+            len(parts) == 3 and parts[2] not in ("files-v1:0", "files-v1:1")
+        ):
+            raise ValueError("unsupported setup selection")
+        uid, project = parts[:2]
+        files_enabled = len(parts) == 3 and parts[2] == "files-v1:1"
     except ByocAuthorizeError:
         raise
     except Exception as exc:  # noqa: BLE001 - malformed input is a refusal, not a crash
@@ -112,7 +118,12 @@ def verify_state(state: str, user_id: str) -> str:
         raise ByocAuthorizeError(
             "This authorization belongs to a different sign-in", code="BAD_STATE"
         )
-    return project
+    return project, files_enabled
+
+
+def verify_state(state: str, user_id: str) -> str:
+    """Compatibility reader; authority-bearing callers use the frozen selection."""
+    return verify_state_selection(state, user_id)[0]
 
 
 def _oauth_client() -> tuple[str, str, str]:
@@ -148,7 +159,7 @@ def _oauth_client() -> tuple[str, str, str]:
     return client_id, client_secret, redirect
 
 
-def begin(user_id: str, project: str) -> str:
+def begin(user_id: str, project: str, *, files_enabled: bool = False) -> str:
     """The Google consent URL for a one-time, online-only cloud-platform grant."""
     client_id, _secret, redirect = _oauth_client()
     query = urllib.parse.urlencode(
@@ -161,7 +172,7 @@ def begin(user_id: str, project: str) -> str:
             # is a property of the request, not a promise about our database.
             "access_type": "online",
             "prompt": "consent",
-            "state": make_state(user_id, project),
+            "state": make_state(user_id, project, files_enabled=files_enabled),
         }
     )
     return f"{_AUTH_URL}?{query}"
@@ -271,6 +282,7 @@ def _check(response: Any, what: str, *, ok_statuses: tuple[int, ...] = (200,)) -
 
 def apply_authorization(
     *,
+    files_enabled: bool = False,
     project: str,
     token: str,
     caller_sa: str,
@@ -290,7 +302,9 @@ def apply_authorization(
     if session is None:
         import requests as session  # noqa: PLC0415
 
-    from hushh_mcp.services.user_gcp_bootstrap import BOOTSTRAP_ROLES, REQUIRED_SERVICES
+    from hushh_mcp.services.user_gcp_bootstrap import bootstrap_permissions
+
+    selected_roles, selected_services = bootstrap_permissions(files_enabled=files_enabled)
 
     headers = {"Authorization": f"Bearer {token}"}
     sa_email = f"{bootstrap_account_id}@{project}.iam.gserviceaccount.com"
@@ -301,7 +315,7 @@ def apply_authorization(
     enable = session.post(
         f"https://serviceusage.googleapis.com/v1/projects/{project}/services:batchEnable",
         headers=headers,
-        json={"serviceIds": list(REQUIRED_SERVICES)},
+        json={"serviceIds": list(selected_services)},
         timeout=60,
     )
     op = _check(enable, "enable the required Google APIs")
@@ -395,7 +409,7 @@ def apply_authorization(
     )
     bindings = list(policy.get("bindings") or [])
     changed = False
-    for role, _why in BOOTSTRAP_ROLES:
+    for role, _why in selected_roles:
         entry = next((b for b in bindings if b.get("role") == role and "condition" not in b), None)
         if entry is None:
             bindings.append({"role": role, "members": [sa_member]})
@@ -524,7 +538,7 @@ def apply_authorization(
             code="KEY_EXISTS",
         )
 
-    logger.info("byoc_oauth.authorized project=%s services=%d", project, len(REQUIRED_SERVICES))
+    logger.info("byoc_oauth.authorized project=%s services=%d", project, len(selected_services))
     return {
         "project": project,
         "bootstrapServiceAccount": sa_email,

@@ -46,6 +46,7 @@ import {
 import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -431,7 +432,11 @@ export function ConnectCirclesTab({
     // sent request, a cancel, an inbound notification -- so a busy minute
     // spent the budget on re-deriving a roster that had not changed. The list
     // still re-reads every time; only the reconcile is held.
-    const alreadyReconciled = reconciledForTokenRef.current === vaultOwnerToken;
+    // An automated reviewer session must not start this ambient write; the list
+    // read below still runs.
+    const alreadyReconciled =
+      reconciledForTokenRef.current === vaultOwnerToken ||
+      shouldSkipReviewerBackgroundWritesForAutomation();
     const reconcile = alreadyReconciled
       ? Promise.resolve()
       : OneLocationService.ensureTrustedSystemCircle({

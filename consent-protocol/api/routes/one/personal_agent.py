@@ -762,6 +762,17 @@ async def defer_personal_agent_update(
     return {"releaseId": release_id, "status": "deferred", "remindAt": stored["remindAt"]}
 
 
+@router.get("/verification-keys")
+async def personal_agent_verification_keys_route() -> dict:
+    """Public keys fetched from the client's configured hub, never from a pod."""
+    from hushh_mcp.consent.token_signing import public_verification_keys
+
+    keys = public_verification_keys()
+    if not keys:
+        raise HTTPException(status_code=503, detail={"code": "POD_VERIFICATION_KEYS_UNAVAILABLE"})
+    return {"kind": "pod_verification_keys_v1", "keys": keys}
+
+
 @router.get("/endpoint")
 async def personal_agent_endpoint_route(
     user_id: str = Depends(require_firebase_auth),

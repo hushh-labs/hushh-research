@@ -257,19 +257,8 @@ def _trace_registry(trace: Trace, hushh_id: Optional[str]) -> Optional[dict]:
 
 # -- which plane the pod actually lives on --------------------------------------------
 #
-# Stages 3-5 and 8 read Cloud Run. That is true for exactly one of the three backends
-# by default, and the honest answers for the other two are DIFFERENT answers, not
-# failures:
-#
-#   gcp        hushh's own project. The operator credential can read it. Full trace.
-#   user_gcp   the person's OWN project. hushh holds no standing credential there by
-#              design -- that absence IS the BYOC promise -- so this cannot be read
-#              from here and must say so rather than reporting a missing service.
-#   anypoint   a Mule application on CloudHub 2.0. Not a Cloud Run service at all, so
-#              "not found in Cloud Run" would be true and completely misleading.
-#
-# Reporting either of the last two as FAIL would send an operator hunting for a
-# service that was never supposed to exist.
+# Stages 3-5 and 8 read Cloud Run in the selected project. Owner-project access
+# needs the owner's authorization; absent credentials are unverified, not an outage.
 
 _PLANE_NOTE = {
     "user_gcp": (
@@ -278,11 +267,7 @@ _PLANE_NOTE = {
         "with --project <their-project> using a consent-gated impersonated token, or "
         "read it from inside their project."
     ),
-    "anypoint": (
-        "this pod is a Mule application on CloudHub 2.0, not a Cloud Run service. "
-        "Check it in Anypoint Runtime Manager; the equivalent of stages 3-5 is the "
-        "application's deployment status and its private-endpoint binding."
-    ),
+
 }
 
 _CLOUD_RUN_STAGES = (
@@ -471,7 +456,7 @@ def main() -> int:
     ap.add_argument("--region", default="us-central1")
     ap.add_argument(
         "--backend",
-        choices=("gcp", "user_gcp", "anypoint"),
+        choices=("gcp", "user_gcp"),
         help=(
             "Override the host plane. Normally read from the registry row, which is "
             "the authority; pass this only when the row cannot be read."
@@ -494,6 +479,9 @@ def main() -> int:
     trace.rows = trace.rows[:registry_rows_start]
 
     backend = _resolve_backend(row, args.backend)
+    if backend not in {"gcp", "user_gcp"}:
+        print("Unsupported pod backend; no host inspection performed.")
+        return 1
     print(f"hushh id : {args.hushh_id or '<derived from service>'}")
     print(f"backend  : {backend}")
     print(f"service  : {service}  ({args.project}/{args.region})")

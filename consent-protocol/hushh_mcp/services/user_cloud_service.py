@@ -44,6 +44,7 @@ class UserCloud:
     #: cloud" into "we could not find out" is what let a BYOC person's pod be built on
     #: hushh's compute.
     lookup_failed: bool = False
+    files_library_enabled: bool = False
 
     @property
     def is_user_owned(self) -> bool:
@@ -129,7 +130,10 @@ def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
     """Project a registry row onto the cloud facts. ``None`` when there is no row."""
     if not row:
         return None
+    from hushh_mcp.services.pod_files.selection import selected_for_row
+
     return UserCloud(
+        files_library_enabled=selected_for_row(row),
         deployment_target=(row.get("deployment_target") or None),
         model_credential_mode=(row.get("model_credential_mode") or None),
         project=(row.get("user_cloud_project") or None),

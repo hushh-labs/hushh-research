@@ -1,16 +1,14 @@
 """Contract test: every ComputeBackend is interchangeable behind one interface.
 
-Runs NullBackend, GcpBackend, and AnypointBackend through the identical contract,
+Runs NullBackend, GcpBackend, and UserGcpBackend through the identical contract,
 so a change to one that breaks the shared shape fails here. This is the anti-drift
-guard for "one logical architecture, N deployment backends" -- deploy to GCP or to
-Anypoint through the same interchangeable interface.
+guard for managed and owner-project GCP placement through the same interface.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from hushh_mcp.services.anypoint_backend import AnypointBackend
 from hushh_mcp.services.compute_backend import (
     BackendHandle,
     BackendStatus,
@@ -24,7 +22,6 @@ from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 _BACKENDS = [
     ("null", lambda: NullBackend()),
     ("gcp", lambda: GcpBackend(project="p", image="i", live=False)),
-    ("anypoint", lambda: AnypointBackend(env_id="e", live=False)),
     # The BYOC sovereign tier is a real backend behind the same seam, so it belongs
     # under the same contract -- it was the one selectable backend not covered here.
     ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i")),
@@ -58,12 +55,12 @@ async def test_real_backends_are_interchangeable():
     """Same spec, different hosts -> identical backend-neutral A2A address + handle shape."""
     spec = _spec()
     gcp = await GcpBackend(project="p", image="i", live=False).provision(spec)
-    anypoint = await AnypointBackend(env_id="e", live=False).provision(spec)
+    byoc = await UserGcpBackend(user_project="owner-project", live=False).provision(spec)
     # The user-facing address is identical regardless of host (Layer A indirection).
     expected_route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
-    assert gcp.a2a_route == anypoint.a2a_route == expected_route
+    assert gcp.a2a_route == byoc.a2a_route == expected_route
     # Each records its own host; both fill the same handle fields the brain reads.
-    assert gcp.backend == "gcp" and anypoint.backend == "anypoint"
-    assert gcp.external_agent_id and anypoint.external_agent_id
-    assert gcp.status == anypoint.status == "planned"
-    assert gcp.backend_metadata and anypoint.backend_metadata
+    assert gcp.backend == "gcp" and byoc.backend == "user_gcp"
+    assert gcp.external_agent_id and byoc.external_agent_id
+    assert gcp.status == byoc.status == "planned"
+    assert gcp.backend_metadata and byoc.backend_metadata

@@ -94,14 +94,18 @@ class ByocSetupJobRepo:
     def _db(self) -> Any:
         return self._client if self._client is not None else get_db()
 
-    async def start(self, *, user_id: str, job_id: str, project_id: str) -> None:
+    async def start(
+        self, *, user_id: str, job_id: str, project_id: str, files_enabled: bool = False
+    ) -> None:
         row = {
             "user_id": user_id,
             "job_id": job_id,
             "project_id": project_id,
             "status": "running",
             "stage": "starting",
-            "stages": [],
+            "stages": [{"stage": "files_selection", "enabled": True, "version": 1}]
+            if files_enabled
+            else [],
             "error_code": None,
             "error_message": None,
             "created_at": _now(),
@@ -174,9 +178,83 @@ class ByocSetupJobRepo:
             # Keep the running job's id: parking happens INSIDE that job's save step,
             # and a new id would make the job's own finish() read as superseded.
             row["job_id"] = str(current.get("job_id") or row["job_id"])
+            if current.get("project_id") == project_id:
+                row["stages"] = [
+                    stage
+                    for stage in (current.get("stages") or [])
+                    if stage.get("stage") == "files_selection"
+                ] + row["stages"]
             self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
         else:
             self._db().table(_JOBS).insert(row).execute()
+
+    async def record_proven_cloud(
+        self,
+        *,
+        user_id: str,
+        job_id: str,
+        project: str,
+        region: str,
+        bootstrap_sa: str,
+        deployment_target: str,
+        model_credential_mode: str,
+    ) -> bool:
+        """Publish only the job that still owns setup; return whether it was parked.
+
+        Hold the job row through both writes. A pre-read followed by an ordinary
+        registry update lets a superseded OAuth attempt replace the new choice.
+        Existing assignments and provisioning are never changed by this path.
+        """
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            """WITH job AS MATERIALIZED (
+                SELECT * FROM byoc_setup_jobs
+                WHERE user_id=:owner AND job_id=:job AND project_id=:project
+                  AND status='running' AND stage='proving' FOR UPDATE
+            ), attached AS (
+                UPDATE personal_agent_registry r
+                SET user_cloud_project=:project, user_cloud_region=:region,
+                    user_cloud_bootstrap_sa=:bootstrap, user_cloud_authorized_at=now(),
+                    deployment_target=:target, model_credential_mode=:model_mode,
+                    updated_at=now()
+                FROM job j WHERE r.user_id=j.user_id
+                  AND r.external_agent_id IS NULL
+                  AND r.status IN ('pending','unprovisioned','logical')
+                RETURNING r.user_id
+            ), parked AS (
+                UPDATE byoc_setup_jobs j SET stage=:parked_stage,
+                    stages=j.stages || CAST(:parked_record AS jsonb), updated_at=now()
+                FROM job selected WHERE j.user_id=selected.user_id
+                  AND j.job_id=selected.job_id
+                  AND NOT EXISTS (SELECT 1 FROM personal_agent_registry r WHERE r.user_id=j.user_id)
+                RETURNING j.user_id
+            ) SELECT false AS parked FROM attached
+              UNION ALL SELECT true AS parked FROM parked""",
+            {
+                "owner": user_id,
+                "job": job_id,
+                "project": project,
+                "region": region,
+                "bootstrap": bootstrap_sa,
+                "target": deployment_target,
+                "model_mode": model_credential_mode,
+                "parked_stage": PARKED_STAGE,
+                "parked_record": json.dumps(
+                    [
+                        {
+                            "stage": PARKED_STAGE,
+                            "at": _now(),
+                            "region": region,
+                            "bootstrap_sa": bootstrap_sa,
+                            "authorized": True,
+                        }
+                    ]
+                ),
+            },
+        )
+        if len(result.data or []) != 1:
+            raise JobSuperseded("Cloud publication no longer owns this setup")
+        return result.data[0]["parked"] is True
 
     async def parked_cloud(self, user_id: str) -> Optional[dict]:
         """The parked cloud coordinates, or None when nothing is waiting."""
@@ -192,6 +270,11 @@ class ByocSetupJobRepo:
             return None
         return {
             "project_id": project,
+            "job_id": str(row.get("job_id") or ""),
+            "files_enabled": any(
+                s.get("stage") == "files_selection" and s.get("enabled") is True
+                for s in row.get("stages") or []
+            ),
             "region": str(last.get("region") or "us-central1"),
             "bootstrap_sa": str(
                 last.get("bootstrap_sa") or f"one-bootstrap@{project}.iam.gserviceaccount.com"
@@ -302,6 +385,7 @@ async def run_setup_job(
     save: Callable[[], Awaitable[Any]],
     repo: ByocSetupJobRepo | None = None,
     settle_delays: tuple[float, ...] | None = None,
+    files_enabled: bool = False,
 ) -> None:
     """The chain, with one durable stage record per transition.
 
@@ -353,6 +437,7 @@ async def run_setup_job(
 
         await asyncio.to_thread(
             apply_authorization,
+            **({"files_enabled": True} if files_enabled else {}),
             project=project,
             token=token,
             caller_sa=caller_sa,
@@ -391,6 +476,12 @@ async def run_setup_job(
 
         await jobs.advance(user_id=user_id, job_id=job_id, stage="proving")
         await save()
+        if files_enabled:
+            from hushh_mcp.services.pod_files.selection import publish_selection
+
+            await publish_selection(
+                user_id=user_id, job_id=job_id, project=project, bootstrap_sa=bootstrap_sa
+            )
 
         await jobs.finish(user_id=user_id, job_id=job_id, status="recorded")
     except JobSuperseded:
@@ -485,6 +576,15 @@ async def attach_parked_cloud(user_id: str, *, registry: Any) -> bool:
         if not wrote:
             logger.warning("byoc_setup_job.parked_attach_no_row user=%s", user_id)
             return False
+        if parked.get("files_enabled"):
+            from hushh_mcp.services.pod_files.selection import publish_selection
+
+            await publish_selection(
+                user_id=user_id,
+                job_id=parked["job_id"],
+                project=parked["project_id"],
+                bootstrap_sa=parked["bootstrap_sa"],
+            )
         await jobs.mark_attached(user_id)
         logger.info(
             "byoc_setup_job.parked_cloud_attached user=%s project=%s authorized=%s",

@@ -158,11 +158,6 @@ async def on_ai_connection_verified(
             # exists but 400s every turn" stays unrepresentable -- one switch governs
             # both halves and they cannot drift apart.
             #
-            # What is new is that the question is now asked per deployment path, so a
-            # connection mode the path cannot serve AT ALL (managed Vertex on
-            # CloudHub) is refused on its own merits rather than riding a flag that
-            # was never about it.
-            #
             # A user refused here is not stranded -- they keep the hub-served
             # experience. What they do not get is a billable host that refuses every
             # request, which is strictly worse than no host at all.
@@ -246,11 +241,6 @@ def _pod_can_serve(provider: str, *, deployment_target: Optional[str] = None) ->
     global flag, which is backend-blind — and the paths do not have the same model
     access available:
 
-    * **Anypoint/CloudHub** has no Google identity, so Vertex ADC is not merely
-      unconfigured there but unreachable. ``AnypointBackend`` renders
-      ``GOOGLE_GENAI_USE_VERTEXAI=false`` for exactly that reason. Under the old
-      check, an Anypoint deployment with ``pod_managed_model_enabled()`` on would
-      have provisioned a pod on a managed connection it could never serve.
     * **BYO GCP** has Vertex ADC available *as the user's own*, on their identity
       and their bill, so a managed selection is legitimate there and does not depend
       on hushh's fleet flag at all.

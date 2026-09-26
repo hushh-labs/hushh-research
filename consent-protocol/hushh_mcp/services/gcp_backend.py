@@ -1,15 +1,9 @@
-"""GCP compute backend — primary host for the FedRAMP-High / regulated tier (Apple-PCC-on-GCP).
+"""GCP compute backend for the gated Hussh-managed pod tier.
 
-Implements the ``ComputeBackend`` contract for Google Cloud, following the Apple
-Private Cloud Compute blueprint (ARCHITECTURE.md §7): a per-user agent runs as an
-isolated Cloud Run service (logical/mass tier) or a Confidential-Space-attested
-instance (dedicated/regulated tier), reachable only through the Hushh A2A address,
-holding its own key, with Hushh never able to read the workload. The primary target
-is chosen per workload class: GCP is **primary for the FedRAMP-High / government /
-regulated tier** — it carries **FedRAMP High** (the higher compliance ceiling vs
-MuleSoft Government Cloud's Moderate) and is the validated, live-wired backend.
-General / mass-market deployments are primary on Anypoint (pre-purchased Titanium
-capacity); see ARCHITECTURE.md §2, ROADMAP.md.
+Implements Cloud Run provisioning behind the common ComputeBackend contract.
+The owner-project variant composes this renderer through UserGcpBackend. GCP is
+the sole implemented cloud provider; attested-compute designs are separate from
+what this Cloud Run renderer proves.
 
 **Inert by default.** This backend runs in **plan/dry-run mode** unless explicitly
 enabled: `provision`/`deprovision` compute the deployment (a real, deployable Cloud
@@ -216,7 +210,7 @@ class GcpBackend:
         # either of them silently falling back to whatever Cloud Run happens to default
         # to that quarter.
         # Defaults come from the ONE profile in compute_backend, so this backend and
-        # Anypoint cannot size the same pod differently. Env still overrides per lane.
+        # its owner-project variant share a baseline. Env still overrides per lane.
         self._cpu = cpu if cpu is not None else (_env("HUSSH_POD_CPU") or POD_CPU)
         self._memory = memory if memory is not None else (_env("HUSSH_POD_MEMORY") or POD_MEMORY)
         # The ONE principal allowed to invoke a pod -- the hub's runtime service

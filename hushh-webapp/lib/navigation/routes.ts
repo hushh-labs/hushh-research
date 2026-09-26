@@ -177,6 +177,7 @@ export const ROUTES = {
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
+  ONE_FILES: "/one/files",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",

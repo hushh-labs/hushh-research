@@ -1,12 +1,8 @@
 """The pod's system of record: an encrypted, hash-chained commit log in object storage.
 
-WHY A LOG, NOT A DATABASE. The pod must run identically on the user's own GCP,
-on Anypoint CloudHub 2.0, and eventually on the user's own hardware. CloudHub
-2.0 has no managed database and no attachable volume -- replicas get ephemeral
-disk and can be rescheduled -- so any design that needs a durable disk fails the
-mass tier outright. The one primitive every target shares is an HTTPS-reachable
-bucket. So the bucket holds the truth, and everything else (the SQLite working
-store included) is a rebuildable index over it.
+Cloud Run's local filesystem is ephemeral. Encrypted object storage holds the
+recovery record; the SQLite working store is rebuilt from that record. An object
+adapter must preserve conditional writes and owner isolation.
 
 Wire shape:
 

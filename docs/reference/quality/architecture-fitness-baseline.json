@@ -863,7 +863,6 @@
     {"key":"function_size|consent-protocol/scripts/migrate_financial_v2.py|_deep_migrate_user|function exceeds the advisory gene budget","value":94},
     {"key":"function_size|consent-protocol/tests/services/test_drive_live_journey.py|test_trusted_rule_grants_a_future_file_while_owner_is_away_and_recipient_opens_the_original|function exceeds the advisory gene budget","value":94},
     {"key":"function_size|consent-protocol/db/migration_authority.py|establish_baseline|function exceeds the advisory gene budget","value":93},
-    {"key":"function_size|consent-protocol/hushh_mcp/services/anypoint_backend.py|render_deploy_config|function exceeds the advisory gene budget","value":93},
     {"key":"function_size|consent-protocol/hushh_mcp/services/capability_run_service.py|create|function exceeds the advisory gene budget","value":93},
     {"key":"function_size|consent-protocol/hushh_mcp/services/drive_permission_executor.py|grant|function exceeds the advisory gene budget","value":93},
     {"key":"function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|list_sos_email_recipients|function exceeds the advisory gene budget","value":93},

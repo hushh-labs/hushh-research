@@ -1,32 +1,7 @@
-"""S8: one image, three platforms -- the rendered artifact must carry the same capabilities.
+"""GCP managed and owner-project renderers preserve shared pod capabilities.
 
-`test_compute_backend_contract.py` proves the backends are interchangeable at the
-*interface*: same methods, same return types. That is necessary and not sufficient.
-A backend can satisfy every signature and still render a deploy artifact that
-cannot boot a pod -- no hub to read, no key to verify consent with, no model to
-call. The interface would stay green while the platform silently diverged.
-
-This is the capability guard. Each backend renders a different shape (Cloud Run's
-knative Service vs Anypoint's AMC descriptor), so parity cannot be asserted by
-comparing dicts. Instead each backend gets an **extractor** that reduces its own
-shape to the same small set of facts, and the capabilities are asserted against
-that reduction. Adding a fourth platform means writing one extractor, not
-rewriting the assertions.
-
-What parity means here, precisely:
-
-* **Present** -- the artifact declares the slot, so the capability is configurable
-  on that platform. A slot may render empty when unconfigured; that is how GCP
-  already behaves, and it keeps a dark-shipped pod inert rather than mis-pointed.
-* **Populated** -- identity pins and the feature flag must carry real values,
-  because a pod cannot be anonymous and a pod whose flag is off has no surface.
-* **Never inline** -- signing material arrives by reference on every platform, and
-  no private key or vault key appears in any artifact.
-
-The honest divergence, recorded rather than papered over: on Anypoint the model
-slot exists but has no ambient-credential path the way Vertex does on GCP, and
-live provisioning there is still gated. The slot's presence is what makes the
-platform configurable; it is not a claim that the model call works today.
+Check identity, private ingress, referenced secrets and runtime configuration in
+the rendered service. Rendering is not live deployment or generation evidence.
 """
 
 from __future__ import annotations
@@ -36,7 +11,6 @@ from typing import Any, Callable
 
 import pytest
 
-from hushh_mcp.services.anypoint_backend import AnypointBackend
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.gcp_backend import GcpBackend
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
@@ -76,21 +50,8 @@ def _extract_knative(config: dict[str, Any]) -> Capabilities:
     )
 
 
-def _extract_amc(config: dict[str, Any]) -> Capabilities:
-    """Anypoint CloudHub 2.0: the Mule application properties service."""
-    service = config["application"]["configuration"]["mule.agent.application.properties.service"]
-    inbound = config["target"]["deploymentSettings"]["http"]["inbound"]
-    return Capabilities(
-        properties={k: str(v) for k, v in service.get("properties", {}).items()},
-        by_reference=set(service.get("secureProperties", {})),
-        internal_only=bool(inbound.get("internal")) and not inbound.get("publicUrl"),
-        blob=str(config),
-    )
-
-
 _BACKENDS: list[tuple[str, Callable[[], Any], Callable[[dict], Capabilities]]] = [
     ("gcp", lambda: GcpBackend(project="p", image="i", live=False), _extract_knative),
-    ("anypoint", lambda: AnypointBackend(env_id="e", live=False), _extract_amc),
     ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i"), _extract_knative),
 ]
 _IDS = [b[0] for b in _BACKENDS]
@@ -139,8 +100,7 @@ def test_every_platform_declares_how_the_pod_reaches_a_model(caps: Capabilities)
 
     So the artifact must say *which mode this platform is in* -- and be consistent
     with it. Asserting a literal `GOOGLE_GENAI_USE_VERTEXAI == "true"` would encode
-    the GCP answer as the universal one and force CloudHub, which has no Vertex, to
-    render config that does nothing.
+    one configured credential mode as a universal requirement.
     """
     mode = caps.properties.get("GOOGLE_GENAI_USE_VERTEXAI")
     assert mode in {"true", "false"}, "the platform does not declare a model-access mode"
@@ -212,9 +172,7 @@ def test_the_pod_size_is_declared_not_inherited():
     211.9 MB idle footprint. An unstated size is not a neutral choice; it is the
     platform choosing for us, and it changes when the platform changes.
 
-    Asserted on the GCP shape specifically because that is where the block lives;
-    CloudHub sizes through vCores in its own descriptor, which the AMC extractor
-    already covers.
+    Assert the limits on the rendered Cloud Run artifact.
     """
     container = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())[
         "spec"
@@ -249,21 +207,10 @@ def test_a_pod_never_scales_past_one_writer():
     assert annotations["autoscaling.knative.dev/maxScale"] == "1"
 
 
-# --- the two backends must state the SAME size, not merely a size ------------------
-#
-# `test_the_pod_size_is_declared_not_inherited` above asserts each backend states
-# something. It passed for months while GCP rendered 500m CPU and Anypoint rendered
-# "0.1" vCores from an independent literal -- the SAME pod, sized FIVE TIMES
-# differently depending on which backend happened to provision it.
-#
-# That is the structural limit of a presence check, and it is the same shape as the
-# HUSSH_POD_TURN_ENABLED omission: a comparison cannot see what both sides get
-# wrong, and a per-side check cannot see that the sides disagree. Both backends now
-# derive from one profile, so the disagreement is unrepresentable rather than
-# merely absent today.
+# The resource profile owns sizing; presence alone does not prove the values.
 
 
-def test_both_backends_size_the_pod_from_one_profile():
+def test_gcp_sizes_the_pod_from_the_canonical_profile():
     """The profile is the source; a platform floor is a derivation from it, not a rival.
 
     Read on the ECONOMY tier, where the profile passes through untouched. The warm
@@ -273,17 +220,15 @@ def test_both_backends_size_the_pod_from_one_profile():
     mean asserting a config Cloud Run rejects with HTTP 400, which is what this
     test did until a real provision proved it (2026-08-07).
     """
-    from hushh_mcp.services.compute_backend import POD_CPU, POD_MEMORY, pod_vcores
+    from hushh_mcp.services.compute_backend import POD_CPU, POD_MEMORY
 
     gcp = GcpBackend(
         project="p", image="i", live=False, min_instances=0, max_instances=1
     ).render_deploy_config(_spec())
     limits = gcp["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
-    anypoint = AnypointBackend(live=False).render_deploy_config(_spec())
 
     assert limits["cpu"] == POD_CPU
     assert limits["memory"] == POD_MEMORY
-    assert anypoint["application"]["vCores"] == pod_vcores()
 
 
 def test_the_warm_tier_derives_its_cpu_from_the_same_profile():
@@ -298,46 +243,3 @@ def test_the_warm_tier_derives_its_cpu_from_the_same_profile():
 
     assert limits["cpu"] == _cpu_for_allocation(POD_CPU, always_allocated=True)
     assert limits["memory"] == POD_MEMORY
-
-
-def test_the_vcore_conversion_is_a_unit_change_not_a_policy():
-    """1 vCore is one vCPU on CloudHub 2.0, so this is arithmetic. Keeping it a
-    function next to the constant is what stops it becoming a second literal that
-    drifts -- which is exactly how the 5x gap appeared."""
-    from hushh_mcp.services.compute_backend import pod_vcores
-
-    assert pod_vcores(1000) == "1"
-    assert pod_vcores(500) == "0.5"
-    assert pod_vcores(250) == "0.25"
-
-
-def test_changing_the_profile_moves_BOTH_backends(monkeypatch):
-    """The property that makes this a single source of truth rather than two
-    literals that happen to agree today."""
-    from hushh_mcp.services import compute_backend
-
-    monkeypatch.setattr(compute_backend, "POD_CPU", "250m")
-    monkeypatch.setattr(compute_backend, "POD_CPU_MILLIS", 250)
-
-    import importlib
-
-    from hushh_mcp.services import anypoint_backend, gcp_backend
-
-    importlib.reload(gcp_backend)
-    importlib.reload(anypoint_backend)
-    try:
-        # Economy tier: throttled, so the profile reaches the artifact verbatim and
-        # the single-source property is visible without the platform floor in the way.
-        limits = gcp_backend.GcpBackend(
-            project="p", image="i", live=False, min_instances=0, max_instances=1
-        ).render_deploy_config(_spec())["spec"]["template"]["spec"]["containers"][0]["resources"][
-            "limits"
-        ]
-        vcores = anypoint_backend.AnypointBackend(live=False).render_deploy_config(_spec())[
-            "application"
-        ]["vCores"]
-        assert limits["cpu"] == "250m"
-        assert vcores == "0.25"
-    finally:
-        importlib.reload(gcp_backend)
-        importlib.reload(anypoint_backend)

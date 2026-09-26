@@ -95,3 +95,22 @@ def test_an_explicit_generic_setting_still_wins(monkeypatch, _stub_google_servic
     url = begin("uid1", "hussh-one-test")
     sent = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["redirect_uri"][0]
     assert sent == "https://other.example/one/profile/google/oauth/return"
+
+
+def test_files_choice_is_signed_and_legacy_state_does_not_opt_in(monkeypatch):
+    import base64
+    import hashlib
+    import hmac
+
+    import hushh_mcp.services.byoc_oauth_authorizer as mod
+
+    state = mod.make_state("owner", "project", files_enabled=True)
+    monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "false")
+    assert mod.verify_state_selection(state, "owner") == ("project", True)
+    assert mod.verify_state_selection(mod.make_state("owner", "project"), "owner") == ("project", False)
+    exp = str(int(mod.time.time()) + 600)
+    payload = base64.urlsafe_b64encode(b"owner|project").decode().rstrip("=")
+    mac = hmac.new(mod._signing_key(), f"{exp}.{payload}".encode(), hashlib.sha256).hexdigest()
+    assert mod.verify_state_selection(f"byoc.{exp}.{payload}.{mac}", "owner") == ("project", False)
+    with pytest.raises(mod.ByocAuthorizeError):
+        mod.verify_state_selection(state, "another-owner")

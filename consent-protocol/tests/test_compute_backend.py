@@ -94,15 +94,10 @@ def test_resolver_constructs_gcp_backend():
     assert isinstance(resolve_compute_backend("GCP"), GcpBackend)  # case-insensitive
 
 
-def test_resolver_constructs_anypoint_backend():
-    from hushh_mcp.services.anypoint_backend import AnypointBackend
-
-    assert isinstance(resolve_compute_backend("anypoint"), AnypointBackend)
-
-
-def test_resolver_rejects_unknown_backend():
+@pytest.mark.parametrize("backend", ["anypoint", "azure-not-yet", "aws"])
+def test_resolver_rejects_unsupported_backend(backend):
     with pytest.raises(NotImplementedError):
-        resolve_compute_backend("azure-not-yet")
+        resolve_compute_backend(backend)
 
 
 def test_resolver_reads_env_setting(monkeypatch):

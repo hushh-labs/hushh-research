@@ -645,8 +645,7 @@ def test_the_plan_states_impersonation_for_a_google_hosted_hub() -> None:
     assert fed["type"] == "impersonation"
     assert fed["impersonation"]["role"] == "roles/iam.serviceAccountTokenCreator"
     assert fed["impersonation"]["token_lifetime"] == "900s"
-    # WIF is retained, and labelled for the deployment it actually serves.
-    assert "CloudHub" in fed["workload_identity_federation"]["applies_to"]
+    assert set(fed) == {"type", "impersonation"}
 
 
 # -- an existing project, not a fresh one -------------------------------------------

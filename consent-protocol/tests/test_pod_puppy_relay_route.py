@@ -459,3 +459,26 @@ def test_the_relay_is_on_the_app_surface_and_the_wall_still_covers_the_rest():
 
     assert is_app_surface("/api/one/puppy/relay") is True
     assert is_app_surface("/api/one/puppy/status/tdv_1") is False
+
+
+async def test_on_demand_relay_closes_after_idle_even_with_heartbeats(pod, monkeypatch):
+    monkeypatch.setenv("POD_IDLE_GRACE_SECONDS", "600")
+    device = Device()
+    token, claims = await pod["admit"](device)
+    envelope = _device_envelope(pod, device, claims)
+    with _connect(pod, token) as ws:
+        ws.send_json(_hello(device))
+        assert ws.receive_json()["idleGraceSeconds"] == 600
+
+        # Advancing this link's work clock avoids changing event-loop time.
+        async def idle():
+            pb.BROKER._links[(OWNER, device.subject_id)].last_work_monotonic -= 601
+
+        pod["client"].portal.call(idle)
+        ws.send_json(
+            envelope.seal({"type": "relay.heartbeat"}, direction=env.DIR_DEVICE_TO_POD, seq=1)
+        )
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+        assert closed.value.code == 1000
+        assert closed.value.reason == "Puppy relay idle"

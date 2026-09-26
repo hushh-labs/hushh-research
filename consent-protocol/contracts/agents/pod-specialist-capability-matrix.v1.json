@@ -23,6 +23,7 @@
           "propose_calendar_event",
           "propose_calendar_reschedule"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -51,6 +52,7 @@
         "one_tool_names": [
           "ask_connected_systems_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -77,6 +79,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": true
       },
@@ -105,6 +108,7 @@
         "one_tool_names": [
           "ask_documents_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": true
       },
@@ -133,6 +137,7 @@
         "one_tool_names": [
           "ask_email_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -141,6 +146,34 @@
       "parent": "agent_one",
       "required_scopes": [
         "cap.one.invoke"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "owner",
+        "executes_in_pod": true,
+        "information_source": "owner_bucket",
+        "why": "Flag-gated ADK task AgentTool in One; encrypted owner library with explicit analysis opt-in and reversible organization. Live acceptance pending.",
+        "write_scope": "confirmed_action"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": true,
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_files",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/files/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "files.read",
+        "files.manage"
       ],
       "status": "experimental"
     },
@@ -159,6 +192,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -187,6 +221,7 @@
         "one_tool_names": [
           "finance"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -213,6 +248,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -243,6 +279,7 @@
         "one_tool_names": [
           "ask_location_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -271,6 +308,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -295,6 +333,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -319,6 +358,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -347,6 +387,7 @@
         "one_tool_names": [
           "ask_consent_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -373,6 +414,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -397,6 +439,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -428,6 +471,7 @@
         "one_tool_names": [
           "ask_memory_agent"
         ],
+        "pod_agent_tool": false,
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -456,6 +500,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -480,6 +525,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -507,6 +553,7 @@
         "door_required_scope": null,
         "hub_doors": [],
         "one_tool_names": [],
+        "pod_agent_tool": false,
         "pod_dispatchable": false,
         "registered_specialist": false
       },
@@ -617,7 +664,8 @@
       "pkm_projection",
       "hub_door",
       "none",
-      "hub"
+      "hub",
+      "owner_bucket"
     ],
     "write_scope": [
       "none",

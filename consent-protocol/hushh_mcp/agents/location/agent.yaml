@@ -143,6 +143,7 @@ required_scopes:
   - cap.location.live.share
 optional_scopes:
   - cap.location.live.view
+  - cap.location.command.read
   - cap.location.live.refer_request
 tools:
   - name: refer_location_recipient

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { cn } from "@/lib/utils";
 
@@ -437,8 +438,8 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
-            : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
+            ? "chrome-glass-surface rounded-r-[28px] border-r border-black/[0.06] !bg-background/90 !backdrop-saturate-100 shadow-[18px_0_42px_rgba(0,0,0,0.25)] backdrop-blur-2xl dark:border-white/[0.08]"
+            : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -702,23 +703,22 @@ export function AgentHistorySidebar({
           )}
         </div>
         {onOpenConnectors ? (
-          <div className="shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-            <Button
-              type="button"
-              variant="ghost"
-              size="compact"
-              className={cn(
-                "group min-h-11 w-full rounded-xl text-[13px] font-medium text-foreground focus-visible:ring-2 focus-visible:ring-primary/60",
-                collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",
-              )}
-              onClick={(event) => onOpenConnectors(event.currentTarget)}
-              aria-label="Open Connectors"
-              title={collapsed && !isMobileMode ? "Connectors" : undefined}
-            >
-              <PlugIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              {collapsed && !isMobileMode ? null : <span className="ml-2 truncate">Connectors</span>}
-            </Button>
-          </div>
+          <ShellActionSurface
+            variant="pill"
+            type="button"
+            pressScale={false}
+            wrapperClassName="w-full shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            className={cn(
+              "h-11 min-h-11 w-full justify-start rounded-xl px-3 text-[13px] font-medium text-foreground",
+              collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",
+            )}
+            onClick={(event) => onOpenConnectors(event.currentTarget)}
+            aria-label="Open Connectors"
+            title={collapsed && !isMobileMode ? "Connectors" : undefined}
+          >
+            <PlugIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            {collapsed && !isMobileMode ? null : <span className="truncate">Connectors</span>}
+          </ShellActionSurface>
         ) : null}
       </aside>
 

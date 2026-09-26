@@ -665,6 +665,16 @@ async def set_puppy_access(
         ) from exc
 
 
+@router.post("/trusted-devices/{device_id}/puppy-activation")
+async def activate_puppy(device_id: str, token_data: dict = Depends(require_vault_owner_token)):
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_activation import request_activation
+    try:
+        return await request_activation(token_data["user_id"], device_id)
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
 @router.post("/trusted-devices/{device_id}/puppy-inference-grant")
 async def issue_puppy_inference_grant(
     device_id: str,
@@ -800,7 +810,17 @@ async def trusted_device_status(
                 "message": "No such trusted device for this account.",
             },
         )
-    return {**status, "server_time_ms": int(time.time() * 1000)}
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.puppy_activation import current_activation
+    hint = None
+    if status.get("status") == "active":
+        try:
+            row = await PersonalAgentRegistryRepo().get(firebase_uid)
+            hint = current_activation(row, device_id) if row else None
+        except Exception:
+            # A wake hint is advisory. Failure cannot imply revocation or widen a grant.
+            pass
+    return {**status, "server_time_ms": int(time.time() * 1000), "puppyActivation": hint}
 
 
 @router.post("/trusted-devices/{device_id}/seal-ack")

@@ -1198,6 +1198,138 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "files.manage"
+        ],
+        "data": [
+          "files.read"
+        ],
+        "invocation": [
+          "files.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Organize and read the owner's private pod library through bounded, consented tools.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "consent_required",
+        "source_changed",
+        "unavailable"
+      ],
+      "icon": null,
+      "id": "agent_files",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/files/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-default",
+      "name": "Files Agent",
+      "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "limited",
+        "knowledge_package_ref": null,
+        "service_id": "files",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "files.owner_request",
+          "files.untrusted_content",
+          "files.metadata"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "POD_FILES_ENABLED",
+        "rollback": "Disable Files entrypoints while preserving encrypted objects and owner recovery keys.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "ea4082919d3ecd3e8351eee7fed9eeccfa31ec70466dfa7df6c0396165ebc282",
+      "telemetry_namespace": "agent.files",
+      "tools": [
+        {
+          "description": "List one bounded page of owner library metadata after analysis consent.",
+          "name": "list_files",
+          "py_func": "hushh_mcp.one_adk.files_tools.list_files",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Read supported bounded text content after library analysis consent.",
+          "name": "read_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.read_file",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Create an empty folder with idempotent request identity and current consent.",
+          "name": "create_folder",
+          "py_func": "hushh_mcp.one_adk.files_tools.create_folder",
+          "required_scope": "files.manage"
+        },
+        {
+          "description": "Apply a revision-checked reversible rename or move.",
+          "name": "organize_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.organize_file",
+          "required_scope": "files.manage"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [],
         "invocation": []
@@ -2594,6 +2726,7 @@
       },
       "optional_scopes": [
         "cap.location.live.view",
+        "cap.location.command.read",
         "cap.location.live.refer_request"
       ],
       "outputs": [],

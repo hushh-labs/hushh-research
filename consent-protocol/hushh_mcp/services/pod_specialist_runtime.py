@@ -195,6 +195,13 @@ _HUB_ONLY = "Registered on the hub with no owner adapter; service_for refuses it
 #: ``none`` or ``hub``. Hub-owned capabilities stay hub-owned here; a manifest is
 #: not a claim of pod execution.
 POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
+    "agent_files": _declare(
+        executes_in_pod=True,
+        information_source="owner_bucket",
+        write_scope="confirmed_action",
+        confirmation_owner="owner",
+        why="Flag-gated ADK task AgentTool in One; encrypted owner library with explicit analysis opt-in and reversible organization. Live acceptance pending.",
+    ),
     "agent_one": _declare(
         executes_in_pod=True,
         information_source="pkm_projection",
