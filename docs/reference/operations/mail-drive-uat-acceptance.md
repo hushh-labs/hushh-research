@@ -57,6 +57,22 @@ Automated acceptance covers real root chat dispatch, identity continuity, the
 zero-index foreground/overnight trust journey and revocation using isolated CI
 PostgreSQL. Provider OAuth/MCP acceptance is a separate live proof.
 
+## Sharing retry and batch regression evidence
+
+Automated checks cover owner and Trusted-circle receipt recovery after a lost
+response, frozen file selections, expired review refresh, partial circle results,
+and answered-question sharing recovery. Answered questions persist a private
+random child key before approval; repeated taps and owner GET recovery reuse the
+same committed approval. Requesters never receive the selection or private key.
+Permission delivery drains at most 20 jobs per invocation within its existing
+time budget. A synthetic 1,000-job queue verifies bounded progress and read-only
+reconciliation for uncertain permission writes; it does not measure live Google
+throughput. Notification outboxes share the same finite job budget fairly.
+
+Large live search remains bounded to the current result window. Gathering
+thousands of matches requires durable pagination and progress; the queue test
+above does not establish that discovery capability.
+
 ## Selected-file implementation history
 
 The following checkpoints describe the earlier selected-file path. Its picker,
