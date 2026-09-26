@@ -129,7 +129,10 @@ async def test_expired_invocation_and_revoked_owner_are_rejected(monkeypatch):
 
 
 async def test_disabled_feature_is_unavailable(monkeypatch):
-    monkeypatch.setenv("GMAIL_CHAT_READS", "false")
+    # Owner-available reads ignore the env switch; admission itself still gates.
+    from hushh_mcp.adk_bridge import email_agent
+
+    monkeypatch.setattr(email_agent, "connector_feature_enabled", lambda *_: False)
     service = _FakeEmailService()
     with pytest.raises(PermissionError):
         await EmailAgentA2A(service=service).handle(_task())
