@@ -156,9 +156,8 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
                 if auth["header"] not in {"Authorization", "X-API-Key", "Api-Key"}:
                     raise ValueError
                 secret = auth["value"]
-                if isinstance(secret, str) and re.match(
-                    r"^(?:Bearer\s+)?HCT:", secret.strip(), re.I
-                ):
+                # A vault-owner token under any scheme never leaves for a server.
+                if isinstance(secret, str) and re.match(r"^(?:\S+\s+)?HCT:", secret.strip(), re.I):
                     raise ValueError
             elif kind == "oauth" and set(auth) == {"kind", "accessToken", "expiresAt"}:
                 if type(auth["expiresAt"]) is not int or auth["expiresAt"] <= 0:
@@ -303,6 +302,9 @@ class McpTurnResources:
             ),
             headers,
             catalog_policy=admitted,
+            # Holding no person credential means no person authority is used.
+            review_policy="credentialless" if auth["kind"] == "none" else "credentialed",
+            forced_review_tool_ids=frozenset(item["id"] for item in record.get("blockedTools", [])),
         )
 
     def track_catalog_view(self, view: Any) -> None:
@@ -334,6 +336,8 @@ class McpTurnResources:
             authorize_call=authorize_call,
             catalog_policy=resolved.catalog_policy,
             result_policy=resolved.result_policy,
+            review_policy=resolved.review_policy,
+            forced_review_tool_ids=resolved.forced_review_tool_ids,
         )
         self._toolsets[resolved.binding] = toolset
         return toolset

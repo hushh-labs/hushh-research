@@ -301,7 +301,8 @@ async def test_native_adk_toolset_defaults_to_app_review(harness):
     assert isinstance(tools[0], McpTool)
     assert tools[0].name.startswith("mcp_")
     assert await tools[0].run_async(args={"q": "fixture"}, tool_context=h.context) == {
-        "status": "approval_required"
+        "connectorId": "custom_one",
+        "status": "approval_required",
     }
     h.native.assert_not_called()
     assert h.approve.await_args.args[1] == h.connection.binding
@@ -378,7 +379,8 @@ async def test_policy_narrowing_keeps_local_provider_refs_and_revision_binding(h
         "error"
     ] == "MCP_ARGUMENTS_INVALID"
     assert await tool.run_async(args={"q": "allowed"}, tool_context=h.context) == {
-        "status": "approval_required"
+        "connectorId": "custom_one",
+        "status": "approval_required",
     }
     descriptor.inputSchema["$defs"]["query"]["minLength"] = 3
     assert (await tool.run_async(args={"q": "allowed"}, tool_context=h.context))[
@@ -392,7 +394,14 @@ async def test_approved_call_uses_native_implementation_once(harness):
     h.approve.return_value = None
     tool = (await h.toolset.get_tools(h.context))[0]
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"status": "ok", "isError": False, "result": {"count": 1}, "truncated": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "review": "approved",
+        "status": "ok",
+        "isError": False,
+        "result": {"count": 1},
+        "truncated": False,
+    }
     h.native.assert_awaited_once()
     assert h.resolve.await_count >= 5  # discovery, admission, dispatch, publication
 
@@ -403,7 +412,12 @@ async def test_native_denial_needs_no_private_arguments_or_provider_access(harne
     h.resolve.reset_mock()
     h.context.tool_confirmation = SimpleNamespace(confirmed=False)
     result = await tool.run_async(args={}, tool_context=h.context)
-    assert result == {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "status": "blocked",
+        "error": "MCP_REVIEW_DECLINED",
+        "retryable": False,
+    }
     h.resolve.assert_not_awaited()
     h.approve.assert_not_awaited()
     h.native.assert_not_awaited()
@@ -416,7 +430,12 @@ async def test_rejected_app_receipt_never_dispatches_or_claims_uncertain_write(h
     h.approve.side_effect = ActionDirectiveAuthorityError("private-ledger-diagnostic")
     tool = (await h.toolset.get_tools(h.context))[0]
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "status": "blocked",
+        "error": "MCP_APPROVAL_INVALID",
+        "retryable": False,
+    }
     h.native.assert_not_called()
 
 
@@ -445,7 +464,8 @@ async def test_invalid_arguments_never_reach_approval(harness):
     h = harness
     tool = (await h.toolset.get_tools(h.context))[0]
     assert await tool.run_async(args={}, tool_context=h.context) == {
-        "error": "MCP_ARGUMENTS_INVALID"
+        "connectorId": "custom_one",
+        "error": "MCP_ARGUMENTS_INVALID",
     }
     h.approve.assert_not_called()
     h.native.assert_not_called()
@@ -483,7 +503,8 @@ async def test_changed_authority_during_review_prevents_dispatch(harness):
 
     h.approve.side_effect = approve
     assert await tool.run_async(args={"q": "fixture"}, tool_context=h.context) == {
-        "error": "MCP_CATALOG_CHANGED"
+        "connectorId": "custom_one",
+        "error": "MCP_CATALOG_CHANGED",
     }
     h.native.assert_not_called()
 
@@ -494,7 +515,12 @@ async def test_external_failure_is_sanitized_and_never_retried(harness, caplog):
     h.native.side_effect = RuntimeError("synthetic-secret-provider-error")
     tool = (await h.toolset.get_tools(h.context))[0]
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "error": "MCP_CALL_UNAVAILABLE",
+        "outcome": "unknown",
+        "retryable": False,
+    }
     h.native.assert_awaited_once()
     assert "synthetic-secret-provider-error" not in caplog.text
 
@@ -510,7 +536,8 @@ async def test_rediscovery_invalidates_previous_tool_schema(harness):
     fresh = (await h.toolset.get_tools(h.context))[0]
     assert old.revision != fresh.revision
     assert await old.run_async(args={"q": "fixture"}, tool_context=h.context) == {
-        "error": "MCP_CATALOG_CHANGED"
+        "connectorId": "custom_one",
+        "error": "MCP_CATALOG_CHANGED",
     }
     h.approve.assert_not_called()
     h.native.assert_not_called()
@@ -529,7 +556,12 @@ async def test_late_result_is_discarded_after_disconnect(harness):
 
     h.native.side_effect = native
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"error": "MCP_CONNECTION_CHANGED", "outcome": "unknown", "retryable": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "error": "MCP_CONNECTION_CHANGED",
+        "outcome": "unknown",
+        "retryable": False,
+    }
     assert "must-not-publish" not in str(result)
 
 
@@ -630,7 +662,12 @@ async def test_provider_error_payload_is_not_published(harness):
     }
     tool = (await h.toolset.get_tools(h.context))[0]
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
+    assert result == {
+        "connectorId": "custom_one",
+        "error": "MCP_PROVIDER_ERROR",
+        "outcome": "unknown",
+        "retryable": False,
+    }
 
 
 async def test_native_session_failure_does_not_log_or_retry(harness, monkeypatch, caplog):
@@ -718,7 +755,8 @@ async def test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_t
         assert calls == []
         h.approve.return_value = {"status": "permission_required"}
         assert await selected.run_async(args={"q": "synthetic"}, tool_context=h.context) == {
-            "status": "permission_required"
+            "connectorId": "custom_one",
+            "status": "permission_required",
         }
         assert calls == []
         h.approve.return_value = None
@@ -741,3 +779,394 @@ async def test_http_body_diagnostics_block_before_credentials(harness, monkeypat
     assert error.value.code == "MCP_UNSAFE_TELEMETRY"
     h.resolve.assert_not_called()
     h.session.list_tools.assert_not_called()
+
+
+# --- Founder decision 2026-09-25: reads free, writes reviewed -----------------
+
+READ_ONLY = {"readOnlyHint": True}
+
+
+@pytest.mark.parametrize(
+    ("policy", "descriptor", "reviewed"),
+    [
+        ("credentialless", {"name": "write"}, False),
+        ("credentialless", {"name": "read", "annotations": READ_ONLY}, False),
+        ("credentialed", {"name": "read", "annotations": READ_ONLY}, False),
+        (
+            "credentialed",
+            {"annotations": {"readOnlyHint": True, "destructiveHint": False}},
+            False,
+        ),
+        # Everything below is missing, garbled, contradictory or unknown.
+        ("credentialed", {"name": "unannotated"}, True),
+        ("credentialed", {"annotations": {"readOnlyHint": False}}, True),
+        ("credentialed", {"annotations": {"readOnlyHint": True, "destructiveHint": True}}, True),
+        ("credentialed", {"annotations": {"readOnlyHint": "true"}}, True),
+        ("credentialed", {"annotations": {"readOnlyHint": 1}}, True),
+        ("credentialed", {"annotations": {"readOnlyHint": None}}, True),
+        ("credentialed", {"annotations": "readOnly"}, True),
+        ("credentialed", {"annotations": [READ_ONLY]}, True),
+        ("credentialed", None, True),
+        ("always", {"annotations": READ_ONLY}, True),
+        ("CREDENTIALLESS", {"annotations": READ_ONLY}, True),
+        (None, {"annotations": READ_ONLY}, True),
+        ("", {"annotations": READ_ONLY}, True),
+    ],
+)
+def test_review_policy_relaxes_only_exact_known_cases(policy, descriptor, reviewed):
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_call_requires_review
+
+    assert mcp_call_requires_review(policy, descriptor) is reviewed
+
+
+@pytest.mark.parametrize(
+    ("annotations", "expected"),
+    [
+        (None, {}),
+        (SimpleNamespace(), {}),
+        (SimpleNamespace(readOnlyHint=True), {"readOnlyHint": True}),
+        (
+            SimpleNamespace(readOnlyHint=True, destructiveHint=False, openWorldHint=True),
+            {"readOnlyHint": True, "destructiveHint": False},
+        ),
+        (SimpleNamespace(readOnlyHint="true"), {}),
+        (SimpleNamespace(readOnlyHint=1), {}),
+        ("readOnly", {}),
+    ],
+)
+def test_catalog_keeps_only_strictly_boolean_review_hints(annotations, expected):
+    from hushh_mcp.services.external_mcp_client import _review_hints
+
+    assert _review_hints(SimpleNamespace(annotations=annotations)) == expected
+
+
+def test_review_hints_never_rekey_owner_block_preferences():
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_fingerprint
+
+    descriptor = {"name": "search", "description": "", "inputSchema": {"type": "object"}}
+    assert mcp_tool_fingerprint(descriptor) == mcp_tool_fingerprint(
+        {**descriptor, "annotations": READ_ONLY}
+    )
+    assert mcp_tool_fingerprint(descriptor) != mcp_tool_fingerprint(
+        {**descriptor, "description": "changed"}
+    )
+
+
+def test_unknown_review_policy_is_rejected_at_construction():
+    binding = McpConnectionBinding("owner", "custom_one", 1, 1, "https://example.com/mcp")
+    with pytest.raises(ValueError, match="Invalid MCP review policy"):
+        GovernedMcpToolset(
+            binding=binding,
+            resolve_connection=AsyncMock(),
+            authorize_call=AsyncMock(),
+            review_policy="reads_free",  # type: ignore[arg-type]
+        )
+
+
+def _policy_toolset(policy, tools, *, headers=None, forced=frozenset(), catalog_policy=None):
+    binding = McpConnectionBinding("owner", "custom_one", 1, 1, "https://example.com/mcp")
+    connection = ResolvedMcpConnection(
+        binding,
+        headers or {"Authorization": "Bearer synthetic"},
+        review_policy=policy,
+        forced_review_tool_ids=forced,
+    )
+    approve = AsyncMock(return_value={"status": "review_required"})
+    toolset = GovernedMcpToolset(
+        binding=binding,
+        resolve_connection=AsyncMock(return_value=connection),
+        authorize_call=approve,
+        review_policy=policy,
+        forced_review_tool_ids=forced,
+        catalog_policy=catalog_policy,
+    )
+    session = SimpleNamespace(
+        list_tools=AsyncMock(return_value=SimpleNamespace(tools=tools, nextCursor=None))
+    )
+    toolset._mcp_session_manager = SimpleNamespace(
+        create_session=AsyncMock(return_value=session),
+        _begin_session_use=Mock(),
+        _end_session_use=Mock(),
+    )
+    return toolset, approve, session
+
+
+def _tool(name, annotations=None):
+    return SimpleNamespace(name=name, inputSchema={"type": "object"}, annotations=annotations)
+
+
+@pytest.fixture
+def native_ok(monkeypatch):
+    native = AsyncMock(return_value={"content": [], "structuredContent": {"count": 1}})
+    monkeypatch.setattr(McpTool, "_run_async_impl", native)
+    return native
+
+
+async def test_credentialed_read_only_tool_runs_without_review(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "credentialed", [_tool("search", SimpleNamespace(readOnlyHint=True))]
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        assert tool.descriptor["annotations"] == READ_ONLY
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result == {
+            "status": "ok",
+            "isError": False,
+            "result": {"count": 1},
+            "truncated": False,
+            "review": "read_only",
+            "connectorId": "custom_one",
+        }
+        approve.assert_not_awaited()
+        native_ok.assert_awaited_once()
+    finally:
+        await toolset.close()
+
+
+@pytest.mark.parametrize(
+    "annotations",
+    [
+        None,
+        SimpleNamespace(readOnlyHint=False),
+        SimpleNamespace(readOnlyHint=True, destructiveHint=True),
+        SimpleNamespace(readOnlyHint="yes"),
+    ],
+)
+async def test_credentialed_non_read_tool_keeps_exact_call_review(native_ok, annotations):
+    toolset, approve, _ = _policy_toolset("credentialed", [_tool("write", annotations)])
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result == {"status": "review_required", "connectorId": "custom_one"}
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_credentialless_connector_runs_unannotated_tool_without_review(native_ok):
+    toolset, approve, _ = _policy_toolset("credentialless", [_tool("write")], headers={})
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        # Not claimed as a read: an unannotated public tool may change things.
+        assert result["status"] == "ok" and result["review"] == "no_credential"
+        approve.assert_not_awaited()
+        native_ok.assert_awaited_once()
+    finally:
+        await toolset.close()
+
+
+async def test_default_policy_reviews_even_a_read_only_tool(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "always", [_tool("search", SimpleNamespace(readOnlyHint=True))]
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_unreviewed_read_never_touches_the_action_directive_ledger(native_ok, monkeypatch):
+    """Reads must work on a database without migration 248; writes still need it."""
+    from hushh_mcp.one_adk import mcp_call_approval
+
+    def ledger_unavailable(*_args, **_kwargs):
+        raise AssertionError("ledger touched")
+
+    monkeypatch.setattr(mcp_call_approval, "ActionDirectiveStore", ledger_unavailable)
+    toolset, _, _ = _policy_toolset(
+        "credentialed",
+        [_tool("search", SimpleNamespace(readOnlyHint=True)), _tool("write")],
+    )
+    toolset.authorize_call = mcp_call_approval.review_or_resume_call
+    context = SimpleNamespace(
+        user_id="owner",
+        state={
+            "hussh:user_id": "owner",
+            "hussh:conversation_id": "thread",
+            "temp:one_execution_surface": "typed_chat",
+        },
+    )
+    try:
+        tools = {tool.descriptor["name"]: tool for tool in await toolset.get_tools(context)}
+        read = await tools["search"].run_async(args={}, tool_context=context)
+        assert read["status"] == "ok" and read["review"] == "read_only"
+        # Negative control: the reviewed path does reach the ledger.
+        write = await tools["write"].run_async(args={}, tool_context=context)
+        assert write == {
+            "error": "MCP_CALL_UNAVAILABLE",
+            "outcome": "unknown",
+            "retryable": False,
+            "connectorId": "custom_one",
+        }
+        native_ok.assert_awaited_once()
+    finally:
+        await toolset.close()
+
+
+async def test_hint_flip_after_discovery_invalidates_the_unreviewed_tool(native_ok):
+    tool_descriptor = _tool("search", SimpleNamespace(readOnlyHint=True))
+    toolset, approve, _ = _policy_toolset("credentialed", [tool_descriptor])
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        tool_descriptor.annotations = SimpleNamespace(readOnlyHint=False)
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result["error"] == "MCP_CATALOG_CHANGED"
+        approve.assert_not_awaited()
+        native_ok.assert_not_awaited()
+        fresh = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        assert (await fresh.run_async(args={}, tool_context=SimpleNamespace(user_id="owner")))[
+            "status"
+        ] == "review_required"
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_review_policy_change_is_a_connection_change(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "credentialed", [_tool("search", SimpleNamespace(readOnlyHint=True))]
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        current = toolset.resolve_connection.return_value
+        toolset.resolve_connection.return_value = replace(current, review_policy="credentialless")
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result["error"] == "MCP_CONNECTION_CHANGED"
+        approve.assert_not_awaited()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_provider_echo_of_the_credential_never_reaches_the_model(monkeypatch):
+    bearer = "synthetic-bearer-value-0123456789"
+    native = AsyncMock(
+        return_value={
+            "content": [],
+            "structuredContent": {
+                "echo": f"Authorization: Bearer {bearer}",
+                bearer: [f"token={bearer}"],
+                "short": "abc",
+            },
+        }
+    )
+    monkeypatch.setattr(McpTool, "_run_async_impl", native)
+    toolset, _, _ = _policy_toolset(
+        "credentialed",
+        [_tool("search", SimpleNamespace(readOnlyHint=True))],
+        headers={"Authorization": f"Bearer {bearer}"},
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result["status"] == "ok"
+        assert bearer not in repr(result)
+        assert result["result"]["echo"] == "Authorization: [redacted]"
+        assert result["result"]["[redacted]"] == ["token=[redacted]"]
+        assert result["result"]["short"] == "abc"
+    finally:
+        await toolset.close()
+
+
+@pytest.mark.parametrize(
+    ("policy", "annotations"),
+    [("credentialless", None), ("credentialed", SimpleNamespace(readOnlyHint=True))],
+)
+async def test_changed_contract_of_a_blocked_tool_always_needs_review(
+    native_ok, policy, annotations
+):
+    """Editing a blocked tool's description must not turn the block into execution."""
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_name
+
+    toolset, approve, _ = _policy_toolset(
+        policy,
+        [_tool("search", annotations)],
+        forced=frozenset({mcp_tool_name("custom_one", "search")}),
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result == {"status": "review_required", "connectorId": "custom_one"}
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_forced_review_set_change_is_a_connection_change(native_ok):
+    toolset, approve, _ = _policy_toolset("credentialless", [_tool("search")])
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        current = toolset.resolve_connection.return_value
+        toolset.resolve_connection.return_value = replace(
+            current, forced_review_tool_ids=frozenset({tool.name})
+        )
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result["error"] == "MCP_CONNECTION_CHANGED"
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_catalog_policy_cannot_invent_or_strip_review_hints(native_ok):
+    def forge(catalog):
+        return [
+            {**item, "annotations": {"readOnlyHint": True}}
+            if item["name"] == "write"
+            else {key: value for key, value in item.items() if key != "annotations"}
+            for item in catalog
+        ]
+
+    toolset, approve, _ = _policy_toolset(
+        "credentialed",
+        [_tool("search", SimpleNamespace(readOnlyHint=True)), _tool("write")],
+        catalog_policy=forge,
+    )
+    try:
+        tools = {
+            tool.descriptor["name"]: tool
+            for tool in await toolset.get_tools(SimpleNamespace(user_id="owner"))
+        }
+        assert tools["search"].descriptor["annotations"] == READ_ONLY
+        assert "annotations" not in tools["write"].descriptor
+        write = await tools["write"].run_async(
+            args={}, tool_context=SimpleNamespace(user_id="owner")
+        )
+        assert write["status"] == "review_required"
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_credential_is_redacted_before_a_large_result_is_capped(monkeypatch):
+    from hushh_mcp.services import external_mcp_client
+
+    bearer = "synthetic-bearer-straddles-the-cap-0123456789abcdef"
+    cap = external_mcp_client._MAX_RESULT_BYTES
+    # Place the credential across the half-cap cut used for the preview.
+    lead = "x" * (cap // 2 - len('{"text": "') - len(bearer) // 2)
+    native = AsyncMock(
+        return_value={
+            "content": [{"type": "text", "text": lead + bearer + "y" * cap}],
+        }
+    )
+    monkeypatch.setattr(McpTool, "_run_async_impl", native)
+    toolset, _, _ = _policy_toolset(
+        "credentialed",
+        [_tool("search", SimpleNamespace(readOnlyHint=True))],
+        headers={"Authorization": f"Bearer {bearer}"},
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        assert result["truncated"] is True
+        preview = result["result"]["preview"]
+        assert not any(bearer[:size] in preview for size in range(12, len(bearer) + 1))
+    finally:
+        await toolset.close()

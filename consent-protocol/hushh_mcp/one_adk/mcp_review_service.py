@@ -14,6 +14,7 @@ from google.adk.sessions import InMemorySessionService, Session
 
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.governed_mcp_toolset import (
+    mcp_review_outcome,
     mcp_tool_fingerprint,
     native_registration_admitted,
     validated_mcp_arguments,
@@ -69,11 +70,14 @@ async def discover_catalog(
     # discovery-only scope cannot execute, while Chat/review use the saved rule.
     visible_record = {**record, "blockedTools": []}
     blocked = {(entry["id"], entry["fingerprint"]) for entry in record.get("blockedTools", [])}
+    blocked_ids = {tool_id for tool_id, _ in blocked}
     async with mcp_turn_scope(thread, owner_id=owner, configurations=[visible_record]) as scope:
         toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
         tools = await toolset.get_tools(context)
         # Server-provided names are untrusted display text, not permission or
         # instructions. Exclude schemas/results/credentials from this UI view.
+        # "review" mirrors the Chat decision exactly. It is a separate additive
+        # field so an older app that only knows ask_first/blocked still parses.
         return {
             "connectorId": connector_id,
             "configurationRevision": record["revision"],
@@ -87,6 +91,12 @@ async def discover_catalog(
                     "permission": "blocked"
                     if (tool.name, mcp_tool_fingerprint(tool.descriptor)) in blocked
                     else "ask_first",
+                    "review": "required"
+                    if mcp_review_outcome(
+                        toolset.review_policy, tool.descriptor, forced=tool.name in blocked_ids
+                    )
+                    == "required"
+                    else "not_required",
                 }
                 for tool in tools
             ],

@@ -358,7 +358,15 @@ async def test_founder_wiki_uses_generic_vault_mcp_path(runtime, monkeypatch):
         assert "synthetic" not in repr(resolved)
 
 
-@pytest.mark.parametrize("value", ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "HCT:synthetic.signature",
+        "Bearer HCT:synthetic.signature",
+        "Token HCT:synthetic.signature",
+        "  basic   hct:synthetic.signature",
+    ],
+)
 def test_vault_owner_token_cannot_be_forwarded_as_custom_api_key(value):
     record = configuration()
     record["authentication"]["value"] = value
@@ -416,3 +424,47 @@ def test_invalid_blocked_tool_configuration_fails_closed(blocked):
     with pytest.raises(ExternalMcpError) as caught:
         module.validate_mcp_turn_configurations([{**configuration(), "blockedTools": blocked}])
     assert caught.value.code == "MCP_CONFIGURATION_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("authentication", "policy"),
+    [
+        ({"kind": "none"}, "credentialless"),
+        (
+            {"kind": "api_key", "header": "Authorization", "value": "Bearer synthetic"},
+            "credentialed",
+        ),
+        ({"kind": "oauth", "accessToken": "synthetic", "expiresAt": 4102444800}, "credentialed"),
+    ],
+)
+async def test_review_policy_follows_whether_the_person_gave_a_credential(
+    runtime, monkeypatch, authentication, policy
+):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    record = {**configuration(), "authentication": authentication}
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.review_policy == policy
+        toolset = await scope.acquire(
+            authorized_context(), record["connectorId"], authorize_call=AsyncMock()
+        )
+        assert toolset.review_policy == policy
+
+
+async def test_registered_database_connector_keeps_review_for_every_call(runtime):
+    async with module.mcp_turn_scope("thread") as scope:
+        resolved = await scope.resolve_connection(authorized_context(), "custom_one")
+        assert resolved.review_policy == "always"
+
+
+async def test_owner_blocked_tool_ids_force_review_in_chat(runtime, monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    blocked = {"id": "mcp_" + "a" * 40, "fingerprint": "b" * 64}
+    record = {**configuration(), "authentication": {"kind": "none"}, "blockedTools": [blocked]}
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.forced_review_tool_ids == frozenset({blocked["id"]})
+        toolset = await scope.acquire(
+            authorized_context(), record["connectorId"], authorize_call=AsyncMock()
+        )
+        assert toolset.forced_review_tool_ids == frozenset({blocked["id"]})

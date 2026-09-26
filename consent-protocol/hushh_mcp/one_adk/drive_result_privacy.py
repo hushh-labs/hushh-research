@@ -18,6 +18,8 @@ _PRIVATE_TOOLS = frozenset(
 )
 _PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp"})
 _DYNAMIC_MCP_TOOL = re.compile(r"mcp_[0-9a-f]{40}\Z")
+_CONNECTOR_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+_REVIEW_OUTCOMES = frozenset({"read_only", "no_credential", "approved"})
 
 
 def _private_tool_name(name: object) -> bool:
@@ -197,7 +199,7 @@ def _safe_result(value: object) -> dict[str, Any]:
     result = value if isinstance(value, dict) else {}
     status = result.get("status")
     safe = {
-        "status": status if status in _OUTCOMES else "unavailable",
+        "status": status if isinstance(status, str) and status in _OUTCOMES else "unavailable",
         "private_result": "not_retained",
         "truncated": result.get("truncated") is True,
     }
@@ -205,6 +207,14 @@ def _safe_result(value: object) -> dict[str, Any]:
     # card after private tool arguments and results have been removed.
     if status == "permission_required" and result.get("provider") in _WORKSPACE_PROVIDERS:
         safe["provider"] = result["provider"]
+    # Opaque connector id and review outcome label the owner's Activity step.
+    # Neither is provider-authored text, a credential, or call content.
+    connector = result.get("connectorId")
+    if isinstance(connector, str) and _CONNECTOR_ID.fullmatch(connector):
+        safe["connectorId"] = connector
+    review = result.get("review")
+    if isinstance(review, str) and review in _REVIEW_OUTCOMES:
+        safe["review"] = review
     return safe
 
 

@@ -681,3 +681,61 @@ def test_storage_keeps_safe_outcome_and_truncation(status):
         "private_result": "not_retained",
         "truncated": True,
     }
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_extra"),
+    [
+        (
+            {
+                "status": "ok",
+                "result": {"private": "PRIVATE_SENTINEL"},
+                "review": "read_only",
+                "connectorId": "custom_" + "a" * 32,
+            },
+            {"review": "read_only", "connectorId": "custom_" + "a" * 32},
+        ),
+        (
+            {
+                "status": "ok",
+                "result": "PRIVATE_SENTINEL",
+                "review": "approved",
+                "connectorId": "custom_" + "a" * 32,
+            },
+            {"review": "approved", "connectorId": "custom_" + "a" * 32},
+        ),
+        (
+            {"status": "ok", "review": "no_credential", "connectorId": "custom_" + "a" * 32},
+            {"review": "no_credential", "connectorId": "custom_" + "a" * 32},
+        ),
+        # Anything not exactly one of the public shapes is dropped, never echoed.
+        ({"status": "ok", "review": "not_required"}, {}),
+        (
+            {"status": "ok", "review": "PRIVATE_SENTINEL", "connectorId": "PRIVATE SENTINEL"},
+            {},
+        ),
+        ({"status": "ok", "review": ["approved"], "connectorId": 7}, {}),
+        (
+            {"status": ["ok"], "connectorId": "custom_" + "a" * 32},
+            {"connectorId": "custom_" + "a" * 32},
+        ),
+        (
+            {"error": "MCP_PROVIDER_ERROR", "connectorId": "custom_" + "a" * 32},
+            {"connectorId": "custom_" + "a" * 32},
+        ),
+    ],
+)
+def test_connector_step_label_fields_are_the_only_additions(content, expected_extra):
+    event = ToolCallResultEvent(
+        message_id="result-mcp", tool_call_id="mcp-call", content=json.dumps(content)
+    )
+    safe = json.loads(redact_drive_wire_event(event, {"mcp-call"}).content)
+    status = content.get("status")
+    status = status if isinstance(status, str) else "unavailable"
+    assert safe == {
+        "status": status,
+        "private_result": "not_retained",
+        "truncated": False,
+        **expected_extra,
+    }
+    assert "PRIVATE" not in json.dumps(safe)

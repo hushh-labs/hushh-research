@@ -425,3 +425,9 @@ tests/test_one_output_privacy.py
 tests/test_governed_mcp_toolset.py
 tests/test_mcp_review_service.py
 tests/test_mcp_review_wire_contract.py
+# Custom connectors: reads free, writes reviewed. The review policy follows the
+# person's credential, a stale owner block forces review, and only opaque
+# connector ids and review outcomes reach the browser wire.
+tests/test_mcp_turn_scope.py
+tests/test_drive_result_privacy.py
+tests/test_registered_mcp_toolset.py
