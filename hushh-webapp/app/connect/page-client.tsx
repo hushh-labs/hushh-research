@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -2725,6 +2726,47 @@ export default function ConnectPageClient() {
     );
   });
 
+  const handleDirectoryMenuKeyDown = (
+    event: ReactKeyboardEvent<HTMLElement>,
+  ) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]:not([disabled])',
+      ),
+    );
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    let nextIndex: number;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (currentIndex < 0)
+      nextIndex = event.key === "ArrowDown" ? 0 : items.length - 1;
+    else if (event.key === "ArrowDown")
+      nextIndex = (currentIndex + 1) % items.length;
+    else nextIndex = (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+
+  const handleDirectoryMenuTriggerKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    setDirectoryMenuOpen(true);
+    window.requestAnimationFrame(() => {
+      const items = document.querySelectorAll<HTMLButtonElement>(
+        '[data-testid="connect-directory-menu"] [role="menuitemradio"]:not([disabled])',
+      );
+      const target =
+        event.key === "ArrowDown" ? items[0] : items[items.length - 1];
+      target?.focus();
+    });
+  };
+
   const directorySelector = (
     <div
       ref={directoryMenuRef}
@@ -2741,6 +2783,7 @@ export default function ConnectPageClient() {
               aria-expanded={directoryMenuOpen}
               aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
               className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+              onKeyDown={handleDirectoryMenuTriggerKeyDown}
             >
               <SectionLabel
                 as="span"
@@ -2762,6 +2805,7 @@ export default function ConnectPageClient() {
             sideOffset={6}
             collisionPadding={16}
             className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+            onKeyDown={handleDirectoryMenuKeyDown}
           >
             {directoryMenuItems}
           </PopoverContent>
@@ -2776,6 +2820,7 @@ export default function ConnectPageClient() {
             aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
             className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => setDirectoryMenuOpen((current) => !current)}
+            onKeyDown={handleDirectoryMenuTriggerKeyDown}
           >
             <SectionLabel
               as="span"
@@ -2793,6 +2838,7 @@ export default function ConnectPageClient() {
               role="menu"
               data-testid="connect-directory-menu"
               className={CONNECT_DIRECTORY_MENU_CLASSNAME}
+              onKeyDown={handleDirectoryMenuKeyDown}
             >
               {directoryMenuItems}
             </div>
@@ -4003,17 +4049,17 @@ export default function ConnectPageClient() {
         />
 
         {showLimitBanner && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
-            <span className="text-xs font-medium text-foreground">
+          <div className="fixed top-[calc(var(--app-safe-area-top-effective,0px)+4.5rem)] left-1/2 z-(--z-transient) flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 flex-col gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-3.5 shadow-[var(--app-card-shadow-feature)] animate-in fade-in slide-in-from-top-3 duration-150 sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0 text-sm font-medium leading-5 text-foreground">
               You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
             </span>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="grid w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
                 size="compact"
-                className="text-muted-foreground hover:bg-muted"
+                className="w-full text-muted-foreground hover:bg-muted sm:w-auto"
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel
@@ -4023,6 +4069,7 @@ export default function ConnectPageClient() {
                 variant="blue"
                 effect="fill"
                 size="compact"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   setShowLimitBanner(false);
                   if (selectedPeople.size === 0) return;

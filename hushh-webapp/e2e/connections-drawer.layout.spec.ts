@@ -326,6 +326,18 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await hamburger.click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await expect(connectors).toBeVisible();
+  const backdrop = page.getByTestId("agent-connections-backdrop");
+  await expect(backdrop).toHaveCSS("backdrop-filter", /blur\(/);
+
+  const focusables = connectors.locator(
+    'a[href]:visible, button:not([disabled]):visible, textarea:not([disabled]):visible, input:not([disabled]):visible, select:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible',
+  );
+  await focusables.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(focusables.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(focusables.first()).toBeFocused();
+
   await page.mouse.click(24, 400);
   await expect(connectors).not.toBeVisible();
   await hamburger.click();

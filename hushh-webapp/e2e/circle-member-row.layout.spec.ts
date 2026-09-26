@@ -852,13 +852,13 @@ test.describe("Circle roster row", () => {
       });
       await expect(sheet).toContainText(fixture.memberName);
       await expect(
-        page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
+        page.getByRole("group", { name: `Actions for ${fixture.memberName}` }),
       ).toBeVisible();
       await expect(
-        page.getByRole("menuitem", { name: "Share location" }),
+        sheet.getByRole("button", { name: "Share location" }),
       ).toBeVisible();
       await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
+        sheet.getByRole("button", { name: "Remove from Circle" }),
       ).toBeVisible();
 
       const sheetBox = (

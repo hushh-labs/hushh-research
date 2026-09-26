@@ -2814,6 +2814,29 @@ describe("Connect — Circles", () => {
     ).toBeTruthy();
   });
 
+  it("moves through directory choices with menu arrow keys", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const trigger = screen.getByRole("button", { name: /Current directory:/ });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+
+    const menu = await screen.findByTestId("connect-directory-menu");
+    const people = within(menu).getByRole("menuitemradio", { name: "People" });
+    const rias = within(menu).getByRole("menuitemradio", { name: "RIAs" });
+    const nearby = within(menu).getByRole("menuitemradio", {
+      name: "Around you",
+    });
+
+    await waitFor(() => expect(people).toHaveFocus());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(rias).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(nearby).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(people).toHaveFocus();
+  });
+
   it("keeps the existing inline directory menu when running in native", async () => {
     mocks.isNative.mockReturnValue(true);
     render(<ConnectPageClient />);

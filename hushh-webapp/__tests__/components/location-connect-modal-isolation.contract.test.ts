@@ -99,6 +99,22 @@ describe("Location and Connect blocking surfaces", () => {
     }
   });
 
+  it("uses modal focus boundaries by default while retaining explicit map exceptions", () => {
+    expect(sourceOf("components/ui/dialog.tsx")).toContain("modal = true");
+    expect(sourceOf("components/ui/sheet.tsx")).toContain("modal = true");
+    expect(
+      sourceOf("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx"),
+    ).toContain("modal={false}");
+  });
+
+  it("keeps the custom Agent Chat drawer on the same blurred scrim tokens", () => {
+    const source = sourceOf("components/agent/agent-connections-drawer.tsx");
+    expect(source).toContain("bg-[color:var(--app-scrim-color)]");
+    expect(source).toContain("[backdrop-filter:var(--app-scrim-filter)]");
+    expect(source).not.toContain("bg-black/35");
+    expect(source).not.toContain("dark:bg-black/55");
+  });
+
   it("uses lighter touch blur while preserving the native Android dim-only safeguard", () => {
     const css = sourceOf("app/globals.css");
 

@@ -170,7 +170,7 @@ export function SelectedContactsSheet({
                       onClick={() => onRemove(recipient.userId)}
                       disabled={busy}
                       aria-label={"Remove " + label}
-                      className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
+                      className="press-scale flex min-h-11 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
                     >
                       {busy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
