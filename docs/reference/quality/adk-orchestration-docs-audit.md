@@ -1144,3 +1144,63 @@ Protected machine checks returned `/pod/info` 200 with matching pod identity and
 is a legacy bootstrap prerequisite, not a normal update success or permission to
 bypass approval. The temporary integration checkout was removed after its commits
 were preserved on the original branch; unrelated PDF edits remained hash-identical.
+
+### Governed dev deployment and reviewer evidence — 2026-09-26
+
+Application evidence is bound to `4b7e86bb7e8428eba4b0a39a61e2526999c4ced7`,
+not subsequent documentation or rehearsal corrections. [CI run 36235279905](https://github.com/hushh-labs/hushh-research/actions/runs/36235279905)
+passed every required lane. Complete local `./bin/hushh ci` also passed, including
+10,094 frontend tests, 6,770 backend tests and the 92-test PKM upgrade gate;
+existing skips remain skips. The advisory merge-fidelity scan exhausted its
+historical time budget. A bounded review of the two latest integration merges
+found their flagged owner checks, tests and activity mappings preserved; this does
+not certify all older merges.
+
+[Dev deployment 36236325791](https://github.com/hushh-labs/hushh-research/actions/runs/36236325791)
+completed through the main-owned workflow, using Cloud Build and the exact green
+application SHA. Independent readback found backend `consent-protocol-00099-rwb`
+and frontend `hushh-webapp-00069-qq6` each serving that SHA at 100% traffic.
+Gemini 3.7 Flash is configured. Candidate health, immutable provenance, runtime
+parity and schema gates passed. Semantic verification has no blocking failures,
+but reports `ria_stage1_query_only` as `provider_unavailable`; the healthy release
+classification does not establish that dependency's availability.
+
+Dev migration readback confirms 940 and 941 applied, all previously observed
+ledger rows unchanged, and the minimum-schema contract passing after the additive
+Drive sharing table was created. These observations do not prove a live rollback.
+The dev-only release `2026.09-dev.1+4b7e86bb7e84.557fb8dd` binds the same source to
+pod digest `sha256:557fb8dd56c2f4d5bb3f3698ac224f8f9e61427b7cdd24fa90368034758e4734`.
+Its predecessor allowlist remains empty. Publication did not install an owner pod.
+
+| Surface | Observed result | Remaining acceptance |
+| --- | --- | --- |
+| Source / main | Frozen candidate CI passed; application remains on the infrastructure branch | Future main promotion requires its own current checks and release decision |
+| Dev hub and frontend | Governed deployment, serving readback and schema checks passed | RIA provider dependency remains degraded; capacity and overload measurements remain open |
+| Reviewer Hosting / Updates | Existing BYOC assignment preserved; check feedback, honest reported-version state, no unsupported install offer, same-session vault continuity and separate cold unlock passed | Actual approval, drain, restart, recovery and installed-digest verification require a compatible predecessor |
+| Reviewer chat | Synthetic request refused with HTTP 409 `AGENT_PRIVATE_RUNTIME_REQUIRED` | End-to-end private turn is not accepted; do not substitute Shared or bypass pod authority |
+| Reviewer trusted devices / Puppy | Read-only API and pane navigation verified; canonical reviewer has no enrolled devices | Separate-network Puppy cannot be proved without the real owner-bound device; warm revisit also exposes the cache-population gap below |
+| Files / private commands / runtime | Source and focused suites passed | Live transfers, jobs, typed/spoken pod turns, idle behavior and resource envelope remain unverified on the legacy reviewer pod |
+| UAT / production | No deployment, stable publication or application merge performed | Environment-specific compatibility, recovery, provider, capacity and release acceptance remain required |
+
+The existing Trusted Devices rehearsal now uses the canonical profile pane and
+Firebase identity for its identity-authenticated endpoint, waits for loaded
+information, and accepts heartbeat-backed liveness labels. Its former PKM-token
+401 and premature status assertion were probe defects. The corrected rehearsal
+still fails its warm-return check: `trusted-devices-page.tsx` supplies a raw loader
+to `useStaleResource` without a service-owned cache write. Track the bounded fix
+under `frontend-cache-coherence`; do not weaken the warm-cache assertion or
+persist private device information to disk to make it pass.
+
+The protected reviewer pod still predates authenticated upgrade handoff and lacks
+an incarnation receipt. The normal Settings installation rehearsal therefore
+remains blocked. A separately authorized, recovery-verified legacy maintenance
+transition is governed by `repo-operations` and the existing first-light runbook;
+it must preserve the service and owner resources and is not normal-update proof.
+No replacement reviewer, device enrollment, owner-pod bootstrap, destructive fault
+injection or automatic upgrade was performed. Failed synthetic turns were refused
+at routing admission; reviewer history and assignments were not reset.
+
+Affected private Wiki reconciliation was attempted after deployment. The connector
+reported `No refresh token is set` during durable persistence; readback did not
+contain the deployment update. Wiki synchronization remains blocked on connector
+reauthentication. The repository audit is the verified record for this pass.
