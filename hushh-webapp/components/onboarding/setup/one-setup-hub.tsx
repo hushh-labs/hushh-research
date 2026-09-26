@@ -12,7 +12,6 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
-import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
@@ -28,6 +27,7 @@ import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
@@ -89,6 +89,20 @@ export function OneSetupHub() {
       return;
     }
     let active = true;
+    const reconcileSavedChoice = () => {
+      const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      if (!active || !saved) return;
+      setRuntimeChoiceSnapshot({
+        userId: user.uid,
+        state: PreVaultUserStateService.hasOneRuntimeChoice(saved) ? "complete" : "required",
+      });
+    };
+    const unsubscribe = CacheService.getInstance().subscribe((event) => {
+      if (event.type === "set" && event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) {
+        reconcileSavedChoice();
+      }
+    });
+    const cleanup = () => { active = false; unsubscribe(); };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setRuntimeChoiceSnapshot({
@@ -97,7 +111,7 @@ export function OneSetupHub() {
           ? "complete"
           : "required",
       });
-      return;
+      return cleanup;
     }
     setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
     void PreVaultUserStateService.bootstrapState(user.uid)
@@ -115,19 +129,10 @@ export function OneSetupHub() {
           setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
         }
       });
-    return () => {
-      active = false;
-    };
+    return cleanup;
   }, [user?.uid]);
 
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
-  // The only mandatory step left in the hub is the AI-access choice, so the
-  // progress projection is just that one step.
-  const progressSteps = [{ id: "connections", complete: runtimeChoiceComplete }];
-  const total = progressSteps.length;
-  const done = progressSteps.filter((step) => step.complete).length;
-  const remaining = total - done;
-  const allReady = total > 0 && remaining === 0;
   // Capability setup is optional, but the root vault is not. Finish setup is
   // therefore the only exit from the hub and always leads to vault setup when
   // the vault is not already unlocked.
@@ -299,14 +304,7 @@ export function OneSetupHub() {
         }
       }
       if (!runtimeChoiceConfirmed) {
-        // The action stays tappable precisely so this can fire. A permanent
-        // line under the button was the only thing naming the blocker before,
-        // and it sat there unread until someone had already tapped and got
-        // nothing back; the phone action had a `title` tooltip, which a touch
-        // device never shows at all. A toast answers the tap that asked, and
-        // carries the way out with it.
-        //
-        // One block, no description: the toast ceiling is two lines.
+        // Keep the prerequisite guard for voice/programmatic entry as well.
         toast.info("Choose your AI first.", {
           action: {
             label: "Choose",
@@ -348,21 +346,9 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  // Phones get the master action as a bare header link with no supporting line
-  // under it, so the one mandatory step has to be named somewhere they can read
-  // it before they tap. The header description is the only copy both layouts
-  // share, so the blocker rides there rather than only in the desktop footer.
-  //
-  // It carries ONLY that. The segmented progress bar below already renders
-  // "done of total"; repeating the count in words was two facts competing for
-  // the one line people actually read.
   const summary = hubStateLoading
     ? "One moment…"
-    : allReady
-      ? "Add more any time."
-      : !runtimeChoiceComplete
-        ? "Choose your AI first."
-        : `${remaining} left.`;
+    : runtimeChoiceComplete ? "Add more any time." : "Choose your AI first.";
 
   return (
     <AppPageShell
@@ -380,7 +366,7 @@ export function OneSetupHub() {
       <AppPageHeaderRegion>
           <PageHeader
             title={
-              !hubStateLoading && allReady ? "You're all set" : "Set up One"
+              !hubStateLoading && runtimeChoiceComplete ? "You're all set" : "Set up One"
             }
             description={summary}
             accent="neutral"
@@ -388,104 +374,44 @@ export function OneSetupHub() {
           />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className={styles.setupContent}>
         {hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
           <>
-            {total > 0 ? (
-              <div
-                className={styles.setupProgress}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={total}
-                aria-valuenow={done}
-                aria-label={`${done} of ${total} set up`}
-              >
-                <div className={styles.setupProgressLabel}>
-                  {done} of {total} complete
-                </div>
-                <div className={styles.setupProgressTrack} aria-hidden>
-                  <span
-                    className={styles.setupProgressFill}
-                    style={{
-                      width:
-                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
-                    }}
-                  />
-                </div>
-              </div>
-            ) : null}
             <div className={styles.flatChecklist}>
-              <SettingsGroup
-                title="Remaining"
-                testId="one-setup-capabilities-remaining"
-                separatorInset
-              >
-                {!runtimeChoiceComplete ? (
-                  <SetupNavigationTile
-                    id="connections"
-                    title="Choose your AI"
-                    description="Use ours, or bring your own."
-                    href={ROUTES.ONE_SETUP_CONNECTIONS}
-                    voiceControlId="one_setup_tile_connections"
-                    icon={lucideCapabilityIcon(PlugZap)}
-                    tone="connected"
-                    statusLabel="Required"
-                    // The one row that blocks the exit. A muted grey "Required"
-                    // reads like every other trailing label, so it gets the
-                    // accent pill and the current-step role instead.
-                    statusTone="required"
-                    isCurrent
-                  />
-                ) : null}
+              <SettingsGroup testId="one-setup-ai-choice" separatorInset>
+                <SetupNavigationTile
+                  id="connections"
+                  title="Choose your AI"
+                  description={runtimeChoiceComplete ? "Change this any time." : "Use ours, or bring your own."}
+                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  voiceControlId="one_setup_tile_connections"
+                  icon={lucideCapabilityIcon(PlugZap)}
+                  tone="connected"
+                  statusLabel={runtimeChoiceComplete ? "Selected" : "Required"}
+                  statusTone={runtimeChoiceComplete ? "muted" : "required"}
+                  isCurrent={!runtimeChoiceComplete}
+                  isComplete={runtimeChoiceComplete}
+                />
               </SettingsGroup>
-              {runtimeChoiceComplete ? (
-                <SettingsGroup
-                  title="Complete"
-                  testId="one-setup-capabilities-complete"
-                  separatorInset
-                >
-                  {runtimeChoiceComplete ? (
-                    <SetupNavigationTile
-                      id="connections"
-                      title="Choose your AI"
-                      description="Change this any time."
-                      href={ROUTES.ONE_SETUP_CONNECTIONS}
-                      voiceControlId="one_setup_tile_connections"
-                      icon={lucideCapabilityIcon(PlugZap)}
-                      tone="connected"
-                      statusLabel="Selected"
-                      isComplete
-                    />
-                  ) : null}
-                </SettingsGroup>
-              ) : null}
-            </div>
-            <div>
-              <SetupCompletionFooter
-                // The signed-in app scroll root already reserves the iOS safe
-                // area and persistent Talk to One bar. Reserving it again here
-                // creates an oversized empty tail beneath Finish setup.
-                insetBottom={false}
-                label={masterActionLabel}
-                onComplete={() => void handleMasterAck()}
-                busy={dismissing}
-                blocked={!runtimeChoiceComplete}
-                controlId="one-setup-master-ack"
-                actionId="setup.hub_master_ack"
-                testId="one-setup-master-ack"
-                purpose={
-                  "Finish setup and protect what you save."
-                }
-                // The blocker is no longer named here. It was permanent copy
-                // that had to be read before the tap to be any use, and the
-                // tap is exactly when people want the answer -- so it moved
-                // into the toast the blocked tap now raises.
-                supportingText="Set up the rest later."
-                variant="blue-gradient"
+              <Button
+                type="button"
+                variant="blue"
                 effect="fill"
-              />
+                size="prominent"
+                fullWidth
+                disabled={!runtimeChoiceComplete}
+                loading={dismissing}
+                onClick={() => void handleMasterAck()}
+                data-testid="one-setup-master-ack"
+                data-voice-control-id="one-setup-master-ack"
+                data-voice-action-id="setup.hub_master_ack"
+                data-voice-label={masterActionLabel}
+                data-voice-purpose="Finish setup and protect what you save."
+              >
+                {masterActionLabel}
+              </Button>
             </div>
           </>
         )}

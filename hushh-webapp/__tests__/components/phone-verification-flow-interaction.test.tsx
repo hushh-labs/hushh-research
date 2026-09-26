@@ -88,6 +88,57 @@ async function selectIndiaOnce() {
 }
 
 describe("PhoneVerificationFlow country selector", () => {
+  it("validates compact entry only after Continue, retains errors until corrected, and never sends invalid input", async () => {
+    const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
+    const input = screen.getByRole("textbox", { name: "Phone number" });
+    const submit = screen.getByRole("button", { name: "Send verification code" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(submit);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your phone number.");
+    expect(startVerification).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "123" } });
+    fireEvent.click(submit);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid phone number.");
+    expect(startVerification).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(startVerification).not.toHaveBeenCalled();
+    fireEvent.click(submit);
+    await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(1));
+    expect(startVerification).toHaveBeenCalledWith("+16505550101", { resendCode: false });
+  });
+
+  it("does not send the previous valid recipient after rejecting an oversized compact paste", () => {
+    const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
+    const input = screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.paste(input, { clipboardData: { getData: () => "650555010199" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid phone number.");
+    expect(startVerification).not.toHaveBeenCalled();
+  });
+
+  it("can resend after a valid voice replacement of rejected compact input", async () => {
+    const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
+    const input = screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.paste(input, { clipboardData: { getData: () => "650555010199" } });
+    await act(async () => {
+      await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
+        phoneNumber: "+16505550102",
+      });
+    });
+    await screen.findByRole("textbox", { name: "One-time code" });
+    expect(startVerification).toHaveBeenCalledWith("+16505550102", { resendCode: false });
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
+    expect(startVerification).toHaveBeenLastCalledWith("+16505550102", { resendCode: true });
+  });
+
   it("filters country choices from typed names and dial codes", async () => {
     renderPhoneVerificationFlow();
     const countryInput = screen.getByRole("combobox", {
