@@ -27,6 +27,8 @@ export type AgentVisibleStreamEvent = {
   tag?: string;
   /** First-party product whose official mark labels this step. */
   brand?: ConnectorBrand;
+  /** Opaque owner connector id on a restored step, resolved to the owner's name from the vault. */
+  connectorId?: string;
   createdAtMs: number;
 };
 

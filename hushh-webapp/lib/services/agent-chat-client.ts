@@ -34,6 +34,8 @@ export type AgentChatMessage = {
     structuredExperienceId?: string | null;
     structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
     connectorRead?: ConnectorReadExperience | null;
+    /** Bound history descriptor for the turn's Activity rows (enums and opaque ids only). */
+    turnActivity?: { activityType?: string; content?: unknown } | null;
   } | null;
 };
 
@@ -375,6 +377,76 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking your pending connection requests.",
   },
 };
+
+export const TURN_ACTIVITY_TYPE = "one.turn_activity.v1" as const;
+
+/** A restored Activity row: the same app-authored fields the live panel renders. */
+export type RestoredActivityStep = {
+  id: string;
+  label: string;
+  message: string;
+  status: "done" | "waiting" | "blocked";
+  tag?: "Read" | "Needs review" | "Public";
+  provider?: "gmail" | "drive" | "calendar";
+  toolName: string;
+  /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
+  connectorId?: string;
+};
+
+/**
+ * Rebuild a turn's Activity rows from the server's bound history descriptor.
+ * Labels and sentences come from the same app-owned table as the live stream;
+ * the descriptor only chooses among them. Unknown tools, statuses, or fields
+ * drop the row rather than render provider text.
+ */
+export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivityStep[] {
+  const record = asRecord(descriptor);
+  if (!record || record.activityType !== TURN_ACTIVITY_TYPE) return [];
+  const steps = asRecord(record.content)?.steps;
+  if (!Array.isArray(steps)) return [];
+  return steps.slice(-10).flatMap((value): RestoredActivityStep[] => {
+    const step = asRecord(value);
+    const id = typeof step?.id === "string" ? step.id.trim().slice(0, 128) : "";
+    const toolName = typeof step?.tool === "string" ? step.tool : "";
+    const rawStatus = step?.status;
+    if (!step || !id || !toolName) return [];
+    const mcp = /^mcp_[0-9a-f]{40}$/.test(toolName);
+    const presentation = SERVER_TOOL_PRESENTATION[toolName];
+    if (!mcp && !presentation) return [];
+    if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
+    const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
+    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    if (mcp) {
+      const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
+        ? step.connectorId : undefined;
+      const tag = status === "waiting" && step.review === "required" ? "Needs review"
+        : status === "done" && step.review === "read_only" ? "Read"
+          : status === "done" && step.review === "no_credential" ? "Public" : undefined;
+      return [{
+        id, toolName, label: "Connected tool", status,
+        message: rawStatus === "interrupted" ? "This step did not finish."
+          : status === "done" ? "Connector call finished."
+            : status === "waiting" ? "Waiting for your review." : "Connector call needs attention.",
+        ...(tag ? { tag } : {}),
+        ...(connectorId ? { connectorId } : {}),
+      }];
+    }
+    if (!presentation) return [];
+    let message = presentation.message;
+    if (rawStatus === "interrupted") message = "This step did not finish.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
+    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+      message = step.readStatus === "status_checked" ? "Drive status checked."
+        : step.readStatus === "ok" ? `${source} read finished.`
+          : step.readStatus === "input_required" ? `${source} needs more detail.`
+            : `${source} could not complete that read.`;
+    }
+    return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
+  });
+}
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
@@ -1137,6 +1209,7 @@ export async function getAgentChatHistory(input: {
             kind: message.metadata.kind,
             display: message.metadata.display,
             structuredExperience: message.metadata.structuredExperience,
+        turnActivity?: { activityType?: string; content?: unknown } | null;
             structuredExperienceId: message.metadata.structuredExperienceId,
             structuredExperiences: message.metadata.structuredExperiences,
             connectorRead:
@@ -1159,6 +1232,8 @@ export async function recordAgentChatInformationRequest(input: {
   const response = await ApiService.apiFetch(
     `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
     {
+            ...(message.role === "assistant" && message.metadata.turnActivity
+              ? { turnActivity: message.metadata.turnActivity } : {}),
       method: "POST",
       headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
       body: JSON.stringify({

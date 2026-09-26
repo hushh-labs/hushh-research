@@ -2,6 +2,8 @@ import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import {
   parseConnectorReadReceipt,
   parseWorkspaceConnectorSetup,
+  parseWorkspaceConnectorSetupDescriptor,
+  WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
   type ConnectorReadExperience,
   type WorkspaceConnectorSetupExperience,
 } from "./connector-read-receipt";
@@ -581,6 +583,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [KYC_READINESS_EXPERIENCE_TYPE]: parseKycReadiness,
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
+  [WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE]: parseWorkspaceConnectorSetupDescriptor,
 };
 
 export function parseAgentActivityExperience(
