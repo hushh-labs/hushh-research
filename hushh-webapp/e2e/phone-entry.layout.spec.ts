@@ -29,7 +29,8 @@ test.beforeAll(async () => {
         },
       },
     ],
-    oxc: { jsx: { runtime: "automatic" } },
+    // Match production React regardless of the parent process build mode.
+    oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["next/navigation", "next/image", "@/lib/firebase/auth-context", "@/components/app-ui/native-route-marker", "@/components/vault/vault-lock-guard", "@/lib/services/account-identity-service", "@/lib/services/onboarding-route-cookie", "@/lib/services/post-auth-route-service", "@/lib/services/pre-vault-user-state-service", "@/lib/services/ria-service", "@/lib/voice/voice-surface-metadata", "@/lib/agent/local-onboarding-actions", "@/lib/services/api-service", "@/lib/observability/client"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") })),
       { find: "@", replacement: root },

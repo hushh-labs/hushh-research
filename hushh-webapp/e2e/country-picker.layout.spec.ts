@@ -29,7 +29,8 @@ test.beforeAll(async () => {
         },
       },
     ],
-    oxc: { jsx: { runtime: "automatic" } },
+    // Keep JSX aligned with the production React bundle even after another fixture build.
+    oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: { "@": root } },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
