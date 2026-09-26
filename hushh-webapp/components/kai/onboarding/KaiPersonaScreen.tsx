@@ -60,9 +60,9 @@ export function KaiPersonaScreen(props: {
   return (
     <main
       data-top-content-anchor="true"
-      className="flex min-h-[100dvh] w-full max-w-full flex-col bg-transparent px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]"
+      className="flex min-h-[100dvh] w-full max-w-full flex-col bg-transparent px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))]"
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-1 flex-col justify-between py-2 sm:py-4">
+      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem)))] w-full max-w-[25rem] flex-1 flex-col justify-between py-2 sm:py-4">
         <section className="my-auto w-full text-center">
           <div className="mx-auto flex w-full flex-col items-center">
             <div

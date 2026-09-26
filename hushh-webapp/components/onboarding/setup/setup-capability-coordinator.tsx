@@ -619,6 +619,8 @@ type SetupCapabilityTerminalFooterProps = {
   finishLabel?: string;
   /** Override the default supporting text. Pass `null` to suppress it entirely. */
   supportingText?: string | null;
+  /** Whether this footer reserves space for the bottom app chrome / Agent Bar. */
+  insetBottom?: boolean;
 };
 
 /** Shared explicit Finish/Skip boundary, not a route query or header back button. */
@@ -630,6 +632,7 @@ export function SetupCapabilityTerminalFooter({
   skipLabel,
   finishLabel,
   supportingText: supportingTextOverride,
+  insetBottom = true,
 }: SetupCapabilityTerminalFooterProps) {
   const operationallyReady =
     isOperationallyReady || coordinator.operationallyReady;
@@ -643,10 +646,7 @@ export function SetupCapabilityTerminalFooter({
 
   return (
     <SetupCompletionFooter
-      // This footer is rendered into a wizard host that already reserves
-      // --app-scroll-bottom-pad on its own main. Reserving it again put a
-      // second ~142px band under the Skip control on every question screen.
-      insetBottom={false}
+      insetBottom={insetBottom}
       label={label}
       onComplete={() => {
         if (pending) return;
