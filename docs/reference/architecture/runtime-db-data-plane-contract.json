@@ -1019,8 +1019,8 @@
       ],
       "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
       "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
-      "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
-      "trust_boundary": "Operator-controlled connector endpoint, transport, registered redirects, verified capability policy, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never credential values. Policy and rollout admission are separate authorities; neither endpoints nor raw schemas are returned in customer status.",
+      "deletion_behavior": "Curated rows (user_id NULL) are operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped. Migration 247 adds the nullable owner column for future private registrations; no code on this lane writes a private row yet, and the account-deletion write guard covers the column from the moment it exists. Private-row erasure must ship with the registration code, before any private row can be written.",
+      "trust_boundary": "Operator-controlled connector endpoint, transport, registered redirects, verified capability policy, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never credential values. Policy and rollout admission are separate authorities; neither endpoints nor raw schemas are returned in customer status. A database constraint (migration 247) keeps any owner-private row at is_active=false, so readers that filter on is_active can never publish it; owner_enabled is owner-scoped availability only, never OAuth, tool, or execution authority.",
       "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
       "expected_row_growth": "low_reference"
     },
