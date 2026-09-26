@@ -56,7 +56,9 @@ function shareFailureCopy(code: string, name: string | null): string {
     case "connection_required":
       return "You're no longer connected with this person.";
     case "request_changed":
-      return "This answer changed. Refresh and choose the files again.";
+      return "This sharing attempt changed. Ask One to start a new share.";
+    case "drive_share_in_progress":
+      return "Sharing is in progress. Try again to check its status.";
     default:
       return "Couldn't share these files. Try again.";
   }
