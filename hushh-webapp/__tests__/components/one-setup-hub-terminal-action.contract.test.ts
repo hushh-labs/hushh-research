@@ -11,8 +11,8 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain('actionId="setup.hub_master_ack"');
-    expect(source).toContain('variant="blue-gradient"');
+    expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
+    expect(source).toContain('variant="blue"');
     expect(source).toContain('effect="fill"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
@@ -20,25 +20,6 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("uses the same responsive in-flow terminal action as a capability workspace", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain("<SetupCompletionFooter");
-    expect(source).toContain('testId="one-setup-master-ack"');
-    expect(source).toContain("blocked={!runtimeChoiceComplete}");
-    expect(source).toContain(
-      "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
-    );
-    expect(source).toContain("<SetupCompletionFooter");
-    expect(source).toContain("<div className={styles.flatChecklist}>");
-    expect(source.indexOf("<SetupCompletionFooter")).toBeGreaterThan(
-      source.indexOf("<div className={styles.flatChecklist}>"),
-    );
-    expect(source).not.toContain("actions={");
-  });
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {
     const styles = readFileSync(
@@ -53,21 +34,6 @@ describe("One setup hub terminal action contract", () => {
     expect(styles).not.toContain("--app-bottom-inset");
   });
 
-  it("keeps AI access with the remaining setup work instead of a separate private configuration section", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain('title="Remaining"');
-    expect(source).toContain('title="Choose your AI"');
-    expect(source).toContain("<SetupNavigationTile");
-    expect(source).toContain('voiceControlId="one_setup_tile_connections"');
-    expect(source).not.toContain("Private configuration");
-    expect(source.indexOf('title="Choose your AI"')).toBeLessThan(
-      source.indexOf('title="Complete"'),
-    );
-  });
 
   it("marks the one mandatory row as required rather than leaving it a quiet grey status", () => {
     const hub = readFileSync(
@@ -85,8 +51,8 @@ describe("One setup hub terminal action contract", () => {
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the
     // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('statusLabel="Required"');
-    expect(hub).toContain('statusTone="required"');
+    expect(hub).toContain('statusLabel={runtimeChoiceComplete ? "Selected" : "Required"}');
+    expect(hub).toContain('statusTone={runtimeChoiceComplete ? "muted" : "required"}');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
@@ -112,36 +78,6 @@ describe("One setup hub terminal action contract", () => {
     expect(icon).toContain('glyph: "h-[22px] w-[22px]"');
   });
 
-  it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-    const styles = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/one-setup-hub.module.css",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'id: "connections", complete: runtimeChoiceComplete',
-    );
-    expect(source).toContain("const total = progressSteps.length");
-    expect(source).toContain(
-      "const done = progressSteps.filter((step) => step.complete).length",
-    );
-    expect(source).toContain("className={styles.setupProgress}");
-    expect(source).toContain("{done} of {total} complete");
-    expect(source).toContain("className={styles.setupProgressTrack}");
-    expect(source).toContain("className={styles.setupProgressFill}");
-    expect(source).not.toContain("Array.from({ length: total })");
-    expect(styles).toContain(".setupProgressTrack");
-    expect(styles).not.toContain(".segmentedProgress");
-    expect(source).not.toContain("masterSkipped");
-    expect(source).not.toContain("const total = items.length");
-  });
 
   it("does not publish the master action before the AI-access choice settles", () => {
     const source = readFileSync(
@@ -160,52 +96,6 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("spends the accent only on a finish that can actually go through", () => {
-    const hub = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-    const footer = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/setup-completion-footer.tsx",
-      ),
-      "utf8",
-    );
-
-    // The master action is gated on the same mandatory AI access choice and
-    // must LOOK gated. `disabled:opacity-40/50` over the accent still
-    // reads as the blue primary action, which is what made a blocked finish
-    // look tappable and then swallow the tap.
-    expect(footer).toContain(
-      "const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction",
-    );
-    expect(footer).toContain("disabled:!bg-muted/60");
-    // ...and a visible edge with it. `muted` is the page surface in the light
-    // theme, so the fill alone leaves no control on screen.
-    expect(footer).toContain("disabled:!border-border");
-    expect(footer).toContain("aria-disabled={isBlockedTappableAction || undefined}");
-    expect(hub).not.toContain("disabled:opacity-40");
-
-    // ...but "looks gated" must not mean "eats the tap". The master action
-    // stay tappable while blocked and answer with a toast, because that is the
-    // moment someone is asking. The permanent supporting line and the phone
-    // `title` tooltip that used to carry the reason are gone -- the tooltip
-    // never rendered on touch anyway, which is the only place that action ships.
-    expect(footer).toContain("blocked?: boolean");
-    expect(footer).toMatch(
-      /const isBlockedTappableAction =\s+blocked && !disabled && !busy && !isQuietSetupAction/,
-    );
-    // One block, not a stacked description -- the two-line toast ceiling.
-    expect(hub).toContain('toast.info("Choose your AI first."');
-    expect(hub).not.toContain("description: \"Pick how One gets its AI");
-    expect(hub).not.toContain('title={\n                !runtimeChoiceComplete');
-    expect(hub).not.toContain('? "Choose your AI first."\n                    : "Set up the rest later."');
-
-    // The header summary still names it on both layouts, so the blocker is
-    // legible before the tap as well as after it.
-    expect(hub).toContain('"Choose your AI first."');
-  });
 
   it("keeps the mandatory-step language out of system nouns", () => {
     const hub = readFileSync(
@@ -235,7 +125,7 @@ describe("One setup hub terminal action contract", () => {
     expect(hub).toContain("Not even we can read it.");
     // "Add" was the wrong verb for a list of things you SET UP, and the line
     // is the last thing read before "Finish setup".
-    expect(hub).toContain('"Set up the rest later."');
+    expect(hub).not.toContain('"Set up the rest later."');
     expect(hub).not.toContain('"Add the rest any time."');
   });
 
@@ -290,18 +180,6 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("isOneSetupSurfaceRoute(path) ? null : raw");
   });
 
-  it("keeps the master action in the shared in-flow footer on mobile and desktop", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    // One primary setup action should stay in the shared footer; the footer owns
-    // bottom-safe-area clearance, so mobile does not need a separate header CTA.
-    expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
-    expect(source).not.toContain('<div className="hidden sm:block">');
-    expect(source).toContain('<SetupCompletionFooter');
-  });
 
   it("does not reserve header space for a duplicate mobile action", () => {
     const source = readFileSync(

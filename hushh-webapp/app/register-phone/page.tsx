@@ -334,7 +334,7 @@ export function PhoneMandatePageContent() {
         onClick={() => router.back()}
         className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.safeBack)}
       >
-        <ChevronLeft className={cn("h-[18px] w-[18px]", styles.originalBackGlyph)} strokeWidth={2} />
+        <ChevronLeft className={cn("h-[18px] w-[18px]", styles.originalBackGlyph)} weight="bold" />
         <span aria-hidden="true" className={styles.figmaBackGlyph} />
       </button>
 
@@ -346,7 +346,7 @@ export function PhoneMandatePageContent() {
               aria-label="Account actions"
               className={cn("grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.accountControl)}
             >
-              <MoreHorizontal className="h-[18px] w-[18px]" />
+              <MoreHorizontal className="h-[18px] w-[18px]" weight="bold" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -381,7 +381,7 @@ export function PhoneMandatePageContent() {
                 verificationStep === "code"
                   ? "Enter your code"
                   : verificationStep === "phone"
-                    ? "Your phone number"
+                    ? "Enter your phone number"
                     : "Verify your phone number"
               }
               className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
@@ -389,7 +389,7 @@ export function PhoneMandatePageContent() {
               {verificationStep === "code"
                 ? "Enter your code"
                 : verificationStep === "phone"
-                  ? "Your phone number"
+                  ? "Enter your phone number"
                   : "Verify your phone number"}
             </h1>
           </div>

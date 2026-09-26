@@ -258,9 +258,7 @@
 }
 
 :global(html:not(.dark)) .refinedScreen .safeBack {
-  /* Figma 185:2696: (23, 72), 44 × 44; 10pt below the 62pt top inset. */
-  top: calc(var(--phone-safe-top) + 10px);
-  left: max(23px, calc((100vw - 402px) / 2 + 23px));
+  left: max(16px, env(safe-area-inset-left, 0px));
   width: 44px;
   height: 44px;
   border-radius: 100px;
@@ -270,18 +268,15 @@
 }
 
 :global(html:not(.dark)) .refinedScreen .originalBackGlyph {
-  display: none;
+  display: block;
 }
 
 :global(html:not(.dark)) .refinedScreen .figmaBackGlyph {
-  display: block;
-  width: 10px;
-  height: 17px;
-  background: url("/onboarding/figma/auth-back-chevron.svg") center / contain no-repeat;
+  display: none;
 }
 
 :global(html:not(.dark)) .refinedScreen .safeAccount {
-  right: max(24px, calc((100vw - 402px) / 2 + 24px));
+  right: max(16px, env(safe-area-inset-right, 0px));
 }
 
 :global(html:not(.dark)) .refinedScreen .accountControl {
@@ -345,9 +340,7 @@
 }
 
 :global(html.dark) .refinedScreen .safeBack {
-  /* Figma 185:2696: (23, 72), 44 × 44; 10pt below the 62pt top inset. */
-  top: calc(var(--phone-safe-top) + 10px);
-  left: max(23px, calc((100vw - 402px) / 2 + 23px));
+  left: max(16px, env(safe-area-inset-left, 0px));
   width: 44px;
   height: 44px;
   border-radius: 100px;
@@ -357,19 +350,15 @@
 }
 
 :global(html.dark) .refinedScreen .originalBackGlyph {
-  display: none;
+  display: block;
 }
 
 :global(html.dark) .refinedScreen .figmaBackGlyph {
-  display: block;
-  width: 10px;
-  height: 17px;
-  background: url("/onboarding/figma/auth-back-chevron.svg") center / contain no-repeat;
-  filter: brightness(0) invert(1);
+  display: none;
 }
 
 :global(html.dark) .refinedScreen .safeAccount {
-  right: max(24px, calc((100vw - 402px) / 2 + 24px));
+  right: max(16px, env(safe-area-inset-right, 0px));
 }
 
 :global(html.dark) .refinedScreen .accountControl {
@@ -403,7 +392,6 @@
 }
 
 :global(html.dark) .refinedScreen [data-slot="input-group"] { background: #1c1c1e !important; border: 0 !important; }
-:global(html.dark) .refinedScreen .primaryAction { background: #0088ff !important; font-weight: 500 !important; }
 
 /* Code entry uses the shared flow; backgrounds and fixed controls stay owned
    by the existing route. Only this step receives the reference composition. */
@@ -563,12 +551,20 @@
 }
 .learnMore { color: var(--app-accent-deep); }
 .learnMore:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
-.refinedScreen .primaryAction {
-  height: 52px !important;
-  min-height: 52px !important;
-  block-size: 52px !important;
-  min-block-size: 52px !important;
-  font-size: 17px !important;
-  font-weight: 500 !important;
-  border-radius: var(--app-radius-pill) !important;
+
+/* Validation stays distinct from consent/helper copy in both themes. */
+.refinedScreen [data-figma-phone-field="number"][data-invalid="true"] [data-slot="input-group"] {
+  border: 1px solid var(--destructive) !important;
+  outline: none;
+  box-shadow: none;
+}
+.refinedScreen [data-slot="field-error"] {
+  color: var(--destructive) !important;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+}
+.refinedScreen .safeBack,
+.refinedScreen .accountControl {
+  color: var(--foreground);
 }
