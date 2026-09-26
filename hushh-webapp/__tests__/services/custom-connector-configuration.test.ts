@@ -89,6 +89,15 @@ describe("vault-backed custom connector configuration", () => {
     }
     expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
   });
+  it("never forwards or saves a vault-owner credential returned as an OAuth access token", async () => {
+    for (const accessToken of ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"]) {
+      const legacy = parseCustomConnectorConfiguration({ ...record,
+        authentication: { kind: "oauth", accessToken, expiresAt: 4070908800 } });
+      expect(() => projectCustomConnectorTurnConfigurations([legacy])).toThrow();
+      await expect(saveCustomConnectorConfiguration(access, legacy, confirmation, null)).rejects.toThrow();
+    }
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
   it("quarantines one unsafe sibling without hiding valid tools or exposing its contents", async () => {
     const invalidId = `custom_${"b".repeat(32)}`;
     const legacy = JSON.stringify({ ...record, connectorId: invalidId,

@@ -87,8 +87,9 @@ export function bearerAuthorizationValue(credential: string): string {
 }
 
 function containsVaultOwnerCredential(record: CustomConnectorConfiguration): boolean {
-  return record.authentication.kind === "api_key" &&
-    isVaultOwnerCredential(record.authentication.value);
+  const auth = record.authentication;
+  return (auth.kind === "api_key" && isVaultOwnerCredential(auth.value)) ||
+    (auth.kind === "oauth" && isVaultOwnerCredential(auth.accessToken));
 }
 
 /** Memory-only request projection. Never serialize vault keys or refresh tokens
