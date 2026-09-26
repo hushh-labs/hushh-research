@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { RadioGroup as RadioPrimitive } from "radix-ui";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { CheckCircleIcon as CheckCircle2, SpinnerGapIcon as Loader2, TrashIcon as Trash2 } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -44,6 +45,7 @@ type GeminiRuntimeSettingsCardProps = {
   requiresExplicitSelection?: boolean;
   initiallyConfigured?: boolean;
   initialSetupChoice?: OneRuntimeSetupChoice | null;
+  onCanContinueChange?: (ready: boolean) => void;
   onSelectionReadyChange?: (
     choice: OneRuntimeSetupChoice,
   ) => void | Promise<void>;
@@ -86,6 +88,7 @@ export function GeminiRuntimeSettingsCard({
   initiallyConfigured = true,
   initialSetupChoice = null,
   onSelectionReadyChange,
+  onCanContinueChange,
   onPreVaultDraftStaged,
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
@@ -105,12 +108,18 @@ export function GeminiRuntimeSettingsCard({
   const [hasExplicitSelection, setHasExplicitSelection] = useState(
     !requiresExplicitSelection || initiallyConfigured,
   );
+  const [selectedOption, setSelectedOption] = useState<string>(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
 
   const invalidateCredentialValidation = useCallback(() => {
     credentialRevisionRef.current += 1;
     setCredentialValidation({ status: "idle" });
-  }, []);
+    if (requiresExplicitSelection) setHasExplicitSelection(false);
+  }, [requiresExplicitSelection]);
+
+  useEffect(() => {
+    onCanContinueChange?.(hasExplicitSelection && !isSaving && !isRemoving);
+  }, [hasExplicitSelection, isSaving, isRemoving, onCanContinueChange]);
 
   useEffect(() => {
     setHasExplicitSelection(
@@ -120,16 +129,17 @@ export function GeminiRuntimeSettingsCard({
 
   useEffect(() => {
     if (!requiresExplicitSelection) return;
+    setSelectedOption(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
     setMode(
       initialSetupChoice === "byok_pending_vault"
         ? "byok"
         : "hushh_managed_vertex",
     );
-  }, [initialSetupChoice, requiresExplicitSelection]);
+  }, [initialSetupChoice, initiallyConfigured, requiresExplicitSelection]);
 
   const refresh = useCallback(async () => {
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
-      setMode("hushh_managed_vertex");
+      if (!requiresExplicitSelection) setMode("hushh_managed_vertex");
       setHasSavedKey(null);
       return;
     }
@@ -168,20 +178,26 @@ export function GeminiRuntimeSettingsCard({
         }),
       ]);
       if (selectionRevisionRef.current !== selectionRevision) return;
-      setMode(savedMode === "byok" ? "byok" : "hushh_managed_vertex");
+      const restoredMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
+      setMode(restoredMode);
+      if (requiresExplicitSelection) {
+        setSelectedOption((current) => current ? restoredMode : "");
+        if (restoredMode === "byok" && !savedKey) setHasExplicitSelection(false);
+      }
       setHasSavedKey(Boolean(savedKey));
       setTransport(savedTransport === "vertex_api_key" ? "vertex_api_key" : "developer_api");
       setVertexProject(savedProject || "");
       setVertexLocation(savedLocation || "global");
     } catch {
       if (selectionRevisionRef.current !== selectionRevision) return;
-      setMode("hushh_managed_vertex");
+      if (requiresExplicitSelection) setHasExplicitSelection(false);
+      else setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       setTransport("developer_api");
       setVertexProject("");
       setVertexLocation("global");
     }
-  }, [userId, vaultKey, vaultOwnerToken, vaultReady]);
+  }, [userId, vaultKey, vaultOwnerToken, vaultReady, requiresExplicitSelection]);
 
   useEffect(() => {
     void refresh();
@@ -217,6 +233,10 @@ export function GeminiRuntimeSettingsCard({
     selectionRevisionRef.current += 1;
     const previousMode = mode;
     const previousSelection = hasExplicitSelection;
+    const previousOption = selectedOption;
+    setSelectedOption("hushh_managed_vertex");
+    setIsSaving(true);
+    if (requiresExplicitSelection) setHasExplicitSelection(false);
     try {
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("hushh_managed_vertex");
@@ -231,6 +251,7 @@ export function GeminiRuntimeSettingsCard({
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
+      setSelectedOption(previousOption);
       toast.error(
         error instanceof Error && error.message === "PKM_CONFLICT"
           ? "This setting changed on another device. Refresh and try again."
@@ -240,12 +261,15 @@ export function GeminiRuntimeSettingsCard({
       );
     } finally {
       selectionPendingRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const selectByok = async () => {
     if (selectionPendingRef.current) return;
-    if (requiresExplicitSelection && !vaultReady) {
+    if (requiresExplicitSelection) {
+      selectionRevisionRef.current += 1;
+      setSelectedOption("byok");
       setMode("byok");
       setHasExplicitSelection(false);
       setDraftKey("");
@@ -263,11 +287,11 @@ export function GeminiRuntimeSettingsCard({
   const validateByok = async () => {
     const credential = draftKey.trim();
     if (!credential) {
-      toast.error("Enter your Gemini API key.");
+      setCredentialValidation({ status: "error", message: "Enter your Gemini API key." });
       return;
     }
     if (transport === "vertex_api_key" && (!vertexProject.trim() || !vertexLocation.trim())) {
-      toast.error("Enter the Google Cloud project ID and Vertex location.");
+      setCredentialValidation({ status: "error", message: "Enter the Google Cloud project ID and Vertex location." });
       return;
     }
     if (!requiresExplicitSelection && (!vaultReady || !userId || !vaultKey || !vaultOwnerToken)) {
@@ -303,8 +327,7 @@ export function GeminiRuntimeSettingsCard({
       credentialValidation.revision === credentialRevisionRef.current &&
       Date.now() - credentialValidation.validatedAt <= CREDENTIAL_VALIDATION_TTL_MS;
     if (!validationIsFresh) {
-      setCredentialValidation({ status: "idle" });
-      toast.error("Validate this Gemini key before confirming it.");
+      setCredentialValidation({ status: "error", message: "Validate this Gemini key before confirming it." });
       return;
     }
     if (requiresExplicitSelection && !vaultReady && userId) {
@@ -406,10 +429,10 @@ export function GeminiRuntimeSettingsCard({
       invalidateCredentialValidation();
       setMode("byok");
       setHasSavedKey(true);
-      setHasExplicitSelection(true);
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("byok_pending_vault");
       }
+      setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your Gemini configuration is saved in your encrypted vault.");
     } catch {
@@ -478,6 +501,7 @@ export function GeminiRuntimeSettingsCard({
       await persistMode("hushh_managed_vertex");
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
+      setSelectedOption("hushh_managed_vertex");
       setHasSavedKey(false);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your saved Gemini key was removed.");
@@ -489,10 +513,19 @@ export function GeminiRuntimeSettingsCard({
   };
 
   return (
-    <>
+    <div className={requiresExplicitSelection ? "space-y-6" : "contents"}>
+      <RadioPrimitive.Root
+        asChild
+        value={selectedOption}
+        onValueChange={(value) => { if (value === "byok") void selectByok(); else void selectManaged(); }}
+        role={requiresExplicitSelection ? "radiogroup" : "group"}
+        aria-label="Choose your AI"
+        disabled={isSaving || isRemoving}
+      >
+      <div>
       <SettingsGroup
         title="Gemini"
-        description="Available now"
+        description={requiresExplicitSelection ? undefined : "Available now"}
         testId="profile-gemini-runtime"
         separatorInset
       >
@@ -505,7 +538,11 @@ export function GeminiRuntimeSettingsCard({
         // so out loud, so the fast path is the obvious one rather than the one
         // you work out by elimination.
         trailing={
-          mode === "hushh_managed_vertex" && hasExplicitSelection ? (
+          requiresExplicitSelection ? (
+            <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
+              {selectedOption === "hushh_managed_vertex" ? <span className="size-3 rounded-full bg-primary" /> : null}
+            </span>
+          ) : mode === "hushh_managed_vertex" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>
           ) : (
             <Badge variant="outline">Recommended</Badge>
@@ -513,11 +550,7 @@ export function GeminiRuntimeSettingsCard({
         }
         testId="profile-managed-runtime"
       >
-        <button
-          type="button"
-          onClick={() => void selectManaged()}
-          aria-pressed={mode === "hushh_managed_vertex"}
-        />
+        {requiresExplicitSelection ? <RadioPrimitive.Item value="hushh_managed_vertex" /> : <button type="button" onClick={() => void selectManaged()} aria-pressed={mode === "hushh_managed_vertex"} />}
         </SettingsRow>
 
         <SettingsRow
@@ -530,17 +563,17 @@ export function GeminiRuntimeSettingsCard({
             : "Your key stays locked to you."
         }
         trailing={
-          mode === "byok" && hasExplicitSelection ? (
+          requiresExplicitSelection ? (
+            <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
+              {selectedOption === "byok" ? <span className="size-3 rounded-full bg-primary" /> : null}
+            </span>
+          ) : mode === "byok" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>
           ) : null
         }
         testId="profile-byok-runtime"
       >
-        <button
-          type="button"
-          onClick={() => void selectByok()}
-          aria-pressed={mode === "byok"}
-        />
+        {requiresExplicitSelection ? <RadioPrimitive.Item value="byok" /> : <button type="button" onClick={() => void selectByok()} aria-pressed={mode === "byok"} />}
         </SettingsRow>
 
         {mode === "byok" ? (
@@ -548,7 +581,7 @@ export function GeminiRuntimeSettingsCard({
             <div className="flex items-center justify-between gap-3">
               <CardTitle as="p">Gemini connection</CardTitle>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
-                {needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
+                {requiresExplicitSelection && hasExplicitSelection ? "Ready" : needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
               </Badge>
             </div>
             <FormLabel className="block space-y-1">
@@ -630,14 +663,19 @@ export function GeminiRuntimeSettingsCard({
               placeholder={transport === "vertex_api_key" ? "Paste a Google Cloud Vertex API key" : "Paste a Google AI Studio Gemini key"}
               disabled={isSaving || isRemoving}
               aria-label="Gemini API key"
+              aria-invalid={credentialValidation.status === "error"}
+              aria-describedby="gemini-key-validation"
             />
             <HelperText
               as="div"
               className="min-h-5"
-              role="status"
+              id="gemini-key-validation"
+              role={credentialValidation.status === "error" ? "alert" : "status"}
               aria-live="polite"
             >
-              {credentialValidation.status === "checking" ? (
+              {requiresExplicitSelection && hasExplicitSelection ? (
+                "Your key is validated. Continue to finish setup."
+              ) : credentialValidation.status === "checking" ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Checking key access and available quota…
@@ -654,7 +692,7 @@ export function GeminiRuntimeSettingsCard({
               )}
             </HelperText>
             <div className="flex flex-wrap gap-2">
-              {credentialValidation.status === "ready" ? (
+              {requiresExplicitSelection && hasExplicitSelection ? null : credentialValidation.status === "ready" ? (
                 <Button type="button" onClick={() => void saveByok()} disabled={isSaving || isRemoving}>
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
                   Confirm and save
@@ -666,8 +704,7 @@ export function GeminiRuntimeSettingsCard({
                   disabled={
                     isSaving ||
                     isRemoving ||
-                    credentialValidation.status === "checking" ||
-                    !draftKey.trim()
+                    credentialValidation.status === "checking"
                   }
                 >
                   {credentialValidation.status === "checking" ? (
@@ -686,8 +723,29 @@ export function GeminiRuntimeSettingsCard({
           </div>
         ) : null}
       </SettingsGroup>
+      </div>
+      </RadioPrimitive.Root>
 
-      <SettingsGroup
+      {requiresExplicitSelection ? (
+        <section aria-labelledby="upcoming-providers-heading" data-testid="setup-coming-soon-runtime">
+          <h2 id="upcoming-providers-heading" className="text-foreground" style={{
+            "--foundation-title3-size": "14px",
+            "--foundation-title3-line": "20px",
+            "--foundation-title3-weight": "500",
+            "--foundation-title3-tracking": "0px",
+          } as CSSProperties}>
+            Coming soon
+          </h2>
+          <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+            {COMING_SOON_PROVIDERS.map((provider) => (
+              <li key={provider.id} className="flex min-w-0 items-start gap-2 text-[14px] font-normal leading-5 text-foreground">
+                <RuntimeProviderMark provider={provider} className="!h-5 !w-5" />
+                <span>{provider.name}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : <SettingsGroup
         title="Coming soon"
         testId="profile-coming-soon-runtime"
         separatorInset
@@ -702,7 +760,7 @@ export function GeminiRuntimeSettingsCard({
             testId={`profile-coming-soon-${provider.id}`}
           />
         ))}
-      </SettingsGroup>
-    </>
+      </SettingsGroup>}
+    </div>
   );
 }

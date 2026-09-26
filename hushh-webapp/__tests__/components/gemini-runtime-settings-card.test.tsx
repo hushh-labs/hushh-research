@@ -90,18 +90,36 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.getByText("Use Hussh's AI")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
-    for (const provider of [
-      ["openai", "OpenAI"],
-      ["anthropic", "Claude"],
-      ["grok", "Grok"],
-      ["meta_muse_spark", "Meta Muse Spark"],
-    ] as const) {
-      const row = screen.getByTestId(`profile-coming-soon-${provider[0]}`);
-      expect(row).toHaveTextContent(provider[1]);
-      expect(row).toHaveTextContent("Coming soon");
-      expect(row).toHaveClass("cursor-not-allowed");
-      expect(screen.queryByRole("button", { name: provider[1] })).toBeNull();
-    }
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(screen.getAllByRole("radio").every((radio) => radio.getAttribute("aria-checked") === "false")).toBe(true);
+  });
+
+  it("keeps own-key editing available and blocks Continue when saved-key loading fails", async () => {
+    loadRuntimeSecretMock.mockRejectedValue(new Error("Fixture load failure"));
+    const onCanContinueChange = vi.fn();
+    render(<GeminiRuntimeSettingsCard userId="fixture" vaultKey="fixture"
+      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured initialSetupChoice="byok_pending_vault"
+      onCanContinueChange={onCanContinueChange} />);
+    await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(false));
+    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
+  });
+
+  it("keeps the radio selection aligned after removing a saved key", async () => {
+    loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
+      credentialRef.endsWith("credential_mode") ? "byok" :
+      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
+    render(<GeminiRuntimeSettingsCard userId="fixture" vaultKey="fixture"
+      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured initialSetupChoice="byok_pending_vault" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
+    await waitFor(() => expect(screen.getAllByRole("radio")[0].getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
   });
 
   it("commits the managed choice before reporting setup completion", async () => {
@@ -122,7 +140,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Use Hussh's AI/i }),
+      screen.getByTestId("profile-managed-runtime").querySelector("button")!,
     );
 
     await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
@@ -147,7 +165,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
 
     expect(onSelectionReadyChange).not.toHaveBeenCalled();
     expect(onRequestVaultCreation).not.toHaveBeenCalled();
@@ -174,7 +192,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
     fireEvent.change(screen.getByLabelText("Gemini API key"), {
       target: { value: "test-gemini-key" },
     });
@@ -217,11 +235,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /Use my own key/i }),
+        screen.getByTestId("profile-byok-runtime").querySelector("button")!,
       ).toHaveAttribute("aria-pressed", "true"),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Use Hussh's AI/i }),
+      screen.getByTestId("profile-managed-runtime").querySelector("button")!,
     );
 
     await waitFor(() =>
@@ -230,7 +248,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: /Use my own key/i }),
+      screen.getByTestId("profile-byok-runtime").querySelector("button")!,
     ).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -251,7 +269,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "test-gemini-key" } });
 
@@ -288,7 +306,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "first-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
@@ -299,4 +317,33 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
     expect(screen.getByRole("button", { name: "Validate key" })).toBeTruthy();
   });
+  it("keeps readiness tied to the current saved radio choice and shows key errors inline", async () => {
+    const readiness = vi.fn();
+    render(<GeminiRuntimeSettingsCard userId="fresh-user" needsVaultCreation needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured={false}
+      onSelectionReadyChange={vi.fn().mockResolvedValue(undefined)}
+      onPreVaultDraftStaged={vi.fn()} onCanContinueChange={readiness} />);
+    const managed = screen.getByRole("radio", { name: /Use Hussh's AI/ });
+    const own = screen.getByRole("radio", { name: /Use my own key/ });
+    expect(managed).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(managed);
+    await waitFor(() => expect(readiness).toHaveBeenLastCalledWith(true));
+    expect(managed).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(own);
+    expect(managed).toHaveAttribute("aria-checked", "false");
+    expect(own).toHaveAttribute("aria-checked", "true");
+    expect(readiness).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your Gemini API key.");
+    const key = screen.getByLabelText("Gemini API key");
+    expect(key).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(key, { target: { value: "fixture-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(readiness).toHaveBeenLastCalledWith(true));
+    fireEvent.change(key, { target: { value: "changed-key" } });
+    expect(readiness).toHaveBeenLastCalledWith(false);
+  });
+
 });

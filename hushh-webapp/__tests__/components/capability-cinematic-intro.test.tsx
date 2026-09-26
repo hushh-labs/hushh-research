@@ -133,7 +133,7 @@ describe("CapabilityCinematicIntroGate", () => {
     const action = screen.getByRole("button", { name: "Continue" });
     expect(action.className).toContain("w-full");
     expect(action.className).toContain("justify-center");
-    expect(action.className).toContain("text-center");
+    expect(action.className).toContain("h-[50px]");
   });
 
   it("uses one fixed centered canvas without a nested fullscreen shell", () => {

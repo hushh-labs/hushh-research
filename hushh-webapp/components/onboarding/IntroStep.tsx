@@ -9,7 +9,7 @@ import {
   FigmaOneLogo,
   FigmaPrivacyNote,
 } from "@/components/onboarding/FigmaOnboardingPrimitives";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { Button } from "@/lib/morphy-ux/button";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -106,20 +106,19 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
                 You choose what to share.
               </FigmaPrivacyNote>
             </div>
-            <button
+            <Button
               type="button"
               onClick={() => {
                 void claimOne();
               }}
               data-voice-control-id="onboarding_claim_one"
               aria-label="Claim your One"
-              className={styles.cta}
+              variant="blue" effect="fill" size="prominent" fullWidth
             >
               <span className={`relative z-0 inline-flex items-center justify-center ${styles.ctaLabel}`}>
                 Create your One
               </span>
-              <MaterialRipple variant="gradient" effect="fill" className="z-10" />
-            </button>
+            </Button>
 
             <nav aria-label="Explore Hussh" className={styles.links}>
               <Link href={ROUTES.RESEARCH} className={styles.link}>

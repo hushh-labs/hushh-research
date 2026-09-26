@@ -12,8 +12,8 @@
 
 .setupHeader :global([data-slot="page-header-description"]),
 .stepHeader :global([data-slot="page-header-description"]) {
-  font-size: 0.9375rem !important;
-  line-height: 1.45 !important;
+  font-size: 13px !important;
+  line-height: 20px !important;
 }
 
 .setupContent.setupContent {
@@ -71,4 +71,16 @@
   .stepHeader :global(h1) {
     font-size: 1.95rem !important;
   }
+}
+
+.aiSelectionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.aiSelectionContent :global([data-slot="settings-row-description"]),
+.aiSelectionContent :global([data-slot="settings-group-description"]),
+.aiSelectionContent :global([data-ui-role="helper-text"]) {
+  font-size: 13px;
+  line-height: 20px;
 }
