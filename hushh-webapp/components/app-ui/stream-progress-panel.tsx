@@ -34,6 +34,8 @@ export type AppStreamProgressItem = {
   badge?: string;
   /** Shown beside the label while keeping the status icon. */
   tag?: string;
+  /** Optional decorative mark before the label (e.g. an official connector logo). */
+  mark?: ReactNode;
 };
 
 type AppStreamEventListProps = {
@@ -90,6 +92,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
             <div className="min-w-0" data-status={status}>
               {item.label || item.tag ? (
                 <p className="flex flex-wrap items-center gap-x-1.5 font-medium text-foreground">
+                  {item.mark ? <span className="inline-flex shrink-0" aria-hidden="true">{item.mark}</span> : null}
                   {item.label ? <span className="min-w-0 break-words">{item.label}</span> : null}
                   {item.tag ? (
                     <span className="rounded-full bg-accent-surface px-1.5 py-px text-[0.6875rem] font-semibold text-accent-strong">

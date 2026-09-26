@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type {
   ConnectorReadExperience,
@@ -75,6 +79,90 @@ const WORKSPACE_PROVIDER_LABEL: Record<WorkspaceConnectorProvider, string> = {
   custom: "Connectors",
 };
 
+/**
+ * One surface for every connector card in a turn: the Activity panel's inset
+ * tone and radius, full message-column width, the official mark aligned with
+ * the title, and a single trailing action so the card reads balanced.
+ */
+function ConnectorCardShell({
+  ariaLabel,
+  brand,
+  title,
+  detail,
+  action,
+  children,
+  testId = "workspace-connector-setup",
+}: {
+  ariaLabel: string;
+  brand: ConnectorBrand | null;
+  title: ReactNode;
+  detail?: ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <section
+      aria-label={ariaLabel}
+      className="w-full min-w-0 rounded-[16px] bg-foreground/[0.035] p-3 text-sm dark:bg-white/[0.045]"
+      data-testid={testId}
+    >
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {brand ? <ConnectorBrandMark brand={brand} /> : null}
+          <div className="min-w-0 flex-1">
+            <p role="status" className="flex min-h-8 items-center font-medium text-foreground">{title}</p>
+            {detail ? <p className="text-muted-foreground">{detail}</p> : null}
+          </div>
+        </div>
+        {action ? <div className="flex shrink-0 sm:justify-end">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+type LiveConnectionState = "checking" | "connected" | "reconnect" | "not_connected" | "unknown";
+
+/**
+ * A restored card must show the connection as it is now, not the prompt the
+ * turn saw. Status reads use the same owner-scoped services as the connector
+ * surface; a failed read keeps the original prompt ("unknown").
+ */
+function useLiveConnection(provider: WorkspaceConnectorProvider): LiveConnectionState {
+  const { user } = useAuth();
+  const vaultOwnerToken = useContext(VaultContext)?.vaultOwnerToken ?? null;
+  const idTokenProvider = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
+  const calendar = useCalendarConnectionStatus({
+    userId: provider === "calendar" ? user?.uid ?? null : null,
+    idTokenProvider: provider === "calendar" && user ? idTokenProvider : null,
+  });
+  const [drive, setDrive] = useState<{ token: string; state: LiveConnectionState } | null>(null);
+  useEffect(() => {
+    if (provider !== "drive" || !vaultOwnerToken) return;
+    let cancelled = false;
+    void ExternalConnectorService.overview(vaultOwnerToken).then((overview) => {
+      const status = overview.connectors.find((item) => item.connectorId === "google_drive")?.status;
+      if (!cancelled) setDrive({
+        token: vaultOwnerToken,
+        state: status === "connected" ? "connected" : status === "needs_reauth" ? "reconnect" : status ? "not_connected" : "unknown",
+      });
+    }).catch(() => { if (!cancelled) setDrive({ token: vaultOwnerToken, state: "unknown" }); });
+    return () => { cancelled = true; };
+  }, [provider, vaultOwnerToken]);
+  if (provider === "calendar") {
+    if (!calendar.loaded) return user ? "checking" : "unknown";
+    if (calendar.error || !calendar.status) return "unknown";
+    if (calendar.connected) return "connected";
+    return calendar.status.status === "needs_reauth" ? "reconnect" : "not_connected";
+  }
+  if (provider === "drive") {
+    if (!vaultOwnerToken) return "unknown";
+    return drive?.token === vaultOwnerToken ? drive.state : "checking";
+  }
+  return "unknown";
+}
+
 export function WorkspaceConnectorSetupCard({
   experience,
   onOpenConnections,
@@ -82,34 +170,75 @@ export function WorkspaceConnectorSetupCard({
   experience: WorkspaceConnectorSetupExperience;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
-  const label = WORKSPACE_PROVIDER_LABEL[experience.provider];
-  const manage = experience.status === "manage_available";
   if (experience.provider === "gmail") return <GmailConnectorChatCard onOpenConnections={onOpenConnections} />;
+  if (experience.provider === "custom") return <CustomConnectorsCard experience={experience} onOpenConnections={onOpenConnections} />;
+  return <GoogleConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+}
+
+function GoogleConnectorSetupCard({
+  experience,
+  onOpenConnections,
+}: {
+  experience: WorkspaceConnectorSetupExperience;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+}) {
+  const label = WORKSPACE_PROVIDER_LABEL[experience.provider];
+  const live = useLiveConnection(experience.provider);
+  const connected = live === "connected" || (live !== "not_connected" && live !== "reconnect" && experience.status === "manage_available");
+  const reconnect = live === "reconnect";
+  const title = connected
+    ? `${label} · Connected`
+    : reconnect
+      ? `Reconnect ${label} to continue`
+      : `Connect ${label} to continue`;
+  const actionLabel = connected ? `Manage ${label}` : reconnect ? `Reconnect ${label}` : `Connect ${label}`;
   return (
-    <section
-      aria-label={manage && experience.provider === "custom" ? "Connectors" : `${label} connection`}
-      className="min-w-0 max-w-xl space-y-3 rounded-2xl border border-border bg-card p-3 text-sm text-muted-foreground sm:p-4"
-      data-testid="workspace-connector-setup"
-    >
-      <p role="status" className="font-medium text-foreground">{manage ? experience.provider === "custom" ? "Your connectors" : `${label} is available` : `Connect ${label} to continue`}</p>
-      {manage && experience.saved?.length ? <ul className="divide-y divide-border" aria-label="Saved connectors">
-        {experience.saved.map(item => <li key={item.id} className="flex min-h-11 items-center justify-between gap-3 py-1">
-          <span className="min-w-0 truncate text-foreground">{item.name}</span>
-          <span className="shrink-0 text-xs">{item.status === "reconnect_needed" ? "Reconnect needed" : item.status === "disabled" ? "Off" : "Tools not checked"}</span>
-        </li>)}
-      </ul> : manage && experience.provider === "custom" ? <p>No custom connectors saved.</p> : null}
-      {!manage ? <p>One will use only the access you approve. Connecting does not share information with anyone.</p> : null}
-      {onOpenConnections ? (
+    <ConnectorCardShell
+      ariaLabel={`${label} connection`}
+      brand={connectorBrandFor(experience.provider)}
+      title={title}
+      detail={connected ? undefined : "One will use only the access you approve. Connecting does not share information with anyone."}
+      action={onOpenConnections ? (
         <Button
           type="button"
           variant="muted"
           size="compact"
+          disabled={live === "checking"}
           onClick={(event) => onOpenConnections(experience.provider, event.currentTarget)}
         >
-          {manage ? experience.provider === "custom" ? "Open connectors" : `Manage ${label}` : `Connect ${label}`}
+          {actionLabel}
         </Button>
       ) : null}
-    </section>
+    />
+  );
+}
+
+function CustomConnectorsCard({
+  experience,
+  onOpenConnections,
+}: {
+  experience: WorkspaceConnectorSetupExperience;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+}) {
+  return (
+    <ConnectorCardShell
+      ariaLabel="Connectors"
+      brand={null}
+      title="Your connectors"
+      detail={experience.saved?.length ? undefined : "No custom connectors saved."}
+      action={onOpenConnections ? (
+        <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections("custom", event.currentTarget)}>
+          Open connectors
+        </Button>
+      ) : null}
+    >
+      {experience.saved?.length ? <ul className="mt-2 divide-y divide-border" aria-label="Saved connectors">
+        {experience.saved.map(item => <li key={item.id} className="flex min-h-11 items-center justify-between gap-3 py-1">
+          <span className="min-w-0 truncate text-foreground">{item.name}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{item.status === "reconnect_needed" ? "Reconnect needed" : item.status === "disabled" ? "Off" : "Tools not checked"}</span>
+        </li>)}
+      </ul> : null}
+    </ConnectorCardShell>
   );
 }
 
@@ -133,11 +262,15 @@ function GmailConnectorChatCard({ onOpenConnections }: {
   }, [confirmOwner, user?.uid]);
   const connected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const action = connected ? "Disconnect Gmail" : gmail.status?.needs_reauth ? "Reconnect Gmail" : "Connect Gmail";
-  return <section aria-label="Gmail connection" className="min-w-0 max-w-xl space-y-3 rounded-2xl border border-border bg-card p-3 text-sm sm:p-4">
-    <p role="status" className="font-medium text-foreground">Gmail · {gmail.loadingStatus && !gmail.status ? "Checking" : connected ? "Connected" : gmail.status?.needs_reauth ? "Reconnect needed" : "Not connected"}</p>
-    {!connected ? <p className="text-muted-foreground">Connecting does not share information with anyone.</p> : null}
-    <Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
-      onClick={event => { if (connected) { setConfirmOwner(user?.uid ?? null); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>
+  const gmailState = gmail.loadingStatus && !gmail.status ? "Checking" : connected ? "Connected" : gmail.status?.needs_reauth ? "Reconnect needed" : "Not connected";
+  return <ConnectorCardShell
+    ariaLabel="Gmail connection"
+    brand="gmail"
+    title={`Gmail · ${gmailState}`}
+    detail={!connected ? "Connecting does not share information with anyone." : undefined}
+    action={<Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
+      onClick={event => { if (connected) { setConfirmOwner(user?.uid ?? null); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>}
+  >
     <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
       <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
       <AlertDialogDescription>One will no longer read your Gmail through this connection. This does not revoke access in your Google Account.</AlertDialogDescription>
@@ -154,5 +287,5 @@ function GmailConnectorChatCard({ onOpenConnections }: {
         void operation.catch(() => undefined).finally(() => setBusy(false));
       }}>Disconnect</AlertDialogAction>
     </AlertDialogFooter></AlertDialogContent></AlertDialog>
-  </section>;
+  </ConnectorCardShell>;
 }

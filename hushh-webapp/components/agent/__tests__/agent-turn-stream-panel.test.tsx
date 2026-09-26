@@ -454,4 +454,34 @@ describe("AgentTurnStreamPanel", () => {
     expect(reviewRow?.querySelector(".text-emerald-600")).toBeNull();
     expect(container.querySelector('[data-status="waiting"]')).not.toBeNull();
   });
+
+  it("labels Google connector steps with their official mark, and nothing for private connectors", () => {
+    const calendar = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "calendar-access", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "calendar" },
+    }), 1);
+    const mail = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mail-read", actionId: null, label: "Gmail", execution: "server",
+      message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
+    }), 2);
+    const custom = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read", raw: { protocol: "ag-ui", toolName: `mcp_${"a".repeat(40)}` },
+    }), 3);
+    const spoofed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "spoof", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "https://evil.test/logo" },
+    }), 4);
+    expect(calendar.brand).toBe("calendar");
+    expect(mail.brand).toBe("gmail");
+    expect(custom.brand).toBeUndefined();
+    expect(spoofed.brand).toBeUndefined();
+    render(<AgentTurnStreamPanel streamEvents={[calendar, mail, custom]} responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    const calendarRow = screen.getByText("Connector access").closest("li");
+    expect(calendarRow?.querySelector('img[data-connector-brand="calendar"]')).toHaveAttribute("src", "/icons/connectors/calendar.svg");
+    expect(screen.getByText("Microsoft Learn").closest("li")?.querySelector("img")).toBeNull();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+  });
 });
