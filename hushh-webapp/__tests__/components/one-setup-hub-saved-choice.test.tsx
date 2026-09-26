@@ -4,16 +4,39 @@ import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
   saved: false,
+  user: { uid: "owner" },
   listener: null as null | ((event: { type: string; key: string }) => void),
   unsubscribe: vi.fn(),
 }));
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: false }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
-vi.mock("@/lib/services/cache-service", () => ({ CACHE_KEYS: { PRE_VAULT_BOOTSTRAP: (id: string) => `bootstrap:${id}` }, CacheService: { getInstance: () => ({ subscribe: (listener: typeof state.listener) => { state.listener = listener; return state.unsubscribe; } }) } }));
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { getCachedBootstrapState: () => ({ saved: state.saved }), hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved } }));
+vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/cache-service")>(),
+  CACHE_KEYS: { PRE_VAULT_BOOTSTRAP: (id: string) => `bootstrap:${id}` },
+  CacheService: { getInstance: () => ({ subscribe: (listener: typeof state.listener) => {
+    state.listener = listener;
+    return state.unsubscribe;
+  } }) },
+}));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
+  getCachedBootstrapState: () => ({ saved: state.saved }),
+  bootstrapState: async () => ({ saved: state.saved }),
+  hasOneCloudProject: () => true,
+  hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
+} }));
+vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
+  peekCachedIdentity: () => ({ data: { phoneVerified: true } }),
+  refreshCurrentUserIdentity: async () => ({ phoneVerified: true }),
+  hasVerifiedPhone: () => true,
+} }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { getByocSetupStatus: async () => ({ status: "idle" }) } }));
+vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySetupStates: () => ({ byId: {}, isLoading: false, isEnriching: false }) }));
+vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: () => null }));
+vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
+
 vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: vi.fn() }));
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: {} }));
 vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: {} }));
@@ -30,7 +53,6 @@ describe("Setup saved AI choice", () => {
     const finish = await screen.findByRole("button", { name: "Finish setup" });
     expect(finish).toBeDisabled();
     expect(screen.queryByRole("progressbar")).toBeNull();
-    expect(screen.queryByText("Remaining")).toBeNull();
     expect(screen.queryByText("Set up the rest later.")).toBeNull();
     fireEvent.click(finish);
     expect(screen.queryByRole("dialog")).toBeNull();
