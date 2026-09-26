@@ -1365,8 +1365,17 @@ image; the cleanup SQL rollback is not information recovery.
 Focused checks: 117 backend tests passed, 124 frontend tests passed (two skipped).
 A later isolated run passed 89 bridge, BYOK, timing and SQL checks without skips.
 SQL checks restored only dev schema definitions into a disposable PostgreSQL 14
-instance with synthetic records; dev is PostgreSQL 15, so version-matched release
-validation remains outstanding. No live records were copied or mutated. Duplicate voice route registrations were
+instance with synthetic records. A subsequent schema restore and all six cutover
+checks also passed on PostgreSQL 15.18, matching dev's major/minor version. No live
+records were copied or mutated. Cutover activation still needs writer and active
+effect drain checks; passing deletion fixtures does not establish that drain. Duplicate voice route registrations were
 removed; private action-search refusal and hub-owned command coordination remain
 distinct. Canonical CI, isolated SQL acceptance, live release/readback, existing
 pod maintenance and real-device relay acceptance remain pending.
+
+The imported Mail layout removed returning users' receipt sync/disconnect controls.
+The controls were restored in the existing header; short copy retains a shopping
+summary without implying automatic PKM persistence. Existing receipt/cache and
+connection assertions are retained. The architecture ratchet records 74 reviewed
+size findings individually: 72 imported findings, one necessary BYOK fixture line,
+and a locally reduced timing module. No budgets or authority checks were relaxed.

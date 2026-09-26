@@ -228,7 +228,7 @@ describe("sanitizeGmailUserMessage", () => {
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
     expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
-      "One syncs purchase receipts into a private shopping summary. You can separately turn on KYC-request monitoring after connecting.",
+      "Syncs receipts into a private shopping summary.",
     );
   });
 
@@ -243,7 +243,7 @@ describe("resolveGmailStatusSummary", () => {
 
   it("uses only available scan counts when explaining receipt progress", () => {
     expect(describeGmailReceiptScanProgress({ scanned: 12, matched: 3 })).toBe(
-      "12 mail messages checked. 3 receipts matched so far. Receipt-based purchase interactions help One understand the brands you care about.",
+      "12 mail messages checked. 3 receipts matched.",
     );
   });
 

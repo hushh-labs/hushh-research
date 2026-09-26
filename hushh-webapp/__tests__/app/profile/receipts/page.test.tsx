@@ -985,7 +985,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getByText(
-        /we'll prepare your shopping summary after mail finishes syncing/i,
+        /summary will be generated after sync completes/i,
       ),
     ).toBeTruthy();
 
@@ -1104,7 +1104,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /syncs purchase receipts into a private shopping summary/i,
+        /connect mail to set up receipts and kyc requests/i,
       ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();

@@ -1875,7 +1875,7 @@ export default function GmailReceiptsPage({
           title="Mail"
           description={pageTitle}
           actions={
-            isConnected && journeyVariant === "onboarding" ? (
+            isConnected && (journeyVariant === "onboarding" || workspace === "receipts") ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   onClick={() => void handleSyncNow()}
