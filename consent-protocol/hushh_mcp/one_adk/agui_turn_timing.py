@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
 import logging
 import os
 import re
@@ -20,12 +21,22 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, cast
+from uuid import uuid4
 
-from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
+from ag_ui.core import (
+    BaseEvent,
+    EventType,
+    Interrupt,
+    RunAgentInput,
+    RunErrorEvent,
+    RunFinishedInterruptOutcome,
+    ToolMessage,
+)
 from ag_ui_adk import ADKAgent
 
 from hushh_mcp.one_adk.drive_result_privacy import (
     ConfirmationWireProjection,
+    governed_call_ids,
     redact_drive_wire_event,
 )
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
@@ -288,6 +299,63 @@ class TurnTiming:
         )
 
 
+def resume_as_confirmation_results(input: RunAgentInput) -> RunAgentInput:
+    """Translate AG-UI resume entries into the tool results ag_ui_adk consumes.
+
+    The installed bridge ignores ``RunAgentInput.resume``. Only an unanswered
+    ``adk_request_confirmation`` call already in this thread's messages is
+    admitted, and only a boolean reaches ADK. This is not approval: the action
+    ledger still authorizes every connector dispatch with its exact receipt.
+    """
+    entries = list(input.resume or [])
+    if not entries:
+        return input
+    answered = {
+        getattr(message, "tool_call_id", None)
+        for message in input.messages
+        if getattr(message, "role", None) == "tool"
+    }
+    pending = {
+        call.id
+        for message in input.messages
+        if getattr(message, "role", None) == "assistant"
+        for call in (getattr(message, "tool_calls", None) or [])
+        if call.function.name == "adk_request_confirmation" and call.id not in answered
+    }
+    results = []
+    for entry in entries[:32]:
+        if entry.interrupt_id not in pending:
+            continue
+        pending.discard(entry.interrupt_id)
+        payload = entry.payload if isinstance(entry.payload, dict) else {}
+        confirmed = entry.status == "resolved" and payload.get("confirmed") is True
+        results.append(
+            ToolMessage(
+                id=f"resume-{uuid4().hex}",
+                role="tool",
+                tool_call_id=entry.interrupt_id,
+                content=json.dumps({"confirmed": confirmed}),
+            )
+        )
+    return input.model_copy(update={"messages": [*input.messages, *results], "resume": None})
+
+
+def with_review_interrupts(event: BaseEvent, review_call_ids: list[str]) -> BaseEvent:
+    """Mark a run that paused on connector review as an AG-UI interrupt."""
+    if event.type != EventType.RUN_FINISHED or not review_call_ids:
+        return event
+    return event.model_copy(
+        update={
+            "outcome": RunFinishedInterruptOutcome(
+                interrupts=[
+                    Interrupt(id=call_id, reason="mcp_call_review", tool_call_id=call_id)
+                    for call_id in dict.fromkeys(review_call_ids)
+                ]
+            )
+        }
+    )
+
+
 class TimedADKAgent(ADKAgent):
     """``ADKAgent`` that logs one timing line per run for the labelled head."""
 
@@ -320,6 +388,9 @@ class TimedADKAgent(ADKAgent):
         confirmations = ConfirmationWireProjection()
         summary_replays = ThoughtSummaryReplayFilter()
         try:
+            if self.head == HEAD_ONE:
+                input = resume_as_confirmation_results(input)
+                private_call_ids.update(governed_call_ids(input.messages))
             state = input.state if isinstance(input.state, dict) else {}
             configurations = consume_turn_configurations(
                 state,
@@ -339,6 +410,7 @@ class TimedADKAgent(ADKAgent):
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
                         if self.head == HEAD_ONE:
+                            event = with_review_interrupts(event, confirmations.review_call_ids)
                             event = redact_drive_wire_event(event, private_call_ids)
                             if event is None:
                                 continue

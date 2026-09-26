@@ -11,7 +11,7 @@ from ag_ui.core import BaseEvent, EventType, ToolCallArgsEvent
 from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_NAME
 from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
 
-_OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required"})
+_OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required", "review_required"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
 _PRIVATE_TOOLS = frozenset(
     {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
@@ -61,6 +61,24 @@ def _confirmation_view(arguments: dict) -> dict | None:
     }
 
 
+def _is_projected_confirmation(delta: object) -> bool:
+    """True only for a delta that is already the display-safe confirmation view.
+
+    ConfirmationWireProjection buffers every native confirmation and replaces
+    its arguments with _confirmation_view(). A snapshot indexed earlier in the
+    same run marks that call id private, which must not drop the safe view:
+    the browser needs it to open the review card. Only a fixed point of the
+    projection passes (empty original args, regex-bound review ids).
+    """
+    if not isinstance(delta, str) or len(delta.encode()) > 64_000:
+        return False
+    try:
+        parsed = json.loads(delta)
+    except ValueError:
+        return False
+    return isinstance(parsed, dict) and bool(parsed) and _confirmation_view(parsed) == parsed
+
+
 class ConfirmationWireProjection:
     """Bound fragmented native confirmations before exposing a review handle."""
 
@@ -69,6 +87,7 @@ class ConfirmationWireProjection:
         self._private_confirmations: set[str] = set()
         self._private_followups: set[str] = set()
         self._external_content = False
+        self.review_call_ids: list[str] = []
 
     def project(self, event: BaseEvent) -> list[BaseEvent]:
         if _private_tool_name(getattr(event, "tool_call_name", None)):
@@ -158,6 +177,8 @@ class ConfirmationWireProjection:
             safe = {}
         if safe is not None:
             self._private_confirmations.add(call_id)
+            if safe.get("toolConfirmation", {}).get("payload", {}).get("kind") == "mcp_call_review":
+                self.review_call_ids.append(call_id)
         return [
             start.model_copy(update={"raw_event": None, "metadata": None}),
             ToolCallArgsEvent(
@@ -291,6 +312,20 @@ def _is_private_result(content: object) -> bool:
     return isinstance(value, dict) and value.get("source") in _PRIVATE_SOURCES
 
 
+def governed_call_ids(messages: object) -> set[str]:
+    """Ids of governed tool calls already in the thread.
+
+    A resumed run streams the approved call's result without a TOOL_CALL_START,
+    so its id must be private before the first event, not after the snapshot.
+    """
+    return {
+        str(call.id)
+        for message in (messages if isinstance(messages, list) else [])
+        for call in (getattr(message, "tool_calls", None) or [])
+        if _private_tool_name(getattr(getattr(call, "function", None), "name", None))
+    }
+
+
 def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> BaseEvent | None:
     """Project a safe AG-UI event while preserving model-visible tool output."""
     event_type = getattr(event, "type", None)
@@ -307,7 +342,9 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
             return None
         return event
     if event_type == EventType.TOOL_CALL_ARGS:
-        if str(getattr(event, "tool_call_id", "")) in private_call_ids:
+        if str(
+            getattr(event, "tool_call_id", "")
+        ) in private_call_ids and not _is_projected_confirmation(getattr(event, "delta", None)):
             return None
         return event
     if event_type == EventType.TOOL_CALL_RESULT:

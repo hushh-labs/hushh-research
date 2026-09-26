@@ -2196,7 +2196,7 @@ class ConsentDBService:
         response = (
             db.table("consent_audit")
             .select(
-                "id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
+                "id,user_id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
             )
             .eq("user_id", user_id)
             .eq("request_id", request_id)
@@ -2255,7 +2255,7 @@ class ConsentDBService:
         response = (
             db.table("consent_audit")
             .select(
-                "id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
+                "id,user_id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
             )
             .eq("user_id", user_id)
             .in_("request_id", normalized_ids)

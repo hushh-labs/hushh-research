@@ -96,13 +96,22 @@ describe("reviewer projection digest", () => {
       vaultKey: "test-key", vaultOwnerToken: "test-token" });
     unmount();
   });
-  it.each(["attr.financial.accounts.*", "attr.wallet.cards.*", "pkm.read", "attr.professional.*"])(
+  it.each(["attr.financial.accounts.*", "attr.wallet.cards.*", "pkm.read", "attr.professional.*",
+    "attr.professional", "attr.professional.routines.*.*", "attr.professional.Routines.*"])(
     "refuses scope %s without building an export", async scope => {
       const { unmount } = renderHook(() => useReviewerPkmProof(state));
       expect(await window.__HUSHH_NATIVE_TEST__!.pkmProof!.projectionDigest(scope))
         .toEqual({ ok: false, code: "refused" });
       expect(mocks.build).not.toHaveBeenCalled(); unmount();
     });
+  it("admits a leaf field under a digestible domain", async () => {
+    mocks.build.mockResolvedValue({ payload: { professional: { routines: { summary: "s" } } } });
+    const { unmount } = renderHook(() => useReviewerPkmProof(state));
+    const result = await window.__HUSHH_NATIVE_TEST__!.pkmProof!
+      .projectionDigest("attr.professional.routines.entities._entities.summary");
+    expect(result.ok).toBe(true);
+    unmount();
+  });
   it("reports unavailable without detail when the export cannot be built", async () => {
     mocks.build.mockRejectedValue(new Error("secret detail"));
     const { unmount } = renderHook(() => useReviewerPkmProof(state));

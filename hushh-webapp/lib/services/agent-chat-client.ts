@@ -666,10 +666,14 @@ export async function streamAgentChat(input: {
         // generic debug payload or model-authored app-action parser. Approval
         // references use the separate native interrupt/review contract.
         const payload = toolPayload(event.toolCallId, toolName);
-        payload.execution = "server";
-        payload.message = parseRecord(event.content)?.status === "ok"
+        const outcome = parseRecord(event.content)?.status;
+        // A blocked or failed connector call must not render as a completed step.
+        payload.execution = outcome === "ok" || outcome === "review_required" ? "server" : "blocked";
+        payload.message = outcome === "ok"
           ? "Connector call finished."
-          : "Connector call needs attention.";
+          : outcome === "review_required"
+            ? "Waiting for your review."
+            : "Connector call needs attention.";
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         return;

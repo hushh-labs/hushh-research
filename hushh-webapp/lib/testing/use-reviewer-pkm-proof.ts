@@ -53,7 +53,7 @@ export function useReviewerPkmProof(state: {
     });
     // The owner's own rendered projection, hashed in the owner's browser before
     // any request exists, so the rehearsal never derives it from the export.
-    const DIGESTIBLE_SCOPE = /^attr\.(professional|travel)\.[a-z0-9_]+\.\*$/;
+    const DIGESTIBLE_SCOPE = /^attr\.(professional|travel)\.[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$/;
     const api: ReviewerPkmBridge = {
       projectionDigest: async (scope: string) => {
         if (!admitted() || !DIGESTIBLE_SCOPE.test(scope)) return { ok: false, code: "refused" };

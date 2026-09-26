@@ -133,6 +133,24 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("OWNER_INFORMATION");
     expect(onToolWaiting).not.toHaveBeenCalled();
   });
+  it.each([
+    ["ok", "server", "Connector call finished."],
+    ["review_required", "server", "Waiting for your review."],
+    ["blocked", "blocked", "Connector call needs attention."],
+    ["unavailable", "blocked", "Connector call needs attention."],
+  ])("maps a %s connector outcome to an honest activity state", async (status, execution, message) => {
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onToolCallStartEvent?.({ event: { toolCallId: "mcp-call", toolCallName: `mcp_${"b".repeat(40)}` } });
+      subscriber.onToolCallResultEvent?.({ event: {
+        toolCallId: "mcp-call", messageId: "result",
+        content: JSON.stringify({ status, private_result: "not_retained", truncated: false }),
+      } });
+    };
+    const onToolResult = vi.fn();
+    await streamAgentChat({ userId: "user-1", message: "Search docs", conversationId: "thread-1",
+      vaultOwnerToken: "owner-token", handlers: { onToolResult } });
+    expect(onToolResult.mock.calls[0][0]).toMatchObject({ label: "Connected tool", execution, message });
+  });
   it("records a submission locator and accepts only a bound safe history descriptor", async () => {
     const bundleId = "11111111-1111-1111-1111-111111111111";
     const descriptor = { activityType: "one.information_request_review.v1", content: {
