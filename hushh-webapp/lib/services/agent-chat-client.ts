@@ -578,9 +578,11 @@ export async function streamAgentChat(input: {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-        const statusChecked = toolName === "inspect_selected_drive_files" && parseRecord(event.content)?.status === "ok";
-        payload.message = statusChecked
-          ? "Drive status checked."
+        const isStatusCheck = toolName === "inspect_selected_drive_files";
+        payload.message = isStatusCheck
+          ? parseRecord(event.content)?.status === "ok"
+            ? "Drive status checked."
+            : "Drive status could not be checked."
           : readExperience?.status === "ok"
             ? readExperience.connector === "drive" && readExperience.metadataOnly
               ? "Drive search finished."
