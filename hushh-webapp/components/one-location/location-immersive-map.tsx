@@ -89,6 +89,10 @@ import {
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import {
+  createWebSelfAvatarOverlay,
+  type WebSelfAvatarOverlay,
+} from "@/lib/one-location/web-self-avatar-overlay";
+import {
   filterPeopleByQuery,
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
@@ -743,6 +747,9 @@ export function LocationImmersiveMap({
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
+  const [webAvatarOverlay, setWebAvatarOverlay] =
+    useState<WebSelfAvatarOverlay | null>(null);
+  const webAvatarOverlayRef = useRef<WebSelfAvatarOverlay | null>(null);
   const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   // Measures the tray's real rendered pieces -- the toggle header and the
@@ -1756,6 +1763,24 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      if (!isNative()) {
+        try {
+          const overlay = await createWebSelfAvatarOverlay(
+            map,
+            element,
+            initialCenter,
+          );
+          if (superseded()) {
+            overlay.destroy();
+            return;
+          }
+          webAvatarOverlayRef.current = overlay;
+          setWebAvatarOverlay(overlay);
+        } catch {
+          // Legacy web adapters retain the existing safe geographic fallback.
+        }
+      }
+      if (superseded()) return;
       cameraReportsAuthorizedRef.current = rendererReady;
       const currentInstance = () => !superseded() && mapRef.current === map;
       setCameraProjectionEnabled(false);
@@ -1952,6 +1977,9 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
       setMapReady(false);
+      webAvatarOverlayRef.current?.destroy();
+      webAvatarOverlayRef.current = null;
+      setWebAvatarOverlay(null);
       if (cameraFrameRef.current !== null) {
         window.cancelAnimationFrame(cameraFrameRef.current);
         cameraFrameRef.current = null;
@@ -2789,6 +2817,9 @@ export function LocationImmersiveMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
+    // Web OverlayView already owns an always-visible geographic avatar and
+    // needs no dot underneath it (a meter-radius dot grows during zoom). Native
+    // and compatibility adapters retain the geographic fallback.
     // Keep the geographically authoritative owner dot out of the shared marker
     // batch. A Circle is centred on its coordinate and cannot join a marker
     // cluster. It is replaced only when the coordinate, settled zoom, or stale
@@ -2836,6 +2867,7 @@ export function LocationImmersiveMap({
         cancelled ||
         !rendererReady ||
         !mapSelfMarker ||
+        webAvatarOverlay ||
         settledCameraZoom === null
       ) {
         return;
@@ -2909,6 +2941,7 @@ export function LocationImmersiveMap({
     rendererReady,
     selfRendererMarkerStale,
     settledCameraZoom,
+    webAvatarOverlay,
   ]);
 
   useEffect(() => {
@@ -3762,6 +3795,7 @@ export function LocationImmersiveMap({
         <MapSelfAvatarMarker
           point={mapSelfMarker.point}
           camera={mapCamera}
+          rendererOverlay={webAvatarOverlay}
           viewport={mapBox}
           avatarUrl={selfAvatarUrl}
           displayName={selfDisplayName}
