@@ -995,3 +995,29 @@ bounded failure, not universal organization reliability or live acceptance.
 Hermes companion `c4f367a551` now preserves exact Puppy scope and treats ambiguous
 control-plane status as indeterminate; its canonical runner passes 39 focused tests.
 It remains local alongside the repository's pre-existing unpublished work.
+
+
+### Files candidate verification and fresh main — 2026-09-25
+
+Complete canonical local CI passed on
+`5cd1fe018f9d11b74ec71cdb82c9a8dae045a81f`: 10,030 frontend tests, 522 voice
+contract tests, 6,661 backend tests and the 92-test PKM gate passed. Three frontend
+and 201 backend skips remain explicit. MCP package, governance, secret hygiene,
+source contracts, lint, type checks and the architecture ratchet also passed.
+
+A final freshness check found main `b4a6c5cb8e4b35a8c494f116664cedd53365efd4`.
+Its consent-status owner projection and regression test were already present via
+ADK. Merge `0da7429060c3273d10bb98e9a84bcef33614754a` changes only three CI-manifest
+lines, adding the existing status-owner suite. The newly registered suite and
+export-read deduplication checks pass. Application code is unchanged from the
+canonical run; the accompanying model-policy comment now reflects the selected
+3.7/3.6 pair. Remote CI must verify the final pushed head before dev deployment.
+
+Deployment remains separate: the main-owned dev workflow still pins 3.8. Correcting
+that workflow requires resolution of the current no-main-change boundary. No
+application merge to main, deployment or owner-pod installation occurred in this
+verification pass. Separate-network relay, actual spoken commands, real owner
+bucket/queue delivery, scale-to-zero, bounded load and exact-release owner approval
+remain open. The local root servers are assigned ports 3002/8002; the ignored local
+configuration now selects backend 8002 and fleet model 3.7, without changing other
+settings or shared environments.
