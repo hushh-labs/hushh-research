@@ -3618,7 +3618,7 @@ export class ApiService {
     update?: {
       releaseId: string;
       summary: string;
-      presentationState: "ready" | "deferred" | "scheduled" | "updating";
+      presentationState: "ready" | "deferred" | "scheduled" | "updating" | "blocked";
       remindAt?: string;
       reminderDue?: boolean;
       operationId?: string;

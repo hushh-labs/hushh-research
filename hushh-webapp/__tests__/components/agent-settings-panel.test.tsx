@@ -177,4 +177,27 @@ describe("owner hosting and software settings", () => {
     );
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
+  it("prioritizes an unresolved update over its retained lease and reports attention", async () => {
+    const response = {
+      hostingMode: "byoc",
+      updateFailed: true,
+      updateInProgress: true,
+      updateOfferable: false,
+    };
+    mocks.getStatus.mockResolvedValue(response);
+    status("byoc", response, {
+      ...NO_UPDATE,
+      inProgress: true,
+      failed: true,
+      presentationState: "blocked",
+    });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.getByText("Update needs attention")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    expect(mocks.promiseToast.mock.calls[0][1].success(response)).toBe(
+      "Update needs attention. Its outcome has not been verified.",
+    );
+  });
 });

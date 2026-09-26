@@ -1082,3 +1082,30 @@ reset identity or create a replacement fixture. Custom MCP tools remain excluded
 from pod mode, so the shared ADK checks do not prove BYOC custom-connector support.
 Real separate-network Puppy, actual pod restart/recovery, Files queue delivery and
 resource measurements remain live acceptance requirements.
+
+
+### Reviewer-candidate follow-up — 2026-09-26
+
+The integrated candidate `2b0bf05814196cec9e054e7c1b239130e65517d1` exposed
+an outdated Connections layout fixture in remote CI: the newer ADK UI imports
+`VaultContext` and `bearerAuthorizationValue`. The synthetic fixture now supplies
+its existing vault context and refuses custom credentials; it does not replace
+production connector behavior. Chromium and WebKit passed all four focused sidebar
+layout cases at 390px and 768px.
+
+A provider exception already persisted a blocked upgrade approval and retained its
+lease, but status presentation could incorrectly show installation or a new offer.
+The correction projects the bound original operation as blocked, including after
+the configured target changes, and suppresses new offers while reconciliation is
+pending. Lease freshness remains visible evidence, not proof of completion.
+Settings, presence and background progress prioritize attention over installation;
+copy makes no unverified claim that the previous image is still serving. Pure
+status projections were extracted behind existing imports; approval, replacement
+and recovery authority remain with their existing owners. Focused verification:
+51 backend update/authority tests and 8 Settings tests pass. Full candidate CI
+and live restart/recovery acceptance remain required.
+
+Reviewer diagnosis reached `vault_unlocked`; the earlier timeout is not evidence
+of a bad passphrase or failed authentication. `/one/profile` is a compatibility
+redirect into the profile pane on `/one`, so the probe must use the canonical
+navigation destination. No reviewer reset or replacement account was performed.

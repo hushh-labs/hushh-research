@@ -30,6 +30,8 @@ function updateCheckMessage(
     return "Hussh Shared updates automatically.";
   if (status.hostingMode === "pending")
     return "Updates become available after setup finishes.";
+  if (status.updateFailed)
+    return "Update needs attention. Its outcome has not been verified.";
   if (status.updateInProgress) return "Your private agent is updating.";
   if (status.updateOfferable && status.availableRelease) {
     return `Version ${status.availableRelease.version} is ready to install.`;
@@ -56,7 +58,9 @@ export function AgentSettingsPanel({
     ? status.hostingMode
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
-  const working = update.inProgress || update.presentationState === "scheduled";
+  const working =
+    !update.failed &&
+    (update.inProgress || update.presentationState === "scheduled");
 
   async function checkStatus() {
     if (busyRef.current) return;
@@ -168,7 +172,13 @@ export function AgentSettingsPanel({
             title="Current hosting"
             description={status ? HOST_LABELS[mode] : "Checking hosting…"}
           />
-          {mode === "byoc" ? <SettingsRow title="Files and storage" description="Open your private cloud library and analysis preferences." onClick={() => router.push(ROUTES.ONE_FILES)} /> : null}
+          {mode === "byoc" ? (
+            <SettingsRow
+              title="Files and storage"
+              description="Open your private cloud library and analysis preferences."
+              onClick={() => router.push(ROUTES.ONE_FILES)}
+            />
+          ) : null}
           {mode === "byoc" && status?.cloudProject ? (
             <SettingsRow
               title="Your cloud project"

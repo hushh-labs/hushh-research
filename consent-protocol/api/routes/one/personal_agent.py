@@ -45,6 +45,7 @@ from hushh_mcp.services.pod_release import (
     upgrade_is_supported,
     validate_release,
 )
+from hushh_mcp.services.pod_update_presentation import _blocked_update, _update_offer
 
 logger = logging.getLogger(__name__)
 
@@ -407,6 +408,8 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     # cleared when the outcome is recorded, so "fresh lease" is "being updated now".
     if _lease_is_fresh(metadata.get("upgradeLease")):
         out["updateInProgress"] = True
+    if blocked := _blocked_update(row):
+        return {**out, **blocked}
     if not (running and target):
         return out
     if target_digest:
@@ -420,60 +423,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         out["updateAvailable"] = running != target
     release = upgrade_release_id(row, target_reference or target)
     if out["updateAvailable"]:
-        # Keep an unverified target visible to operators as a diagnostic, but do
-        # not turn it into an owner-actionable offer.
-        # A deferred offer stays in the status response for quiet access, but it
-        # must not create a Feed card until the server deadline.  The deadline
-        # is authoritative; clients cannot manufacture an early reminder.
-        deferred_due = False
-        if isinstance(metadata.get("upgradeDeferral"), dict):
-            deferral = metadata["upgradeDeferral"]
-            if deferral.get("releaseId") == release:
-                reminder = str(deferral.get("remindAt") or "").strip()
-                if reminder:
-                    try:
-                        due = datetime.fromisoformat(reminder.replace("Z", "+00:00"))
-                        if due.tzinfo is None:
-                            due = due.replace(tzinfo=timezone.utc)
-                        deferred_due = due <= datetime.now(timezone.utc)
-                    except ValueError:
-                        deferred_due = False
-        out["updateOfferable"] = upgrade_is_supported(release_metadata, installed_digest) and (
-            not isinstance(metadata.get("upgradeDeferral"), dict)
-            or metadata["upgradeDeferral"].get("releaseId") != release
-            or deferred_due
-        )
-        approval = metadata.get("upgradeApproval")
-        deferral = metadata.get("upgradeDeferral")
-        update: dict[str, object] = {
-            "releaseId": release,
-            "summary": (
-                release_metadata["descriptor"]["summary"]
-                if release_metadata
-                else "Software update compatibility has not been verified."
-            ),
-            "presentationState": "ready",
-        }
-        if isinstance(deferral, dict) and deferral.get("releaseId") == release:
-            reminder = str(deferral.get("remindAt") or "").strip()
-            if reminder:
-                update["remindAt"] = reminder
-                if "reminderGeneration" in deferral:
-                    try:
-                        due = datetime.fromisoformat(reminder.replace("Z", "+00:00"))
-                        if due.tzinfo is None:
-                            due = due.replace(tzinfo=timezone.utc)
-                        update["reminderDue"] = due <= datetime.now(timezone.utc)
-                    except ValueError:
-                        update["reminderDue"] = False
-            update["presentationState"] = "deferred"
-        if isinstance(approval, dict) and approval.get("releaseId") == release:
-            status = str(approval.get("status") or "").strip()
-            if status in {"approved", "scheduled", "updating"}:
-                update["presentationState"] = "scheduled" if status == "approved" else status
-                if approval.get("operationId"):
-                    update["operationId"] = str(approval["operationId"])
-        out["update"] = update
+        out.update(_update_offer(metadata, release, release_metadata, installed_digest))
     marker = metadata.get("upgrade")
     if (
         isinstance(marker, dict)

@@ -1,6 +1,8 @@
 // Synthetic auth/native/Mail boundaries only; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
-import { useState } from "react";
+import { createContext, useState } from "react";
+export const bearerAuthorizationValue = () => { throw new Error("No custom credentials in layout fixture"); };
+export const VaultContext = createContext({ vaultOwnerToken: "synthetic-owner" });
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
 export const loadCustomConnectorSnapshot = async () => ({

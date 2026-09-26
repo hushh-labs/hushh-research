@@ -148,7 +148,7 @@ export function OneAgentPresence() {
   const waking = state === "active" && (isWaking || livePresence === "waking");
   // A software update in flight. The previous build keeps serving throughout, so
   // this is "still yours, being refreshed", not a warning.
-  const updating = state === "active" && update.inProgress;
+  const updating = state === "active" && update.inProgress && !update.failed;
   const label = notAnswering
     ? "Not responding"
     : updating
@@ -170,7 +170,7 @@ export function OneAgentPresence() {
   const updateNote = updating
     ? "Your current work is finishing before the update is installed."
     : update.failed
-      ? "The update could not be verified; your previous build remains active."
+      ? "The update outcome could not be verified. Check again while recovery continues."
       : update.available === true
         ? "An update is ready. Choose Update now in Feed when you are ready."
         : null;

@@ -366,3 +366,36 @@ def test_image_digest_rejects_unpinned_and_accepts_complete_oci_digest():
     assert image_digest(NEW_IMAGE) == NEW_DIGEST
     assert image_digest("gcr.io/hushh/pod:latest") is None
     assert image_digest("gcr.io/hushh/pod@sha256:abcd") is None
+
+
+@pytest.mark.parametrize("lease", ["2000-01-01T00:00:00+00:00|retained", "fresh"])
+@pytest.mark.parametrize("target", [NEW_IMAGE, OTHER_IMAGE, ""])
+def test_blocked_update_status_retains_operation_and_refuses_a_new_offer(lease, target):
+    from datetime import datetime, timezone
+
+    from api.routes.one.personal_agent import describe_pod_update
+
+    if lease == "fresh":
+        lease = datetime.now(timezone.utc).isoformat() + "|" + NEW_IMAGE
+    row = _row(approval=_approval(_row(), status="blocked"), lease=lease)
+    original = copy.deepcopy(row)
+    out = describe_pod_update(row, target_image=target)
+    assert out["updateFailed"] is True
+    assert out["updateOfferable"] is False
+    assert out["update"]["presentationState"] == "blocked"
+    assert out["update"]["operationId"] == "op-original"
+    assert (
+        out["update"]["releaseId"] == original["backend_metadata"]["upgradeApproval"]["releaseId"]
+    )
+    assert "could not be verified" in out["updateError"]
+    assert row == original
+
+
+@pytest.mark.parametrize("field", ["ownerId", "podIncarnation", "releaseId"])
+def test_unbound_blocked_receipt_is_not_projected_as_the_current_operation(field):
+    from api.routes.one.personal_agent import describe_pod_update
+
+    approval = _approval(_row(), status="blocked")
+    approval[field] = "other"
+    out = describe_pod_update(_row(approval=approval, lease="retained"), target_image=NEW_IMAGE)
+    assert out.get("update", {}).get("presentationState") != "blocked"
