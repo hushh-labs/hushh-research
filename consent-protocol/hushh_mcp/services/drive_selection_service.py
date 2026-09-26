@@ -15,7 +15,10 @@ from urllib.parse import urlsplit
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_store import DriveDocumentStore
-from hushh_mcp.services.external_connector_google_oauth import CONNECTOR_ID
+from hushh_mcp.services.external_connector_google_oauth import (
+    CONNECTOR_ID,
+    registered_redirect_uris,
+)
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
@@ -63,12 +66,21 @@ class DriveSelectionService:
 
     async def picker_session(self, *, user_id: str, origin: str) -> dict:
         connector, row, credential = await self._current(user_id)
+        redirects = registered_redirect_uris(connector)
         allowed_origins = {
             f"{urlsplit(uri).scheme}://{urlsplit(uri).netloc}"
-            for uri in connector.registered_redirect_uris
+            for uri in redirects
             if not uri.endswith("/api/connectors/oauth/native/callback")
         }
-        if origin not in allowed_origins or not origin.startswith("https://"):
+        # Registry rows are https-only. The one http origin that can appear is the
+        # development loopback return admitted by registered_redirect_uris.
+        loopback_origins = {
+            f"{urlsplit(uri).scheme}://{urlsplit(uri).netloc}"
+            for uri in set(redirects) - set(connector.registered_redirect_uris or ())
+        }
+        if origin not in allowed_origins or not (
+            origin.startswith("https://") or origin in loopback_origins
+        ):
             raise DriveReadError("origin_not_registered")
         project_number = credential["oauthClientId"].split("-", 1)[0]
         developer_key = os.getenv("GOOGLE_DRIVE_PICKER_API_KEY", "")
