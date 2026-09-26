@@ -230,11 +230,7 @@ def _hub_identity(email="hub@example.iam.gserviceaccount.com", aud=None):
 def walled(monkeypatch):
     from api.middlewares import pod_ingress
 
-    # These are the POD's wall, so say so rather than inheriting it. The value
-    # used to arrive by accident: `pod_server` asserts pod mode at import and
-    # nothing put it back, so whichever test imported the pod application first
-    # left it set for the rest of the session. Once that leak was closed these
-    # tests were the ones standing on it.
+    # Explicit topology avoids depending on pod_server import order.
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
     monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "hub@example.iam.gserviceaccount.com")
     monkeypatch.delenv("HUSSH_POD_TICK_ALLOWED_EMAILS", raising=False)
@@ -363,11 +359,7 @@ OWNER_REACHABLE_PATHS = frozenset(
     {
         "/health",
         "/health/ready",
-        # `/health/capabilities` was here until 2026-09-11 and is now WALLED.
-        # Liveness is fine to serve the internet; "which features this person's
-        # agent can deliver" is a fingerprint of one named individual, and the
-        # direct ingress axis turns the owner surface into the public one.
-        # Founder decision: some of the health surface world-readable, not all.
+        # Capabilities remain private; only liveness is public.
         # Each command/Files route enforces its scoped session; worker verifies
         # its exact queue identity instead. Reachability grants no authority.
         "/api/one/pod/commands/transcriptions",
