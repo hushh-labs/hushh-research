@@ -2268,10 +2268,14 @@ export default function GmailReceiptsPage({
 
                   {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
                     .readable_summary.highlights.length > 0 ? (
-                    <div className="flex flex-wrap gap-2.5 pt-0.5 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap gap-2.5 pt-0.5 text-xs text-muted-foreground max-w-full min-w-0">
                       {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
                         (item) => (
-                          <Badge key={item} variant="outline">
+                          <Badge
+                            key={item}
+                            variant="outline"
+                            className="max-w-full whitespace-normal break-words h-auto text-left leading-normal py-1.5 px-3"
+                          >
                             {item}
                           </Badge>
                         ),
