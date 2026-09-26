@@ -94,6 +94,21 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.getAllByRole("radio").every((radio) => radio.getAttribute("aria-checked") === "false")).toBe(true);
   });
 
+  it("keeps the radio selection aligned after removing a saved key", async () => {
+    loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
+      credentialRef.endsWith("credential_mode") ? "byok" :
+      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
+    render(<GeminiRuntimeSettingsCard userId="fixture" vaultKey="fixture"
+      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured initialSetupChoice="byok_pending_vault" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
+    await waitFor(() => expect(screen.getAllByRole("radio")[0].getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
+  });
+
   it("commits the managed choice before reporting setup completion", async () => {
     const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
     render(

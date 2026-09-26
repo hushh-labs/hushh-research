@@ -178,7 +178,12 @@ export function GeminiRuntimeSettingsCard({
         }),
       ]);
       if (selectionRevisionRef.current !== selectionRevision) return;
-      setMode(savedMode === "byok" ? "byok" : "hushh_managed_vertex");
+      const restoredMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
+      setMode(restoredMode);
+      if (requiresExplicitSelection) {
+        setSelectedOption((current) => current ? restoredMode : "");
+        if (restoredMode === "byok" && !savedKey) setHasExplicitSelection(false);
+      }
       setHasSavedKey(Boolean(savedKey));
       setTransport(savedTransport === "vertex_api_key" ? "vertex_api_key" : "developer_api");
       setVertexProject(savedProject || "");
@@ -495,6 +500,7 @@ export function GeminiRuntimeSettingsCard({
       await persistMode("hushh_managed_vertex");
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
+      setSelectedOption("hushh_managed_vertex");
       setHasSavedKey(false);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your saved Gemini key was removed.");
