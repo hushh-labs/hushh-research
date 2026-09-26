@@ -213,7 +213,7 @@ export class ExternalConnectorService {
   static async refreshMcpCatalog(input: {
     vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
     signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
-  }): Promise<Array<{ id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" }>> {
+  }): Promise<Array<{ id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review: "required" | "not_required" }>> {
     const current = () => !input.signal.aborted && input.isEffectCurrent();
     if (!current()) throw new Error("Your vault session changed.");
     const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
@@ -244,9 +244,13 @@ export class ExternalConnectorService {
           typeof tool.name !== "string" || tool.name.length > 256 || typeof tool.revision !== "string" ||
           tool.revision.length > 256 || typeof tool.fingerprint !== "string" ||
           !/^[a-f0-9]{64}$/.test(tool.fingerprint) ||
-          !["ask_first", "blocked"].includes(String(tool.permission))) throw new Error("Invalid connector tools.");
+          !["ask_first", "blocked"].includes(String(tool.permission)) ||
+          (tool.review !== undefined && !["required", "not_required"].includes(String(tool.review))))
+        throw new Error("Invalid connector tools.");
+      // An older server omits `review`; that means every call is reviewed.
       return { id: tool.id, name: tool.name, revision: tool.revision,
-        fingerprint: tool.fingerprint as string, permission: tool.permission as "ask_first" | "blocked" };
+        fingerprint: tool.fingerprint as string, permission: tool.permission as "ask_first" | "blocked",
+        review: tool.review === "not_required" ? "not_required" : "required" };
     });
   }
 

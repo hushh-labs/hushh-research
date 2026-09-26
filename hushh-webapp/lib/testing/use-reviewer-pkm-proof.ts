@@ -12,6 +12,7 @@ import {
   type ReviewerPkmJson,
 } from "@/lib/testing/reviewer-pkm-proof";
 import type {} from "@/lib/testing/native-test";
+import { resolveAppEnvironment } from "@/lib/app-env";
 
 const consumedBridges = new WeakSet<object>();
 
@@ -56,6 +57,9 @@ export function useReviewerPkmProof(state: {
     const DIGESTIBLE_SCOPE = /^attr\.(professional|travel)\.[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$/;
     const api: ReviewerPkmBridge = {
       projectionDigest: async (scope: string) => {
+        // A digest confirms guesses about the owner's information, so it exists
+        // only in local development builds; store builds are stamped "uat".
+        if (resolveAppEnvironment() !== "development") return { ok: false, code: "refused" };
         if (!admitted() || !DIGESTIBLE_SCOPE.test(scope)) return { ok: false, code: "refused" };
         try {
           await guard.assertCurrent();

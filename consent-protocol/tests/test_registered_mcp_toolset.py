@@ -310,7 +310,8 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
         assert all(tool.name.startswith("mcp_") for tool in tools)
         assert await tools[0].run_async(args={}, tool_context=candidate) == {
-            "status": "review_required"
+            "status": "review_required",
+            "connectorId": record["connectorId"],
         }
         native_call.assert_not_awaited()
         authorize.return_value = None

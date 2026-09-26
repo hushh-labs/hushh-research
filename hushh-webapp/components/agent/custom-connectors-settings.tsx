@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
-import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, isVaultOwnerCredential, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, isVaultOwnerCredential, bearerAuthorizationValue, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -19,7 +19,7 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
   authenticationKind: CustomConnectorConfiguration["authentication"]["kind"];
   hasOAuthRegistration: boolean;
 };
-type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked" };
+type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review?: "required" | "not_required" };
 class ConnectorSetupError extends Error {}
 
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
@@ -94,7 +94,9 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
           ...(oauthAuthMethod !== "none" && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
           tokenEndpointAuthMethod: oauthAuthMethod,
         } } : {}),
-        authentication: credential ? { kind: "api_key", header: "Authorization", value: credential } : { kind: "none" },
+        authentication: credential.trim()
+          ? { kind: "api_key", header: "Authorization", value: bearerAuthorizationValue(credential) }
+          : { kind: "none" },
       };
       // A saved definition is not a connection. Verify non-OAuth servers before
       // writing anything to the vault; OAuth registrations remain sign-in pending.
@@ -127,6 +129,9 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       loading: "Checking connector…", success: "Connector added.",
       error: (error) => {
         if (error instanceof ConnectorSetupError) return error.message;
+        // The server answered and refused the token: not an address problem.
+        if (error instanceof McpCatalogAuthenticationError)
+          return "This server rejected the access token. Check it and try again.";
         try {
           if (/\/auth\/?$/i.test(new URL(endpoint.trim()).pathname))
             return "That looks like a sign-in URL. Use the server’s MCP endpoint.";
@@ -229,7 +234,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       setCatalogs(previous => ({ ...previous, [item.connectorId]: (previous[item.connectorId] ?? []).map(entry =>
         entry.id === tool.id ? { ...entry, permission: tool.permission === "blocked" ? "ask_first" : "blocked" } : entry) }));
     })();
-    morphyToast.promise(operation, { loading: "Updating tool…", success: tool.permission === "blocked" ? "Tool available for reviewed calls in new turns." : "Tool blocked for new turns.", error: "Could not update the tool. Refresh tools and try again." });
+    morphyToast.promise(operation, { loading: "Updating tool…", success: tool.permission === "blocked" ? "Tool available in new turns." : "Tool blocked for new turns.", error: "Could not update the tool. Refresh tools and try again." });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
@@ -299,8 +304,9 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
         <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1">
           <span className="min-w-0 break-words">{tool.name}</span>
           <Button size="compact" variant="none" effect="fade" disabled={busy || !item.enabled}
-            aria-label={`${tool.permission === "blocked" ? "Allow reviewed calls to" : "Block"} ${tool.name} in ${item.displayName}`}
-            onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow" : "Ask first · Block"}</Button>
+            aria-label={`${tool.permission === "blocked" ? "Allow" : "Block"} ${tool.name} in ${item.displayName}`}
+            onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow"
+              : tool.review === "not_required" ? "Runs without asking · Block" : "Ask first · Block"}</Button>
         </li>)}</ul>
       </details> : null}
     </li>)}</ul>
@@ -308,7 +314,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Server URL<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Access token (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} onChange={event => setCredential(event.target.value)} /></label>
-      <p className="text-xs text-muted-foreground">Use the server endpoint, not its sign-in page. Never use your vault token.</p>
+      <p className="text-xs text-muted-foreground">Sent as “Authorization: Bearer” and kept in your vault. Use the server endpoint, not its sign-in page. Never use your vault token.</p>
       <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">OAuth settings</summary>
         <div className="space-y-3 pb-3">
           <label className="block space-y-1">Authorization server issuer<Input type="url" placeholder="https://accounts.example.com" maxLength={2048} value={oauthIssuer} onChange={event => setOauthIssuer(event.target.value)} /></label>
@@ -317,7 +323,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
           {oauthAuthMethod !== "none" ? <label className="block space-y-1">Client secret<Input type="password" autoComplete="off" maxLength={8192} value={oauthClientSecret} onChange={event => setOauthClientSecret(event.target.value)} /></label> : null}
         </div>
       </details>
-      <p className="text-xs text-muted-foreground">Only add servers you trust. Tools ask before use.</p>
+      <p className="text-xs text-muted-foreground">Only add servers you trust. Tools on a server without a token, and tools a server marks read-only, run without asking. Everything else asks first.</p>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="compact" effect="fade" disabled={busy}>Add</Button>
         <Button type="button" size="compact" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); }}>Cancel</Button>

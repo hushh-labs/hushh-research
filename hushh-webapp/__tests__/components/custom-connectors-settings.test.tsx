@@ -19,11 +19,12 @@ vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   HushhOAuthReturn: { openAuthorization: vi.fn() },
 }));
 
-vi.mock("@/lib/connections/custom-connector-configuration", () => {
+vi.mock("@/lib/connections/custom-connector-configuration", async (importOriginal) => {
   const loadCustomConnectorConfigurations = vi.fn();
   return {
     loadCustomConnectorConfigurations,
-    isVaultOwnerCredential: (value: string) => /^(?:Bearer\s+)?HCT:/i.test(value.trim()),
+    bearerAuthorizationValue: (await importOriginal<typeof import("@/lib/connections/custom-connector-configuration")>()).bearerAuthorizationValue,
+    isVaultOwnerCredential: (value: string) => /^(?:\S+\s+)?HCT:/i.test(value.trim()),
     loadCustomConnectorSnapshot: vi.fn(async (...args) => ({
       configurations: await loadCustomConnectorConfigurations(...args),
       invalid: [],
@@ -155,17 +156,22 @@ it("saves an OAuth challenge only as sign-in pending, never as connected", async
   expect(screen.queryByText(/tools discovered/)).toBeNull();
 });
 
-it("does not save a rejected supplied credential as an OAuth setup", async () => {
-  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
-  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
-  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
-  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
-  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer invalid" } });
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
-  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
-});
+it.each(["https://example.com/mcp", "https://example.com/mcp/auth"])(
+  "does not save a rejected supplied credential for %s and says the token was refused", async (endpoint) => {
+    vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+    render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: endpoint } });
+    fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer invalid-secret-value" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
+    expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+    const options = vi.mocked(morphyToast.promise).mock.calls.at(-1)?.[1] as { error: (error: unknown) => string };
+    const message = options.error(new McpCatalogAuthenticationError());
+    expect(message).toBe("This server rejected the access token. Check it and try again.");
+    expect(message).not.toContain("invalid-secret-value");
+  });
 
 it("does not enable adding when the vault catalog cannot be read", async () => {
   vi.mocked(loadCustomConnectorConfigurations).mockRejectedValue(new Error("synthetic failure"));
@@ -313,6 +319,43 @@ it("blocks and re-enables one discovered tool without disabling its connector", 
     access, { ...record, blockedTools: [{ id: tool.id, fingerprint: tool.fingerprint }] },
     expect.objectContaining({ confirmedByUser: true }), record.revision, expect.any(Function),
   ));
-  expect(await screen.findByRole("button", { name: "Allow reviewed calls to search_files in Synthetic" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Allow search_files in Synthetic" })).toBeEnabled();
   expect(screen.queryByRole("button", { name: "Block Synthetic" })).toBeNull();
+});
+
+it.each([
+  ["synthetic-token-value", "Bearer synthetic-token-value"],
+  ["  synthetic-token-value  ", "Bearer synthetic-token-value"],
+  ["Bearer synthetic-token-value", "Bearer synthetic-token-value"],
+  ["Token synthetic-token-value", "Token synthetic-token-value"],
+])("sends a pasted access token %j as an Authorization bearer", async (typed, sent) => {
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Bearer server" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
+  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: typed } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(saveCustomConnectorConfiguration).toHaveBeenCalledOnce());
+  expect(vi.mocked(ExternalConnectorService.refreshMcpCatalog).mock.calls[0][0].configuration.authentication)
+    .toEqual({ kind: "api_key", header: "Authorization", value: sent });
+  expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1].authentication)
+    .toEqual({ kind: "api_key", header: "Authorization", value: sent });
+  expect(document.body.textContent).not.toContain("synthetic-token-value");
+});
+
+it("labels tools that run without asking and keeps review for the rest", async () => {
+  const record = { version: 1 as const, connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Docs", endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "api_key" as const, header: "Authorization" as const, value: "Bearer synthetic" } };
+  vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([
+    { id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first", review: "not_required" },
+    { id: "mcp_" + "d".repeat(40), name: "write", revision: "rev1", fingerprint: "e".repeat(64), permission: "ask_first", review: "required" },
+  ]);
+  render(<CustomConnectorsSettings access={access} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh tools for Docs" }));
+  expect(await screen.findByRole("button", { name: "Block search in Docs" })).toHaveTextContent("Runs without asking · Block");
+  expect(screen.getByRole("button", { name: "Block write in Docs" })).toHaveTextContent("Ask first · Block");
+  fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
+  // The add form no longer promises that every tool asks first.
+  expect(screen.getByText(/tools a server marks read-only, run without asking/)).toBeInTheDocument();
+  expect(document.body.textContent).not.toContain("Tools ask before use");
 });

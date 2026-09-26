@@ -15,6 +15,27 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
 STATE_EXTERNAL_READ = "temp:one_external_read_invocation"
 STATE_EXTERNAL_READ_CONTINUATION = "temp:one_external_read_model_continuation"
+# "<invocation>:<function call id>" of the one governed MCP call, if any, that
+# was selected before any third-party content entered this conversation. Only
+# that exact call may skip exact-call review; every other call is reviewed.
+STATE_MCP_UNREVIEWED_CALL = "temp:one_mcp_unreviewed_call"
+# Durable (not temp:, so it survives new messages and resumes): some tool whose
+# result can carry third-party text has run in this conversation. Earlier
+# results and answers quoting them stay in the model's history.
+STATE_UNTRUSTED_CONTENT = "hussh:mcp_untrusted_content_seen"
+# Tools whose results hold only the owner's own settings or app state, never
+# text a third party wrote. Every other tool, connectors included, is untrusted.
+LOCAL_ONLY_TOOLS = frozenset(
+    {
+        "get_current_time",
+        "list_available_models",
+        "set_preferred_model",
+        "inspect_private_connectors",
+        "list_app_actions",
+        "report_no_app_action",
+        "open_screen",
+    }
+)
 MAIL_TOOL = "ask_email_agent"
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
@@ -30,6 +51,52 @@ READ_TOOLS = {
 def external_read_active(context: Any) -> bool:
     invocation = getattr(context, "invocation_id", None)
     return bool(invocation) and context.state.get(STATE_EXTERNAL_READ) == invocation
+
+
+def mcp_call_may_skip_review(tool_context: Any) -> bool:
+    """Fail closed: True only for the exact call admitted before any read.
+
+    Once mail, documents, calendar, search or any connector content is in the
+    conversation, a crafted document can steer arguments toward a third-party
+    server. From then on no governed MCP call runs without exact-call review,
+    whatever its credential or annotations say. A confirmed resume always uses
+    the review receipt path, never this one.
+    """
+    invocation = getattr(tool_context, "invocation_id", None)
+    call_id = getattr(tool_context, "function_call_id", None)
+    state = getattr(tool_context, "state", None)
+    return (
+        getattr(tool_context, "tool_confirmation", None) is None
+        and isinstance(invocation, str)
+        and bool(invocation)
+        and isinstance(call_id, str)
+        and bool(call_id)
+        and state is not None
+        and state.get(STATE_MCP_UNREVIEWED_CALL) == f"{invocation}:{call_id}"
+    )
+
+
+def _untrusted_content_seen(tool_context: Any, call_id: str) -> bool:
+    """Durable flag, or any earlier non-local tool in the stored history.
+
+    History covers conversations older than the flag. Unreadable history is
+    treated as untrusted.
+    """
+    state = getattr(tool_context, "state", None)
+    if state is None or state.get(STATE_UNTRUSTED_CONTENT):
+        return True
+    try:
+        events = tool_context.session.events
+        for event in events:
+            for part in getattr(getattr(event, "content", None), "parts", None) or []:
+                for item in (part.function_call, part.function_response):
+                    if item is None or getattr(item, "id", None) == call_id:
+                        continue
+                    if getattr(item, "name", None) not in LOCAL_ONLY_TOOLS:
+                        return True
+    except Exception:
+        return True
+    return False
 
 
 def _reviewed_mcp_tool(tool: Any) -> bool:
@@ -55,6 +122,27 @@ def _reviewable_draft_tool(tool: Any) -> bool:
 
 
 def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
+    if getattr(tool, "name", None) not in LOCAL_ONLY_TOOLS:
+        state = getattr(tool_context, "state", None)
+        if _reviewed_mcp_tool(tool):
+            call_id = getattr(tool_context, "function_call_id", None)
+            invocation = getattr(tool_context, "invocation_id", None)
+            if (
+                state is not None
+                and isinstance(call_id, str)
+                and call_id
+                and isinstance(invocation, str)
+                and invocation
+                and getattr(tool_context, "tool_confirmation", None) is None
+                and not external_read_active(tool_context)
+                and not _untrusted_content_seen(tool_context, call_id)
+            ):
+                # Decided before this call marks the conversation, and before
+                # any parallel sibling can: at most one call is eligible.
+                state[STATE_MCP_UNREVIEWED_CALL] = f"{invocation}:{call_id}"
+        # Set before dispatch so a sibling in the same batch already sees it.
+        if state is not None:
+            state[STATE_UNTRUSTED_CONTENT] = True
     if _reviewed_mcp_tool(tool):
         invocation = getattr(tool_context, "invocation_id", None)
         if (

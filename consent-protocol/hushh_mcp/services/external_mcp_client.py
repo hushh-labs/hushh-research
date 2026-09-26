@@ -206,7 +206,28 @@ def validate_tool_schema(schema: Any) -> dict[str, Any]:
     return schema
 
 
-async def _list_session_tools(session: Any) -> list[dict[str, Any]]:
+_REVIEW_HINTS = ("readOnlyHint", "destructiveHint")
+
+
+def _review_hints(tool: Any) -> dict[str, bool]:
+    """Keep only boolean review hints; anything else is absent.
+
+    Hints are the server's own claim. Absent or malformed hints never relax
+    review, so dropping them here is the fail-closed direction. The pinned MCP
+    SDK parses tools in pydantic lax mode, so "true", 1 or "yes" already arrive
+    as True: the same claim, spelled loosely. Non-boolean shapes are dropped.
+    """
+    annotations = getattr(tool, "annotations", None)
+    return {
+        key: value
+        for key in _REVIEW_HINTS
+        if type(value := getattr(annotations, key, None)) is bool
+    }
+
+
+async def _list_session_tools(
+    session: Any, *, include_review_hints: bool = False
+) -> list[dict[str, Any]]:
     """Read a complete bounded catalog; never present a partial list as complete."""
     catalog: list[dict[str, Any]] = []
     names: set[str] = set()
@@ -224,6 +245,8 @@ async def _list_session_tools(session: Any) -> list[dict[str, Any]]:
                 "description": getattr(tool, "description", None) or "",
                 "inputSchema": getattr(tool, "inputSchema", None) or {},
             }
+            if include_review_hints and (hints := _review_hints(tool)):
+                item["annotations"] = hints
             validate_tool_schema(item["inputSchema"])
             size += len(json.dumps(item).encode("utf-8"))
             if len(catalog) >= _MAX_CATALOG_TOOLS or size > _MAX_CATALOG_BYTES:

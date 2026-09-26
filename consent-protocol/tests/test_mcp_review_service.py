@@ -146,6 +146,7 @@ async def test_vault_configuration_reviews_without_private_registry(harness, mon
             "revision": "rev1",
             "fingerprint": module.mcp_tool_fingerprint(h.tool.descriptor),
             "permission": "ask_first",
+            "review": "required",
         }
     ]
     assert "synthetic-secret" not in str(catalog)
@@ -383,3 +384,77 @@ async def test_pending_confirmation_rejects_mismatched_call(pending_harness, fai
     h.ledger.confirm.assert_not_called()
     h.ledger.issue.assert_not_called()
     h.tool.run_async.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("authentication", "annotations", "review"),
+    [
+        ({"kind": "none"}, None, "not_required"),
+        ({"kind": "api_key", "header": "Authorization", "value": "synthetic"}, None, "required"),
+        (
+            {"kind": "api_key", "header": "Authorization", "value": "synthetic"},
+            {"readOnlyHint": True},
+            "not_required",
+        ),
+        (
+            {"kind": "oauth", "accessToken": "synthetic", "expiresAt": 4102444800},
+            {"readOnlyHint": True, "destructiveHint": True},
+            "required",
+        ),
+    ],
+)
+async def test_settings_review_field_mirrors_the_chat_review_decision(
+    harness, monkeypatch, authentication, annotations, review
+):
+    h = harness
+    monkeypatch.setattr(
+        mcp_turn_scope, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    if annotations is not None:
+        h.tool.descriptor["annotations"] = annotations
+    catalog = await module.discover_catalog(
+        token=h.request["token"],
+        connector_id="custom_" + "a" * 32,
+        configuration={
+            "version": 1,
+            "connectorId": "custom_" + "a" * 32,
+            "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+            "displayName": "Vault connector",
+            "endpoint": "https://example.com/mcp",
+            "enabled": True,
+            "authentication": authentication,
+        },
+    )
+    # Additive: the permission contract older apps parse is unchanged.
+    assert catalog["tools"][0]["permission"] == "ask_first"
+    assert catalog["tools"][0]["review"] == review
+    # Hints never re-key a saved block preference.
+    assert catalog["tools"][0]["fingerprint"] == module.mcp_tool_fingerprint(
+        {key: value for key, value in h.tool.descriptor.items() if key != "annotations"}
+    )
+    h.ledger.issue.assert_not_called()
+    h.tool.run_async.assert_not_called()
+
+
+async def test_settings_marks_a_changed_blocked_tool_as_reviewed(harness, monkeypatch):
+    """Matches Chat: a stale block forces review even on a credentialless server."""
+    h = harness
+    monkeypatch.setattr(
+        mcp_turn_scope, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    catalog = await module.discover_catalog(
+        token=h.request["token"],
+        connector_id="custom_" + "a" * 32,
+        configuration={
+            "version": 1,
+            "connectorId": "custom_" + "a" * 32,
+            "revision": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+            "displayName": "Vault connector",
+            "endpoint": "https://example.com/mcp",
+            "enabled": True,
+            "authentication": {"kind": "none"},
+            "blockedTools": [{"id": h.tool.name, "fingerprint": "f" * 64}],
+        },
+    )
+    assert catalog["tools"][0]["permission"] == "ask_first"
+    assert catalog["tools"][0]["review"] == "required"

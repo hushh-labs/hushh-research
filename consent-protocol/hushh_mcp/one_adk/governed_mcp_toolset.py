@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Literal, cast, get_args
 
 from google.adk.telemetry.tracing import _should_report_mcp_http_exchanges
 from google.adk.tools.mcp_tool.mcp_session_manager import (
@@ -28,7 +29,10 @@ from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, Tool
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.consent.audit_logger import get_audit_logger
+from hushh_mcp.one_adk.external_read_boundary import mcp_call_may_skip_review
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.external_connector_credentials_service import (
     get_external_connector_credentials_service,
@@ -38,7 +42,9 @@ from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
 from hushh_mcp.services.external_mcp_client import (
+    ExternalMcpAuthError,
     ExternalMcpError,
+    _http_status_from_error,
     _list_session_tools,
     _normalize_and_cap,
 )
@@ -63,12 +69,60 @@ class McpConnectionBinding:
             raise ValueError("Invalid MCP authority revision")
 
 
+# Founder decision 2026-09-25, "reads free, writes reviewed":
+#   always         every call needs exact-call review (registered/curated rows).
+#   credentialed   the person gave this connector a credential. Only a tool the
+#                  server itself annotates readOnlyHint=true runs unreviewed.
+#   credentialless no person credential is held, so no person authority is
+#                  exercised; calls run unreviewed.
+# A hint is the server's own claim, so it relaxes review only where the person
+# chose to trust that server with a credential. Unknown policy fails closed.
+McpReviewPolicy = Literal["always", "credentialed", "credentialless"]
+MCP_REVIEW_POLICIES: frozenset[str] = frozenset(get_args(McpReviewPolicy))
+# Why a call ran, for the owner's Activity. "no_credential" is deliberately not
+# "read_only": an unannotated tool on a public server may still change things.
+McpReviewOutcome = Literal["required", "read_only", "no_credential"]
+
+
+def _annotated_read_only(descriptor: object) -> bool:
+    if not isinstance(descriptor, dict):
+        return False
+    hints = descriptor.get("annotations")
+    return (
+        isinstance(hints, dict)
+        and hints.get("readOnlyHint") is True
+        # Contradictory hints are malformed, not read-only.
+        and hints.get("destructiveHint") is not True
+    )
+
+
+def mcp_call_requires_review(policy: object, descriptor: object) -> bool:
+    """Fail closed: anything but an exact, known relaxation needs review."""
+    if policy == "credentialless":
+        return False
+    return policy != "credentialed" or not _annotated_read_only(descriptor)
+
+
+def mcp_review_outcome(
+    policy: object, descriptor: object, *, forced: bool = False
+) -> McpReviewOutcome:
+    """`forced` is an owner rule (e.g. a block whose tool contract changed)."""
+    if forced or mcp_call_requires_review(policy, descriptor):
+        return "required"
+    return "read_only" if _annotated_read_only(descriptor) else "no_credential"
+
+
 @dataclass(frozen=True)
 class ResolvedMcpConnection:
     binding: McpConnectionBinding
     headers: dict[str, str] = field(repr=False)
     catalog_policy: CatalogPolicy | None = field(default=None, repr=False, compare=False)
     result_policy: ResultPolicy | None = field(default=None, repr=False, compare=False)
+    review_policy: McpReviewPolicy = field(default="always", compare=False)
+    # Opaque ids of tools the owner once blocked. If the provider changes such a
+    # tool's contract the block no longer matches it; it then always needs
+    # review, so editing a description can never turn a block into execution.
+    forced_review_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
 
 
 # Founder decision 2026-09-25: this project is not enrolled in Google's hosted
@@ -183,8 +237,43 @@ async def resolve_registered_connection(
 
 
 ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
+# Claims one unit of the owning turn's unreviewed-call budget; False means review.
+AdmitUnreviewed = Callable[[], bool]
+_unreviewed_audit = get_audit_logger("hushh_mcp.audit.mcp_unreviewed_call")
+
+
+def _audit_unreviewed_call(
+    context: Any, binding: McpConnectionBinding, tool_id: str, outcome: str
+) -> None:
+    """Metadata-only record of an outbound call no person reviewed.
+
+    The action ledger cannot hold it: its adk_chat rows require confirmation.
+    This is a structured log line, not a durable or tamper-evident store.
+    Never arguments, results, provider tool names or credentials. `tool_id` is
+    already an opaque digest of the connector and provider tool name.
+    """
+    state = getattr(context, "state", None) or {}
+    _unreviewed_audit.info(
+        "mcp.unreviewed_call",
+        extra={
+            "connector_id": binding.connector_id,
+            "tool_id": tool_id,
+            "review_outcome": outcome,
+            "invocation_id": str(getattr(context, "invocation_id", "") or ""),
+            "session_id": str(state.get("hussh:conversation_id") or ""),
+            # Keyed, so a list of user ids cannot reverse or link it offline.
+            "owner_ref": hmac.new(
+                get_core_security_settings().app_signing_key.encode(),
+                b"mcp-audit-owner:" + binding.owner_id.encode(),
+                hashlib.sha256,
+            ).hexdigest()[:16],
+        },
+    )
+
+
 # None permits this exact call; a dict is a safe pending/blocked app response.
-# The callback must consume existing app authority, never trust MCP annotations.
+# The callback must consume existing app authority, never trust MCP annotations;
+# only mcp_call_requires_review decides whether the callback runs at all.
 AuthorizeCall = Callable[
     [Any, McpConnectionBinding, str, str, dict[str, Any]], Awaitable[dict[str, Any] | None]
 ]
@@ -222,8 +311,46 @@ def mcp_tool_name(connector_id: str, wire_name: str) -> str:
 
 
 def mcp_tool_fingerprint(descriptor: dict[str, Any]) -> str:
-    """Bind owner preferences to one exact discovered tool contract."""
-    return _digest(descriptor)
+    """Bind owner preferences to one exact discovered tool contract.
+
+    Review hints are excluded: a server flipping readOnlyHint must neither lift
+    an owner's block nor silently re-key saved preferences. The catalog
+    revision still includes hints, so a flip invalidates discovered tools.
+    """
+    return _digest({key: value for key, value in descriptor.items() if key != "annotations"})
+
+
+def _credential_values(headers: dict[str, str]) -> list[str]:
+    values = []
+    for value in headers.values():
+        values.append(value)
+        scheme, _, credential = value.partition(" ")
+        if credential and scheme.isalpha():
+            values.append(credential.strip())
+    # Very short values would redact ordinary words; credentials are longer.
+    return sorted({value for value in values if len(value) >= 8}, key=len, reverse=True)
+
+
+def _redact_credentials(value: Any, secrets: list[str]) -> Any:
+    """Best effort against a server echoing the credential it received verbatim.
+
+    It cannot stop a hostile server (encoded, split or re-cased echoes, or
+    values under 8 characters); that server already holds the credential.
+    """
+    if not secrets:
+        return value
+    if isinstance(value, str):
+        for secret in secrets:
+            value = value.replace(secret, "[redacted]")
+        return value
+    if isinstance(value, list):
+        return [_redact_credentials(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {
+            _redact_credentials(key, secrets): _redact_credentials(item, secrets)
+            for key, item in value.items()
+        }
+    return value
 
 
 class GovernedMcpToolset(McpToolset):
@@ -244,12 +371,21 @@ class GovernedMcpToolset(McpToolset):
         timeout_seconds: float = 20,
         catalog_policy: CatalogPolicy | None = None,
         result_policy: ResultPolicy | None = None,
+        review_policy: McpReviewPolicy = "always",
+        forced_review_tool_ids: frozenset[str] = frozenset(),
+        admit_unreviewed: AdmitUnreviewed | None = None,
     ) -> None:
         validate_mcp_endpoint(binding.endpoint)
         if not binding.owner_id or not binding.connector_id or binding.generation < 1:
             raise ValueError("Invalid MCP connection binding")
         if binding.credential_version < 1 or not 0 < timeout_seconds <= 60:
             raise ValueError("Invalid MCP execution limits")
+        if review_policy not in MCP_REVIEW_POLICIES:
+            raise ValueError("Invalid MCP review policy")
+        if not isinstance(forced_review_tool_ids, frozenset) or not all(
+            isinstance(item, str) for item in forced_review_tool_ids
+        ):
+            raise ValueError("Invalid MCP review policy")
         self.binding = binding
         self.resolve_connection = resolve_connection
         self.authorize_call = authorize_call
@@ -259,6 +395,10 @@ class GovernedMcpToolset(McpToolset):
         # narrow capabilities/results without a second MCP dispatcher.
         self.catalog_policy = catalog_policy
         self.result_policy = result_policy
+        self.review_policy: McpReviewPolicy = review_policy
+        self.forced_review_tool_ids = forced_review_tool_ids
+        # No budget owner (no turn scope) means no unreviewed call at all.
+        self.admit_unreviewed = admit_unreviewed
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
@@ -275,6 +415,11 @@ class GovernedMcpToolset(McpToolset):
     def refresh(self) -> None:
         self.catalog_epoch += 1
 
+    def review_outcome(self, tool_id: str, descriptor: object) -> McpReviewOutcome:
+        return mcp_review_outcome(
+            self.review_policy, descriptor, forced=tool_id in self.forced_review_tool_ids
+        )
+
     async def _current_headers(self, context: Any) -> dict[str, str]:
         # The pinned SDK's HTTP diagnostics can capture custom credentials and
         # private response bodies independently of normal no-content telemetry.
@@ -286,7 +431,11 @@ class GovernedMcpToolset(McpToolset):
         if context is None or context.user_id != self.binding.owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         current = await self.resolve_connection(context)
-        if current.binding != self.binding:
+        if (
+            current.binding != self.binding
+            or current.review_policy != self.review_policy
+            or current.forced_review_tool_ids != self.forced_review_tool_ids
+        ):
             raise ExternalMcpError("Connector connection changed.", code="MCP_CONNECTION_CHANGED")
         return dict(current.headers)
 
@@ -301,7 +450,7 @@ class GovernedMcpToolset(McpToolset):
                 session = await manager.create_session(headers=headers)
                 manager._begin_session_use(headers)
                 try:
-                    catalog = await _list_session_tools(session)
+                    catalog = await _list_session_tools(session, include_review_hints=True)
                     discovered = {item["name"]: deepcopy(item) for item in catalog}
                     if self.catalog_policy is not None:
                         catalog = self.catalog_policy(deepcopy(catalog))
@@ -311,12 +460,21 @@ class GovernedMcpToolset(McpToolset):
                                 raise ExternalMcpError(
                                     "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
                                 )
+                            # Review hints are only ever the provider's own.
+                            item.pop("annotations", None)
+                            if "annotations" in original:
+                                item["annotations"] = deepcopy(original["annotations"])
                 finally:
                     manager._end_session_use(headers)
                 await self._current_headers(readonly_context)
         except ExternalMcpError:
             raise
-        except Exception:
+        except Exception as error:
+            # Same classification as the shared client: a refused credential or
+            # a server that needs sign-in is not an unreachable server. Only
+            # the status code is read; no provider text or header is kept.
+            if _http_status_from_error(error) in {401, 403}:
+                raise ExternalMcpAuthError() from None
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None
@@ -371,9 +529,12 @@ class _GovernedMcpTool(McpTool):
     async def run_async(self, *, args, tool_context):
         try:
             async with asyncio.timeout(self.toolset.timeout_seconds):
-                return await self._run_governed(args=args, tool_context=tool_context)
+                result = await self._run_governed(args=args, tool_context=tool_context)
         except TimeoutError:
-            return {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+            result = {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+        # The opaque connector id lets the owner's app label this step with the
+        # name the owner chose. It is not a credential and grants nothing.
+        return {**result, "connectorId": self.toolset.binding.connector_id}
 
     async def _run_governed(self, *, args, tool_context):
         # A denial needs neither private argument recovery nor provider access.
@@ -394,33 +555,52 @@ class _GovernedMcpTool(McpTool):
             # retain their meaning. A narrowed advertised schema cannot erase
             # an original provider constraint or silently rewrite arguments.
             validated_mcp_arguments(self.provider_schema, arguments)
-            pending = await owner.authorize_call(
-                tool_context,
-                owner.binding,
-                self.descriptor["name"],
-                self.revision,
-                deepcopy(arguments),
-            )
-            if pending is not None:
-                return pending
+            # Decided on the admitted descriptor of the current catalog revision;
+            # a hint change re-keys the catalog and fails the epoch check below.
+            # An unreviewed call never touches the action directive ledger.
+            outcome = owner.review_outcome(self.name, self.descriptor)
+            if outcome != "required" and not (
+                # Before any external content in this turn, and within budget.
+                mcp_call_may_skip_review(tool_context)
+                and owner.admit_unreviewed is not None
+                and owner.admit_unreviewed()
+            ):
+                outcome = "required"
+            reviewed = outcome == "required"
+            if reviewed:
+                pending = await owner.authorize_call(
+                    tool_context,
+                    owner.binding,
+                    self.descriptor["name"],
+                    self.revision,
+                    deepcopy(arguments),
+                )
+                if pending is not None:
+                    return pending
             await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED"}
             # Call the native implementation exactly once. Bypass its optional
             # graceful-error wrapper, which can log raw provider exceptions.
+            if not reviewed:
+                # Recorded before dispatch; if it cannot be written, nothing is sent.
+                _audit_unreviewed_call(tool_context, owner.binding, self.name, outcome)
             async with asyncio.timeout(owner.timeout_seconds):
                 dispatched = True
                 result = await super()._run_async_impl(
                     args=arguments, tool_context=tool_context, credential=None
                 )
-            await owner._current_headers(tool_context)
+            headers = await owner._current_headers(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
-            projection = (
-                (lambda payload: owner.result_policy(self.descriptor["name"], payload))
-                if owner.result_policy is not None
-                else None
-            )
+            secrets = _credential_values(headers)
+
+            def projection(payload: dict[str, Any]) -> dict[str, Any]:
+                if owner.result_policy is not None:
+                    payload = owner.result_policy(self.descriptor["name"], payload)
+                # Before serialization and capping, so a cut cannot split a secret.
+                return cast(dict[str, Any], _redact_credentials(payload, secrets))
+
             normalized = _normalize_and_cap(
                 CallToolResult.model_validate(result), project=projection
             )
@@ -431,6 +611,7 @@ class _GovernedMcpTool(McpTool):
                 "isError": normalized.is_error,
                 "result": normalized.payload,
                 "truncated": normalized.truncated,
+                "review": "approved" if reviewed else outcome,
             }
         except ActionDirectiveAuthorityError:
             return {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}

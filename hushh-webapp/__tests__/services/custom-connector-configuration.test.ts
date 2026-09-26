@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
-import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations, bearerAuthorizationValue, isVaultOwnerCredential } from "@/lib/connections/custom-connector-configuration";
 
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token" };
 const confirmation = { confirmedByUser: true as const, surface: "web" as const, source: "connector_test" };
@@ -84,6 +84,15 @@ describe("vault-backed custom connector configuration", () => {
   it("keeps legacy records removable but never forwards or re-saves a vault-owner credential", async () => {
     for (const value of ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"]) {
       const legacy = parseCustomConnectorConfiguration({ ...record, authentication: { ...record.authentication, value } });
+      expect(() => projectCustomConnectorTurnConfigurations([legacy])).toThrow();
+      await expect(saveCustomConnectorConfiguration(access, legacy, confirmation, null)).rejects.toThrow();
+    }
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("never forwards or saves a vault-owner credential returned as an OAuth access token", async () => {
+    for (const accessToken of ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"]) {
+      const legacy = parseCustomConnectorConfiguration({ ...record,
+        authentication: { kind: "oauth", accessToken, expiresAt: 4070908800 } });
       expect(() => projectCustomConnectorTurnConfigurations([legacy])).toThrow();
       await expect(saveCustomConnectorConfiguration(access, legacy, confirmation, null)).rejects.toThrow();
     }
@@ -174,4 +183,24 @@ describe("vault-backed custom connector configuration", () => {
     expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
     expect(storage.removeRuntimeSecret).not.toHaveBeenCalled();
   });
+});
+
+describe("bearerAuthorizationValue", () => {
+  it.each([
+    ["abc.def-ghi_123", "Bearer abc.def-ghi_123"],
+    ["  eyJhbGciOiJIUzI1NiJ9.e30.sig  ", "Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig"],
+    ["Bearer abc", "Bearer abc"],
+    ["bearer abc", "bearer abc"],
+    ["Basic dXNlcjpwYXNz", "Basic dXNlcjpwYXNz"],
+    ["Token abc", "Token abc"],
+  ])("normalizes %j", (value, expected) => {
+    expect(bearerAuthorizationValue(value)).toBe(expected);
+  });
+  it("still recognizes a vault token after normalization", () => {
+    expect(isVaultOwnerCredential(bearerAuthorizationValue("HCT:synthetic.signature"))).toBe(true);
+  });
+  it.each(["Token HCT:synthetic.signature", "  basic   hct:synthetic.signature"])(
+    "refuses a vault token under any scheme %j", (value) => {
+      expect(isVaultOwnerCredential(bearerAuthorizationValue(value))).toBe(true);
+    });
 });

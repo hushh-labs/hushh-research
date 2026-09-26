@@ -203,6 +203,7 @@ import {
   getAgentChatFeedback,
   setAgentChatFeedback,
   recordAgentChatInformationRequest,
+  parseRestoredTurnActivity,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -1834,7 +1835,7 @@ export function storedMessageToAgentMessage(
   seenExperienceIds: Set<string> = new Set(),
 ): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
-  const createdAt = message.created_at ? new Date(message.created_at) : null;
+  const createdAt = restoredMessageTime(message.created_at);
   // A selection message must never re-render its raw `I selected:` seed on
   // reload: prefer the persisted display label and render it as a chip. The
   // backend (Task 3) guarantees metadata.display for new selection messages;
@@ -1895,6 +1896,19 @@ export function storedMessageToAgentMessage(
     seenExperienceIds.add(entry.id);
     return true;
   });
+  // The same Activity rows the owner saw live, rebuilt from app-owned labels.
+  const streamEvents: AgentVisibleStreamEvent[] = message.role === "assistant"
+    ? parseRestoredTurnActivity(message.metadata?.turnActivity).map((step) => ({
+        id: step.id,
+        label: step.label,
+        message: step.message,
+        status: step.status,
+        ...(step.tag ? { tag: step.tag } : {}),
+        ...(step.provider ? { brand: step.provider } : {}),
+        ...(step.connectorId ? { connectorId: step.connectorId } : {}),
+        createdAtMs: createdAt?.getTime() ?? 0,
+      }))
+    : [];
   // Do not resurrect a duplicate through the legacy descriptor, or leave an
   // empty thinking bubble. Prose and all distinct cards retain source order.
   if (candidates.length && !structuredExperiences.length && !displayText.trim()) return null;
@@ -1915,7 +1929,46 @@ export function storedMessageToAgentMessage(
       ? { kind: "selection" as const }
       : {}),
     ...(structuredExperiences.length ? { structuredExperiences } : {}),
+    ...(streamEvents.length ? { streamEvents } : {}),
   };
+}
+
+/**
+ * History timestamps are ADK event times in epoch seconds; ISO strings are
+ * accepted too. Reading seconds as milliseconds dated every restored turn to
+ * January 1970, which rendered as a wrong clock time after returning to a chat.
+ */
+export function restoredMessageTime(value: unknown): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = typeof value === "number" ? value
+    : typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : null;
+  const date = numeric !== null
+    ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
+    : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const RESTORED_CONNECTOR_STEP_LABEL = "Connected tool";
+
+/** Replace restored opaque connector rows with the owner's names; unchanged rows keep identity. */
+export function labelRestoredConnectorSteps<T extends { streamEvents?: AgentVisibleStreamEvent[] }>(
+  messages: T[],
+  names: ReadonlyMap<string, string>,
+): T[] {
+  let changed = false;
+  const next = messages.map((message) => {
+    if (!message.streamEvents?.some((event) => event.connectorId &&
+      event.label === RESTORED_CONNECTOR_STEP_LABEL && names.get(event.connectorId)?.trim())) return message;
+    changed = true;
+    return {
+      ...message,
+      streamEvents: message.streamEvents.map((event) => {
+        const name = event.connectorId ? names.get(event.connectorId)?.trim() : undefined;
+        return name && event.label === RESTORED_CONNECTOR_STEP_LABEL ? { ...event, label: name } : event;
+      }),
+    };
+  });
+  return changed ? next : messages;
 }
 
 export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
@@ -3761,6 +3814,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       window.clearTimeout(timeoutId);
     };
   }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
+
+  // A restored connector step carries only its opaque id. Label it with the
+  // owner's own connector name from the vault, as the live row did; the
+  // server never learns or returns that name.
+  const unresolvedConnectorIds = useMemo(() => Array.from(new Set(messages.flatMap((message) =>
+    (message.streamEvents ?? []).flatMap((event) =>
+      event.connectorId && event.label === RESTORED_CONNECTOR_STEP_LABEL ? [event.connectorId] : [])))).sort().join(","),
+  [messages]);
+  const attemptedConnectorNamesRef = useRef<string>("");
+  useEffect(() => {
+    const ownerId = user?.uid;
+    if (!unresolvedConnectorIds || !ownerId || !vaultKey || !vaultOwnerToken) return;
+    const attemptKey = `${ownerId}:${unresolvedConnectorIds}`;
+    if (attemptedConnectorNamesRef.current === attemptKey) return;
+    attemptedConnectorNamesRef.current = attemptKey;
+    let cancelled = false;
+    void loadCustomConnectorSnapshot({ userId: ownerId, vaultKey, vaultOwnerToken })
+      .then(({ configurations }) => {
+        if (cancelled || workspaceOwnerIdRef.current !== ownerId) return;
+        const names = new Map(configurations.map((item) => [item.connectorId, item.displayName]));
+        setMessages((current) => labelRestoredConnectorSteps(current, names));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [unresolvedConnectorIds, user?.uid, vaultKey, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
     async (

@@ -2,7 +2,11 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useReviewerPkmProof } from "@/lib/testing/use-reviewer-pkm-proof";
 
-const mocks = vi.hoisted(() => ({ load: vi.fn(), build: vi.fn(), epochCurrent: true }));
+const mocks = vi.hoisted(() => ({ load: vi.fn(), build: vi.fn(), epochCurrent: true, env: "development" }));
+vi.mock("@/lib/app-env", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/app-env")>(),
+  resolveAppEnvironment: () => mocks.env,
+}));
 vi.mock("@/lib/consent/export-builder", () => ({ buildConsentExportForScope: mocks.build }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadDomainSnapshot: mocks.load },
@@ -20,7 +24,7 @@ const expectation = { domain: "professional" as const, path: ["projects", "fixtu
 const snapshot = { snapshot: { userId: "owner", domain: "professional", contentRevision: 2 },
   data: { projects: { old: "synthetic prior" } } };
 beforeEach(() => {
-  mocks.load.mockReset(); mocks.build.mockReset(); mocks.epochCurrent = true;
+  mocks.load.mockReset(); mocks.build.mockReset(); mocks.epochCurrent = true; mocks.env = "development";
   window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true,
     pkmProofEnabled: true, pkmProofExpectation: expectation,
     expectedUserId: "owner", reviewerMutationPolicy: "bounded_mutation" };
@@ -111,6 +115,14 @@ describe("reviewer projection digest", () => {
       .projectionDigest("attr.professional.routines.entities._entities.summary");
     expect(result.ok).toBe(true);
     unmount();
+  });
+  it.each(["uat", "production"])("refuses outside local development (%s builds)", async env => {
+    mocks.env = env;
+    mocks.build.mockResolvedValue({ payload: { professional: { routines: { a: 1 } } } });
+    const { unmount } = renderHook(() => useReviewerPkmProof(state));
+    expect(await window.__HUSHH_NATIVE_TEST__!.pkmProof!.projectionDigest("attr.professional.routines.*"))
+      .toEqual({ ok: false, code: "refused" });
+    expect(mocks.build).not.toHaveBeenCalled(); unmount();
   });
   it("reports unavailable without detail when the export cannot be built", async () => {
     mocks.build.mockRejectedValue(new Error("secret detail"));

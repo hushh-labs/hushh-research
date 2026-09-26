@@ -58,23 +58,13 @@ export function parseWorkspaceConnectorSetup(
     const result = outer && (typeof outer.status === "string" ? outer : [outer.result, outer.content, outer.data]
       .map(parseRecord)
       .find((candidate) => candidate?.status) ?? outer);
-    const rawSaved = result?.saved;
-    const saved = Array.isArray(rawSaved) && rawSaved.length <= 32
-      ? rawSaved.map(value => {
-        const item = record(value);
-        return item && typeof item.id === "string" && /^custom_[a-f0-9]{32}$/.test(item.id) &&
-          typeof item.name === "string" && item.name.trim().length > 0 && item.name.length <= 100 &&
-          !/[\x00-\x1f\x7f]/.test(item.name) &&
-          ["saved", "disabled", "reconnect_needed"].includes(String(item.status))
-          ? { id: item.id, name: item.name, status: item.status as "saved" | "disabled" | "reconnect_needed" }
-          : null;
-      }) : null;
+    const saved = parseSavedConnectors(result?.saved);
     return result?.status === "setup_available" && result.provider === "custom"
       ? {
         type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
         provider: "custom",
         status: "manage_available",
-        ...(saved?.every(Boolean) && saved.length ? { saved: saved as NonNullable<WorkspaceConnectorSetupExperience["saved"]> } : {}),
+        ...(saved ? { saved } : {}),
       }
       : null;
   }
@@ -106,6 +96,43 @@ export function parseWorkspaceConnectorSetup(
     provider,
     status: result.status === "permission_required" ? "connect_required" : "manage_available",
   };
+}
+
+type SavedConnector = NonNullable<WorkspaceConnectorSetupExperience["saved"]>[number];
+
+function parseSavedConnectors(value: unknown): SavedConnector[] | null {
+  if (!Array.isArray(value) || value.length > 32) return null;
+  const saved = value.map((raw) => {
+    const item = record(raw);
+    return item && typeof item.id === "string" && /^custom_[a-f0-9]{32}$/.test(item.id) &&
+      typeof item.name === "string" && item.name.trim().length > 0 && item.name.length <= 100 &&
+      !/[\x00-\x1f\x7f]/.test(item.name) &&
+      ["saved", "disabled", "reconnect_needed"].includes(String(item.status))
+      ? { id: item.id, name: item.name, status: item.status as SavedConnector["status"] }
+      : null;
+  });
+  return saved.every(Boolean) && saved.length ? saved as SavedConnector[] : null;
+}
+
+/**
+ * Restore a connect/manage card from the server's bound history descriptor.
+ * Only a provider enum, a setup status and validated saved-connector labels
+ * are accepted; the card still reads the current connection before acting.
+ */
+export function parseWorkspaceConnectorSetupDescriptor(
+  content: unknown,
+): WorkspaceConnectorSetupExperience | null {
+  const input = parseRecord(content);
+  const provider = input?.provider;
+  const status = input?.status;
+  if (provider === "custom") {
+    if (status !== "manage_available") return null;
+    const saved = parseSavedConnectors(input?.saved);
+    return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status, ...(saved ? { saved } : {}) };
+  }
+  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") return null;
+  if (status !== "connect_required" && status !== "manage_available") return null;
+  return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status };
 }
 
 export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperience | null {

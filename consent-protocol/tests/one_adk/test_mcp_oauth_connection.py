@@ -65,10 +65,21 @@ async def test_attempt_registry_bounds_claim_and_owner_isolation(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
 @pytest.mark.parametrize("registered", [False, True])
+@pytest.mark.parametrize("streamed", [False, True])
 async def test_connection_handshake_and_owner_bound_single_delivery(
-    monkeypatch, cancel, registered
+    monkeypatch, cancel, registered, streamed
 ):
+    """`streamed` mirrors a real transport: metadata bodies arrive unread."""
     methods = []
+
+    def metadata(payload):
+        if not streamed:
+            return httpx.Response(200, json=payload)
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(json.dumps(payload).encode()),
+        )
 
     def respond(request):
         path = request.url.path
@@ -97,17 +108,15 @@ async def test_connection_handshake_and_owner_bound_single_delivery(
                 )
             return httpx.Response(202)
         if path == "/resource":
-            return httpx.Response(
-                200,
-                json={
+            return metadata(
+                {
                     "resource": "https://mcp.example/mcp",
                     "authorization_servers": ["https://auth.example"],
                 },
             )
         if "/.well-known/" in path:
-            return httpx.Response(
-                200,
-                json={
+            return metadata(
+                {
                     "issuer": "https://auth.example",
                     "authorization_endpoint": "https://auth.example/authorize",
                     "token_endpoint": "https://auth.example/token",
