@@ -224,6 +224,30 @@ export function actionTargetsCurrentSurface(
   return Boolean(targetSubview) && targetSubview === subview;
 }
 
+/**
+ * Whether a tap in search can actually run `action`.
+ *
+ * The catalog also holds entries that exist only for One itself: hand-offs to
+ * a specialist agent ("Ask Consent (Nav)"), widgets that live inside chat
+ * ("Reveal a card"), and actions that need an id only an earlier tool call
+ * produces ("Request someone's information" needs a proposal id). Tapped from
+ * search these do nothing, so offering them made search look broken.
+ *
+ * `hidden_navigable` alone is not the test: plenty of hidden entries are real
+ * destinations ("Show Holdings"), and a route runs from anywhere.
+ */
+export function isOfferableInSearch(action: KaiActionDefinition): boolean {
+  const target = action.execution_target;
+  const isRoute = target.status === "wired" && target.path === "route";
+  if (action.reachability.hidden_navigable && !isRoute) return false;
+  const requiredInputs = action.goal?.required_inputs ?? [];
+  return !requiredInputs.some(
+    (input) =>
+      input.required !== false &&
+      String(input.resolver || "").startsWith("opaque_"),
+  );
+}
+
 /** Whether choosing an action with this availability does anything. */
 function isRunnable(availability: KaiActionAvailability): boolean {
   return (
@@ -763,6 +787,7 @@ export function KaiCommandPalette({
       ...local,
       ...related.filter(({ action }) => !localIds.has(action.action_id)),
     ].filter(({ action }) => {
+      if (!isOfferableInSearch(action)) return false;
       if (
         isLocalHandlerAwayFromItsScreen(action, currentScreen) &&
         !navigationActionForAction(action)
@@ -817,6 +842,7 @@ export function KaiCommandPalette({
     })
       .filter(
         (action) =>
+          isOfferableInSearch(action) &&
           !actionTargetsCurrentSurface(action, currentPath, currentSubview),
       )
       .map((action) => ({
@@ -863,7 +889,9 @@ export function KaiCommandPalette({
     for (const entry of usage) {
       if (rows.length >= RECENT_ACTION_LIMIT) break;
       const action = getKaiActionById(entry.actionId);
-      if (!action) continue;
+      // Usage recorded before search stopped offering agent-only actions
+      // would otherwise keep bringing them back as habits.
+      if (!action || !isOfferableInSearch(action)) continue;
       if (action.control_ids.some((id) => tappableControlIds.has(id))) continue;
       if (isLocalHandlerAwayFromItsScreen(action, currentScreen)) continue;
       const availability = evaluateKaiActionAvailability({
@@ -917,7 +945,7 @@ export function KaiCommandPalette({
     const remedy = deadEnd?.remedyActionId
       ? getKaiActionById(deadEnd.remedyActionId)
       : null;
-    if (remedy && deadEnd?.reason) {
+    if (remedy && deadEnd?.reason && isOfferableInSearch(remedy)) {
       push(
         remedy,
         evaluateKaiActionAvailability({
