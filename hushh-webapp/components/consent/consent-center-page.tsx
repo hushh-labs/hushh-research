@@ -1646,7 +1646,10 @@ function ConsentSurfaceListSection({
           <SettingsRow title="Loading consent entries" />
         ) : null}
         {!loading && items.length === 0 ? (
-          <SettingsRow title={emptyMessage} />
+          <SettingsRow
+            title={emptyMessage}
+            className="py-3 min-h-[64px]"
+          />
         ) : null}
         {items.map((entry, index) =>
           entry.bundle_items ? (
@@ -3085,7 +3088,7 @@ export function ConsentCenterPage() {
                       commitConsentTab(value as ConsentTab)
                     }
                     panelInset="none"
-                    viewportMinHeight="fill"
+                    viewportMinHeight="none"
                     heightMode="active"
                   >
                     <div>
