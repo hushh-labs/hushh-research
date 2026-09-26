@@ -15,13 +15,15 @@ import type {
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 
-export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
+export type AgentVisibleStreamStatus = "running" | "waiting" | "done" | "blocked" | "error";
 
 export type AgentVisibleStreamEvent = {
   id: string;
   label: string;
   message: string;
   status: AgentVisibleStreamStatus;
+  /** App-authored, e.g. "Read" or "Needs review". Never provider text. */
+  tag?: string;
   createdAtMs: number;
 };
 
@@ -119,9 +121,11 @@ export function agentToolEventToVisibleStreamEvent(
   const status: AgentVisibleStreamStatus =
     toolEvent.execution === "blocked" || toolEvent.status === "blocked"
       ? "blocked"
-      : phase === "result"
-        ? "done"
-        : "running";
+      : toolEvent.status === "waiting"
+        ? "waiting"
+        : phase === "result"
+          ? "done"
+          : "running";
   const fallback =
     phase === "start"
       ? "Preparing the next step."
@@ -135,6 +139,7 @@ export function agentToolEventToVisibleStreamEvent(
     label: normalizeToolLabel(toolEvent),
     message: cleanVisibleText(toolEvent.message, fallback),
     status,
+    ...(toolEvent.tag ? { tag: toolEvent.tag } : {}),
     createdAtMs: nowMs,
   };
 }
@@ -161,6 +166,7 @@ export function AgentTurnStreamPanel({
         label: event.label,
         message: event.message,
         status: event.status,
+        tag: event.tag,
       })),
     [streamEvents]
   );

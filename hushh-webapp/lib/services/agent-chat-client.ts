@@ -61,6 +61,8 @@ export type AgentChatToolEvent = {
   message: string;
   reason?: string | null;
   status?: string;
+  /** App-authored step tag such as "Read" or "Needs review". */
+  tag?: string;
   requiresConfirmation: boolean;
   trustedActivationRequired: boolean;
   raw: Record<string, unknown>;
@@ -466,12 +468,18 @@ export async function streamAgentChat(input: {
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
     isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
   );
+  // Owner-authored names from the owner's own vault, keyed by opaque id. The
+  // provider-authored tool name never labels a step: a server can write anything.
+  const connectorNames = new Map<string, string>();
   const connectorProjection = async () => {
     if (!input.loadConnectorConfigurations) return {};
     if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
     const configurations = await input.loadConnectorConfigurations();
     if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
-    return { mcpConfigurations: projectCustomConnectorTurnConfigurations(configurations) };
+    const mcpConfigurations = projectCustomConnectorTurnConfigurations(configurations);
+    connectorNames.clear();
+    for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
+    return { mcpConfigurations };
   };
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
@@ -666,9 +674,23 @@ export async function streamAgentChat(input: {
         // generic debug payload or model-authored app-action parser. Approval
         // references use the separate native interrupt/review contract.
         const payload = toolPayload(event.toolCallId, toolName);
-        const outcome = parseRecord(event.content)?.status;
+        const result = parseRecord(event.content);
+        const outcome = result?.status;
+        const connectorId = result?.connectorId;
+        const connectorName = typeof connectorId === "string" ? connectorNames.get(connectorId) : undefined;
+        if (connectorName) payload.label = connectorName;
         // A blocked or failed connector call must not render as a completed step.
         payload.execution = outcome === "ok" || outcome === "review_required" ? "server" : "blocked";
+        if (outcome === "review_required") {
+          payload.status = "waiting";
+          payload.tag = "Needs review";
+        } else if (outcome === "ok" && result?.review === "read_only") {
+          payload.tag = "Read";
+        } else if (outcome === "ok" && result?.review === "no_credential") {
+          // Ran unreviewed because no credential was used, not because it only
+          // read: an unannotated tool on a public server may still change things.
+          payload.tag = "Public";
+        }
         payload.message = outcome === "ok"
           ? "Connector call finished."
           : outcome === "review_required"

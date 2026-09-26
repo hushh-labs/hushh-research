@@ -422,4 +422,36 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getAllByRole("region", { name: "Information available from Alex Morgan" })).toHaveLength(2);
     expect(screen.getByText("A short clarification.")).toBeInTheDocument();
   });
+
+  it("shows a connector step by the owner's name with its review tag, never a success mark on failure", () => {
+    const read = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read",
+    }), 1);
+    const review = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-review", actionId: null, label: "Hussh Wiki", execution: "server",
+      status: "waiting", message: "Waiting for your review.", tag: "Needs review",
+    }), 2);
+    const failed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-failed", actionId: null, label: "DeepWiki", execution: "blocked",
+      message: "Connector call needs attention.",
+    }), 3);
+    expect(read).toMatchObject({ status: "done", tag: "Read" });
+    expect(review).toMatchObject({ status: "waiting", tag: "Needs review" });
+    expect(failed.status).toBe("blocked");
+    expect(failed.tag).toBeUndefined();
+    const { container } = render(<AgentTurnStreamPanel streamEvents={[read, review, failed]}
+      responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    expect(screen.getByText("Microsoft Learn")).toBeInTheDocument();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    const failedRow = screen.getByText("DeepWiki").closest("li");
+    expect(failedRow?.querySelector(".text-destructive")).not.toBeNull();
+    expect(failedRow?.querySelector(".text-emerald-600")).toBeNull();
+    const reviewRow = screen.getByText("Hussh Wiki").closest("li");
+    expect(reviewRow?.querySelector(".text-emerald-600")).toBeNull();
+    expect(container.querySelector('[data-status="waiting"]')).not.toBeNull();
+  });
 });
