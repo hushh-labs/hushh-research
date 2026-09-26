@@ -2739,6 +2739,12 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
     height: calc(var(--app-top-content-offset) - 64px);
   }
 
+  /* Preserve the title and both actions above fixed mobile chrome on short
+   * phones; taller phones can use the more generous orbit below. */
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(76vw, 18rem, max(9.5rem, calc(100svh - 32rem)));
+  }
+
   [data-connect-page] [data-circle-discovery-intro],
   [data-connect-page] [data-circle-discovery-owner-label],
   [data-connect-page] [data-circle-discovery-owner-status] {
@@ -2760,7 +2766,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   }
 
   [data-connect-page] [data-circle-discovery-orbit] {
-    width: min(72vw, 18rem, calc(100svh - 30rem));
+    width: min(76vw, 18rem, calc(100svh - 26rem));
   }
 
   [data-connect-page] [data-circle-discovery-content] {
@@ -2769,8 +2775,8 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   }
 
   [data-connect-page] [data-circle-discovery-preview] {
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-top: 8px;
+    padding-bottom: 4px;
   }
 
   [data-connect-page] [data-circle-discovery-actions] {
@@ -2780,6 +2786,40 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   [data-connect-page] [data-circle-discovery-actions] button {
     font-size: calc(var(--type-compact-button-label-size) - 1px) !important;
     line-height: var(--type-compact-button-label-line) !important;
+  }
+}
+
+@media (max-width: 359px) and (max-height: 720px) {
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(76vw, 18rem, max(9.5rem, calc(100svh - 32rem)));
+  }
+
+  [data-connect-page] [data-circle-starter-icon] {
+    width: 38px;
+    height: 38px;
+    scale: 1 !important;
+  }
+}
+
+@media (max-width: 359px) and (min-height: 721px) and (max-height: 780px) {
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(67vw, 18rem, calc(100svh - 26rem));
+  }
+}
+
+@media (min-width: 360px) and (max-width: 399px) and (max-height: 850px) {
+  body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
+    height: calc(var(--app-top-content-offset) - 72px);
+  }
+
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(72vw, 18rem, calc(100svh - 26rem));
+  }
+}
+
+@media (min-width: 360px) and (max-width: 379px) and (max-height: 850px) {
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(66vw, 18rem, calc(100svh - 26rem));
   }
 }
 

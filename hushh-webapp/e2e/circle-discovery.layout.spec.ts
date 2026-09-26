@@ -495,7 +495,13 @@ for (const viewport of [
     expect(
       Math.round(topClearance.sharedOffset - topClearance.spacer),
       "Connect removes only its redundant mobile body gap",
-    ).toBe(viewport.height <= 720 ? 64 : 52);
+    ).toBe(
+      viewport.height <= 720
+        ? 64
+        : viewport.width >= 360 && viewport.width <= 399 && viewport.height <= 850
+          ? 72
+          : 52,
+    );
     for (const name of [
       "Family",
       "Finance",
