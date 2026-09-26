@@ -385,6 +385,8 @@ class DriveLiveQueryService:
             # A Firebase outage is "try again", never "no Google account".
             if str(error) == "recipient_google_identity_required":
                 return "no_google_account"
+            if str(error) == "recipient_verified_email_required":
+                return "no_verified_email"
             return "unavailable"
         return None
 

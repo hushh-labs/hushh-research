@@ -2938,7 +2938,7 @@ async def propose_drive_share(
             "audience": "trusted_circle",
             "filesRequest": request,
             "clientRequestId": str(uuid.uuid4()),
-            "nextStep": "The card finds the files when the person taps Find files, then shows the files and the Trusted circle members who can receive them. Only people they connected with by request can receive; others are listed as not included. Nothing is shared until they tap Share.",
+            "nextStep": "Review the files and people connected with by request on the card. Nothing is shared until Share.",
         }
     try:
         person_ref, display_name = await asyncio.to_thread(
@@ -2964,7 +2964,7 @@ async def propose_drive_share(
             "person": {"personRef": person_ref, "displayName": display_name},
             "filesRequest": request,
             "clientRequestId": str(uuid.uuid4()),
-            "nextStep": "The card finds the files when the person taps Find files, then shows them to choose from. Nothing is shared until they pick files and tap Share. The recipient gets Viewer access in Google Drive.",
+            "nextStep": "Review the files on the card. Nothing is shared until Share.",
         }
     except ConsentLifecycleError as error:
         return _information_person_error(error, tool_context, user_id)

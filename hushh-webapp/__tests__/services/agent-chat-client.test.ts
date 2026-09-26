@@ -127,6 +127,20 @@ describe("AG-UI Agent One client", () => {
     expect(onToolResult.mock.calls[0][0].message).toBe("Drive status checked.");
   });
 
+  it.each(["blocked", "unavailable"])("reports a %s Drive status check without claiming disconnection", async (status) => {
+    const onToolResult = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "status-call", toolCallName: "inspect_selected_drive_files" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "status-call", content: JSON.stringify({
+        status, message: "PRIVATE_DIAGNOSTIC",
+      }) } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Is Drive connected?", vaultOwnerToken: "fixture",
+      handlers: { onToolResult } });
+    expect(onToolResult.mock.calls[0][0].message).toBe("Drive status could not be checked.");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_DIAGNOSTIC");
+  });
+
   it.each([
     { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
     { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },
