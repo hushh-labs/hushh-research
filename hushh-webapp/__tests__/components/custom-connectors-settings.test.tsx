@@ -147,17 +147,22 @@ it("saves an OAuth challenge only as sign-in pending, never as connected", async
   expect(screen.queryByText(/tools discovered/)).toBeNull();
 });
 
-it("does not save a rejected supplied credential as an OAuth setup", async () => {
-  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
-  render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
-  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
-  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
-  fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer invalid" } });
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
-  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
-});
+it.each(["https://example.com/mcp", "https://example.com/mcp/auth"])(
+  "does not save a rejected supplied credential for %s and says the token was refused", async (endpoint) => {
+    vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+    render(<CustomConnectorsSettings access={access} onPrepareRecovery={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add connector" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rejected" } });
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: endpoint } });
+    fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "Bearer invalid-secret-value" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
+    expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+    const options = vi.mocked(morphyToast.promise).mock.calls.at(-1)?.[1] as { error: (error: unknown) => string };
+    const message = options.error(new McpCatalogAuthenticationError());
+    expect(message).toBe("This server rejected the access token. Check it and try again.");
+    expect(message).not.toContain("invalid-secret-value");
+  });
 
 it("does not enable adding when the vault catalog cannot be read", async () => {
   vi.mocked(loadCustomConnectorConfigurations).mockRejectedValue(new Error("synthetic failure"));

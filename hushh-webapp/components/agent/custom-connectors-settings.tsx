@@ -128,6 +128,9 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       loading: "Checking connector…", success: "Connector added.",
       error: (error) => {
         if (error instanceof ConnectorSetupError) return error.message;
+        // The server answered and refused the token: not an address problem.
+        if (error instanceof McpCatalogAuthenticationError)
+          return "This server rejected the access token. Check it and try again.";
         try {
           if (/\/auth\/?$/i.test(new URL(endpoint.trim()).pathname))
             return "That looks like a sign-in URL. Use the server’s MCP endpoint.";
