@@ -949,14 +949,21 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
 
-  # Founder decision 2026-09-25: localhost runs connectors on the Google project
-  # each belongs to, using the UAT configuration. Drive has its own OAuth client
-  # and Picker key in the UAT Drive project; Gmail and Calendar keep the shared
-  # Google client hydrated above. The backend admits the loopback return only in
-  # development (external_connector_google_oauth.registered_redirect_uris).
+  # Founder decision 2026-09-26: Drive runs on the Hussh PDA Google projects, not
+  # a dedicated Drive project. Localhost uses the dev/localhost OAuth client
+  # (project hushh-pda-uat), which registers the connector return for every
+  # local and hosted origin, and its Picker key; the Picker app id follows the
+  # client id. Encryption keys stay UAT's because localhost uses the UAT DB. The
+  # backend admits the loopback return only in development
+  # (external_connector_google_oauth.registered_redirect_uris).
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_ID" "false" "$file" GOOGLE_OAUTH_CLIENT_ID
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET" "false" "$file" GOOGLE_OAUTH_CLIENT_SECRET
+  set_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_PICKER_API_KEY" "false" "$file"
   local drive_key
-  for drive_key in GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET \
-    GOOGLE_DRIVE_PICKER_API_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 \
+  for drive_key in DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 \
     EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
     set_secret_key_or_cached "$file" "$profile" "$project" "$drive_key" "false" "$file"
   done
