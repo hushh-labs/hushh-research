@@ -238,12 +238,18 @@ def _canonical_roster() -> list[Any]:
     nothing here consults the model registry or credentials.
     """
     from google.adk.tools import BaseTool, FunctionTool
+    from google.adk.tools.base_toolset import BaseToolset
 
     agent = _agent_tree().build_one_text_agent(
         model="eval-first-tool-dummy-model", allow_workspace_tools=True
     )
     roster: list[Any] = []
     for entry in agent.tools:
+        if isinstance(entry, BaseToolset):
+            # Connector toolsets resolve their tools per turn against the
+            # authenticated owner's connections; they have no static
+            # declarations for an offline first-tool eval to score.
+            continue
         if isinstance(entry, BaseTool):
             roster.append(entry)
             continue
