@@ -1,6 +1,6 @@
 /** Shared with the browser layout contract so it measures the shipped classes. */
 export const CONNECT_HERO_CLASSNAME =
-  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 pt-2 pb-1 sm:px-7 sm:py-6";
+  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pb-1 pt-2 sm:px-7 sm:py-6";
 
 export const CONNECT_CIRCLE_GRID_CLASSNAME =
   "grid grid-cols-1 gap-3 sm:grid-cols-2";

@@ -2722,6 +2722,67 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   height: calc(var(--app-top-content-offset) - 24px);
 }
 
+/* Connect begins with a compact route title and segmented control. On phones,
+ * keep the fixed top-shell reservation intact while removing the redundant
+ * second body gap that made the first useful module feel pushed down. */
+@media (max-width: 639px) {
+  body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
+    height: calc(var(--app-top-content-offset) - 52px);
+  }
+}
+
+/* On short phones the selected-circle explanation and both actions matter more
+ * than the repeated overview hint. Keep the orbit readable without sending
+ * either action under the fixed Agent Bar and navigation stack. */
+@media (max-width: 639px) and (max-height: 720px) {
+  body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
+    height: calc(var(--app-top-content-offset) - 64px);
+  }
+
+  [data-connect-page] [data-circle-discovery-intro],
+  [data-connect-page] [data-circle-discovery-owner-label],
+  [data-connect-page] [data-circle-discovery-owner-status] {
+    display: none;
+  }
+
+  [data-connect-page] [data-circle-orbit-bottom-node] {
+    top: 82% !important;
+  }
+}
+
+@media (max-width: 359px) {
+  [data-connect-page] [data-circle-discovery-intro] {
+    display: none;
+  }
+
+  [data-connect-page] [data-circle-discovery-card] {
+    padding-top: 4px;
+  }
+
+  [data-connect-page] [data-circle-discovery-orbit] {
+    width: min(72vw, 18rem, calc(100svh - 30rem));
+  }
+
+  [data-connect-page] [data-circle-discovery-content] {
+    margin-top: 0;
+    row-gap: 8px;
+  }
+
+  [data-connect-page] [data-circle-discovery-preview] {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  [data-connect-page] [data-circle-discovery-actions] {
+    margin-top: 0;
+  }
+
+  [data-connect-page] [data-circle-discovery-actions] button {
+    font-size: var(--type-compact-button-label-size) !important;
+    line-height: var(--type-compact-button-label-line) !important;
+  }
+}
+
 /* Activity is a shell extension, not a separate black canvas. Its mobile sheet
  * keeps the active route's Foundation background visible through the shared
  * modal blur in both themes. */
