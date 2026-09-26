@@ -190,7 +190,8 @@ export function GeminiRuntimeSettingsCard({
       setVertexLocation(savedLocation || "global");
     } catch {
       if (selectionRevisionRef.current !== selectionRevision) return;
-      setMode("hushh_managed_vertex");
+      if (requiresExplicitSelection) setHasExplicitSelection(false);
+      else setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       setTransport("developer_api");
       setVertexProject("");
