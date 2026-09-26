@@ -221,6 +221,46 @@ describe("ordered retained cards", () => {
   });
 });
 
+describe("owner Drive compilation history", () => {
+  const base = {
+    conversation_id: "owner-chat", status: "complete" as const,
+    created_at: null, completed_at: null,
+  };
+  const listingReceipt = {
+    type: "one.connector_read.v1" as const, connector: "drive" as const,
+    status: "ok" as const, sourceRefs: [], metadataOnly: true,
+    truncated: false, ownerCompileAvailable: true,
+    ownerCompileQuery: "share all last 30 days standup sync notes",
+    ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+      timezone: "Asia/Kolkata" },
+  };
+
+  it("restores the canonical query and fixed window from the owner receipt", () => {
+    const rawUserQuery = "please get those standups I mentioned";
+    const restored = storedMessagesToAgentMessages([
+      { ...base, id: "user-1", role: "user", content: rawUserQuery },
+      { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
+        metadata: { connectorRead: listingReceipt } },
+    ]);
+    expect(restored[1]?.structuredExperience).toMatchObject({
+      ownerCompileQuery: listingReceipt.ownerCompileQuery,
+      ownerCompileWindow: listingReceipt.ownerCompileWindow,
+    });
+    expect(restored[1]?.structuredExperience).not.toMatchObject({
+      ownerCompileQuery: rawUserQuery,
+    });
+  });
+
+  it("does not infer a compile request from previous user text without a validated hint", () => {
+    const restored = storedMessagesToAgentMessages([
+      { ...base, id: "user-1", role: "user", content: "all my last 30 days standup notes" },
+      { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
+        metadata: { connectorRead: { ...listingReceipt, ownerCompileQuery: undefined } } },
+    ]);
+    expect(restored[1]?.structuredExperience).toMatchObject({ ownerCompileQuery: undefined });
+  });
+});
+
 describe("pending consent cards during history restore", () => {
   type WorkspaceMessage = Parameters<typeof mergePendingConsentMessages>[0][number];
 
