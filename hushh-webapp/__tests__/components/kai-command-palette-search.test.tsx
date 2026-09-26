@@ -2,13 +2,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { KaiCommandPalette } from "@/components/kai/kai-command-palette";
+import {
+  isOfferableInSearch,
+  KaiCommandPalette,
+} from "@/components/kai/kai-command-palette";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
   searchKaiActions,
   searchKaiActionsSemantic,
 } from "@/lib/voice/kai-action-gateway";
+import {
+  clearActionUsage,
+  recordActionUse,
+} from "@/lib/voice/action-usage-memory";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
 const mobile = vi.hoisted(() => ({ value: false }));
@@ -64,7 +71,10 @@ const runtimeState: AppRuntimeState = {
   },
 };
 
-function renderPalette(initialQuery: string) {
+function renderPalette(
+  initialQuery: string,
+  options: { state?: AppRuntimeState; userId?: string } = {},
+) {
   const onSelectAction = vi.fn();
   const onSubmitPrompt = vi.fn();
   render(
@@ -74,7 +84,8 @@ function renderPalette(initialQuery: string) {
       onSelectAction={onSelectAction}
       onSubmitPrompt={onSubmitPrompt}
       initialQuery={initialQuery}
-      appRuntimeState={runtimeState}
+      appRuntimeState={options.state ?? runtimeState}
+      userId={options.userId ?? null}
     />,
   );
   return { onSelectAction, onSubmitPrompt };
@@ -216,5 +227,77 @@ describe("habit in ranking", () => {
     });
 
     expect(results[0]?.action.action_id).toBe("route.kai_dashboard");
+  });
+});
+
+describe("what search offers", () => {
+  // The home screen (/one) as reported on 2026-09-27: search offered agent
+  // hand-offs, a chat-only widget and an action that needs a proposal id, none
+  // of which a tap can run.
+  const homeState: AppRuntimeState = {
+    ...runtimeState,
+    route: { pathname: "/one", screen: "one_agents", subview: null },
+  };
+
+  afterEach(() => {
+    clearActionUsage("user_1");
+  });
+
+  it("leaves out actions only One itself can run", () => {
+    for (const actionId of [
+      "consent.chat.turn",
+      "location.chat.turn",
+      "wallet.reveal",
+      "consent.request",
+      "consent.deny",
+      "consent.revoke",
+    ]) {
+      expect(isOfferableInSearch(getKaiActionById(actionId)!), actionId).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps destinations, including ones hidden from navigation", () => {
+    for (const actionId of [
+      "route.kai_portfolio_holdings",
+      "location.open_ask",
+      "route.one_connect",
+      "vault.setup_open",
+    ]) {
+      expect(isOfferableInSearch(getKaiActionById(actionId)!), actionId).toBe(
+        true,
+      );
+    }
+  });
+
+  it("does not bring agent-only actions back as habits", () => {
+    for (const actionId of [
+      "wallet.reveal",
+      "consent.request",
+      "consent.chat.turn",
+      "location.open_ask",
+    ]) {
+      recordActionUse("user_1", actionId);
+    }
+
+    renderPalette("", { state: homeState, userId: "user_1" });
+
+    const labels = renderedLabels();
+    expect(labels).toContain("Ask for someone's location");
+    for (const label of [
+      "Reveal a card",
+      "Request someone's information",
+      "Ask Consent (Nav)",
+      "Ask Location",
+    ]) {
+      expect(labels).not.toContain(label);
+    }
+  });
+
+  it("does not answer a typed query with an agent hand-off", () => {
+    renderPalette("ask location", { state: homeState });
+
+    expect(renderedLabels()).not.toContain("Ask Location");
   });
 });
