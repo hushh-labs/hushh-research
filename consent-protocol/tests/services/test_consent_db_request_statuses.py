@@ -91,3 +91,50 @@ async def test_request_statuses_skips_empty_input_without_initializing_database(
 
     service._get_db = unexpected_db
     assert await service.get_request_statuses("subject", ["", "  "]) == {}
+
+
+class _ProjectingQuery(_Query):
+    """Returns only the selected columns, like the real client does."""
+
+    def limit(self, count: int):
+        self.calls.append(("limit", count))
+        return self
+
+    def execute(self):
+        columns = next(value for name, value in self.calls if name == "select")
+        selected = [column.strip() for column in str(columns).split(",")]
+        return SimpleNamespace(
+            data=[{key: row[key] for key in selected if key in row} for row in self.rows]
+        )
+
+
+def _owned_row(request_id: str) -> dict:
+    # The person-export binding compares the status owner with the bundle
+    # subject, so the owner must survive the projection (regression: it did not,
+    # and every person-to-person export read back as unavailable).
+    return {**_row(request_id, "CONSENT_GRANTED", 5), "user_id": "subject"}
+
+
+@pytest.mark.asyncio
+async def test_single_status_carries_the_owner_the_export_binding_checks():
+    db = _DB([_owned_row("req-1")])
+    db.query = _ProjectingQuery(db.query.rows)
+    service = ConsentDBService()
+    service._get_db = lambda: db
+
+    status = await service.get_request_status("subject", "req-1")
+
+    assert status is not None
+    assert status["user_id"] == "subject"
+
+
+@pytest.mark.asyncio
+async def test_batched_statuses_carry_the_owner_the_export_binding_checks():
+    db = _DB([_owned_row("req-1")])
+    db.query = _ProjectingQuery(db.query.rows)
+    service = ConsentDBService()
+    service._get_db = lambda: db
+
+    statuses = await service.get_request_statuses("subject", ["req-1"])
+
+    assert statuses["req-1"]["user_id"] == "subject"
