@@ -18,6 +18,8 @@ import {
   ConnectorReadReceipt,
   WorkspaceConnectorSetupCard,
 } from "@/components/agent/connector-read-receipt";
+import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
+import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DriveOwnerShareCard } from "@/components/consent/drive-owner-share-card";
 import { DriveCircleShareCard } from "@/components/consent/drive-circle-share-card";
@@ -66,15 +68,23 @@ export function AgentStructuredExperienceView({
   experience,
   onOpenConnections,
   onInformationRequestSubmitted,
+  onCompileDriveNotes,
+  onDownloadDriveNotes,
+  driveCompilation,
 }: {
   experience: AgentStructuredExperience;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
+  onDownloadDriveNotes?: () => void;
+  driveCompilation?: DriveCompilationUiState;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
     case "one.connector_read.v1":
-      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections} />;
+      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections}
+        onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes}
+        driveCompilation={driveCompilation} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":

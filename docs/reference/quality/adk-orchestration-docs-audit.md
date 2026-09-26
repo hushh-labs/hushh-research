@@ -1109,3 +1109,13 @@ Reviewer diagnosis reached `vault_unlocked`; the earlier timeout is not evidence
 of a bad passphrase or failed authentication. `/one/profile` is a compatibility
 redirect into the profile pane on `/one`, so the probe must use the canonical
 navigation destination. No reviewer reset or replacement account was performed.
+
+
+Fresh main `51296b7b1` introduced the bounded Drive compilation path during the
+reviewer pass. The isolated merge retains ADK provider-aware connection actions,
+information-request receipts, and the new source-scoped compilation controls.
+Focused source checks passed 162 Drive backend tests and 140 frontend contract
+tests. Nineteen imported size findings were individually reviewed and recorded in
+the existing fitness baseline; no dependency, import, or authority budget was
+relaxed. Compilation remains a separately authorized hub connector read, not a
+fallback transport for private pod turns.

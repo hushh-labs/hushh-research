@@ -36,6 +36,8 @@ EXCERPT_CHARS = 4000
 # previous eight-file page made a full result require four serial round trips.
 SEARCH_PAGE_SIZE = MAX_SEARCH_RESULTS
 MAX_SEARCH_PAGES = 6
+MAX_COMPILATION_FOLDERS = 3
+MAX_COMPILATION_FOLDER_PAGES = 4
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
 TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -230,6 +232,8 @@ class DriveLiveReader:
             for value in (start_time, end_time)
         ):
             raise DriveReadError("narrow_selection_required")
+        if start_time is None or end_time is None:
+            raise DriveReadError("narrow_selection_required")
         try:
             start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
@@ -252,6 +256,8 @@ class DriveLiveReader:
         end_time: str | None,
     ) -> bool:
         cls._search_query(None, time_field=time_field, start_time=start_time, end_time=end_time)
+        if start_time is None or end_time is None:
+            raise DriveReadError("narrow_selection_required")
         timestamp = (
             metadata.modified_time if time_field == "modifiedTime" else metadata.created_time
         )
@@ -477,6 +483,85 @@ class DriveLiveReader:
         await self.require_current()
         return {"matches": matches, "truncated": truncated}
 
+    async def find_compilation_folder_children(self, *, folder_ids: list[str]) -> dict:
+        """Search only validated, provider-discovered note folders for A's compilation.
+
+        A folder name can carry the standup subject while its Gemini note files
+        are titled only by date. This path is metadata-only and bounded; every
+        selected child still goes through the exact-file live content fences.
+        """
+        if (
+            not isinstance(folder_ids, list)
+            or not 1 <= len(folder_ids) <= MAX_COMPILATION_FOLDERS
+            or any(
+                not isinstance(value, str) or not FILE_ID.fullmatch(value) for value in folder_ids
+            )
+            or len(set(folder_ids)) != len(folder_ids)
+        ):
+            raise DriveReadError("narrow_selection_required")
+        await self._credential()
+
+        async def scan(folder_id: str) -> tuple[list[dict], bool]:
+            matches: list[dict] = []
+            seen: set[str] = set()
+            page_token = None
+            truncated = False
+            for _ in range(MAX_COMPILATION_FOLDER_PAGES):
+                await self.require_access()
+                arguments = {
+                    "query": f"'{folder_id}' in parents",
+                    "pageSize": SEARCH_PAGE_SIZE,
+                    "orderBy": "createdTime desc",
+                    "excludeContentSnippets": True,
+                }
+                if page_token:
+                    arguments["pageToken"] = page_token
+                result = await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name="search_files", arguments=arguments
+                )
+                candidates = result.payload.get("files")
+                if (
+                    result.is_error
+                    or result.truncated
+                    or not isinstance(candidates, list)
+                    or len(candidates) > SEARCH_PAGE_SIZE
+                    or result.payload.get("overLimit") is True
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                for candidate in candidates:
+                    match = self._match(candidate)
+                    if match is None:
+                        truncated = True
+                        continue
+                    if match["file_id"] not in seen:
+                        seen.add(match["file_id"])
+                        matches.append(match)
+                next_token = result.payload.get("nextPageToken")
+                if next_token is not None and (
+                    not isinstance(next_token, str) or len(next_token) > 1024
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                if not next_token:
+                    page_token = None
+                    break
+                if next_token == page_token:
+                    raise DriveReadError("provider_response_invalid")
+                page_token = next_token
+            if page_token:
+                truncated = True
+            return matches, truncated
+
+        pages = await asyncio.gather(*(scan(folder_id) for folder_id in folder_ids))
+        unique: dict[str, dict] = {}
+        for matches, _ in pages:
+            for match in matches:
+                unique.setdefault(match["file_id"], match)
+        await self.require_current()
+        return {
+            "matches": list(unique.values()),
+            "truncated": any(truncated for _, truncated in pages),
+        }
+
     @staticmethod
     def _match(candidate: object) -> dict | None:
         if not isinstance(candidate, dict):
@@ -519,11 +604,14 @@ class DriveLiveReader:
     ) -> dict:
         date_bounded = time_field is not None or start_time is not None or end_time is not None
         terms = self._validate_query(query, date_bounded=date_bounded)
+        search_terms: list[str | None] = [*terms]
+        if not search_terms:
+            search_terms.append(None)
         searches = [
             self._search_query(
                 term, time_field=time_field, start_time=start_time, end_time=end_time
             )
-            for term in (terms or [None])
+            for term in search_terms
         ]
         credential = await self._credential()
         files = []
@@ -671,6 +759,72 @@ class DriveLiveReader:
             match_refs={item["file_id"]: item.get("source_ref") for item in chosen},
             on_progress=on_progress,
         )
+
+    async def read_compilation_match(self, *, match: dict) -> tuple[object, str, bool]:
+        """Read one discovered file in full for an owner-only compilation.
+
+        The normal answer path intentionally cuts each file to an excerpt and
+        reads at most eight. A compilation needs the extracted original text,
+        while retaining the same owner, connection, name and before/after
+        source checks. The caller separately bounds the number of files and
+        exported Markdown bytes.
+        """
+        file_id = match.get("file_id") if isinstance(match, dict) else None
+        name = match.get("name") if isinstance(match, dict) else None
+        if (
+            not isinstance(file_id, str)
+            or not FILE_ID.fullmatch(file_id)
+            or not isinstance(name, str)
+            or not 1 <= len(name) <= 1024
+            or match.get("mime_type") == "application/vnd.google-apps.folder"
+        ):
+            raise DriveReadError("provider_response_invalid")
+        credential = await self._credential()
+        await self.require_access()
+        before = await self.adapter.get_metadata(
+            file_id=file_id,
+            access_token=credential["accessToken"],
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+        )
+        if before.name != name:
+            raise DriveReadError("source_changed")
+        read = await self.mcp.read_tool(
+            user_id=self.user_id,
+            tool_name="read_file_content",
+            arguments={"fileId": file_id},
+        )
+        body = self._content(read)
+        source_truncated = (
+            read.payload.get("contentTruncated") is True or before.mime_type in LIVE_PARTIAL_EXPORTS
+        )
+        await self.require_access()
+        after = await self.adapter.get_metadata(
+            file_id=file_id,
+            access_token=credential["accessToken"],
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+        )
+        if after != before:
+            raise DriveReadError("source_changed")
+        return before, body, source_truncated
+
+    async def require_compilation_source_current(self, *, metadata: object) -> None:
+        """Recheck one read source just before releasing compiled plaintext."""
+        file_id = getattr(metadata, "file_id", None)
+        if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
+            raise DriveReadError("provider_response_invalid")
+        credential = await self._credential()
+        await self.require_access()
+        actual = await self.adapter.get_metadata(
+            file_id=file_id,
+            access_token=credential["accessToken"],
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+        )
+        if actual != metadata:
+            raise DriveReadError("source_changed")
+        await self.require_access()
 
     async def _read_file_ids(
         self,

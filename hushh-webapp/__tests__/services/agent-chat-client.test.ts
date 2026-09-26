@@ -526,6 +526,45 @@ describe("AG-UI Agent One client", () => {
     expect(labels[0]).toBe(updatedLabel);
   });
 
+  it("forwards count-only Drive batch activity snapshots and materialized deltas", async () => {
+    const onDriveBatchProgress = vi.fn();
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onActivitySnapshotEvent?.({ event: {
+        type: "ACTIVITY_SNAPSHOT", messageId: "batch-1", activityType: "one.drive_batch_progress.v1",
+        content: { phase: "fetching", completed: 1, total: 30, failed: 0,
+          fileName: "PRIVATE_STANDUP.md", content: "PRIVATE_CONTENT" },
+      } });
+      subscriber.onActivityDeltaEvent?.({
+        event: { type: "ACTIVITY_DELTA", messageId: "batch-1", activityType: "one.drive_batch_progress.v1",
+          patch: [{ op: "replace", path: "/completed", value: 2 }] },
+        activityMessage: { id: "batch-1", role: "activity", activityType: "one.drive_batch_progress.v1",
+          content: { phase: "fetching", completed: 1, total: 30, failed: 0 } },
+      });
+    };
+
+    await streamAgentChat({ userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
+      handlers: { onDriveBatchProgress } });
+
+    expect(onDriveBatchProgress.mock.calls).toEqual([
+      [{ phase: "fetching", completed: 1, total: 30, failed: 0 }, "batch-1"],
+      [{ phase: "fetching", completed: 2, total: 30, failed: 0 }, "batch-1"],
+    ]);
+    expect(JSON.stringify(onDriveBatchProgress.mock.calls)).not.toContain("PRIVATE_");
+  });
+
+  it("ignores impossible Drive batch progress rather than claiming files were checked", async () => {
+    const onDriveBatchProgress = vi.fn();
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onActivitySnapshotEvent?.({ event: {
+        type: "ACTIVITY_SNAPSHOT", messageId: "batch-1", activityType: "one.drive_batch_progress.v1",
+        content: { phase: "fetching", completed: 31, total: 30, failed: 0 },
+      } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
+      handlers: { onDriveBatchProgress } });
+    expect(onDriveBatchProgress).not.toHaveBeenCalled();
+  });
+
   it("forwards the versioned agent-safe PKM packet on every chat turn", async () => {
     const pkmContext = "Private-agent PKM context (agent-safe-pkm/v1):\n- Preferences > Tone: concise";
 

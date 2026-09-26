@@ -183,6 +183,31 @@ async def test_reading_a_google_doc_exports_text(monkeypatch):
     assert adapter.get_metadata.await_args.kwargs["require_genai_eligibility"] is False
 
 
+async def test_compilation_can_tell_when_drive_extraction_was_truncated(monkeypatch):
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(
+                FILE_ID,
+                "Long notes",
+                "application/vnd.google-apps.document",
+                "3",
+                "2026-09-20T00:00:00Z",
+                1,
+                None,
+            )
+        ),
+        read_live_bytes=AsyncMock(return_value=("text/plain", b"many pages")),
+    )
+    monkeypatch.setattr(
+        rest, "parse_document", lambda *_: SimpleNamespace(pages=("first pages",), truncated=True)
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
+    )
+    assert result.payload == {"fileContent": "first pages", "contentTruncated": True}
+
+
 async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):
     adapter = SimpleNamespace(
         get_metadata=AsyncMock(
