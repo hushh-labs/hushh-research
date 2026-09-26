@@ -417,3 +417,11 @@ tests/test_plaid_server_custody_retire.py
 tests/test_dev_candidate_gate.py
 
 tests/test_cloudrun_revision_provenance.py
+# Person-to-person export readback binds on the status owner (2026-09-25 regression),
+# the second chat turn survives empty replayed history parts, and governed custom
+# connector calls pause for exact-call review without leaking arguments or results.
+tests/services/test_consent_db_request_statuses.py
+tests/test_one_output_privacy.py
+tests/test_governed_mcp_toolset.py
+tests/test_mcp_review_service.py
+tests/test_mcp_review_wire_contract.py
