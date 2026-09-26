@@ -321,7 +321,7 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "0"' in backend_build
 
-    # Both pools are per-process module globals, so the real Cloud SQL ceiling
+    # Both pools are per-process module globals, so the pool connection ceiling
     # is (pool sizes) x (gunicorn workers) x (Cloud Run instances). Read the
     # worker count from the image rather than hardcoding it: raising -w without
     # lowering the pools multiplies the ceiling silently, which is exactly how
@@ -344,7 +344,9 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
     # Both pools are module globals, so the ceiling is per worker process and
     # multiplies by the gunicorn worker count before it multiplies by instances.
-    # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
+    # UAT: 7 per worker, 14 per instance, 70 pooled connections across 5
+    # instances. Kai's advisory refresh adds at most one sustained unpooled
+    # session globally, but every worker can briefly open a lock contender.
     #
     # Two incidents shaped this number, in opposite directions.
     #
@@ -368,28 +370,43 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # app code. Rebalance toward more instances and smaller deterministic pools:
     # request headroom grows, while deploy peak stays under the same Postgres cap.
     #
-    # So the ceiling is Postgres, not the app. Keep the total under ~70 and the
-    # cutover peak under ~85 to leave room for migrations, cron jobs, ad-hoc
-    # psql, and the extra instance a deploy briefly adds. Starvation is no
+    # So the ceiling is Postgres, not the app. Keep the sustained total near 70
+    # and the sustained cutover footprint at or under ~85. Simultaneous lock
+    # attempts can briefly raise the cutover count to 96 of the assumed 100
+    # PostgreSQL slots; this leaves little room for migrations or other clients.
+    # Lock connection failure skips the optional refresh rather than blocking
+    # the server. Starvation is no
     # longer a hang: db/connection.py bounds pool.acquire(), so a pool that is
     # too small fails fast with a 503 instead of queueing until Cloud Run kills
     # the request.
     #
-    # Overflow stays pinned at 0 so the ceiling remains deterministic.
+    # Pool overflow stays pinned at 0 so its sustained ceiling remains deterministic.
     POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
 
     uat_per_worker = 4 + 3 + 0
     assert uat_per_worker == 7
     assert uat_per_worker * gunicorn_workers == 14
-    uat_total = uat_per_worker * gunicorn_workers * 5
-    assert uat_total == 70
+    market_advisory_lock_winner = 1
+    uat_total = uat_per_worker * gunicorn_workers * 5 + market_advisory_lock_winner
+    assert uat_total == 71
     # A revision cutover briefly runs one instance more than the cap.
-    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 6
-    assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
-        f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
+    uat_sustained_during_deploy = (
+        uat_per_worker * gunicorn_workers * 6 + market_advisory_lock_winner
+    )
+    assert uat_sustained_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
+        f"UAT would use {uat_sustained_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
         "Postgres connections during a deploy, leaving no room for migrations, "
         "cron, or psql"
     )
+    # During a six-instance cutover, both workers on each instance may attempt
+    # the same advisory lock before the losing sessions close. This is a burst,
+    # not the sustained footprint above; do not budget as though the peak is 85.
+    uat_transient_contenders = gunicorn_workers * 6
+    uat_transient_peak_during_deploy = (
+        uat_per_worker * gunicorn_workers * 6 + uat_transient_contenders
+    )
+    assert uat_transient_peak_during_deploy == 96
+    assert POSTGRES_MAX_CONNECTIONS - uat_transient_peak_during_deploy == 4
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
@@ -405,8 +422,8 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     prod_per_worker = 4 + 4 + 0
     assert prod_per_worker == 8
     assert prod_per_worker * gunicorn_workers == 16
-    prod_total = prod_per_worker * gunicorn_workers * 5
-    assert prod_total == 80
+    prod_total = prod_per_worker * gunicorn_workers * 5 + market_advisory_lock_winner
+    assert prod_total == 81
     # Prod runs a larger instance, but pin the same shape so a future bump has
     # to state the ceiling it is sizing against rather than assume one.
     assert prod_total <= 100

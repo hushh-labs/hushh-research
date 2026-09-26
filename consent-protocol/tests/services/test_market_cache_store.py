@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -303,3 +305,118 @@ async def test_ensure_table_sets_table_ready_flag_on_first_call():
         await service.ensure_table()
 
     assert service._table_ready is True
+
+
+@pytest.mark.asyncio
+async def test_advisory_refresh_keeps_request_pool_free_for_cache_writes():
+    """A one-slot request pool must remain usable while the refresh owns its lock."""
+    service = _make_service_with_table_ready()
+    request_slot = asyncio.Semaphore(1)
+    request_conn = AsyncMock()
+    request_conn.fetchval.return_value = True
+
+    @asynccontextmanager
+    async def acquire_request_conn():
+        async with request_slot:
+            yield request_conn
+
+    pool = MagicMock()
+    pool.acquire = acquire_request_conn
+    get_pool = AsyncMock(return_value=pool)
+    lock_conn = AsyncMock()
+    lock_conn.fetchval.return_value = True
+    connect = AsyncMock(return_value=lock_conn)
+
+    async def write_from_refresh():
+        await service.set_entry(
+            cache_key="macro:us",
+            payload={"value": 1},
+            fresh_ttl_seconds=60,
+            stale_ttl_seconds=120,
+        )
+
+    with (
+        patch("hushh_mcp.services.market_cache_store._is_offline_mode", return_value=False),
+        patch("hushh_mcp.services.market_cache_store.get_pool", get_pool),
+        patch("hushh_mcp.services.market_cache_store.open_dedicated_connection", connect),
+    ):
+        acquired = await asyncio.wait_for(
+            service.try_with_advisory_lock(lock_key=42, callback=write_from_refresh),
+            timeout=0.5,
+        )
+
+    assert acquired is True
+    assert get_pool.await_count == 1  # The callback's L2 write only.
+    request_conn.execute.assert_awaited_once()
+    lock_conn.fetchval.assert_awaited_once_with("SELECT pg_try_advisory_lock($1)", 42)
+    lock_conn.close.assert_awaited_once_with(timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_advisory_lock_miss_closes_session_without_running_callback():
+    service = MarketCacheStoreService()
+    lock_conn = AsyncMock()
+    lock_conn.fetchval.return_value = False
+    callback = AsyncMock()
+
+    with (
+        patch("hushh_mcp.services.market_cache_store._is_offline_mode", return_value=False),
+        patch(
+            "hushh_mcp.services.market_cache_store.open_dedicated_connection",
+            AsyncMock(return_value=lock_conn),
+        ),
+    ):
+        acquired = await service.try_with_advisory_lock(lock_key=42, callback=callback)
+
+    assert acquired is False
+    callback.assert_not_awaited()
+    lock_conn.close.assert_awaited_once_with(timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_advisory_lock_callback_cancellation_closes_session():
+    service = MarketCacheStoreService()
+    lock_conn = AsyncMock()
+    lock_conn.fetchval.return_value = True
+    lock_conn.close.side_effect = RuntimeError("close failed")
+    lock_conn.terminate = MagicMock()
+    callback_started = asyncio.Event()
+
+    async def blocked_callback():
+        callback_started.set()
+        await asyncio.Event().wait()
+
+    with (
+        patch("hushh_mcp.services.market_cache_store._is_offline_mode", return_value=False),
+        patch(
+            "hushh_mcp.services.market_cache_store.open_dedicated_connection",
+            AsyncMock(return_value=lock_conn),
+        ),
+    ):
+        task = asyncio.create_task(
+            service.try_with_advisory_lock(lock_key=42, callback=blocked_callback)
+        )
+        await callback_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    lock_conn.close.assert_awaited_once_with(timeout=5)
+    lock_conn.terminate.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_offline_market_refresh_keeps_existing_unlocked_behavior():
+    service = MarketCacheStoreService()
+    callback = AsyncMock()
+    connect = AsyncMock()
+
+    with (
+        patch("hushh_mcp.services.market_cache_store._is_offline_mode", return_value=True),
+        patch("hushh_mcp.services.market_cache_store.open_dedicated_connection", connect),
+    ):
+        acquired = await service.try_with_advisory_lock(lock_key=42, callback=callback)
+
+    assert acquired is True
+    callback.assert_awaited_once()
+    connect.assert_not_awaited()
