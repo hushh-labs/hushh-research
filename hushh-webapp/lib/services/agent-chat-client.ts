@@ -1209,6 +1209,7 @@ export async function getAgentChatHistory(input: {
         structuredExperienceId?: string | null;
         structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
         specialist_read?: unknown;
+        turnActivity?: { activityType?: string; content?: unknown } | null;
       } | null;
     }>;
   };
@@ -1229,9 +1230,10 @@ export async function getAgentChatHistory(input: {
             kind: message.metadata.kind,
             display: message.metadata.display,
             structuredExperience: message.metadata.structuredExperience,
-        turnActivity?: { activityType?: string; content?: unknown } | null;
             structuredExperienceId: message.metadata.structuredExperienceId,
             structuredExperiences: message.metadata.structuredExperiences,
+            ...(message.role === "assistant" && message.metadata.turnActivity
+              ? { turnActivity: message.metadata.turnActivity } : {}),
             connectorRead:
               message.role === "assistant"
                 ? parseConnectorReadReceipt(message.metadata.specialist_read)
@@ -1252,8 +1254,6 @@ export async function recordAgentChatInformationRequest(input: {
   const response = await ApiService.apiFetch(
     `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
     {
-            ...(message.role === "assistant" && message.metadata.turnActivity
-              ? { turnActivity: message.metadata.turnActivity } : {}),
       method: "POST",
       headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
       body: JSON.stringify({
