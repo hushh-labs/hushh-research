@@ -287,7 +287,6 @@ async def run_job(job_id: str, delivery: str) -> dict[str, str]:
 
 
 async def _organize(file_id: str) -> OrganizationResult:
-    from google.adk.agents import LlmAgent, SequentialAgent
     from google.adk.agents.run_config import RunConfig
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
@@ -295,9 +294,7 @@ async def _organize(file_id: str) -> OrganizationResult:
     from google.genai import types
 
     from hushh_mcp.one_adk.agent_tree import _load_product_agent_manifest
-    from hushh_mcp.one_adk.files_tools import create_folder, list_files, organize_file, read_file
-    from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
-    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.one_adk.files_agent import build_files_agent
 
     manifest = _load_product_agent_manifest("agent_files")
     # Provisioning pins Vertex ADC to the owner's project. No user-cloud project, no call.
@@ -309,22 +306,13 @@ async def _organize(file_id: str) -> OrganizationResult:
         )
     ):
         raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
-    agent = LlmAgent(
-        name="files",
-        mode="task",
-        model=build_managed_gemini_adk_model(
-            resolve_fleet_model_name(manifest.model_config_for_runtime().name)
-        ),
-        instruction=manifest.system_instruction,
-        tools=[create_folder, list_files, read_file, organize_file],
-        output_schema=OrganizationResult,
-    )
+    agent = build_files_agent(manifest, output_schema=OrganizationResult)
     sessions = InMemorySessionService()
     app, user, session_id = "files_organization", "private_job", uuid4().hex
     await sessions.create_session(app_name=app, user_id=user, session_id=session_id)
     runner = Runner(
         app_name=app,
-        agent=SequentialAgent(name="files_job", sub_agents=[agent]),
+        agent=agent,
         session_service=sessions,
     )
     try:
@@ -348,11 +336,10 @@ async def _organize(file_id: str) -> OrganizationResult:
                     ),
                 ),
             ):
-                if event.author == "files" and event.is_final_response() and event.content:
-                    text = "".join(
-                        part.text or "" for part in event.content.parts or [] if not part.thought
-                    )
-                    result = OrganizationResult.model_validate_json(text)
+                # ADK task mode exposes validated finish_task output. Ordinary
+                # conversational text is neither completion nor a JSON result.
+                if event.author == "files" and event.output is not None:
+                    result = OrganizationResult.model_validate(event.output)
         if result is None:
             raise FilesRefused("FILES_MODEL_RESULT_MISSING", 503)
         return result

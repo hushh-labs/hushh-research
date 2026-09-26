@@ -423,6 +423,7 @@ tests/test_pod_session_authority.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
+tests/test_pod_specialist_capability_matrix.py
 tests/test_pod_files_provisioning.py
 tests/test_pod_files_selection_postgres.py
 tests/test_puppy_activation.py

@@ -176,3 +176,52 @@ async def test_document_instructions_cannot_broaden_job_or_delete(queued_library
         assert denied["code"] == "FILES_OPERATION_UNSUPPORTED"
     assert await library.read_chunk(upload["id"], 0) == malicious
     assert (await library.stat(entry["id"]))["name"] == "original"
+
+
+@pytest.mark.parametrize("terminal_task", [True, False])
+async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_task):
+    """A task's prose turn is not completion; its validated finish_task output is."""
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    calls = []
+
+    class Model(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):
+            calls.append(llm_request)
+            result = {"state": "unchanged", "explanation": "Synthetic fixture needs no change."}
+            part = (
+                types.Part(function_call=types.FunctionCall(name="finish_task", args=result))
+                if terminal_task
+                else types.Part.from_text(text="I can organize that file.")
+            )
+            yield LlmResponse(content=types.Content(role="model", parts=[part]))
+
+    monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "synthetic-project")
+    monkeypatch.setenv(
+        "POD_FILES_TASK_QUEUE", "projects/synthetic-project/locations/us-central1/queues/files"
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_gemini_adk_model",
+        lambda name: Model(model=name),
+    )
+    if terminal_task:
+        result = await jobs._organize("a" * 32)
+        assert result.state == "unchanged"
+    else:
+        with pytest.raises(FilesRefused, match="FILES_MODEL_RESULT_MISSING"):
+            await jobs._organize("a" * 32)
+    assert len(calls) == 1
+    assert calls[0].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    declarations = [
+        declaration
+        for tool in calls[0].config.tools
+        for declaration in tool.function_declarations or []
+    ]
+    organize = next(item for item in declarations if item.name == "organize_file")
+    assert organize.parameters_json_schema["properties"]["operation_name"]["enum"] == [
+        "rename",
+        "move",
+    ]

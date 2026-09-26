@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Literal
 
 from hushh_mcp.services.pod_files.library import FilesRefused
 from hushh_mcp.services.pod_files.runtime import operation, require_files_access
@@ -97,9 +97,17 @@ async def read_file(file_id: str) -> dict[str, Any]:
 
 
 async def organize_file(
-    file_id: str, revision: int, operation_name: str, name: str = "", parent: str = ""
+    file_id: str,
+    revision: int,
+    operation_name: Literal["rename", "move"],
+    name: str = "",
+    parent: str = "",
 ) -> dict[str, Any]:
-    """Apply one reversible rename or move chosen by the Files agent."""
+    """Apply one reversible change. Use rename with name, or move with parent.
+
+    parent is a folder identifier from list_files or create_folder, never a path.
+    Use the returned file revision for a subsequent change to the same file.
+    """
     try:
         await require_files_access()
         if _job_target.get() is not None and _job_target.get() != file_id:

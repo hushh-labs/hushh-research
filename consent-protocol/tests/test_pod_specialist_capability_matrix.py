@@ -59,7 +59,6 @@ def test_every_manifest_is_declared_and_nothing_disagrees(matrix: dict) -> None:
         for path in (ROOT / "hushh_mcp" / "agents").glob("*/agent.yaml")
     }
     assert {row["id"] for row in matrix["agents"]} == manifest_ids
-    assert len(matrix["agents"]) == 18
     assert all(row["declared"] is not None for row in matrix["agents"])
     assert matrix["disagreements"] == []
 
@@ -81,6 +80,12 @@ def test_pod_execution_is_derived_from_service_for_not_from_the_manifest(matrix:
         if agent_id == "agent_one":
             assert row["declared"]["executes_in_pod"] is True
             assert row["declared"]["information_source"] == "pkm_projection"
+            continue
+        if row["derived"]["pod_agent_tool"]:
+            assert agent_id in generator.local_agent_tools()
+            assert row["declared"]["executes_in_pod"] is True
+            assert row["declared"]["information_source"] == "owner_bucket"
+            assert row["derived"]["pod_dispatchable"] is False
             continue
         assert row["declared"]["executes_in_pod"] is (agent_id in dispatchable), agent_id
         assert row["derived"]["pod_dispatchable"] is (agent_id in dispatchable)

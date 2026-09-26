@@ -8,7 +8,11 @@ one_exposure:
   discovery_status: discoverable
   exposure_status: limited
   supported_entrypoints: [typed]
-model: gemini-default
+model:
+  provider: gemini
+  name: gemini-default
+  mode: hushh_managed_vertex
+  thinking_level: low
 runtime:
   kind: adk
   adk_mode: task
@@ -25,6 +29,11 @@ system_instruction: |
   relevant supported file content, then choose clear names and folders based on
   meaning. Use stable file identifiers and the revision returned by the tools.
   Preserve the original filename and explain each reversible move or rename.
+  organize_file accepts exactly one operation: rename with name, or move with
+  parent set to a folder identifier. To do both, use separate calls and use the
+  updated revision from the first result. Never pass a combined operation or a
+  folder path as an identifier. A refused operation is a failed change, not an
+  unsupported file format; report it accurately and preserve the upload.
   Do not invent classifications if reading or model assessment fails. Leave the
   original upload intact and report what could not be organized.
   Automatic organization applies only to new uploads after owner opt-in;

@@ -502,7 +502,7 @@ flowchart LR
 | Pod authority and erasure | Fixed in inspected source; rollout unverified | The integration fails closed on explicit owner-authentication errors, retains owner-scoped memory, and keeps account erasure aligned with migration 239's removed tables. Focused source tests passed. A deployed pod or migration result was not proven. |
 | Cloud Build environment | Fixed in inspected source | The deploy script accepts a bounded packed Drive secret setting so the backend build step stays below Cloud Build's 100-entry environment limit. The image build contract test passed; no image was built or deployed here. |
 | Native parity reports | Follow-up required | Static parity validation passed, but the report-verification command found stale generated report artifacts. Refresh them through the native parity workflow before treating those artifacts as current. |
-| Runtime model claims | Repo defaults verified; deployment selection varies | [`model_catalog.py`](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py) lists `gemini-3.8-flash` and `gemini-3.7-flash`; manifests can use `gemini-default`, and [`live_compatibility.py`](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py) documents Live model compatibility. Voice model selection is environment/configuration dependent. These sources do not support describing One as entirely model-agnostic or proving a deployed model selection. |
+| Runtime model claims | Repo defaults verified; deployment selection varies | [`model_catalog.py`](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py) lists `gemini-3.7-flash` and `gemini-3.6-flash`; manifests can use `gemini-default`, and [`live_compatibility.py`](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py) documents Live model compatibility. Voice model selection is environment/configuration dependent. These sources do not support describing One as entirely model-agnostic or proving a deployed model selection. |
 | Pod refresh toward main | Source ancestry verified; rollout unverified | The integration candidate contains refreshed main, remote ADK, and local ADK revisions listed above; each source SHA is an ancestor of the candidate. This verifies local Git ancestry only. It does not verify a serving image, environment rollout, or recovery rehearsal. |
 | Migration 240–242 and erasure | Release contract verified locally; rollout unverified | Profile discovery is migration 240, Drive live sharing is 241, and the refreshed-main Drive live-query request contract is 242. The candidate's UAT and production contracts are exact at v242, and dev is at least v242. `drive_share_live_sources` is removed through the existing request-scoped Drive erasure helper; the erasure inventory test covers the current table set. The release verifier and full backend suite pass; no database migration execution was performed. |
 | Hosting placement and existing accounts | Shared default is source-verified; user rollout unverified | The candidate resolves an account with no pod assignment and no pending setup to Hussh Shared only after registry and setup-job reads succeed. `user_gcp` means BYOC; `gcp` means Hussh Pods, whose new assignment remains gated. Existing assignments and pending setup are preserved. Model credentials do not assign or provision a pod. No user records were bulk-migrated. |
@@ -878,7 +878,7 @@ applied: they restored UID-selected identities, while this branch intentionally
 requires credential-derived identity and rejects an expected-UID mismatch. The ADK
 worktree remains intact.
 
-Canonical CI is not green: generated topology was refreshed, and the architecture
+At the earlier continuation checkpoint, canonical CI was not green: generated topology was refreshed, and the architecture
 ratchet exposed new/worsened seams. The Files library now delegates transfers and
 analysis policy through its existing facade; Files presentation has separate directory
 rows and settings. Thirteen storage/job regression cases pass after that extraction.
@@ -932,10 +932,51 @@ Verification at this checkpoint:
   database release-contract validation pass. These are source checks, not live
   schema or provider-resource proof.
 
-Canonical CI must still pass on the final combined commit before promotion/push.
-The local managed Vertex synthetic-text probe still returns 403. Real model
-organization, spoken commands, separate-network browser/Puppy access, owner-approved
-pod updates, Cloud Tasks delivery, idle scale-to-zero and resource consumption remain
-unverified. Native Files, per-file permanent deletion and an autonomous delivery
+Canonical CI passed on `1cca405a5ddb18949c8e42a8e8e63b4d89b2e148`.
+A subsequent real-model evaluation exposed a Files task-completion defect; the
+corrected candidate requires its own complete run before promotion/push. Spoken
+commands, separate-network browser/Puppy access, owner-approved pod updates, Cloud
+Tasks delivery, idle scale-to-zero and resource consumption remain unverified. Native Files, per-file permanent deletion and an autonomous delivery
 outbox sweep are not shipped claims. The new Files option applies to explicit setup;
 software updates preserve existing owners' selected configuration.
+
+
+### Files task completion and model alignment — 2026-09-25
+
+Correction based on the integrated `1cca405a5` checkpoint and installed ADK source:
+the background Files task had been nested under a legacy sequential agent and read
+ordinary response text as JSON. It now runs as ADK's task root and accepts only
+validated `finish_task` event output. One delegation and background jobs share one
+manifest-owned Files builder. The operation tool declares `rename` and `move` as
+an enum; authored instructions explain separate calls and current revisions.
+
+The inherited ADK fleet uses Gemini 3.7 Flash by default and supports 3.6 Flash as
+its alternative. Files uses the authored LOW thinking policy. Runtime selection
+remains subject to the environment; the existing main-owned dev workflow still
+pins 3.8 and must be corrected before this candidate can be deployed through it.
+No application merge to main or workflow-authority bypass occurred.
+
+Synthetic, real-provider evaluation found and then verified the corrections:
+
+- Receipt: content read, folder creation, rename and move succeed; original bytes
+  remain intact. Before the typed-operation correction the model attempted an
+  unsupported operation and correctly received a refusal.
+- Malicious uploaded instructions: the task returned unchanged and preserved both
+  original bytes and an unrelated file in the preceding task-completion run.
+- Unsupported binary: the task returned unsupported and preserved both files.
+- SDK-backed regression tests exercise structured task completion, refusal to
+  treat prose as completion, LOW thinking and the operation enum. The existing
+  capability-matrix suite now runs in canonical backend CI; it distinguishes local
+  AgentTool execution from dispatch and derives the roster from manifests.
+
+The local Vertex 403 was an environment mismatch: the established bootstrap
+configuration uses a separate GenAI project. Updating only the ignored local
+GenAI project setting made all eight existing managed-runtime probes pass (text
+and ADK in three locations, command audio and semantics). No IAM grant changed.
+This does not establish live pod voice or deployment-service-account access.
+
+Hermes' canonical runner passes 14 direct-client tests. Its companion changes are
+local; 16 pre-existing unpublished commits on that repository's main require
+preservation and explicit release accounting before a remote update. The private
+Wiki pod status and internal mega-map qualification were updated and read back.
+No private evidence was added to public pages.

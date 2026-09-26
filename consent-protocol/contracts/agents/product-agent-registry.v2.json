@@ -1236,7 +1236,13 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/files/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-default",
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
       "name": "Files Agent",
       "native_requirements": [],
       "one_exposure": {
@@ -1296,7 +1302,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "ea4082919d3ecd3e8351eee7fed9eeccfa31ec70466dfa7df6c0396165ebc282",
+      "system_instruction_sha256": "283f6706b0eb6fac17ecd8b6c558b6a1e3b3e73553a1f77fcc982562b898a96e",
       "telemetry_namespace": "agent.files",
       "tools": [
         {
