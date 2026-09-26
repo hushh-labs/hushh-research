@@ -980,3 +980,18 @@ local; 16 pre-existing unpublished commits on that repository's main require
 preservation and explicit release accounting before a remote update. The private
 Wiki pod status and internal mega-map qualification were updated and read back.
 No private evidence was added to public pages.
+
+
+Follow-up verification on `de85ca828`: 10,030 frontend tests passed. The canonical
+run then caught a stale generated Location workflow catalog after the Files
+manifest changed the shared capability revision. Regenerating through the existing
+frontend capability command changes only that catalog revision. The next canonical
+run must include this projection correction.
+
+The final synthetic malicious-content run reached the 120-second deadline after a
+reversible change to its own file; original bytes and the unrelated file remained
+intact. The unsupported-format case completed without alteration. This is a
+bounded failure, not universal organization reliability or live acceptance.
+Hermes companion `c4f367a551` now preserves exact Puppy scope and treats ambiguous
+control-plane status as indeterminate; its canonical runner passes 39 focused tests.
+It remains local alongside the repository's pre-existing unpublished work.
