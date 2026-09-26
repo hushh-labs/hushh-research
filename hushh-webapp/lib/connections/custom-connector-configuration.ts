@@ -72,8 +72,18 @@ export type CustomConnectorSnapshot = {
   invalid: InvalidCustomConnector[];
 };
 
+/** A vault-owner token never leaves for another server, under any scheme. */
 export function isVaultOwnerCredential(value: string): boolean {
-  return /^(?:Bearer\s+)?HCT:/i.test(value.trim());
+  return /^(?:\S+\s+)?HCT:/i.test(value.trim());
+}
+
+/** A pasted token is sent as `Authorization: Bearer <token>`, matching Claude
+ * Code's bearer header. A value that already names a scheme ("Bearer x",
+ * "Token x", "Basic x") is kept exactly, so the person stays in control.
+ */
+export function bearerAuthorizationValue(credential: string): string {
+  const value = credential.trim();
+  return /^[A-Za-z][A-Za-z0-9!#$%&'*+.^_`|~-]*\s+\S/.test(value) ? value : `Bearer ${value}`;
 }
 
 function containsVaultOwnerCredential(record: CustomConnectorConfiguration): boolean {
