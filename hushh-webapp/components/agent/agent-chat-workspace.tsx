@@ -113,6 +113,7 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { appendThinkingSummary } from "@/lib/agent/thinking-summary";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
@@ -5018,7 +5019,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted || latestVisibleTurnIdRef.current !== debugTurnId) return;
             updateMessage(assistantMessageId, (message) => ({
               ...message,
-              thinkingSummary: `${message.thinkingSummary ?? ""}${chunk}`.slice(0, 12000),
+              thinkingSummary: appendThinkingSummary(message.thinkingSummary, chunk),
             }));
           },
           onMcpReview: (review) => {
@@ -6428,7 +6429,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     title={`Running ${modelPreference.effective_model}`}
                     className="h-8 w-auto max-w-full shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground"
                   >
-                    {/* "3.8 Flash", not "Gemini 3.8 Flash": every option is a
+                    {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}

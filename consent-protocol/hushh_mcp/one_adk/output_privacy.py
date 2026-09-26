@@ -29,6 +29,48 @@ def _private_pointer(pointer: Any) -> bool:
     return key in _PRIVATE_STATE_KEYS
 
 
+class ThoughtSummaryReplayFilter:
+    """Drop a thought-summary message that replays text this turn already streamed.
+
+    With SSE streaming the bridge forwards a model's thought summary twice: once
+    from the partial event while it streams, and again from the final aggregated
+    event under a new message id (measured 2026-09-25: the same 231-character
+    summary arrived twice, 2.2 s apart). Only a whole replayed message is dropped:
+    the first chunk of a new message must equal an earlier message's complete text
+    or the complete text streamed so far. A genuine streaming piece is never
+    compared against a substring, so short chunks cannot be lost to coincidence.
+    One instance serves exactly one turn.
+    """
+
+    def __init__(self) -> None:
+        self._messages: dict[str, str] = {}
+        self._order: list[str] = []
+        self._suppressed: set[str] = set()
+
+    def admit(self, event: BaseEvent) -> bool:
+        if not isinstance(event, ReasoningMessageContentEvent):
+            return True
+        message_id = str(event.message_id or "")
+        delta = event.delta or ""
+        if message_id in self._suppressed:
+            return False
+        if message_id in self._messages:
+            self._messages[message_id] += delta
+            return True
+        candidate = delta.strip()
+        if candidate:
+            prior = [self._messages[key].strip() for key in self._order]
+            if (
+                candidate in prior
+                or candidate == "".join(self._messages[key] for key in self._order).strip()
+            ):
+                self._suppressed.add(message_id)
+                return False
+        self._messages[message_id] = delta
+        self._order.append(message_id)
+        return True
+
+
 def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> BaseEvent | None:
     """Expose only bounded provider summary text on authenticated Chat.
 

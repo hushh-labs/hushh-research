@@ -202,3 +202,53 @@ def test_one_builders_keep_reasoning_internal():
         ).generate_content_config.thinking_config.include_thoughts
         is True
     )
+
+
+def _summary(message_id: str, delta: str):
+    from ag_ui.core import ReasoningMessageContentEvent
+
+    return ReasoningMessageContentEvent(message_id=message_id, delta=delta)
+
+
+def test_summary_replay_from_the_final_aggregated_event_is_dropped():
+    # Measured 2026-09-25: the partial event streamed a 231-char summary and the
+    # final aggregated event replayed the same text under a new message id.
+    from hushh_mcp.one_adk.output_privacy import ThoughtSummaryReplayFilter
+
+    text = "**Clarifying My Role**\n\nI'm explaining what I can help with."
+    replays = ThoughtSummaryReplayFilter()
+    assert replays.admit(_summary("m1", text)) is True
+    assert replays.admit(_summary("m2", text)) is False
+    # Every later chunk of a suppressed replay stays suppressed.
+    assert replays.admit(_summary("m2", " more")) is False
+
+
+def test_summary_replay_of_several_streamed_messages_is_dropped():
+    from hushh_mcp.one_adk.output_privacy import ThoughtSummaryReplayFilter
+
+    replays = ThoughtSummaryReplayFilter()
+    assert replays.admit(_summary("m1", "**First**\n\nOne. ")) is True
+    assert replays.admit(_summary("m2", "**Second**\n\nTwo.")) is True
+    assert replays.admit(_summary("m3", "**First**\n\nOne. **Second**\n\nTwo.")) is False
+
+
+def test_genuine_streaming_pieces_are_never_dropped_as_substrings():
+    from hushh_mcp.one_adk.output_privacy import ThoughtSummaryReplayFilter
+
+    replays = ThoughtSummaryReplayFilter()
+    assert replays.admit(_summary("m1", "**Checking the")) is True
+    assert replays.admit(_summary("m1", " the connected file**")) is True
+    # A new message whose first chunk is only a fragment of earlier text is new content.
+    assert replays.admit(_summary("m2", "the")) is True
+    assert replays.admit(_summary("m3", "**Next step**\n\nA different summary.")) is True
+
+
+def test_replay_filter_admits_every_non_summary_event():
+    from ag_ui.core import TextMessageContentEvent
+
+    from hushh_mcp.one_adk.output_privacy import ThoughtSummaryReplayFilter
+
+    replays = ThoughtSummaryReplayFilter()
+    text_event = TextMessageContentEvent(message_id="t1", delta="Hello")
+    assert replays.admit(text_event) is True
+    assert replays.admit(TextMessageContentEvent(message_id="t2", delta="Hello")) is True
