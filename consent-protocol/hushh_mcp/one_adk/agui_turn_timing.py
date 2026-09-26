@@ -31,7 +31,11 @@ from hushh_mcp.one_adk.drive_result_privacy import (
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
-from hushh_mcp.one_adk.output_privacy import ThoughtSummaryReplayFilter, public_event
+from hushh_mcp.one_adk.output_privacy import (
+    ThoughtSummaryReplayFilter,
+    drop_empty_history_parts,
+    public_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -416,6 +420,7 @@ def _request_text(value: Any) -> str:
 
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
+    drop_empty_history_parts(llm_request)
     before_external_read_model(callback_context, llm_request)
     timing = _CURRENT_TURN.get()
     if timing is not None:

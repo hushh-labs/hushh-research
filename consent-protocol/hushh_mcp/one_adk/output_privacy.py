@@ -135,3 +135,50 @@ def public_text(event: Any) -> str:
         if isinstance(getattr(part, "text", None), str)
         and not bool(getattr(part, "thought", False))
     ).strip()
+
+
+_PART_DATA_FIELDS = (
+    "function_call",
+    "function_response",
+    "inline_data",
+    "file_data",
+    "executable_code",
+    "code_execution_result",
+    "thought_signature",
+)
+
+
+def _part_carries_data(part: Any) -> bool:
+    text = getattr(part, "text", None)
+    if isinstance(text, str) and text:
+        return True
+    return any(getattr(part, name, None) for name in _PART_DATA_FIELDS)
+
+
+def drop_empty_history_parts(llm_request: Any) -> int:
+    """Remove history parts that carry no data before the provider sees them.
+
+    With thought summaries on, ADK's streaming aggregation can store a model
+    turn with an empty ``thought`` part (no text, no signature). Replaying it
+    made every second turn in a conversation fail with a provider 400 (measured
+    2026-09-25). A part with a thought signature is kept: Gemini needs it to
+    continue reasoning. Only the outgoing request changes; stored history is
+    untouched. Returns the number of parts removed.
+    """
+    removed = 0
+    contents = getattr(llm_request, "contents", None)
+    if not isinstance(contents, list):
+        return 0
+    kept_contents = []
+    for content in contents:
+        parts = getattr(content, "parts", None)
+        if not isinstance(parts, list):
+            kept_contents.append(content)
+            continue
+        kept = [part for part in parts if _part_carries_data(part)]
+        removed += len(parts) - len(kept)
+        if kept:
+            content.parts = kept
+            kept_contents.append(content)
+    llm_request.contents = kept_contents
+    return removed

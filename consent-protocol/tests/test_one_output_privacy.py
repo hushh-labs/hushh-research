@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from ag_ui.core import (
     BaseEvent,
@@ -252,3 +254,48 @@ def test_replay_filter_admits_every_non_summary_event():
     text_event = TextMessageContentEvent(message_id="t1", delta="Hello")
     assert replays.admit(text_event) is True
     assert replays.admit(TextMessageContentEvent(message_id="t2", delta="Hello")) is True
+
+
+def test_empty_thought_part_is_dropped_from_the_outgoing_request_only():
+    # Measured 2026-09-25: a stored model turn of [empty thought, answer, signature]
+    # made every second turn fail with a provider 400.
+    from google.genai import types as gtypes
+
+    from hushh_mcp.one_adk.output_privacy import drop_empty_history_parts
+
+    request = SimpleNamespace(
+        contents=[
+            gtypes.Content(role="user", parts=[gtypes.Part(text="hi")]),
+            gtypes.Content(
+                role="model",
+                parts=[
+                    gtypes.Part(text="", thought=True),
+                    gtypes.Part(text="answer"),
+                    gtypes.Part(text="", thought_signature=b"sig"),
+                ],
+            ),
+            gtypes.Content(role="user", parts=[gtypes.Part(text="next")]),
+        ]
+    )
+    assert drop_empty_history_parts(request) == 1
+    model_parts = request.contents[1].parts
+    assert [p.text for p in model_parts] == ["answer", ""]
+    assert model_parts[1].thought_signature == b"sig"
+    assert [c.role for c in request.contents] == ["user", "model", "user"]
+
+
+def test_function_parts_and_text_are_never_dropped():
+    from google.genai import types as gtypes
+
+    from hushh_mcp.one_adk.output_privacy import drop_empty_history_parts
+
+    call = gtypes.Part(function_call=gtypes.FunctionCall(name="x", args={}))
+    reply = gtypes.Part(function_response=gtypes.FunctionResponse(name="x", response={}))
+    request = SimpleNamespace(
+        contents=[
+            gtypes.Content(role="model", parts=[call]),
+            gtypes.Content(role="user", parts=[reply]),
+        ]
+    )
+    assert drop_empty_history_parts(request) == 0
+    assert len(request.contents) == 2
