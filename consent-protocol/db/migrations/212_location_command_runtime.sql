@@ -3,15 +3,16 @@ BEGIN;
 -- Extend the existing metadata ledger; no personal inputs or audio are stored.
 ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_channel_check;
 ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_check;
--- NOT VALID: replay re-runs this file on every deploy, before 231 widens both
--- checks to admit 'document_review'. A validating ADD here re-narrows them and
--- fails on the first document_review row (23514), blocking every release; 231's
--- validating ADD proves the final constraints. Same trap as 158, noted in 163.
+-- Replay runs this file after later channels already have rows. Keep every
+-- currently supported channel here, even though 231 and 248 will replace
+-- these checks again. NOT VALID avoids scanning old rows during this step;
+-- PostgreSQL still enforces the checks on new rows during the replay.
 ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_channel_check
-  CHECK (channel IN ('typed_chat','voice','command')) NOT VALID;
+  CHECK (channel IN ('typed_chat','voice','command','document_review','adk_chat')) NOT VALID;
 ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_check CHECK (
   (channel='typed_chat' AND conversation_id IS NOT NULL AND session_id IS NULL)
-  OR (channel IN ('voice','command') AND session_id IS NOT NULL AND conversation_id IS NULL)
+  OR (channel IN ('voice','command','adk_chat') AND session_id IS NOT NULL AND conversation_id IS NULL)
+  OR (channel='document_review' AND conversation_id IS NULL AND session_id IS NULL)
 ) NOT VALID;
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS command_effect TEXT NOT NULL DEFAULT 'action' CHECK (command_effect IN ('action','screen'));
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS step_hmac TEXT;

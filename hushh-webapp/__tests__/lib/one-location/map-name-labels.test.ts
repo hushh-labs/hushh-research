@@ -144,6 +144,26 @@ describe("projectToMapBox", () => {
 });
 
 describe("layoutMapNameLabels", () => {
+  it("reserves the renderer avatar even when its own name pill is omitted", () => {
+    const options = {
+      // This person's pill lands on the owner's avatar, despite their pin
+      // being more than the normal 44px minimum anchor distance away.
+      labels: [person("nearby", -0.3, 0), person("farther", -0.3, 0.7)],
+      camera: camera(),
+      viewport: VIEWPORT,
+    };
+    expect(layoutMapNameLabels(options).map((label) => label.key)).toEqual([
+      "nearby",
+      "farther",
+    ]);
+    expect(
+      layoutMapNameLabels({
+        ...options,
+        reservedMarker: { point: { latitude: 0, longitude: 0 }, radiusPx: 22 },
+      }).map((label) => label.key),
+    ).toEqual(["farther"]);
+  });
+
   it("draws nothing over a rotated or tilted map", () => {
     // The projection is flat. Under a bearing every name would sit over
     // somebody else's pin, and a wrong name is worse than no name.

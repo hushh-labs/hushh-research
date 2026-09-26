@@ -168,16 +168,23 @@ class DriveShareNotificationWorker:
         ):
             raise ValueError("invalid worker bounds")
         counts: Counter[str] = Counter()
+        attempted = 0
         try:
             async with asyncio.timeout(deadline_seconds):
-                for store in self.stores:
-                    async for job, enabled in self._jobs(max_jobs, store):
+                for index, store in enumerate(self.stores):
+                    if attempted >= max_jobs:
+                        break
+                    # Reserve a share of this finite sweep for later outboxes;
+                    # a busy document queue must not starve Drive answers.
+                    budget = max(1, (max_jobs - attempted) // (len(self.stores) - index))
+                    async for job, enabled in self._jobs(budget, store):
                         if not enabled:
                             counts["disabled"] += 1
                             continue
                         if job is None:
                             counts["not_claimed"] += 1
                             continue
+                        attempted += 1
                         try:
                             outcome = await self._dispatch(job)
                         except Exception:  # noqa: BLE001 - durable retry state is authoritative.

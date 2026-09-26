@@ -129,6 +129,8 @@ export type DriveQueryView = {
     files: DriveQueryFile[];
     // Set once the owner shared files from this answer.
     shareRequestId: string | null;
+    // Owner only: the exact selection reserved by an attempted share.
+    selectedFileRefs?: string[] | null;
   } | null;
   canDecide: boolean;
   lastError: "reconnect_required" | "drive_query_unavailable" | null;
@@ -211,8 +213,10 @@ const STREAM_ERROR_CODES = new Set<string>([
   "owner_share_expired",
   "drive_query_unavailable",
   "recipient_google_identity_required",
+  "recipient_verified_email_required",
   "recipient_verification_unavailable",
   "drive_share_unavailable",
+  "drive_share_in_progress",
   "invalid_argument",
 ]);
 const STREAM_FRAME_MAX_LENGTH = 1024;
@@ -325,6 +329,15 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
     lastError !== "drive_query_unavailable"
   )
     throw new DriveSharingError("invalid_response");
+  const answerFiles = rawAnswer ? queryFiles(rawAnswer.files, direction) : [];
+  const selectedFileRefs = rawAnswer?.selectedFileRefs;
+  if (selectedFileRefs != null && (
+    direction !== "incoming" || !Array.isArray(selectedFileRefs) ||
+    selectedFileRefs.length < 1 || selectedFileRefs.length > 8 ||
+    new Set(selectedFileRefs).size !== selectedFileRefs.length ||
+    selectedFileRefs.some((ref) => typeof ref !== "string" || !answerFiles.some((file) => file.ref === ref))
+  ))
+    throw new DriveSharingError("invalid_response");
   return {
     requestId: id(result.requestId),
     direction,
@@ -345,7 +358,8 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
             string(title, 1024),
           ),
           truncated: rawAnswer.truncated as boolean,
-          files: queryFiles(rawAnswer.files, direction),
+          files: answerFiles,
+          ...(selectedFileRefs == null ? {} : { selectedFileRefs: selectedFileRefs as string[] }),
           shareRequestId:
             rawAnswer.shareRequestId == null ? null : id(rawAnswer.shareRequestId),
         }
@@ -369,7 +383,25 @@ export type DriveOwnerShareView = {
   shareRequestId: string | null;
   /** The owner's own search words when nothing matched (e.g. "Which file?"). */
   message: string | null;
+  selectedFileRefs?: string[] | null;
+  selectionExpired?: boolean;
 };
+
+function ownerSelection(value: RecordValue, files: DriveQueryFile[]) {
+  const refs = value.selectedFileRefs;
+  if (refs != null && (!Array.isArray(refs) || refs.length < 1 || refs.length > 8 ||
+    new Set(refs).size !== refs.length ||
+    refs.some((ref) => typeof ref !== "string" || !files.some((file) => file.ref === ref))))
+    throw new DriveSharingError("invalid_response");
+  if (value.selectionExpired !== undefined && typeof value.selectionExpired !== "boolean")
+    throw new DriveSharingError("invalid_response");
+  if (value.selectionExpired === true && refs == null)
+    throw new DriveSharingError("invalid_response");
+  return {
+    selectedFileRefs: refs == null ? null : refs as string[],
+    selectionExpired: value.selectionExpired === true,
+  };
+}
 
 function parseOwnerShareView(value: RecordValue): DriveOwnerShareView {
   const status = string(value.status, 16);
@@ -395,6 +427,7 @@ function parseOwnerShareView(value: RecordValue): DriveOwnerShareView {
     files: found,
     shareRequestId: value.shareRequestId == null ? null : id(value.shareRequestId),
     message: null,
+    ...ownerSelection(value, found),
   };
 }
 
@@ -406,6 +439,7 @@ export type DriveCircleExclusion =
   | "imported"
   | "unavailable"
   | "no_google_account"
+  | "no_verified_email"
   | "limit";
 const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
   "not_connected",
@@ -414,6 +448,7 @@ const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
   "imported",
   "unavailable",
   "no_google_account",
+  "no_verified_email",
   "limit",
 ]);
 
@@ -426,6 +461,8 @@ export type DriveCircleShareView = {
     name: string | null;
     status: "ready" | "shared";
     shareRequestId: string | null;
+    selectedFileRefs?: string[] | null;
+    selectionExpired?: boolean;
   }>;
   excluded: Array<{ name: string | null; reason: DriveCircleExclusion }>;
   message: string | null;
@@ -444,6 +481,8 @@ function parseCircleShareView(value: RecordValue): DriveCircleShareView {
     throw new DriveSharingError("invalid_response");
   if (!Array.isArray(value.excluded) || value.excluded.length > 100)
     throw new DriveSharingError("invalid_response");
+  const files =
+    status === "ready" || status === "shared" ? queryFiles(value.files, "incoming") : [];
   const recipients = value.recipients.map((item) => {
     const row = record(item);
     const rowStatus = string(row.status, 8);
@@ -454,6 +493,7 @@ function parseCircleShareView(value: RecordValue): DriveCircleShareView {
       name: row.name == null ? null : string(row.name, 200),
       status: rowStatus as "ready" | "shared",
       shareRequestId: row.shareRequestId == null ? null : id(row.shareRequestId),
+      ...ownerSelection(row, files),
     };
   });
   const excluded = value.excluded.map((item) => {
@@ -462,8 +502,6 @@ function parseCircleShareView(value: RecordValue): DriveCircleShareView {
     if (!CIRCLE_EXCLUSIONS.has(reason)) throw new DriveSharingError("invalid_response");
     return { name: row.name == null ? null : string(row.name, 200), reason };
   });
-  const files =
-    status === "ready" || status === "shared" ? queryFiles(value.files, "incoming") : [];
   if ((status === "ready" || status === "shared") && (!files.length || !recipients.length))
     throw new DriveSharingError("invalid_response");
   return {

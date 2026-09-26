@@ -329,9 +329,8 @@ for (const width of [320, 390, 640, 768, 1440]) {
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
       const nodes = page.locator('[data-testid^="circle-starter-"]');
-      const boxes = await Promise.all(
-        (await nodes.all()).map((node) => node.boundingBox()),
-      );
+      const nodeList = await nodes.all();
+      const boxes = await Promise.all(nodeList.map((node) => node.boundingBox()));
       const owner = await page
         .getByTestId("circle-discovery-owner")
         .boundingBox();
@@ -356,7 +355,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
         expect(box.x + box.width).toBeLessThanOrEqual(
           bounds!.x + bounds!.width,
         );
-        expect(overlaps(box, owner!)).toBe(false);
+        expect(overlaps(box, owner!), `${await nodeList[i]!.getAttribute("data-testid")} ${JSON.stringify(box)} versus owner ${JSON.stringify(owner)}`).toBe(false);
         for (let j = i + 1; j < boxes.length; j++)
           expect(overlaps(box, boxes[j]!)).toBe(false);
       }
@@ -367,14 +366,39 @@ for (const width of [320, 390, 640, 768, 1440]) {
       ).toBe(true);
     };
     await checkGeometry();
+    if (width < 640) {
+      const orbit = (await page
+        .getByTestId("circle-discovery-orbit")
+        .boundingBox())!;
+      const expectedOrbitWidth = Math.min(width * 0.68, 288);
+      expect(orbit.width, "mobile circle overview has useful visual scale").toBeGreaterThanOrEqual(expectedOrbitWidth - 0.1);
+      const icon = (await page
+        .locator("[data-circle-starter-icon]")
+        .first()
+        .boundingBox())!;
+      expect(icon.width, "mobile circle icons stay legible").toBeGreaterThanOrEqual(48);
+      const mobileType = await hero.evaluate((element) => {
+        const heading = element.querySelector("h2")!;
+        const supporting = element.querySelector("h2 + p")!;
+        const primary = element.querySelector('[data-testid="circle-discovery-primary"]')!;
+        return {
+          heading: Number.parseFloat(getComputedStyle(heading).fontSize),
+          supporting: Number.parseFloat(getComputedStyle(supporting).fontSize),
+          primary: Number.parseFloat(getComputedStyle(primary).fontSize),
+        };
+      });
+      expect(mobileType.heading).toBeGreaterThanOrEqual(20);
+      expect(mobileType.supporting).toBeGreaterThanOrEqual(12);
+      expect(mobileType.primary).toBeGreaterThanOrEqual(15);
+    }
     const primaryAction = await page
       .getByTestId("circle-discovery-primary")
       .boundingBox();
     if (width < 640) {
-      // Compact phones stack the two iOS actions; wider phones use one row
-      // so the entire introduction remains clear of bottom app chrome.
+      // Both short actions share a row, including compact phones, leaving
+      // vertical room for the explanation above fixed app chrome.
       expect(primaryAction!.height).toBe(44);
-      expect(primaryAction!.width).toBeGreaterThanOrEqual(width < 360 ? width * 0.65 : width * 0.4);
+      expect(primaryAction!.width).toBeGreaterThanOrEqual(width * 0.35);
       expect(primaryAction!.width).toBeLessThanOrEqual(width);
     }
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
@@ -423,11 +447,14 @@ for (const width of [320, 390, 640, 768, 1440]) {
 }
 
 for (const viewport of [
+  { width: 320, height: 568, safeTop: 20 },
+  { width: 320, height: 667, safeTop: 20 },
+  { width: 327, height: 742, safeTop: 20 },
   { width: 375, height: 812, safeTop: 44 },
   { width: 390, height: 844, safeTop: 47 },
   { width: 430, height: 932, safeTop: 59 },
 ]) {
-  test(`intro fits above mobile chrome without scrolling at ${viewport.width}x${viewport.height}`, async ({
+  test(`Connect clears top chrome and keeps circle actions reachable at ${viewport.width}x${viewport.height}`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -450,6 +477,34 @@ for (const viewport of [
       )
       .toBe(0);
     const chrome = (await page.locator("[data-bottom-chrome]").boundingBox())!;
+    const topClearance = await page
+      .locator('[data-app-shell-top-spacer="true"]')
+      .evaluate((element) => {
+        const sharedOffsetProbe = document.createElement("div");
+        sharedOffsetProbe.style.cssText =
+          "position:absolute;visibility:hidden;height:var(--app-top-content-offset)";
+        element.parentElement!.append(sharedOffsetProbe);
+        const visibleMaskProbe = document.createElement("div");
+        visibleMaskProbe.style.cssText =
+          "position:absolute;visibility:hidden;height:var(--top-shell-mask-visible-height)";
+        element.parentElement!.append(visibleMaskProbe);
+        const result = {
+          spacer: Number.parseFloat(getComputedStyle(element).height),
+          sharedOffset: Number.parseFloat(
+            getComputedStyle(sharedOffsetProbe).height,
+          ),
+          visibleMask: visibleMaskProbe.getBoundingClientRect().height,
+        };
+        sharedOffsetProbe.remove();
+        visibleMaskProbe.remove();
+        return result;
+      });
+    const routeTitle = (await page.getByRole("heading", { name: "Connect" }).boundingBox())!;
+    const segmentedControl = (await page.getByText("Connections · Circles").boundingBox())!;
+    expect(routeTitle.y).toBeGreaterThanOrEqual(topClearance.visibleMask);
+    expect(segmentedControl.y).toBeGreaterThanOrEqual(topClearance.visibleMask);
+    expect(topClearance.spacer).toBeGreaterThanOrEqual(topClearance.visibleMask);
+    expect(topClearance.spacer).toBeLessThanOrEqual(topClearance.sharedOffset);
     for (const name of [
       "Family",
       "Finance",
@@ -461,17 +516,58 @@ for (const viewport of [
       await page
         .getByRole("button", { name: `Explore ${name} Circle` })
         .click();
-      const bounds = (await hero.boundingBox())!;
+      await hero.getByTestId("circle-discovery-preview").evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => {})));
+      });
+      const preview = (await hero.getByTestId("circle-discovery-preview").boundingBox())!;
+      const primary = (await hero.getByTestId("circle-discovery-primary").boundingBox())!;
+      const secondary = (await hero.getByRole("button", { name: "Add connection" }).boundingBox())!;
+      const ownerParts = await Promise.all([
+        hero.locator("[data-circle-discovery-owner-avatar]"),
+        hero.locator("[data-circle-discovery-owner-label]"),
+        hero.locator("[data-circle-discovery-owner-status]"),
+      ].map((part) => part.boundingBox()));
+      const nodes = await hero.locator('[data-testid^="circle-starter-"]').all();
+      for (const node of nodes) {
+        const visibleParts = await Promise.all([
+          node.locator("[data-circle-starter-icon]"),
+          node.locator(":scope > span > span:last-child"),
+        ].map((part) => part.boundingBox()));
+        for (const box of visibleParts) {
+          expect(box, `${await node.getAttribute("data-testid")} visible part exists`).not.toBeNull();
+          for (const owner of ownerParts.filter((part) => part !== null)) {
+            const overlapsOwner =
+              Math.min(box!.x + box!.width, owner!.x + owner!.width) - Math.max(box!.x, owner!.x) > 1 &&
+              Math.min(box!.y + box!.height, owner!.y + owner!.height) - Math.max(box!.y, owner!.y) > 1;
+            expect(overlapsOwner, `${name}: ${await node.getAttribute("data-testid")} visible part ${JSON.stringify(box)} versus owner ${JSON.stringify(owner)}`).toBe(false);
+          }
+        }
+        const label = visibleParts[1]!;
+        expect(label.y + label.height, `${name}: ${await node.getAttribute("data-testid")} label stays above preview at ${preview.y}`).toBeLessThanOrEqual(preview.y - 2);
+      }
+      expect(preview.y + preview.height, `${name} explanation stays clear of actions`).toBeLessThanOrEqual(primary.y);
+      expect(secondary.x - (primary.x + primary.width), "the two CTAs keep a visible gap").toBeGreaterThanOrEqual(4);
+      for (const button of [hero.getByTestId("circle-discovery-primary"), hero.getByRole("button", { name: "Add connection" })]) {
+        const content = (await button.locator(":scope > span").first().boundingBox())!;
+        const bounds = (await button.boundingBox())!;
+        expect(content.x, `${name} CTA label has left breathing room`).toBeGreaterThanOrEqual(bounds.x + 4);
+        expect(content.x + content.width, `${name} CTA label has right breathing room`).toBeLessThanOrEqual(bounds.x + bounds.width - 4);
+      }
+      await page.locator("[data-app-scroll-root]").evaluate((root) => {
+        const action = document.querySelector('[data-testid="circle-discovery-primary"]')!;
+        const bottomChrome = document.querySelector("[data-bottom-chrome]")!;
+        const overlap = action.getBoundingClientRect().bottom - bottomChrome.getBoundingClientRect().top;
+        if (overlap > 0) root.scrollTop += overlap + 8;
+      });
+      const visiblePreview = (await hero.getByTestId("circle-discovery-preview").boundingBox())!;
+      const visiblePrimary = (await hero.getByTestId("circle-discovery-primary").boundingBox())!;
+      const visibleSecondary = (await hero.getByRole("button", { name: "Add connection" }).boundingBox())!;
+      expect(visiblePreview.y, `${name} explanation clears top chrome`).toBeGreaterThanOrEqual(topClearance.visibleMask);
       expect(
-        bounds.y + bounds.height,
-        `${name} fits the first viewport`,
+        Math.max(visiblePreview.y + visiblePreview.height, visiblePrimary.y + visiblePrimary.height, visibleSecondary.y + visibleSecondary.height),
+        `${name} explanation and actions stay above bottom chrome when reached`,
       ).toBeLessThanOrEqual(chrome.y);
     }
-    expect(
-      await page
-        .locator("[data-app-scroll-root]")
-        .evaluate((el) => el.scrollTop),
-    ).toBe(0);
     await page.screenshot({
       path: testInfo.outputPath("full-mobile-intro.png"),
       animations: "disabled",
@@ -479,10 +575,16 @@ for (const viewport of [
     await page
       .getByLabel("Fixture state")
       .selectOption("connected", { force: true });
-    const connected = (await hero.boundingBox())!;
+    await page.locator("[data-app-scroll-root]").evaluate((root) => {
+      const action = document.querySelector('[data-testid="circle-discovery-primary"]')!;
+      const bottomChrome = document.querySelector("[data-bottom-chrome]")!;
+      const overlap = action.getBoundingClientRect().bottom - bottomChrome.getBoundingClientRect().top;
+      if (overlap > 0) root.scrollTop += overlap + 8;
+    });
+    const connected = (await hero.getByTestId("circle-discovery-primary").boundingBox())!;
     expect(
       connected.y + connected.height,
-      "Populated connections and Trusted circle fit too",
+      "Populated connections keep the primary action above app chrome",
     ).toBeLessThanOrEqual(chrome.y);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.getByRole("button", { name: "Explore Investor Circle" }).click();

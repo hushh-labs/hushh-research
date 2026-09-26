@@ -18,7 +18,8 @@ and release the found titles worded as found, not judged.
 """
 
 import asyncio
-from uuid import uuid4
+import logging
+import time
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_chat_service import DriveChatService
@@ -34,6 +35,42 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRe
 NO_CLEAR_MATCH = (
     "Their Drive didn't have a clear match for this question. Try asking more specifically."
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _timing(stage: str, started: float, outcome: str, *, count: int | None = None) -> None:
+    """Log only fixed stage/outcome labels and a count; never a Drive query or identity."""
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if count is None:
+        logger.info(
+            "drive_share.timing stage=%s outcome=%s duration_ms=%.2f",
+            stage,
+            outcome,
+            elapsed_ms,
+        )
+    else:
+        logger.info(
+            "drive_share.timing stage=%s outcome=%s duration_ms=%.2f count=%d",
+            stage,
+            outcome,
+            elapsed_ms,
+            count,
+        )
+
+
+def _safe_outcome(value: object) -> str:
+    allowed = {
+        "ready",
+        "shared",
+        "no_match",
+        "no_recipients",
+        "ok",
+        "input_required",
+        "connect_required",
+        "reconnect_required",
+    }
+    return value if isinstance(value, str) and value in allowed else "unavailable"
 
 
 def requester_answer(outcome: dict) -> dict:
@@ -108,8 +145,42 @@ class DriveLiveQueryService:
     async def list_requests(self, **kwargs):
         return await self.store.list_requests(**kwargs)
 
-    async def status(self, **kwargs):
-        return await self.store.status(**kwargs)
+    async def status(self, *, user_id, request_id):
+        view = await self.store.status(user_id=user_id, request_id=request_id)
+        answer = view.get("answer") or {}
+        if (
+            view["direction"] != "incoming"
+            or view["status"] != "answered"
+            or answer.get("shareRequestId")
+            or not answer.get("selectedFileRefs")
+        ):
+            return view
+        # Recover only a committed approval. Reading the card never prepares
+        # or approves files, and the requester cannot drive owner recovery.
+        await self._require_owner()
+        try:
+            return await self._recover_query_receipt(user_id, request_id, view)
+        except DriveSharingError as error:
+            if str(error) != "connection_required":
+                raise
+            # Historical answers remain readable after the relationship ends.
+            return view
+
+    async def _recover_query_receipt(self, user_id, request_id, view):
+        selection = await self.store.owner_selection(
+            user_id=user_id, request_id=request_id, refs=view["answer"]["selectedFileRefs"]
+        )
+        if selection.get("receipt"):
+            return selection["receipt"]
+        prior = await self.sharing(self.require_owner).store.lookup_client_request(
+            user_id=selection["recipientUserId"],
+            client_request_id=selection["clientRequestId"],
+        )
+        if prior["status"] not in {"approved", "partial", "completed"}:
+            return view
+        return await self.store.record_share(
+            user_id=user_id, request_id=request_id, share_request_id=prior["requestId"]
+        )
 
     async def deny(self, *, user_id, request_id, revision):
         await self._require_owner()
@@ -169,6 +240,18 @@ class DriveLiveQueryService:
         raise DriveSharingError(code, retryable=code == "drive_query_unavailable")
 
     async def share(self, *, user_id, request_id, file_refs):
+        started = time.perf_counter()
+        outcome = "error"
+        try:
+            result = await self._share_query_files(
+                user_id=user_id, request_id=request_id, file_refs=file_refs
+            )
+            outcome = "shared"
+            return result
+        finally:
+            _timing("query_share_total", started, outcome)
+
+    async def _share_query_files(self, *, user_id, request_id, file_refs):
         """A shares chosen files from B's answered question as Viewer.
 
         The existing exact-file lane does the work: a request bound to B's
@@ -181,14 +264,9 @@ class DriveLiveQueryService:
         selection = await self.store.owner_selection(
             user_id=user_id, request_id=request_id, refs=file_refs
         )
-        if selection["shareRequestId"]:
-            raise DriveSharingError("request_already_decided")
-        share_id = await self._share_files(
-            user_id=user_id,
-            recipient_user_id=selection["requesterUserId"],
-            purpose=selection["query"],
-            files=selection["files"],
-        )
+        if selection.get("receipt"):
+            return selection["receipt"]
+        share_id = await self._resume_owner_share(user_id=user_id, selection=selection)
         return await self.store.record_share(
             user_id=user_id, request_id=request_id, share_request_id=share_id
         )
@@ -219,7 +297,7 @@ class DriveLiveQueryService:
             client_request_id=client_request_id,
         )
         if existing is not None:
-            return existing
+            return await self._recover_owner_receipt(user_id, recipient_user_id, existing)
         files, no_match = await self._owner_search(
             user_id=user_id, query=query, consent_token=consent_token, timezone=timezone
         )
@@ -237,6 +315,24 @@ class DriveLiveQueryService:
     async def prepare_trusted_share(
         self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
     ):
+        started = time.perf_counter()
+        outcome = "error"
+        try:
+            result = await self._prepare_trusted_share(
+                user_id=user_id,
+                client_request_id=client_request_id,
+                query=query,
+                consent_token=consent_token,
+                timezone=timezone,
+            )
+            outcome = _safe_outcome(result.get("status"))
+            return result
+        finally:
+            _timing("trusted_prepare_total", started, outcome)
+
+    async def _prepare_trusted_share(
+        self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
+    ):
         """A searches A's own Drive to share with A's Trusted circle, from chat.
 
         Only Trusted members A accepted by request or invite are recipients;
@@ -249,10 +345,19 @@ class DriveLiveQueryService:
         await self._require_owner()
         if not connector_feature_enabled("google_drive_chat_reads", user_id):
             raise DriveSharingError("sharing_unavailable")
+        started = time.perf_counter()
         circle = await self.owner_shares.trusted_recipients(user_id=user_id)
+        _timing(
+            "trusted_members",
+            started,
+            "ok",
+            count=len(circle["eligible"]) + len(circle["excluded"]),
+        )
+        started = time.perf_counter()
         reasons = await asyncio.gather(
             *(self._identity_reason(member["userId"]) for member in circle["eligible"])
         )
+        _timing("recipient_identity", started, "ok", count=len(reasons))
         excluded = list(circle["excluded"])
         eligible = []
         for member, reason in zip(circle["eligible"], reasons, strict=True):
@@ -260,10 +365,25 @@ class DriveLiveQueryService:
                 excluded.append({**member, "reason": reason})
             else:
                 eligible.append(member)
+        started = time.perf_counter()
         rows = await self.owner_shares.existing_group(
             user_id=user_id, client_request_id=client_request_id
         )
+        _timing("existing_group", started, "ok", count=len(rows))
         if rows:
+            rows = [
+                await self._recover_owner_receipt(user_id, row["_recipientUserId"], row)
+                for row in rows
+            ]
+            source_request_id = rows[0]["requestId"]
+            eligible_ids = {member["userId"] for member in eligible}
+            # Keep completed receipts, but never let cached unshared rows
+            # override the current circle or a failed identity check.
+            rows = [
+                row
+                for row in rows
+                if row["status"] == "shared" or row["_recipientUserId"] in eligible_ids
+            ]
             have = {row["_recipientUserId"] for row in rows}
             for member in eligible:
                 if member["userId"] in have:
@@ -274,12 +394,12 @@ class DriveLiveQueryService:
                         await self.owner_shares.create_from(
                             user_id=user_id,
                             recipient_user_id=member["userId"],
-                            source_request_id=rows[0]["requestId"],
+                            source_request_id=source_request_id,
                         )
                     )
                 except DriveSharingError:
                     excluded.append({**member, "reason": "unavailable"})
-            return self._group_view(rows, excluded)
+            return self._group_view(rows, excluded) if rows else self._no_recipients(excluded)
         if not eligible:
             return self._no_recipients(excluded)
         files, no_match = await self._owner_search(
@@ -287,6 +407,7 @@ class DriveLiveQueryService:
         )
         if no_match is not None:
             return {**no_match, "recipients": [], "excluded": self._excluded_view(excluded)}
+        started = time.perf_counter()
         for member in eligible:
             try:
                 await self._require_owner()
@@ -304,6 +425,7 @@ class DriveLiveQueryService:
                 if str(error) == "request_changed":
                     raise
                 excluded.append({**member, "reason": "unavailable"})
+        _timing("persist_group", started, "ok", count=len(rows))
         if not rows:
             return self._no_recipients(excluded)
         return self._group_view(rows, excluded)
@@ -316,6 +438,8 @@ class DriveLiveQueryService:
             # A Firebase outage is "try again", never "no Google account".
             if str(error) == "recipient_google_identity_required":
                 return "no_google_account"
+            if str(error) == "recipient_verified_email_required":
+                return "no_verified_email"
             return "unavailable"
         return None
 
@@ -342,6 +466,8 @@ class DriveLiveQueryService:
                     "name": row["recipientName"],
                     "status": row["status"],
                     "shareRequestId": row["shareRequestId"],
+                    "selectedFileRefs": row.get("selectedFileRefs"),
+                    "selectionExpired": row.get("selectionExpired", False),
                 }
                 for row in rows
             ],
@@ -357,13 +483,25 @@ class DriveLiveQueryService:
             if not connector_feature_enabled("google_drive_chat_reads", user_id):
                 raise PermissionError("Document reads are unavailable")
 
-        outcome = await self.chat.run_live_query(
-            user_id=user_id,
-            consent_token=consent_token,
-            query=query,
-            require_access=require_access,
-            timezone=timezone,
-            require_live=True,
+        started = time.perf_counter()
+        try:
+            outcome = await self.chat.run_live_query(
+                user_id=user_id,
+                consent_token=consent_token,
+                query=query,
+                require_access=require_access,
+                timezone=timezone,
+                require_live=True,
+            )
+        except BaseException:
+            _timing("live_drive_query", started, "error")
+            raise
+        found_files = outcome.get("share_files")
+        _timing(
+            "live_drive_query",
+            started,
+            _safe_outcome(outcome.get("status")),
+            count=len(found_files) if isinstance(found_files, list) else 0,
         )
         if outcome["status"] in {"connect_required", "reconnect_required"}:
             raise DriveSharingError("reconnect_required")
@@ -384,73 +522,119 @@ class DriveLiveQueryService:
 
     async def share_owner_files(self, *, user_id, request_id, file_refs):
         """A shares chosen files from A's own search with B, as Viewer."""
+        started = time.perf_counter()
+        outcome = "error"
+        try:
+            result = await self._share_owner_files(
+                user_id=user_id, request_id=request_id, file_refs=file_refs
+            )
+            outcome = "shared"
+            return result
+        except DriveSharingError as error:
+            if str(error) in {"drive_share_in_progress", "owner_share_expired", "request_changed"}:
+                outcome = str(error)
+            raise
+        finally:
+            _timing("owner_share_total", started, outcome)
+
+    async def _recover_owner_receipt(self, user_id, recipient_user_id, view):
+        """Reopening a card recovers committed approval without another Share tap."""
+        if view["status"] != "ready" or not view.get("selectedFileRefs"):
+            return view
+        await self._require_owner()
+        prior = await self.sharing(self.require_owner).store.lookup_client_request(
+            user_id=recipient_user_id, client_request_id=view["requestId"]
+        )
+        if prior["status"] not in {"approved", "partial", "completed"}:
+            return view
+        receipt = await self.owner_shares.record_share(
+            user_id=user_id, request_id=view["requestId"], share_request_id=prior["requestId"]
+        )
+        return {**view, **receipt}
+
+    async def _share_owner_files(self, *, user_id, request_id, file_refs):
         await self._require_owner()
         selection = await self.owner_shares.owner_selection(
             user_id=user_id, request_id=request_id, refs=file_refs
         )
-        share_id = await self._share_files(
-            user_id=user_id,
-            recipient_user_id=selection["recipientUserId"],
-            purpose=selection["query"],
-            files=selection["files"],
-        )
+        if selection.get("receipt"):
+            return selection["receipt"]
+        share_id = await self._resume_owner_share(user_id=user_id, selection=selection)
         return await self.owner_shares.record_share(
             user_id=user_id, request_id=request_id, share_request_id=share_id
         )
 
-    async def _share_files(self, *, user_id, recipient_user_id, purpose, files):
-        """The one owner-initiated share: A's exact files to B, approved by A.
+    async def _resume_owner_share(self, *, user_id, selection):
+        """Resume the same exact-file approval after a double tap or lost response.
 
-        A request bound to B's verified Google identity, a review of exactly
-        these files (no planner, model or content read), and A's explicit
-        approval on the ledger. Grants are queued for the permission worker;
-        B sees each link once Google confirms it. Returns the share request id.
+        The encrypted owner selection fixes the downstream idempotency key and
+        files. Preparation leases and the approval transaction serialize effects;
+        this caller must never cancel another caller's active preparation.
         """
+        settled = {"approved", "partial", "completed"}
+        sharing = self.sharing(self.require_owner)
+        recipient_user_id = selection["recipientUserId"]
+        client_id = selection["clientRequestId"]
+        await self._require_owner()
+        if selection["expired"]:
+            prior = await sharing.store.lookup_client_request(
+                user_id=recipient_user_id, client_request_id=client_id
+            )
+            if prior["status"] in settled:
+                return prior["requestId"]
+            raise DriveSharingError("owner_share_expired")
         recipient = await self.recipient_identity(recipient_user_id)
         await self._require_owner()
-        sharing = self.sharing(self.require_owner)
-        # A fresh request per attempt, so one failed attempt never blocks a retry.
         created = await sharing.store.create_request(
             recipient=recipient,
             owner_user_id=user_id,
-            client_request_id=str(uuid4()),
-            purpose=ShareRequestPurpose(purpose=purpose[:2000]),
+            client_request_id=client_id,
+            purpose=ShareRequestPurpose(purpose=selection["query"][:2000]),
             owner_initiated=True,
         )
         share_id = created["requestId"]
-        try:
-            prepared = await self.suggestions(self.require_owner).run_one(
-                user_id=user_id, request_id=share_id, owner_selected=files
-            )
-            if prepared != "review_ready":
-                raise DriveSharingError("drive_share_unavailable", retryable=True)
+        status = await sharing.store.request_status(user_id=user_id, request_id=share_id)
+        if status["status"] in settled:
+            return share_id
+        if status["status"] not in {"pending", "preparing", "review_ready"}:
+            raise DriveSharingError("request_changed")
+        if status["status"] == "review_ready":
             review = await sharing.review(user_id=user_id, request_id=share_id)
-            if review.get("canApprove"):
-                await sharing.approve(
-                    user_id=user_id,
-                    request_id=share_id,
-                    revision=review["revision"],
-                    review_digest=review["reviewDigest"],
-                    document_ids=[item["documentId"] for item in review["files"]],
-                    confirmed=True,
-                )
-            elif review.get("status") not in {"approved", "partial", "completed"}:
-                raise DriveSharingError("drive_share_unavailable", retryable=True)
-        except BaseException:
-            await self._abandon(sharing, user_id=user_id, request_id=share_id)
-            raise
-        return share_id
-
-    async def _abandon(self, sharing, *, user_id, request_id):
-        """Close a failed attempt's request so nothing can prepare or share it later."""
-        try:
-            status = await sharing.store.request_status(user_id=user_id, request_id=request_id)
-            await sharing.store.decline_or_cancel(
-                user_id=user_id,
-                request_id=request_id,
-                revision=status["revision"],
-                decision="declined",
-                notify_recipient=False,
+            if review.get("status") == "review_ready" and not review.get("canApprove"):
+                try:
+                    await self._require_owner()
+                    await sharing.store.retry_preparation(
+                        user_id=user_id, request_id=share_id, revision=review["revision"]
+                    )
+                except DriveSharingError as error:
+                    if str(error) != "review_changed":
+                        raise
+        prepared = await self.suggestions(self.require_owner).run_one(
+            user_id=user_id, request_id=share_id, owner_selected=selection["files"]
+        )
+        review = await sharing.review(user_id=user_id, request_id=share_id)
+        if review["status"] in settled:
+            return share_id
+        if not review.get("canApprove"):
+            raise DriveSharingError(
+                "drive_share_in_progress"
+                if prepared == "not_claimed"
+                else "drive_share_unavailable",
+                retryable=True,
             )
-        except Exception:  # noqa: BLE001 - the original failure is the one to report
-            return
+        try:
+            await sharing.approve(
+                user_id=user_id,
+                request_id=share_id,
+                revision=review["revision"],
+                review_digest=review["reviewDigest"],
+                document_ids=[item["documentId"] for item in review["files"]],
+                confirmed=True,
+            )
+        except Exception:
+            # Approval may have committed before its response (or scheduler
+            # wake) failed. A fresh durable status is the only success proof.
+            status = await sharing.store.request_status(user_id=user_id, request_id=share_id)
+            if status["status"] not in settled:
+                raise
+        return share_id

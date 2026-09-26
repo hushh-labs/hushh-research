@@ -7,6 +7,7 @@ the requester sees answer text and titles only.
 
 # ruff: noqa: F811 -- shared pytest fixture imports
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -277,6 +278,7 @@ async def test_allow_answers_with_the_cited_file_titles(store, monkeypatch):
         "truncated": False,
         "shareRequestId": None,
         "files": [],
+        "selectedFileRefs": None,
     }
     # The interpreter answers the exact stored question under the owner's token.
     prompt = json.loads(interpreter.await_args.kwargs["prompt"])
@@ -695,6 +697,7 @@ async def test_none_relevant_is_an_honest_answered_state(store, monkeypatch):
         "shareRequestId": None,
         # Owner-only: nothing relevant, so nothing to share.
         "files": [],
+        "selectedFileRefs": None,
     }
 
 
@@ -955,7 +958,9 @@ def sharing_doubles(*, can_approve=True, prepared="review_ready"):
     sharing = SimpleNamespace(
         store=SimpleNamespace(
             create_request=AsyncMock(return_value={"requestId": SHARE_ID}),
-            request_status=AsyncMock(return_value={"revision": 1}),
+            request_status=AsyncMock(return_value={"status": "pending", "revision": 1}),
+            lookup_client_request=AsyncMock(return_value={"status": "draft"}),
+            retry_preparation=AsyncMock(),
             decline_or_cancel=AsyncMock(),
         ),
         review=AsyncMock(
@@ -1000,8 +1005,6 @@ async def test_the_owner_sees_the_found_files_and_the_asker_never_does(store, mo
 
 
 async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, monkeypatch):
-    from uuid import UUID
-
     request_id = await answered_question(store, monkeypatch)
     sharing, suggestions, identity = sharing_doubles()
     queries = sharing_service(store, sharing, suggestions, identity)
@@ -1010,8 +1013,10 @@ async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, mon
     created = sharing.store.create_request.await_args.kwargs
     assert created["owner_user_id"] == "owner"
     assert created["purpose"].purpose == QUESTION
-    # A fresh, unguessable request per attempt, created as the owner's own share.
-    assert UUID(created["client_request_id"]).version == 4
+    # The encrypted answer reserves a private idempotency key before effects begin.
+    binding = store._sealed_answer(row(store, request_id))["selection"]
+    assert created["client_request_id"] == binding["clientRequestId"]
+    assert created["client_request_id"] != request_id
     assert created["owner_initiated"] is True
     suggestions.run_one.assert_awaited_once_with(
         user_id="owner",
@@ -1036,8 +1041,10 @@ async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, mon
     assert shared["answer"]["shareRequestId"] == SHARE_ID
     theirs = await store.status(user_id="recipient", request_id=request_id)
     assert theirs["answer"]["shareRequestId"] == SHARE_ID
-    with pytest.raises(DriveSharingError, match="request_already_decided"):
-        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    again = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    assert again == shared
+    sharing.store.create_request.assert_awaited_once()
+    sharing.approve.assert_awaited_once()
 
 
 async def test_a_trust_rule_approval_is_not_approved_twice(store, monkeypatch):
@@ -1086,28 +1093,289 @@ async def test_sharing_needs_current_owner_authority(store, monkeypatch):
     sharing.store.create_request.assert_not_awaited()
 
 
-async def test_a_failed_share_is_declined_and_a_retry_starts_fresh(store, monkeypatch):
+async def test_a_failed_share_retries_the_same_reserved_request(store, monkeypatch):
     request_id = await answered_question(store, monkeypatch)
     sharing, suggestions, identity = sharing_doubles()
     suggestions.run_one.side_effect = ["no_ready_files", "review_ready"]
+    ready_review = dict(sharing.review.return_value)
+    sharing.review.return_value = {"status": "pending", "canApprove": False}
     queries = sharing_service(store, sharing, suggestions, identity)
     with pytest.raises(DriveSharingError, match="drive_share_unavailable"):
         await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
-    # The failed attempt's request is closed, so nothing can prepare or share it later.
-    sharing.store.decline_or_cancel.assert_awaited_once_with(
-        user_id="owner",
-        request_id=SHARE_ID,
-        revision=1,
-        decision="declined",
-        notify_recipient=False,
-    )
+    sharing.store.decline_or_cancel.assert_not_awaited()
     sharing.approve.assert_not_awaited()
+    sharing.review.return_value = ready_review
     shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
     assert shared["answer"]["shareRequestId"] == SHARE_ID
     first, second = (
         call.kwargs["client_request_id"] for call in sharing.store.create_request.await_args_list
     )
-    assert first != second
+    assert first == second and first != request_id
+
+
+async def answered_with_two_files(store):
+    created = await ask(store)
+    claim = await store.claim(
+        user_id="owner", request_id=created["requestId"], revision=created["revision"]
+    )
+    await store.complete(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=claim["revision"],
+        answer={"text": "Found statements.", "titles": ["March", "April"], "truncated": False},
+        owner_files=[match("March"), match("April", file_id="second-file")],
+    )
+    return created["requestId"]
+
+
+async def test_answer_selection_is_canonical_encrypted_and_owner_only(store):
+    request_id = await answered_with_two_files(store)
+    first, again = await asyncio.gather(
+        store.owner_selection(user_id="owner", request_id=request_id, refs=["f2", "f1"]),
+        store.owner_selection(user_id="owner", request_id=request_id, refs=["f1", "f2"]),
+    )
+    assert first == again
+    assert first["clientRequestId"] != request_id and first["expired"] is False
+    assert first["recipientUserId"] == "recipient"
+    assert [item["file_id"] for item in first["files"]] == [FILE_ID, "second-file"]
+    stored = row(store, request_id)
+    assert store._sealed_answer(stored)["selection"] == {
+        "fileRefs": ["f1", "f2"],
+        "clientRequestId": first["clientRequestId"],
+    }
+    assert "selection" not in json.dumps(stored["answer_envelope"])
+    mine = await store.status(user_id="owner", request_id=request_id)
+    theirs = await store.status(user_id="recipient", request_id=request_id)
+    assert mine["answer"]["selectedFileRefs"] == ["f1", "f2"]
+    assert "selectedFileRefs" not in theirs["answer"]
+    assert first["clientRequestId"] not in json.dumps(theirs)
+    assert FILE_ID not in json.dumps(mine) and FILE_ID not in json.dumps(theirs)
+
+
+async def test_concurrent_answer_selections_cannot_change_the_reserved_files(store):
+    request_id = await answered_with_two_files(store)
+    results = await asyncio.gather(
+        *(
+            store.owner_selection(user_id="owner", request_id=request_id, refs=[ref])
+            for ref in ("f1", "f2")
+        ),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, dict) for result in results) == 1
+    failures = [result for result in results if isinstance(result, Exception)]
+    assert len(failures) == 1 and str(failures[0]) == "request_changed"
+
+
+@pytest.mark.parametrize("recover_via", ["owner_get", "share_retry"])
+async def test_query_receipt_loss_recovers_without_another_approval(
+    store, monkeypatch, recover_via
+):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    record = store.record_share
+    monkeypatch.setattr(
+        store, "record_share", AsyncMock(side_effect=ConnectionError("synthetic receipt loss"))
+    )
+    with pytest.raises(ConnectionError):
+        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    sharing.approve.assert_awaited_once()
+    binding = store._sealed_answer(row(store, request_id))["selection"]
+    assert (
+        binding["clientRequestId"]
+        == sharing.store.create_request.await_args.kwargs["client_request_id"]
+    )
+    assert binding["clientRequestId"] != request_id
+    sharing.store.lookup_client_request.return_value = {"requestId": SHARE_ID, "status": "approved"}
+    # The requester cannot repair owner state or see the owner's frozen selection.
+    theirs = await queries.status(user_id="recipient", request_id=request_id)
+    assert "selectedFileRefs" not in theirs["answer"]
+    assert theirs["answer"]["shareRequestId"] is None
+    sharing.store.lookup_client_request.assert_not_awaited()
+    monkeypatch.setattr(store, "record_share", record)
+    sharing.store.request_status.return_value = {"status": "approved", "revision": 2}
+    recovered = (
+        await queries.status(user_id="owner", request_id=request_id)
+        if recover_via == "owner_get"
+        else await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    )
+    assert recovered["answer"]["shareRequestId"] == SHARE_ID
+    assert recovered["answer"]["selectedFileRefs"] == ["f1"]
+    replay = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    assert replay == recovered
+    assert sharing.store.create_request.await_count == (1 if recover_via == "owner_get" else 2)
+    assert {
+        call.kwargs["client_request_id"] for call in sharing.store.create_request.await_args_list
+    } == {binding["clientRequestId"]}
+    sharing.approve.assert_awaited_once()
+    sharing.store.decline_or_cancel.assert_not_awaited()
+
+
+QUERY_SHARE_CLIENT_ID = "77777777-7777-4777-8777-777777777777"
+
+
+def query_selection():
+    return {
+        "recipientUserId": "recipient",
+        "requesterUserId": "recipient",
+        "clientRequestId": QUERY_SHARE_CLIENT_ID,
+        "expired": False,
+        "query": QUESTION,
+        "files": [match()],
+        "shareRequestId": None,
+    }
+
+
+async def test_query_share_reserves_before_effects_and_recovers_lost_approval_response():
+    sharing, suggestions, identity = sharing_doubles()
+    store = SimpleNamespace(
+        owner_selection=AsyncMock(return_value=query_selection()),
+        record_share=AsyncMock(return_value={"answer": {"shareRequestId": SHARE_ID}}),
+    )
+
+    async def create(**kwargs):
+        store.owner_selection.assert_awaited_once_with(
+            user_id="owner", request_id=SHARE_ID, refs=["f1"]
+        )
+        assert kwargs["client_request_id"] == QUERY_SHARE_CLIENT_ID
+        return {"requestId": SHARE_ID}
+
+    sharing.store.create_request.side_effect = create
+    sharing.store.request_status.side_effect = [
+        {"status": "pending", "revision": 1},
+        {"status": "approved", "revision": 2},
+    ]
+    sharing.approve.side_effect = ConnectionError("synthetic lost approval response")
+    queries = sharing_service(store, sharing, suggestions, identity)
+    result = await queries.share(user_id="owner", request_id=SHARE_ID, file_refs=["f1"])
+    assert result["answer"]["shareRequestId"] == SHARE_ID
+    sharing.approve.assert_awaited_once()
+    sharing.store.decline_or_cancel.assert_not_awaited()
+
+
+async def test_query_share_preserves_another_inflight_preparation():
+    sharing, suggestions, identity = sharing_doubles(prepared="not_claimed")
+    sharing.store.request_status.return_value = {"status": "preparing", "revision": 1}
+    sharing.review.return_value = {"status": "preparing", "canApprove": False}
+    store = SimpleNamespace(
+        owner_selection=AsyncMock(return_value=query_selection()), record_share=AsyncMock()
+    )
+    queries = sharing_service(store, sharing, suggestions, identity)
+    with pytest.raises(DriveSharingError, match="drive_share_in_progress") as raised:
+        await queries.share(user_id="owner", request_id=SHARE_ID, file_refs=["f1"])
+    assert raised.value.retryable
+    sharing.store.decline_or_cancel.assert_not_awaited()
+    sharing.store.retry_preparation.assert_not_awaited()
+    sharing.approve.assert_not_awaited()
+    store.record_share.assert_not_awaited()
+
+
+@pytest.mark.parametrize("direction", ["incoming", "outgoing"])
+async def test_query_get_recovery_is_owner_only_and_creates_no_new_effect(direction):
+    sharing, suggestions, identity = sharing_doubles()
+    answer = {"shareRequestId": None}
+    if direction == "incoming":
+        answer["selectedFileRefs"] = ["f1"]
+    view = {"direction": direction, "status": "answered", "requestId": SHARE_ID, "answer": answer}
+    receipt = {**view, "answer": {**answer, "shareRequestId": SHARE_ID}}
+    store = SimpleNamespace(
+        status=AsyncMock(return_value=view),
+        owner_selection=AsyncMock(return_value=query_selection()),
+        record_share=AsyncMock(return_value=receipt),
+    )
+    sharing.store.lookup_client_request.return_value = {"status": "approved", "requestId": SHARE_ID}
+    queries = sharing_service(store, sharing, suggestions, identity)
+    result = await queries.status(
+        user_id="owner" if direction == "incoming" else "recipient", request_id=SHARE_ID
+    )
+    if direction == "incoming":
+        assert result == receipt
+        sharing.store.lookup_client_request.assert_awaited_once_with(
+            user_id="recipient", client_request_id=QUERY_SHARE_CLIENT_ID
+        )
+        store.record_share.assert_awaited_once()
+    else:
+        assert result == view and "selectedFileRefs" not in result["answer"]
+        sharing.store.lookup_client_request.assert_not_awaited()
+        store.owner_selection.assert_not_awaited()
+        store.record_share.assert_not_awaited()
+    sharing.store.create_request.assert_not_awaited()
+    sharing.approve.assert_not_awaited()
+    suggestions.run_one.assert_not_awaited()
+
+
+@pytest.mark.parametrize("disconnect_at", ["selection", "record"])
+async def test_disconnected_owner_get_preserves_historical_answer(disconnect_at):
+    sharing, suggestions, identity = sharing_doubles()
+    view = {
+        "direction": "incoming",
+        "status": "answered",
+        "requestId": SHARE_ID,
+        "answer": {"shareRequestId": None, "selectedFileRefs": ["f1"], "text": "Stored answer"},
+    }
+    store = SimpleNamespace(
+        status=AsyncMock(return_value=view),
+        owner_selection=AsyncMock(return_value=query_selection()),
+        record_share=AsyncMock(),
+    )
+    if disconnect_at == "selection":
+        store.owner_selection.side_effect = DriveSharingError("connection_required")
+    else:
+        sharing.store.lookup_client_request.return_value = {
+            "status": "approved",
+            "requestId": SHARE_ID,
+        }
+        store.record_share.side_effect = DriveSharingError("connection_required")
+    queries = sharing_service(store, sharing, suggestions, identity)
+    assert await queries.status(user_id="owner", request_id=SHARE_ID) == view
+    sharing.store.create_request.assert_not_awaited()
+    sharing.approve.assert_not_awaited()
+    suggestions.run_one.assert_not_awaited()
+    identity.assert_not_awaited()
+
+
+@pytest.mark.parametrize("status", ["declined", "cancelled", "expired"])
+async def test_terminal_query_child_is_never_replaced_or_approved(status):
+    sharing, suggestions, identity = sharing_doubles()
+    sharing.store.request_status.return_value = {"status": status, "revision": 2}
+    store = SimpleNamespace(
+        owner_selection=AsyncMock(return_value=query_selection()), record_share=AsyncMock()
+    )
+    queries = sharing_service(store, sharing, suggestions, identity)
+    for _ in range(2):
+        with pytest.raises(DriveSharingError, match="request_changed"):
+            await queries.share(user_id="owner", request_id=SHARE_ID, file_refs=["f1"])
+    # A retry uses the reserved key; it cannot rotate to a new child to evade a terminal decision.
+    assert {
+        call.kwargs["client_request_id"] for call in sharing.store.create_request.await_args_list
+    } == {QUERY_SHARE_CLIENT_ID}
+    suggestions.run_one.assert_not_awaited()
+    sharing.approve.assert_not_awaited()
+    sharing.store.retry_preparation.assert_not_awaited()
+    sharing.store.decline_or_cancel.assert_not_awaited()
+    store.record_share.assert_not_awaited()
+
+
+async def test_answered_question_remains_shareable_after_its_allow_deadline(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_live_query_requests SET created_at=:created, expires_at=:expired WHERE request_id=:id"
+            ),
+            {
+                "created": datetime.now(UTC) - timedelta(days=8),
+                "expired": datetime.now(UTC) - timedelta(days=1),
+                "id": request_id,
+            },
+        )
+    selection = await store.owner_selection(user_id="owner", request_id=request_id, refs=["f1"])
+    assert selection["expired"] is False
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    result = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    assert result["answer"]["shareRequestId"] == SHARE_ID
+    sharing.approve.assert_awaited_once()
 
 
 async def test_folders_are_never_offered_for_sharing(store, monkeypatch):

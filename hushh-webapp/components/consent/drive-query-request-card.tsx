@@ -56,7 +56,9 @@ function shareFailureCopy(code: string, name: string | null): string {
     case "connection_required":
       return "You're no longer connected with this person.";
     case "request_changed":
-      return "This answer changed. Refresh and choose the files again.";
+      return "This sharing attempt changed. Ask One to start a new share.";
+    case "drive_share_in_progress":
+      return "Sharing is in progress. Try again to check its status.";
     default:
       return "Couldn't share these files. Try again.";
   }
@@ -156,6 +158,9 @@ function UnlockedDriveQueryCard({
     key: "",
     refs: [],
   });
+  // The component is keyed by owner, question and vault session. A failed read
+  // clears the view, but must not reset the selection of an attempted share.
+  const [attemptedRefs, setAttemptedRefs] = useState<string[] | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
   const busy = useRef<"none" | "load" | "decide">("none");
@@ -319,7 +324,8 @@ function UnlockedDriveQueryCard({
       ? (view.answer?.files ?? [])
       : [];
   const unsharedRefs = unshared.key === shareKey ? unshared.refs : [];
-  const selectedRefs = shareable
+  const reservedRefs = view?.answer?.selectedFileRefs ?? attemptedRefs;
+  const selectedRefs = reservedRefs ?? shareable
     .map((file) => file.ref)
     .filter((ref) => !unsharedRefs.includes(ref));
 
@@ -328,6 +334,7 @@ function UnlockedDriveQueryCard({
     const refs = [...selectedRefs];
     void run(
       async (token, guard) => {
+        setAttemptedRefs(refs);
         try {
           const result = await DriveSharingService.shareQueryFiles(token, requestId, refs, guard);
           guard();
@@ -339,6 +346,7 @@ function UnlockedDriveQueryCard({
           guard();
           const fresh = await DriveSharingService.getQuery(token, requestId, guard);
           guard();
+          if (fresh.answer?.shareRequestId) announceChange();
           return {
             view: fresh,
             notice: fresh.answer?.shareRequestId ? null : shareFailureCopy(code, view.counterpartName),
@@ -466,6 +474,7 @@ function UnlockedDriveQueryCard({
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input
                 type="checkbox"
+                disabled={!!reservedRefs}
                 checked={selectedRefs.length === shareable.length}
                 onChange={(event) =>
                   setUnshared({
@@ -483,6 +492,7 @@ function UnlockedDriveQueryCard({
                 <label className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     type="checkbox"
+                    disabled={!!reservedRefs}
                     checked={selectedRefs.includes(file.ref)}
                     onChange={(event) =>
                       setUnshared({
@@ -504,8 +514,8 @@ function UnlockedDriveQueryCard({
             ))}
           </ul>
           <HelperText>
-            {name ? `${name} gets` : "They get"} Viewer access to the original files in Google
-            Drive. You can remove access anytime.
+            {name ? `${name} gets` : "They get"} Viewer access. Google emails new access links.
+            You can remove access anytime.
           </HelperText>
           <Button
             size="prominent"
