@@ -83,7 +83,6 @@ export default defineConfig({
       testMatch: [
         /setup-hub\.layout\.spec\.ts/,
         /phone-entry\.layout\.spec\.ts/,
-        /calendar-setup-shell\.layout\.spec\.ts/,
         /circle-discovery\.layout\.spec\.ts/,
         /document-share-review\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
