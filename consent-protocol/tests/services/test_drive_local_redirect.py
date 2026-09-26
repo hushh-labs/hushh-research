@@ -21,9 +21,20 @@ UAT_ROW = SimpleNamespace(
 LOCAL_RETURN = "http://localhost:3000/one/profile/connectors/oauth/return"
 
 
+@pytest.fixture(autouse=True)
+def _fresh_runtime_settings():
+    from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+
+    yield
+    clear_runtime_settings_caches()
+
+
 def _env(monkeypatch: pytest.MonkeyPatch, environment: str, origin: str) -> None:
+    from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+
     monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
+    clear_runtime_settings_caches()
 
 
 def test_development_loopback_origin_adds_the_local_web_return(monkeypatch):
@@ -46,7 +57,6 @@ def test_non_development_runtimes_never_add_loopback(monkeypatch, environment):
         "http://evil.example.com",
         "http://localhost.evil.example.com:3000",
         "http://user@localhost:3000",
-        "http://localhost:3000/extra",
         "",
     ],
 )

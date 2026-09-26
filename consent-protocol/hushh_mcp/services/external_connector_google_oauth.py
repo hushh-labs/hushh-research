@@ -21,6 +21,7 @@ import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
@@ -54,7 +55,7 @@ def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
     registered = tuple(connector.registered_redirect_uris or ())
     if os.getenv("ENVIRONMENT", "").strip().lower() != "development":
         return registered
-    origin = os.getenv("APP_FRONTEND_ORIGIN", "").strip().rstrip("/")
+    origin = get_app_runtime_settings().app_frontend_origin
     scheme, _, rest = origin.partition("://")
     host = rest.split("/", 1)[0].rsplit(":", 1)[0] if rest else ""
     if scheme != "http" or host not in _LOOPBACK_HOSTS or "@" in rest or "/" in rest:
