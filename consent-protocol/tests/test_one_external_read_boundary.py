@@ -169,6 +169,93 @@ async def test_selected_file_status_is_answer_only_and_redacted_from_durable_his
         await runner.close()
 
 
+async def test_general_drive_status_without_filename_reaches_current_live_connection(monkeypatch):
+    """An omitted optional filename must not consume the one-read budget on validation."""
+    from google.adk.events import Event
+
+    from hushh_mcp.one_adk import selected_drive_status
+    from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("GOOGLE_DRIVE_LIVE", "true")
+    monkeypatch.setattr(
+        selected_drive_status, "validate_first_party_owner_token", AsyncMock(return_value=True)
+    )
+    lifecycle = SimpleNamespace(
+        read=AsyncMock(
+            return_value={
+                "status": "connected",
+                "connection_generation": 8,
+                "verified_policy_hash": LIVE_POLICY_HASH,
+            }
+        )
+    )
+    documents = AsyncMock(
+        side_effect=AssertionError("live status must not read the selected index")
+    )
+    monkeypatch.setattr(
+        selected_drive_status,
+        "_service",
+        lambda: SimpleNamespace(
+            oauth=SimpleNamespace(lifecycle=lifecycle),
+            documents=documents,
+        ),
+    )
+    model = _Model(
+        [
+            [_call("inspect_selected_drive_files")],
+            [types.Part(text="Drive is connected.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [selected_drive_status.inspect_selected_drive_files]
+    sessions = InMemorySessionService()
+    session = await sessions.create_session(
+        app_name="one", user_id="owner", session_id="reconnected"
+    )
+    await sessions.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="old-turn",
+            content=types.Content(role="model", parts=[types.Part(text="Drive is disconnected.")]),
+        ),
+    )
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="reconnected",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="Do you have my Drive access?")]
+                ),
+                state_delta={
+                    STATE_EXECUTION_SURFACE: "typed_chat",
+                    STATE_USER_ID: "owner",
+                    STATE_CONSENT_TOKEN: "fixture",
+                },
+            )
+        ]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert len(responses) == 1
+        assert responses[0].response == {
+            "source": "google_drive_selected_status",
+            "status": "ok",
+            "connection": "connected",
+            "accessMode": "live",
+            "liveReadAvailable": True,
+            "message": "Use ask_documents_agent to find or read files. No file selection is required.",
+        }
+        assert lifecycle.read.await_count == 3
+        documents.assert_not_awaited()
+        assert model._advertised == [{"inspect_selected_drive_files"}, set()]
+    finally:
+        await runner.close()
+
+
 def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_tools():
     context = SimpleNamespace(
         invocation_id="turn", state={STATE_EXTERNAL_READ: "turn"}, user_id="owner"

@@ -28,21 +28,50 @@ _PURPOSE = "owner-share"
 ACCEPTED_ORIGINS = ("direct_request", "legacy_invite")
 MAX_CIRCLE_RECIPIENTS = 10
 _TRUSTED_MEMBERS_SQL = """
-    SELECT m.user_id,
+    WITH trusted_circle AS (
+      SELECT id FROM one_location_circles
+      WHERE owner_user_id = :owner AND system_kind = 'trusted' AND status = 'active'
+    ), candidate_members AS (
+      SELECT m.user_id
+      FROM trusted_circle c
+      JOIN one_location_circle_memberships m
+        ON m.circle_id = c.id AND m.status = 'active' AND m.user_id <> :owner
+      UNION
+      -- The Trusted roster is a best-effort projection of the connection
+      -- graph. An accepted request can commit while that projection lags.
+      -- A membership of ANY status, including removed, blocks this fallback.
+      SELECT peer.user_id
+      FROM connections conn
+      JOIN connection_origins accepted_origin
+        ON accepted_origin.connection_id = conn.id
+       AND accepted_origin.status = 'active'
+       AND accepted_origin.origin_kind IN ('direct_request', 'legacy_invite')
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN conn.user_a_id = :owner THEN conn.user_b_id
+                    ELSE conn.user_a_id END AS user_id
+      ) peer
+      WHERE conn.status = 'active'
+        AND (conn.user_a_id = :owner OR conn.user_b_id = :owner)
+        AND peer.user_id <> :owner
+        AND NOT EXISTS (
+          SELECT 1 FROM one_location_circles c
+          JOIN one_location_circle_memberships m ON m.circle_id = c.id
+          WHERE c.owner_user_id = :owner AND c.system_kind = 'trusted'
+            AND m.user_id = peer.user_id
+        )
+    )
+    SELECT candidate.user_id,
       COALESCE(bool_or(o.origin_kind IN ('direct_request','legacy_invite')), false) AS accepted,
       COALESCE(array_agg(DISTINCT o.origin_kind) FILTER (WHERE o.origin_kind IS NOT NULL),
         ARRAY[]::text[]) AS origins
-    FROM one_location_circles c
-    JOIN one_location_circle_memberships m
-      ON m.circle_id = c.id AND m.status = 'active' AND m.user_id <> :owner
+    FROM candidate_members candidate
     LEFT JOIN connections conn
       ON conn.status = 'active'
-     AND ((conn.user_a_id = :owner AND conn.user_b_id = m.user_id)
-       OR (conn.user_b_id = :owner AND conn.user_a_id = m.user_id))
+     AND ((conn.user_a_id = :owner AND conn.user_b_id = candidate.user_id)
+       OR (conn.user_b_id = :owner AND conn.user_a_id = candidate.user_id))
     LEFT JOIN connection_origins o ON o.connection_id = conn.id AND o.status = 'active'
-    WHERE c.owner_user_id = :owner AND c.system_kind = 'trusted' AND c.status = 'active'
-    GROUP BY m.user_id
-    ORDER BY m.user_id
+    GROUP BY candidate.user_id
+    ORDER BY candidate.user_id
     LIMIT 100
 """
 _OWNER_ROW_SQL = "SELECT * FROM drive_owner_shares WHERE request_id=:id AND user_id=:user"
@@ -98,6 +127,16 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
     def _view(self, connection, row):
         """The owner's own view: names and dates by reference, never a file id."""
         sealed = self._sealed(row)
+        selection = sealed.get("selection")
+        selection_expired = (
+            bool(selection)
+            and row["status"] == "ready"
+            and bool(
+                connection.execute(
+                    text("SELECT :at <= clock_timestamp()"), {"at": row["expires_at"]}
+                ).scalar_one()
+            )
+        )
         return {
             "requestId": str(row["request_id"]),
             "status": row["status"],
@@ -108,6 +147,8 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
             ],
             "shareRequestId": str(row["share_request_id"]) if row["share_request_id"] else None,
             "expiresAt": row["expires_at"].isoformat(),
+            "selectedFileRefs": selection["fileRefs"] if selection else None,
+            "selectionExpired": selection_expired,
         }
 
     def _owner_row(self, connection, user_id, request_id, *, lock=False):
@@ -120,12 +161,28 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
             raise DriveSharingError("request_unavailable")
         return row
 
+    def _discard_expired_search(self, connection, row):
+        # A reserved selection may already have an approved downstream receipt
+        # even if its HTTP response was lost. Keep that recovery binding.
+        expired = connection.execute(
+            text("SELECT :at <= clock_timestamp()"), {"at": row["expires_at"]}
+        ).scalar_one()
+        if row["status"] == "ready" and expired and not self._sealed(row).get("selection"):
+            connection.execute(
+                text("DELETE FROM drive_owner_shares WHERE request_id=:id"),
+                {"id": row["request_id"]},
+            )
+            return True
+        return False
+
     async def trusted_recipients(self, *, user_id):
         """The owner's Trusted circle, split into who may receive a share and why not.
 
         Trusted membership alone authorizes nothing: only people the owner
-        accepted by request or invite are eligible. Returns eligible user ids
-        (at most MAX_CIRCLE_RECIPIENTS) and the rest with a closed reason.
+        accepted by request or invite are eligible. An accepted connection
+        missing from the best-effort roster is included unless the member has
+        a membership row of any status (notably an explicit removal). Returns
+        eligible user ids (at most MAX_CIRCLE_RECIPIENTS) and closed reasons.
         """
 
         def reason(row):
@@ -166,21 +223,13 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
 
         def operation(connection):
             params = {"owner": user_id, "client": str(UUID(str(client_request_id)))}
-            connection.execute(
-                text("""
-                DELETE FROM drive_owner_shares WHERE user_id=:owner
-                  AND client_request_id=:client AND status='ready'
-                  AND expires_at<=clock_timestamp()
-            """),
-                params,
-            )
             rows = [
                 dict(row)
                 for row in connection.execute(
                     text("""
                     SELECT * FROM drive_owner_shares
                     WHERE user_id=:owner AND client_request_id=:client
-                    ORDER BY created_at, recipient_user_id
+                    ORDER BY created_at, recipient_user_id FOR UPDATE
                 """),
                     params,
                 ).mappings()
@@ -188,6 +237,7 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
             return [
                 {**self._view(connection, row), "_recipientUserId": row["recipient_user_id"]}
                 for row in rows
+                if not self._discard_expired_search(connection, row)
             ]
 
         return cast(list, await self._transaction(operation))
@@ -236,23 +286,19 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
                 "client": str(UUID(str(client_request_id))),
                 "recipient": recipient_user_id,
             }
-            connection.execute(
-                text("""
-                DELETE FROM drive_owner_shares WHERE user_id=:owner
-                  AND client_request_id=:client AND recipient_user_id=:recipient
-                  AND status='ready' AND expires_at<=clock_timestamp()
-            """),
-                params,
-            )
             row = self._row(
                 connection,
                 """
                 SELECT * FROM drive_owner_shares WHERE user_id=:owner
-                  AND client_request_id=:client AND recipient_user_id=:recipient
+                  AND client_request_id=:client AND recipient_user_id=:recipient FOR UPDATE
             """,
                 params,
             )
-            return self._view(connection, row) if row else None
+            return (
+                self._view(connection, row)
+                if row and not self._discard_expired_search(connection, row)
+                else None
+            )
 
         return await self._transaction(operation)
 
@@ -315,25 +361,48 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
         return cast(dict, await self._transaction(operation))
 
     async def owner_selection(self, *, user_id, request_id, refs):
-        """The owner's chosen files for sharing, bound by reference to the sealed search."""
+        """Reserve one exact selection before any downstream approval can commit."""
         if not isinstance(refs, list) or not refs or len(set(refs)) != len(refs):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
-            row = self._owner_row(connection, user_id, request_id)
-            if row["status"] != "ready":
-                raise DriveSharingError("request_already_decided")
+            initial = self._owner_row(connection, user_id, request_id)
+            lock_connection_graph_users(
+                connection, user_ids=[user_id, initial["recipient_user_id"]]
+            )
+            row = self._owner_row(connection, user_id, request_id, lock=True)
             expired = connection.execute(
                 text("SELECT :at <= clock_timestamp()"), {"at": row["expires_at"]}
             ).scalar_one()
-            if expired:
-                raise DriveSharingError("owner_share_expired")
             self._relationship(connection, row["user_id"], row["recipient_user_id"])
             sealed = self._sealed(row)
             files = {item["ref"]: item for item in sealed.get("ownerFiles", [])}
             if any(ref not in files for ref in refs):
                 raise DriveSharingError("request_changed")
+            chosen = [ref for ref in files if ref in refs]
+            selection = sealed.get("selection")
+            if selection and selection["fileRefs"] != chosen:
+                raise DriveSharingError("request_changed")
+            if row["status"] == "shared":
+                return {"receipt": self._view(connection, row)}
+            if expired and not selection:
+                raise DriveSharingError("owner_share_expired")
+            if not selection:
+                selection = {"fileRefs": chosen, "clientRequestId": str(row["request_id"])}
+                envelope = self.cipher.seal(
+                    {**sealed, "selection": selection},
+                    user_id=user_id,
+                    resource_id=str(row["request_id"]),
+                    purpose=_PURPOSE,
+                )
+                connection.execute(
+                    text("""UPDATE drive_owner_shares SET files_envelope=CAST(:envelope AS jsonb),
+                        updated_at=clock_timestamp() WHERE request_id=:id"""),
+                    {"envelope": json.dumps(envelope), "id": row["request_id"]},
+                )
             return {
+                "clientRequestId": selection["clientRequestId"],
+                "expired": bool(expired),
                 "recipientUserId": row["recipient_user_id"],
                 "query": sealed["query"],
                 "files": [
@@ -343,7 +412,7 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
                         "mime_type": files[ref]["mimeType"],
                         "modified_time": files[ref]["modifiedTime"],
                     }
-                    for ref in refs
+                    for ref in chosen
                 ],
             }
 

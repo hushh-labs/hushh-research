@@ -257,6 +257,8 @@ export interface MapNameLabelLayoutOptions {
   labels: MapNameLabelCandidate[];
   camera: MapNameLabelCamera;
   viewport: MapNameLabelViewport;
+  /** Keep pills clear of an avatar rendered inside the map, below this layer. */
+  reservedMarker?: { point: MapNameLabelPoint; radiusPx: number };
   /** Raise while the renderer is clustering. */
   minAnchorDistancePx?: number;
   pinOffsetPx?: number;
@@ -315,6 +317,22 @@ export function layoutMapNameLabels(
 
   const placed: PlacedMapNameLabel[] = [];
   const boxes: LabelBox[] = [];
+  if (options.reservedMarker) {
+    const anchor = projectToMapBox(
+      options.reservedMarker.point,
+      camera,
+      viewport,
+    );
+    if (anchor) {
+      const radius = options.reservedMarker.radiusPx;
+      boxes.push({
+        left: anchor.x - radius,
+        right: anchor.x + radius,
+        top: anchor.y - radius,
+        bottom: anchor.y + radius,
+      });
+    }
+  }
 
   for (const { label } of ordered) {
     if (!label.text.trim()) continue;
