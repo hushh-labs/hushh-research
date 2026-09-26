@@ -11,12 +11,16 @@ from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
+    STATE_EXTERNAL_READ_CONTINUATION,
 )
 
 _EPHEMERAL = frozenset(
     {
         STATE_EXECUTION_SURFACE,
         STATE_EXTERNAL_READ,
+        STATE_EXTERNAL_READ_CONTINUATION,
+        "temp:hussh:workspace_chat_admission",
+        "temp:hussh:mcp_approval",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
@@ -31,6 +35,16 @@ _PRIVATE_DRAFT_TOOLS = frozenset({"open_gmail_email_draft", "open_gmail_informat
 
 def redacted_read_receipt(response: Any) -> dict[str, Any]:
     receipt: dict[str, Any] = {"content_redacted": True}
+    if isinstance(response, dict):
+        status = response.get("status")
+        if status in {"ok", "blocked", "unavailable"}:
+            receipt.update(
+                {
+                    "status": status,
+                    "private_result": "not_retained",
+                    "truncated": response.get("truncated") is True,
+                }
+            )
     try:
         structured = SpecialistReadResult.model_validate(response.get("structured"))
     except (AttributeError, ValueError):
@@ -66,6 +80,9 @@ def durable_external_read_projection(session: Session) -> Session:
         not read_invocations
         and not private_draft_invocations
         and not any(key in session.state for key in _EPHEMERAL)
+        and not any(
+            key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
+        )
     ):
         return session
     projected = session.model_copy(deep=True)
@@ -81,8 +98,8 @@ def durable_external_read_projection(session: Session) -> Session:
             # signatures. Only tool arguments/results are redacted. Ordinary
             # user requests and the encrypted assistant answer are preserved.
             # Unrelated tools may have completed before Mail was selected;
-            # retain their governed history cards. After Mail, the invocation
-            # barrier prevents other tools from receiving external content.
+            # retain their governed history cards. After Mail, only governed
+            # reviewed MCP calls or the redacted client-only draft may follow.
             if part.function_call and part.function_call.name in READ_TOOLS:
                 part.function_call.args = {}
             if part.thought and part.text:

@@ -116,6 +116,14 @@ reads the provider credential and service grant in one SQL snapshot. Refresh
 writes compare the original credential and subject plus the current service
 grant. These checks do not make OAuth permission a consent grant.
 
+Workspace Chat compares the credential owner's complete binding before and
+after discovery or reading. Calendar's shared Google binding contains both
+connection and service-grant revisions (six fields); Gmail's legacy single-row
+binding contains one revision (five fields). Neither revision may be dropped to
+normalize these different storage contracts. A change to either Calendar
+revision discards the in-flight result; malformed or mismatched bindings fail
+closed before provider dispatch.
+
 Web and native connection starts capture a generation inside the encrypted
 attempt under the same owner transaction lock used by disconnect. Publication
 rechecks that generation, the claimed attempt and its current expiry, then writes
@@ -147,6 +155,31 @@ and native-device acceptance remain unverified; source wiring alone does not
 establish end-to-end availability.
 Onward sharing and private-agent delegation still require their existing separate
 authorities. Provider file content is untrusted information, not instructions.
+
+Owner-private native MCP tools establish an invocation-local external-content
+barrier before dispatch. Only application-owned native tools using the canonical
+exact-call review callback remain callable after that barrier; a matching tool
+name or provider annotation grants nothing. Each continued call still rechecks
+its owner, connection, schema and reviewed arguments. The model-facing roster
+is rebuilt from those admitted objects, excluding unreviewed first-party tools
+and provider built-ins. This permits reviewed connector composition, not general
+post-read mutation authority. Curated-provider and explicit Memory-capture
+continuation parity remain separate acceptance work.
+
+The native MCP binding can retain an immutable credential-owner authority
+revision in addition to numeric connection/credential versions. When supplied,
+that complete snapshot participates in toolset reuse, call-time equality and the
+existing action ledger's resource-binding HMAC. It is not exposed in the review
+card or diagnostic representation. This adapter contract does not itself migrate
+Google providers onto native toolsets or establish live-provider acceptance.
+
+The curated Drive registration now has native admission through its existing
+verified live-grant authority: subject, policy, connection generation and
+credential version bind discovery, review and execution. Selected-file access
+does not satisfy that admission. The shared metadata projector rejects malformed
+listing payloads rather than forwarding unexpected content. This is source-level
+integration; duplicate legacy tool exposure and Gmail/Calendar migration remain
+open, and live provider acceptance must be proved separately.
 
 ### Runtime mapping
 

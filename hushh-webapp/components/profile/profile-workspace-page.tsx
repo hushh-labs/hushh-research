@@ -30,6 +30,7 @@ import {
 import {
   AccountProfileIcon,
   ConsentAgentIcon,
+  ConnectedSystemsAgentIcon,
   DeveloperToolsProfileIcon,
   DevicesProfileIcon,
   FingerprintProfileIcon,
@@ -44,6 +45,7 @@ import {
   WalletAgentIcon,
 } from "@/components/icons/agents";
 import { toast } from "sonner";
+import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 
 import {
   SettingsGroup,
@@ -825,7 +827,13 @@ function ProfilePageContent({
       });
     }
     return null;
-  }, [activeDetail, activePanel, isPanePresentation, searchParams, supportComposeKind]);
+  }, [
+    activeDetail,
+    activePanel,
+    isPanePresentation,
+    searchParams,
+    supportComposeKind,
+  ]);
 
   useEffect(() => {
     if (!legacySupportRouteHref || isPanePresentation) return;
@@ -2307,7 +2315,8 @@ function ProfilePageContent({
       {
         id: "profile_trusted_devices",
         label: "Trusted devices",
-        purpose: "opens devices connected as an extension of your private agent.",
+        purpose:
+          "opens devices connected as an extension of your private agent.",
         actionId: "route.profile_trusted_devices",
         role: "card",
         voiceAliases: ["trusted devices", "connected devices", "devices"],
@@ -2338,7 +2347,12 @@ function ProfilePageContent({
       },
       {
         id: "profile_support",
-        label: PROFILE_LABELS.support,
+        label:
+          activePanel === "hosting"
+            ? "Hosting"
+            : activePanel === "software-updates"
+              ? "Software updates"
+              : PROFILE_LABELS.support,
         purpose: "opens support routing and compose flows.",
         actionId: "route.profile_support_panel",
         role: "card",
@@ -2385,7 +2399,11 @@ function ProfilePageContent({
       },
     ];
     const controls =
-      activePanel === "preferences" ? preferenceControls : profileHomeControls;
+      activePanel === "preferences"
+        ? preferenceControls
+        : activePanel === "hosting" || activePanel === "software-updates"
+          ? []
+          : profileHomeControls;
     const activeControl =
       controls.find((control) => control.id === activeVoiceControlId) ||
       controls.find((control) => control.id === lastVoiceControlId) ||
@@ -2410,6 +2428,8 @@ function ProfilePageContent({
       : [
           PROFILE_LABELS.account,
           PROFILE_LABELS.preferences,
+          "Hosting",
+          "Software updates",
           "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
@@ -2447,7 +2467,9 @@ function ProfilePageContent({
               ]
             : activePanel === "account"
               ? [phoneNumber ? "Change phone number" : "Add phone number"]
-              : activePanel === "preferences"
+              : activePanel === "preferences" ||
+                  activePanel === "hosting" ||
+                  activePanel === "software-updates"
                 ? []
                 : activePanel === "security"
                   ? [
@@ -2479,7 +2501,11 @@ function ProfilePageContent({
                     ? PROFILE_LABELS.security
                     : activePanel === "gmail"
                       ? "Mail receipts"
-                      : PROFILE_LABELS.support
+                      : activePanel === "hosting"
+                        ? "Hosting"
+                        : activePanel === "software-updates"
+                          ? "Software updates"
+                          : PROFILE_LABELS.support
           : "Profile",
         purpose:
           "This surface manages account details, appearance, help, and vault privacy.",
@@ -4251,7 +4277,20 @@ function ProfilePageContent({
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (!routeBlockedByVault && activePanel === "account") {
+  if (
+    !routeBlockedByVault &&
+    (activePanel === "hosting" || activePanel === "software-updates")
+  ) {
+    profileStackEntries.push({
+      key: `panel:${activePanel}`,
+      title: activePanel === "hosting" ? "Hosting" : "Software updates",
+      description:
+        activePanel === "hosting"
+          ? "Where your private agent runs."
+          : "Your version and available updates.",
+      content: <AgentSettingsPanel kind={activePanel} userId={user.uid} />,
+    });
+  } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
@@ -4559,6 +4598,27 @@ function ProfilePageContent({
           <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
+                icon={ConnectedSystemsAgentIcon}
+                iconTone="orange"
+                title="Hosting"
+                chevron
+                onClick={() =>
+                  updateProfileView({ panel: "hosting", detail: null }, "push")
+                }
+              />
+              <SettingsRow
+                icon={RefreshCw}
+                iconTone="indigo"
+                title="Software updates"
+                chevron
+                onClick={() =>
+                  updateProfileView(
+                    { panel: "software-updates", detail: null },
+                    "push",
+                  )
+                }
+              />
+              <SettingsRow
                 icon={AccountProfileIcon}
                 iconTone="blue"
                 title={PROFILE_LABELS.account}
@@ -4591,6 +4651,14 @@ function ProfilePageContent({
                 onClick={() =>
                   openVaultBackedPanel("security", "trusted-devices")
                 }
+              />
+              <SettingsRow
+                icon={ConnectedSystemsAgentIcon}
+                iconTone="green"
+                title="Connectors"
+                description="Google Workspace and finance connections"
+                chevron
+                onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
                 icon={InviteFriendsProfileIcon}
@@ -4655,7 +4723,10 @@ function ProfilePageContent({
       as="div"
       width="reading"
       fitContent
-      className={cn("relative isolate pb-3", isPanePresentation && "profile-pane-page")}
+      className={cn(
+        "relative isolate pb-3",
+        isPanePresentation && "profile-pane-page",
+      )}
       nativeTest={
         isPanePresentation
           ? undefined

@@ -131,11 +131,13 @@ def test_uat_runtime_wires_the_exact_scheduler_identity_and_keeps_other_lanes_de
         "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE",
     )
 
+    deploy_script = (ROOT / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
+    packed = next(
+        line for line in cloudbuild.splitlines() if '"_DRIVE_WORK_DRAIN_SETTINGS=' in line
+    )
     for name in names:
-        assert f'"_{name}=${{_{name}}}"' in cloudbuild
-        assert name in next(
-            line for line in cloudbuild.splitlines() if "for n in ONE_EMAIL_ADDRESS" in line
-        )
+        assert f"${{_{name}}}" in packed
+        assert f'append_optional_env "{name}" "${{_{name}}}"' in deploy_script
     assert '_DRIVE_WORK_DRAIN_ENABLED: "false"' in cloudbuild
     for name in names[1:]:
         assert f'_{name}: ""' in cloudbuild

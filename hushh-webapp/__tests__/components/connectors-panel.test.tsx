@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -10,13 +10,21 @@ const state = vi.hoisted(() => ({
   liveBackground: vi.fn(),
   setLiveBackground: vi.fn(),
   push: vi.fn(),
+  calendarRefresh: vi.fn(),
+  calendarDisconnect: vi.fn(),
+  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
+  financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
+  gmailStatus: { connected: false, compose_permission_granted: false },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
+vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));
+vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { disconnect: state.calendarDisconnect } }));
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ usePkmDomainResource: () => state.financial }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
-    status: { connected: false },
+    status: state.gmailStatus,
     loadingStatus: false,
     statusError: false,
     disconnectGmail: vi.fn(),
@@ -73,6 +81,12 @@ describe("supported connector catalog", () => {
     state.liveBackground.mockReset().mockResolvedValue(false);
     state.setLiveBackground.mockReset().mockResolvedValue(undefined);
     state.push.mockReset();
+    state.calendarRefresh.mockReset();
+    state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
+    state.user.getIdToken.mockResolvedValue("synthetic-firebase-token");
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
+    state.financial = { data: null, loading: false, error: null };
+    state.gmailStatus = { connected: false, compose_permission_granted: false };
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
@@ -84,11 +98,13 @@ describe("supported connector catalog", () => {
     for (const label of ["Connectors", "Google Drive", "Gmail"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
-    expect(screen.getByRole("button", { name: "Manage Calendar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage Plaid" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plaid" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Connected" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
+    expect(screen.queryByText(/Google Workspace MCP|Finance connection|Read access after connection/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Read selected files")).not.toBeInTheDocument();
     for (const label of ["Coming soon", "Notion", "HubSpot", "Shopify", "Circle"]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
@@ -99,12 +115,133 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
+  it("opens connected Plaid details without redirecting to portfolio sources", async () => {
+    state.financial.data = { data: { connections_v1: {
+      "synthetic-item": { institution_name: "Synthetic Bank", status: "active", products: [] },
+    } } };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Plaid" }));
+    expect(screen.getByText("Synthetic Bank")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(state.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(screen.getByText(/remove its connected financial records/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(state.push).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a dead Drive connection action when OAuth is unconfigured", async () => {
+    state.overview.mockResolvedValue(overview());
+    render(panel());
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Google Drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Google Drive" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    expect(screen.getByText("Drive sign-in is not configured here. Try again later.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
+  });
+
+  it("offers selected-file Drive connection without claiming live Drive access", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", available: true }],
+      features: {
+        connections_panel_v2: true,
+        google_drive_live: false,
+        google_drive_picker: true,
+      },
+    });
+    render(panel());
+    expect(await screen.findByRole("button", { name: "Connect Google Drive" })).toBeEnabled();
+    expect(screen.getByText("Selected files only")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeEnabled();
+    expect(screen.getByText("You can choose files after connecting. One cannot search your entire Drive with this access.")).toBeInTheDocument();
+    expect(screen.queryByText("Drive sign-in is not configured here. Try again later.")).not.toBeInTheDocument();
+  });
+
+  it("omits unsupported catalog placeholders even when the registry returns them", async () => {
+    state.overview.mockResolvedValue(overview([
+      { ...catalogItem, connectorId: "notion", displayName: "Notion" },
+      { ...catalogItem, connectorId: "hubspot", displayName: "HubSpot" },
+      catalogItem,
+    ]));
+    const { container } = render(panel());
+    expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    expect(screen.queryByText("Notion")).not.toBeInTheDocument();
+    expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
+    for (const provider of ["gmail", "drive", "calendar", "plaid"]) {
+      expect(container.querySelector(`img[src="/icons/connectors/${provider}.svg"]`)).not.toBeNull();
+    }
+  });
+
+  it("does not describe a failed Drive status check as disconnected", async () => {
+    state.overview.mockRejectedValue(new Error("synthetic unavailable"));
+    render(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+    expect(await screen.findByText("Connection status unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drive connection is unavailable in this session. Try again later.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Drive" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
+  });
+
+  it("opens the requested provider directly from the Settings catalog", async () => {
+    render(
+      <ConnectorsPanel
+        open
+        surface="settings"
+        initialConnector="gmail"
+        {...callbacks}
+      />,
+    );
+    expect((await screen.findAllByRole("heading", { name: "Gmail" })).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Back to connectors" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close connectors" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Mail" })).toBeInTheDocument();
+  });
+
+  it("offers explicit Gmail draft permission only for a connected account without it", async () => {
+    state.gmailStatus = { connected: true, compose_permission_granted: false };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    expect(screen.getByRole("button", { name: "Enable Gmail drafts" })).toBeInTheDocument();
+    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    cleanup();
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+  });
+
+  it("shows a compact Gmail disconnect action and asks before changing access", async () => {
+    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    render(panel());
+    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    fireEvent.click(await connected.findByRole("button", { name: "Disconnect Gmail" }));
+    expect(screen.getByText("Disconnect Mail? Drive stays connected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
   it("never duplicates the built-in Drive connection", async () => {
     state.overview.mockResolvedValue(overview([{ ...catalogItem, connectorId: "google_drive", displayName: "Duplicate Drive" }]));
     render(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
     expect(screen.getAllByText("Google Drive")).toHaveLength(1);
     expect(screen.queryByText("Duplicate Drive")).not.toBeInTheDocument();
+  });
+
+  it("uses Calendar and vault Plaid status without duplicate built-ins", async () => {
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    state.financial.data = { data: { connections_v1: { synthetic: { status: "active" } } } };
+    state.overview.mockResolvedValue(overview([
+      { ...catalogItem, connectorId: "calendar", displayName: "Duplicate Calendar" },
+      { ...catalogItem, connectorId: "plaid", displayName: "Duplicate Plaid" },
+    ]));
+    render(panel());
+    await waitFor(() => expect(state.overview).toHaveBeenCalled());
+    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    expect(connected.getByText("Calendar")).toBeInTheDocument();
+    expect(connected.getByText("Plaid")).toBeInTheDocument();
+    expect(screen.queryByText("Duplicate Calendar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Duplicate Plaid")).not.toBeInTheDocument();
   });
 
   it("filters the real connector list and restores it when search is cleared", async () => {
@@ -121,14 +258,28 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Gmail" })).toBeInTheDocument();
   });
 
-  it.each([
-    ["Calendar", "/one/calendar"],
-    ["Plaid", "/one/kai/portfolio/sources"],
-  ])("opens %s in this app", async (name, route) => {
-    render(panel());
-    fireEvent.click(await screen.findByRole("button", { name: `Manage ${name}` }));
+  it("offers Calendar connection when disconnected and a reviewed disconnect when connected", async () => {
+    const view = render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
     expect(callbacks.onBack).toHaveBeenCalledOnce();
-    expect(state.push).toHaveBeenCalledExactlyOnceWith(route);
+    expect(state.push).toHaveBeenCalledExactlyOnceWith("/one/calendar");
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    view.rerender(panel());
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Calendar" }));
+    expect(screen.getByText("Disconnect Calendar from One? Other connections stay active.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledExactlyOnceWith("synthetic-firebase-token", "owner-a"));
+    await waitFor(() => expect(state.calendarRefresh).toHaveBeenCalledOnce());
+  });
+
+  it("does not claim an unchecked Calendar connection is manageable", async () => {
+    state.calendar = { connected: false, loaded: true, error: "Status unavailable", status: { status: "disconnected" } };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Calendar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(state.calendarRefresh).toHaveBeenCalledOnce();
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it("rejects a delayed catalog after same-owner token rotation", async () => {
@@ -200,7 +351,7 @@ describe("supported connector catalog", () => {
       render(panel());
       // The row moves from Available to Connected once the overview arrives;
       // click the connected row, not the detached pre-overview one.
-      await screen.findByText("Search your Drive");
+      await screen.findByRole("button", { name: "Disconnect Google Drive" });
       fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
     };
 

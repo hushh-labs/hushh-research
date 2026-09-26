@@ -47,12 +47,25 @@ Profile bootstrap rule:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for hosted One email intake |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | recommended |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required true for hosted One email intake |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | required for hosted One watch renewal |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ENABLED` | `consent-protocol/hushh_mcp/services/public_profile_discovery_service.py` | Y | N | N | env | N | env | N | default-off global public-profile release gate |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ALLOWED_USER_IDS` | `consent-protocol/hushh_mcp/services/public_profile_discovery_service.py` | Y | N | N | env | N | env | N | hosted small-cohort Firebase UID allowlist |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_ENABLED` | `consent-protocol/api/routes/profile_discovery_work_drain.py` | Y | N | N | env | N | env | N | separate default-off worker gate |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | expected Cloud Scheduler OIDC audience |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | dedicated Cloud Scheduler OIDC allowlist; empty refuses all callers |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DAILY_LIMIT` | `consent-protocol/hushh_mcp/services/public_profile_discovery_service.py` | Y | N | N | env | N | env | N | maximum new external scan starts per database day |
+| `INTELLIGENCE_API_BASE_URL` | `consent-protocol/hushh_mcp/services/public_profile_discovery_service.py` | Y | N | N | env | N | env | N | HusshOne API base URL for background discovery |
+| `INTELLIGENCE_API_KEY` | `consent-protocol/hushh_mcp/services/public_profile_discovery_service.py` | Y | N | Y | secret | N | secret | N | server-only HusshOne API credential |
+| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | Cloud Scheduler OIDC allowlist; empty refuses everyone |
+| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC shared token; delete once the legacy path is off |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `consent-protocol/api/routes/one/email.py` | Y | N | N | env | N | env | N | required true for hosted One watch renewal |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required true for hosted personal-Gmail monitoring |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC audience |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC service account |
-| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | required dedicated token for hosted One Location retention purge |
+| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | Cloud Scheduler OIDC allowlist; empty refuses everyone |
+| `ONE_LOCATION_RETENTION_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
+| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC dedicated token; delete once the legacy path is off |
+| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | defaults on; set `0` after both scheduler jobs use OIDC |
 | `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | `consent-protocol/api/routes/account.py` | Y | N | Y | env | N | env | N | exact backend-origin audience for the hosted durable Firebase cleanup drain |
 | `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/api/routes/account.py` | Y | N | Y | env | N | env | N | exact dedicated Google OIDC scheduler identity for the hosted durable Firebase cleanup drain |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | env | N | optional local/test override; hosted auth remains enabled |

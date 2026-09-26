@@ -209,8 +209,6 @@ function renderScreen(mode: Mode, variant: Variant): string {
     ? `<span class="${SRC.cloudPicker.slotClass}">${picker}</span>`
     : picker;
 
-  const statusText = mode === "puppy" ? "One is still working" : "Thinking";
-
   const header = `
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
       <div class="${SRC.header.identityClass}">
@@ -224,7 +222,9 @@ function renderScreen(mode: Mode, variant: Variant): string {
         <div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
              class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>
         ${slot}
-        <span class="${SRC.header.statusClass}" role="status" aria-live="polite">${escapeHtml(statusText)}</span>
+        <button type="button" data-testid="${SRC.header.profileButton.testId}"
+          aria-label="${escapeHtml(SRC.header.profileButton.ariaLabel)}"
+          class="${SRC.header.profileButton.className}"><span class="h-8 w-8">P</span></button>
       </div>
     </div>`;
 

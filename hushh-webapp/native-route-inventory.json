@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 121,
-  "native_required_routes": 102,
-  "excluded_routes": 19,
+  "total_routes": 126,
+  "native_required_routes": 106,
+  "excluded_routes": 20,
   "routes": [
     {
       "route": "/",
@@ -237,6 +237,11 @@
       ]
     },
     {
+      "route": "/manishhussh",
+      "classification": "excluded-web-only",
+      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
+    },
+    {
       "route": "/marketplace",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fmarketplace",
@@ -290,11 +295,6 @@
         "loaded",
         "empty-valid"
       ]
-    },
-    {
-      "route": "/manishhussh",
-      "classification": "excluded-web-only",
-      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
     },
     {
       "route": "/oauth/authorize",
@@ -371,6 +371,21 @@
       ]
     },
     {
+      "route": "/one/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Femail",
+      "expectedMarker": "native-route-email-agent",
+      "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/feed",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Ffeed",
@@ -384,6 +399,11 @@
       ]
     },
     {
+      "route": "/one/files",
+      "classification": "excluded-web-only",
+      "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
+    },
+    {
       "route": "/one/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fgmail",
@@ -392,21 +412,6 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
-    },
-    {
-      "route": "/one/email",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Femail",
-      "expectedMarker": "native-route-email-agent",
-      "expectedRoute": "/one/email",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"
@@ -757,6 +762,18 @@
       ]
     },
     {
+      "route": "/one/profile/discovery",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+      "expectedMarker": "native-route-profile-discovery",
+      "expectedRoute": "/one/profile/discovery",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
@@ -809,6 +826,18 @@
       "route": "/one/profile/google/oauth/return",
       "classification": "excluded-web-only",
       "reason": "OAuth return leg. It exists to receive a system-browser redirect and hand control back; there is nothing for a native surface to render."
+    },
+    {
+      "route": "/one/profile/hosting",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fhosting",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/hosting",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/profile/integrations",
@@ -1029,6 +1058,18 @@
       ]
     },
     {
+      "route": "/one/profile/software-updates",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsoftware-updates",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/software-updates",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/support",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport",
@@ -1065,6 +1106,11 @@
       ]
     },
     {
+      "route": "/one/puppy",
+      "classification": "excluded-web-only",
+      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+    },
+    {
       "route": "/one/setup",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
@@ -1080,6 +1126,18 @@
       "route": "/one/setup/calendar",
       "classification": "excluded-web-only",
       "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+    },
+    {
+      "route": "/one/setup/cloud",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "expectedMarker": "native-route-one-setup-cloud",
+      "expectedRoute": "/one/setup/cloud",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/setup/connected-systems",
@@ -1200,9 +1258,18 @@
       ]
     },
     {
-      "route": "/one/puppy",
-      "classification": "excluded-web-only",
-      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      "route": "/one/wallet",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
+      "expectedMarker": "native-route-one-wallet",
+      "expectedRoute": "/one/wallet",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/wallet-card",
@@ -1219,16 +1286,16 @@
       ]
     },
     {
-      "route": "/one/wallet",
+      "route": "/people/[personRef]",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
-      "expectedMarker": "native-route-one-wallet",
-      "expectedRoute": "/one/wallet",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
+      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "expectedMarker": "native-route-person-profile",
+      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
       "allowedDataStates": [
+        "loading",
         "loaded",
-        "empty-valid",
         "unavailable-valid"
       ]
     },
@@ -1259,20 +1326,6 @@
       "allowedDataStates": [
         "loaded",
         "empty-valid"
-      ]
-    },
-    {
-      "route": "/people/[personRef]",
-      "classification": "native-required-functional",
-      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "expectedMarker": "native-route-person-profile",
-      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "autoReviewerLogin": false,
-      "expectedAuth": "public",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "unavailable-valid"
       ]
     },
     {

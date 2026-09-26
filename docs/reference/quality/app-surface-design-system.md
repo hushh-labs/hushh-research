@@ -234,10 +234,10 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     browser history as its parent resolver. The left edge wins over contextual
     tab swipes, appears only when the route exposes a back action, and never
     runs over a modal surface. Android preserves platform system-back behavior.
-30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
-    compositor. Both edges paint a neutral `--background` to transparent
-    feather with `--foreground` ink and the shared subtle readability blur;
-    route colors must not tint either bar.
+30. Persistent signed-in top chrome uses `AmbientChromeMask` as its single
+    compositor. The top edge paints a neutral `--background` to transparent
+    feather with `--foreground` ink and subtle readability blur; the bottom
+    navigation and Agent Bar float without a page-wide mask.
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
@@ -259,9 +259,8 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     progress variables directly; do not add an independent CSS transition that
     continues after the gesture or makes the edge lag the bottom compositor.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
-    bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
-    by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
-    bottom navigation and Agent Bar as separate accessible slots. Keep route
+    safe-area stack and scroll-hide transform, and renders bottom navigation
+    and Agent Bar as separate accessible slots without a full-width fade. Keep route
     visibility in its route-derived model; never recreate fixed bottom wrappers
     or move either slot inside a page Suspense boundary.
 32. `FoundationPublicAmbient` is the canonical Foundation canvas for every
@@ -337,7 +336,13 @@ Rules:
 5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
 7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
-8. Agent Chat session continuity is a surface contract: consecutive user commands reuse the active `conversationId`; reset only on explicit New chat, selecting history, user change, or vault session reset.
+8. Agent Chat session continuity is a surface contract: a cold app launch opens
+   a blank Chat without selecting the latest saved conversation. In-app route
+   navigation resumes the selected `conversationId` for that browser runtime;
+   consecutive commands reuse it. New chat and selecting history change that
+   selection explicitly. Owner identity and vault changes clear the visible
+   turn until current authority is re-established; selection remains
+   owner-isolated. Saved history stays available in the Chat sidebar.
 9. Structured model responses use a versioned, app-owned component registry.
    AG-UI transports typed tool results and activity snapshots/deltas; Morphy
    owns the visual component. Unknown activity types fail closed. Never mount
@@ -427,10 +432,9 @@ Rules:
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
-11. Top and bottom shell material uses the same subtle-blur sampled-tint,
-    feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
-    contract. A dark or gradient surface must not acquire a milky light chrome
-    band.
+11. The top shell uses the neutral readability feather. The bottom controls
+    retain their own glass surface and foreground contrast, without a
+    full-width fade or a milky light band over dark content.
 
 ## Row and Card Interaction Contract
 
@@ -484,7 +488,7 @@ Rules:
 2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. Vault's primary and fallback method buttons share one effect; a low-emphasis recovery escape may use the canonical link treatment and must not be styled as a second primary CTA. When Sign out is offered by the hard gate, Recovery key belongs beside it in the same quiet escape group rather than under the preceding primary button.
-5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame`, and both edges consume the neutral theme feather and foreground contract. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+5. Persistent top chrome uses `AmbientChromeMask` through `AppTopShell`; the controller is mounted once in `AppShellFrame`. Bottom navigation and Agent Bar keep their own glass surfaces without a page-wide mask. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
 6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
 
 ## Foundation Color Contract
@@ -591,7 +595,7 @@ Rules:
 1. The canonical scrim is `bg-[color:var(--app-scrim-color)]` with `backdrop-filter` and `-webkit-backdrop-filter` set to `var(--app-scrim-filter)`, sitting directly below its surface. Desktop gets a 24% dim with a 12px blur; touch screens (`pointer: coarse`) get a 40% dim with a lighter 4px blur. The smaller touch radius keeps the background visibly out of focus without restoring the full-screen 12px filter that starved sheet motion in the Galaxy S24 Ultra trace (2026-09-22). Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) and `PopoverContent withBackdrop` all carry it; never restate the values.
 2. Dialogs, sheets, drawers, and the command palette inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Vault create, unlock, recovery, passkey, and biometric credential surfaces are the focused credential exception: every entry point uses one opaque neutral theme canvas without blur, suppressing persistent top chrome, bottom navigation, and the Agent Bar so route content never competes beneath the form. The non-dismissible `VaultLockGuard` uses the same canvas but also suppresses backdrop animation; contextual vault prompts remain dismissible and retain their standard enter/exit motion except while a newly generated one-time recovery key is disclosed. That disclosure blocks Escape and outside-pointer dismissal until the person explicitly confirms the key was saved.
    Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
-3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
+3. Modal popovers inherit the same backdrop by default; non-modal anchored popovers stay flat. `PopoverContent withBackdrop` remains an explicit override. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
 6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,

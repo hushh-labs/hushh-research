@@ -58,6 +58,7 @@ def db():
         "216_location_command_membership_receipts.sql",
         "217_location_command_effect_receipts.sql",
         "218_location_command_audience_receipts.sql",
+        "248_adk_chat_action_authority.sql",
     ):
         database.execute_raw((migrations / name).read_text())
     yield database

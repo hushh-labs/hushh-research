@@ -96,7 +96,10 @@ export const ROUTES = {
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
   PROFILE: "/one/profile",
+  ONE_PROFILE_DISCOVERY: "/one/profile/discovery",
   PROFILE_REGULATORY: "/one/profile/regulatory",
+  PROFILE_HOSTING: "/one/profile/hosting",
+  PROFILE_SOFTWARE_UPDATES: "/one/profile/software-updates",
   PROFILE_ACCOUNT: "/one/profile/account",
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",
@@ -144,6 +147,7 @@ export const ROUTES = {
   ONE_SETUP_EMAIL: "/one/setup/email",
   ONE_SETUP_RIA: "/one/setup/ria",
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
+  ONE_SETUP_CLOUD: "/one/setup/cloud",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
@@ -163,6 +167,8 @@ export const ROUTES = {
   ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
+  /** Compatibility alias retained for the owner-pod legacy surface. */
+  AGENT: "/agent",
   /** Compatibility-only inbound path; the active chat surface is `/`. */
   LEGACY_AGENT: "/agent",
   CONNECT: "/one/connect",
@@ -171,6 +177,7 @@ export const ROUTES = {
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
+  ONE_FILES: "/one/files",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
@@ -325,6 +332,14 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
  * generated voice action.
  */
 export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  // The hub itself is a browsable home for "what's left to set up" — its own
+  // header contract says a person who has finished onboarding can still browse
+  // here without being trapped. Ejecting the setup-complete owner from the hub
+  // stranded exactly the person the pod-provisioning journey needs: they could
+  // deep-link to the cloud step but never reach it through the product.
+  ROUTES.ONE_SETUP,
+  // Product order: the cloud is named and authorized before AI access is chosen.
+  ROUTES.ONE_SETUP_CLOUD,
   ROUTES.ONE_SETUP_CONNECTIONS,
 ];
 

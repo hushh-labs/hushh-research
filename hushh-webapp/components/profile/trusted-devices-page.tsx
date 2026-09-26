@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LaptopIcon as Laptop,
   SpinnerGapIcon as Loader2,
@@ -33,6 +33,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ApiService } from "@/lib/services/api-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
+import { useVault } from "@/lib/vault/vault-context";
 
 interface TrustedDevice {
   device_id: string;
@@ -55,7 +56,13 @@ interface TrustedDevice {
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage() {
   const { user } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const [error, setError] = useState("");
+  const [puppyAccess, setPuppyAccess] = useState<Record<string, boolean>>({});
+  const [changingPuppy, setChangingPuppy] = useState<string | null>(null);
+  const [puppyNotice, setPuppyNotice] = useState("");
+  const [pendingPuppyWithdrawal, setPendingPuppyWithdrawal] = useState<string | null>(null);
+  const [byocReady, setByocReady] = useState(false);
   const [pendingRevocation, setPendingRevocation] =
     useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
@@ -79,6 +86,59 @@ export default function TrustedDevicesPage() {
   });
 
   const devices = devicesResource.data ?? [];
+  const puppyDeviceIds = devices
+    .filter((device) => device.platform === "macos" && device.status === "active")
+    .map((device) => device.device_id)
+    .join(",");
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    let cancelled = false;
+    void ApiService.getPersonalAgentStatus().then((status) => {
+      if (!cancelled) setByocReady(status.hostingMode === "byoc" && status.state === "active");
+    }).catch(() => {
+      if (!cancelled) setByocReady(false);
+    });
+    return () => { cancelled = true; };
+  }, [vaultOwnerToken]);
+  useEffect(() => {
+    if (!vaultOwnerToken || !puppyDeviceIds) return;
+    let cancelled = false;
+    void Promise.all(
+      puppyDeviceIds.split(",").map(async (deviceId) => [
+        deviceId,
+        await ApiService.getPuppyAccess(deviceId, vaultOwnerToken),
+      ] as const),
+    ).then((choices) => {
+      if (!cancelled) setPuppyAccess(Object.fromEntries(choices));
+    }).catch(() => {
+      if (!cancelled) setError("Puppy access status is unavailable.");
+    });
+    return () => { cancelled = true; };
+  }, [vaultOwnerToken, puppyDeviceIds]);
+
+  async function changePuppyAccess(deviceId: string, enabled: boolean) {
+    if (!vaultOwnerToken) {
+      setError("Unlock your vault to change Puppy access.");
+      return;
+    }
+    setChangingPuppy(deviceId);
+    setError("");
+    setPuppyNotice("");
+    try {
+      const result = await ApiService.setPuppyAccess(deviceId, enabled, vaultOwnerToken);
+      setPuppyAccess((current) => ({ ...current, [deviceId]: result.enabled }));
+      if (result.revocationPending) {
+        setPendingPuppyWithdrawal(deviceId);
+        setPuppyNotice("New Puppy access is disabled. Pod revocation is pending or unverified; retry withdrawal after the pod reconnects.");
+      } else if (pendingPuppyWithdrawal === deviceId) {
+        setPendingPuppyWithdrawal(null);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Puppy access could not be changed.");
+    } finally {
+      setChangingPuppy(null);
+    }
+  }
   // Only a cold load with nothing cached may block; a background refresh must
   // never hide list content that is already on screen.
   const loading = devicesResource.loading && devicesResource.data === null;
@@ -127,6 +187,7 @@ export default function TrustedDevicesPage() {
           {visibleError ? (
             <p className="text-sm text-destructive">{visibleError}</p>
           ) : null}
+          {puppyNotice ? <p className="text-sm text-muted-foreground">{puppyNotice}</p> : null}
           {devices.length > 0 ? (
             <SettingsGroup separatorInset>
               {devices.map((device) => {
@@ -140,14 +201,26 @@ export default function TrustedDevicesPage() {
                     description={sync.label}
                     trailing={
                       isActive ? (
-                        <Button
-                          aria-label={`Unlink ${device.device_name}`}
-                          onClick={() => setPendingRevocation(device)}
-                          size="icon"
-                          variant="ghost"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {byocReady && device.platform === "macos" && puppyAccess[device.device_id] !== undefined ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={changingPuppy === device.device_id}
+                              onClick={() => void changePuppyAccess(device.device_id, pendingPuppyWithdrawal === device.device_id ? false : !puppyAccess[device.device_id])}
+                            >
+                              {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal === device.device_id ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            aria-label={`Unlink ${device.device_name}`}
+                            onClick={() => setPendingRevocation(device)}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       ) : undefined
                     }
                     trailingInteractive={isActive}

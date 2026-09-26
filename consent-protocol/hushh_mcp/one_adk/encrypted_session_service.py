@@ -181,6 +181,9 @@ class EncryptedAdkSessionService(BaseSessionService):
             return None
         row = dict(result.data[0])
         session = self._decode(row)
+        from hushh_mcp.one_adk.mcp_pending_call import restore_current_pending_call
+
+        session = restore_current_pending_call(session)
         full_event_count = len(session.events)
         if config:
             if config.num_recent_events is not None:
@@ -316,6 +319,44 @@ class EncryptedAdkSessionService(BaseSessionService):
             session.last_update_time = time.time()
             self._set_revision(session, self._revision(latest))
         raise RuntimeError("Encrypted ADK session changed concurrently; retry the run.")
+
+    async def append_event_once(
+        self, *, app_name: str, user_id: str, session_id: str, event: Event
+    ) -> Event:
+        """CAS-append a deterministic presentation event once across concurrent requests."""
+        if not event.id or event.content is not None:
+            raise ValueError("Presentation receipt requires an id and no model content.")
+        for _attempt in range(4):
+            session = await self.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            if session is None:
+                raise RuntimeError("Encrypted ADK session disappeared.")
+            existing = next((item for item in session.events if item.id == event.id), None)
+            if existing is not None:
+                return existing
+            await super().append_event(session, event.model_copy(deep=True))
+            session.last_update_time = time.time()
+            revision = self._revision(session)
+            encoded = self._encode(session)
+            result = await self._execute(
+                """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
+                          payload_iv = :iv, payload_tag = :tag,
+                          payload_algorithm = :algorithm, revision = revision + 1,
+                          updated_at = NOW()
+                   WHERE app_name = :app AND user_id = :user AND session_id = :session
+                     AND revision = :revision RETURNING revision""",
+                {
+                    "app": app_name,
+                    "user": user_id,
+                    "session": session_id,
+                    "revision": revision,
+                    **encoded,
+                },
+            )
+            if result.data:
+                return event
+        raise RuntimeError("Encrypted ADK session changed concurrently; retry the receipt.")
 
 
 __all__ = ["EncryptedAdkSessionService", "EncryptedAdkSessionUnavailableError"]

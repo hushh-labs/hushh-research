@@ -141,7 +141,9 @@ def main() -> int:
             web_env=args.web_env,
         )
         smoke.authenticate()
-        report["checks"].append({"name": "smoke_auth", "ok": True, "user_id": smoke.user_id})
+        report["checks"].append(
+            {"name": "smoke_auth", "ok": True, "user_id": smoke.user_id}
+        )
     except Exception as exc:  # pragma: no cover - exercised in live verification
         _record_exception(report, failures, name="smoke_auth", exc=exc)
 
@@ -168,24 +170,37 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            commands = smoke._request(  # noqa: SLF001
+            response = smoke._request(  # noqa: SLF001
                 "GET",
                 "/api/one/action-proposals",
                 headers=smoke._vault_headers(),  # noqa: SLF001
-                expected=200,
-            ).json()
-            commands_ok = isinstance(commands.get("commands"), list)
+                expected=None,
+            )
+            commands = response.json()
+            private_runtime_required = response.status_code == 409 and commands.get(
+                "detail"
+            ) == {"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"}
+            commands_ok = response.status_code == 200 and isinstance(
+                commands.get("commands"), list
+            )
+            boundary_ok = commands_ok or private_runtime_required
             report["checks"].append(
                 {
                     "name": "location_command_recovery",
-                    "ok": commands_ok,
-                    "command_count": len(commands.get("commands") or []),
+                    "ok": boundary_ok,
+                    "recovery_verified": commands_ok,
+                    "private_runtime_required": private_runtime_required,
+                    "command_count": len(commands.get("commands") or [])
+                    if commands_ok
+                    else 0,
                 }
             )
-            if not commands_ok:
+            if not boundary_ok:
                 failures.append("location_command_recovery")
         except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="location_command_recovery", exc=exc)
+            _record_exception(
+                report, failures, name="location_command_recovery", exc=exc
+            )
 
         try:
             ria_stage1 = smoke._request(  # noqa: SLF001

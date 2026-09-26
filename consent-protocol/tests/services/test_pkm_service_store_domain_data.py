@@ -1269,3 +1269,50 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "manifest_version": 7,
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_atomic_receipt_fingerprint_ignores_attempt_clock_but_binds_ciphertext():
+    from copy import deepcopy
+    from datetime import timedelta
+
+    from hushh_mcp.services.personal_knowledge_model_service import PkmMutationPlanV2
+
+    service = PersonalKnowledgeModelService()
+    service._continuous_refresh_tokens_for_domain_write = AsyncMock(return_value=[])
+    service._run_rpc = AsyncMock(return_value=SimpleNamespace(data=[{"success": True}]))
+    manifest = service._normalize_manifest_payload(
+        "owner-fixture",
+        "professional",
+        {"manifest_version": 1},
+        {"action": "create_domain", "target_domain": "professional"},
+    )
+    plan = PkmMutationPlanV2.model_validate(
+        _confirmed_create_plan(user_id="owner-fixture", domain="professional")
+    )
+    args = dict(
+        user_id="owner-fixture",
+        domain="professional",
+        normalized_segments={
+            "root": {"ciphertext": "YQ==", "iv": "aXY=", "tag": "dGFn", "algorithm": "aes-256-gcm"}
+        },
+        normalized_manifest=manifest,
+        normalized_mutation_plan=plan,
+        upgrade_claim=None,
+        preservation_receipt=None,
+        summary={},
+        write_projections=None,
+        current_version=0,
+        prior_manifest=None,
+        legacy_blob_present=False,
+    )
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    first = service._run_rpc.await_args.args[1]["p_request_fingerprint"]
+    manifest.last_content_at += timedelta(seconds=1)
+    manifest.last_structured_at += timedelta(seconds=1)
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] == first
+    changed = deepcopy(args)
+    changed["normalized_segments"]["root"]["ciphertext"] = "Yg=="
+    await service._commit_confirmed_domain_mutation_v2(**changed)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] != first

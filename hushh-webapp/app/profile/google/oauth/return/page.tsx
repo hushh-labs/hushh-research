@@ -18,6 +18,7 @@ import {
   type GoogleOAuthPopupAttempt,
 } from "@/lib/google/google-oauth-popup";
 import { ROUTES } from "@/lib/navigation/routes";
+import { ApiService } from "@/lib/services/api-service";
 import { trackEvent } from "@/lib/observability/client";
 import {
   GoogleConnectionService,
@@ -60,6 +61,7 @@ function GoogleOAuthReturnContent() {
   const router = useRouter();
   const search = useSearchParams();
   const flow = useRef<CompletionFlow | null>(null);
+  const cloudFlow = useRef<{ ownerId: string; generation: number; result: Promise<void> } | null>(null);
   const terminalOutcomeRecorded = useRef(false);
   const authority = useRef({
     ownerId: loading ? null : user?.uid,
@@ -87,6 +89,43 @@ function GoogleOAuthReturnContent() {
       current = false;
       authority.current.mounted = false;
     };
+    const code = search.get("code");
+    const state = search.get("state");
+    // Cloud authorization uses the registered Google return URL, but its state
+    // is namespaced and never enters the Calendar completion or popup flow.
+    if (state?.startsWith("byoc.")) {
+      if (!user || !code || authority.current.ownerId !== user.uid) {
+        router.replace(ROUTES.ONE_SETUP_CLOUD);
+        return cleanup;
+      }
+      if (cloudFlow.current && (cloudFlow.current.ownerId !== user.uid || cloudFlow.current.generation !== effectGeneration)) {
+        router.replace(ROUTES.ONE_SETUP_CLOUD);
+        return cleanup;
+      }
+      if (!cloudFlow.current) {
+        cloudFlow.current = {
+          ownerId: user.uid,
+          generation: effectGeneration,
+          result: ApiService.completeByocAuthorize({ code, state }).then(() => undefined),
+        };
+      }
+      const active = cloudFlow.current;
+      void active.result
+        .then(() => {
+          if (current && authority.current.generation === active.generation && authority.current.ownerId === active.ownerId) {
+            router.replace(ROUTES.ONE_SETUP);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!current || authority.current.generation !== active.generation || authority.current.ownerId !== active.ownerId) return;
+          const reason =
+            error instanceof Error && error.message && error.message !== "BYOC_AUTHORIZE_FAILED"
+              ? error.message
+              : "We could not finish setting up your cloud. Try again.";
+          router.replace(`${ROUTES.ONE_SETUP_CLOUD}?authorize_error=${encodeURIComponent(reason)}`);
+        });
+      return cleanup;
+    }
     const attempt = flow.current?.attempt ?? readGoogleOAuthPopupAttempt();
     const isSameWindowCalendar =
       attempt?.service === "calendar" && attempt.returnMode === "same_window";
@@ -128,8 +167,6 @@ function GoogleOAuthReturnContent() {
       );
       return cleanup;
     }
-    const code = search.get("code");
-    const state = search.get("state");
     if (
       !user ||
       !code ||

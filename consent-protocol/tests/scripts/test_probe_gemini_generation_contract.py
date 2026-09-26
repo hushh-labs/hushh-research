@@ -17,7 +17,7 @@ from google.genai import errors, types
 
 from scripts import probe_gemini_generation_contract as probe
 
-MODELS = ("gemini-3.8-flash", "gemini-3.7-flash")
+MODELS = ("gemini-3.7-flash", "gemini-3.6-flash")
 
 
 def _fake_client_error(code: int, status: str, message: str) -> errors.ClientError:
@@ -67,7 +67,7 @@ def test_plan_enumerates_every_expected_cell_in_order() -> None:
     for model in MODELS:
         checks = [cell.check for cell in plan if cell.model == model]
         assert checks == expected_checks
-    assert [cell.model for cell in plan[:8]] == ["gemini-3.8-flash"] * 8
+    assert [cell.model for cell in plan[:8]] == ["gemini-3.7-flash"] * 8
 
 
 def test_classifier_records_400_invalid_argument_without_project_ref() -> None:
@@ -76,7 +76,7 @@ def test_classifier_records_400_invalid_argument_without_project_ref() -> None:
         "INVALID_ARGUMENT",
         "Field thinking_level is not supported for projects/123456789012/locations/global",
     )
-    cell = probe.classify_exception("gemini-3.8-flash", "thinking_level:MINIMAL", exc)
+    cell = probe.classify_exception("gemini-3.6-flash", "thinking_level:MINIMAL", exc)
     assert cell.outcome == "reject"
     assert cell.status_code == 400
     assert cell.error_status == "INVALID_ARGUMENT"
@@ -111,7 +111,7 @@ def test_quota_error_is_retried_then_succeeds() -> None:
         return _text_response()
 
     response = probe.call_with_quota_retry(
-        _call, "gemini-3.8-flash", "hi", None, call_gap_seconds=0.5, sleep=sleeps.append
+        _call, "gemini-3.6-flash", "hi", None, call_gap_seconds=0.5, sleep=sleeps.append
     )
     assert response.candidates
     assert len(attempts) == 3
@@ -126,7 +126,7 @@ def test_non_quota_error_is_not_retried() -> None:
         raise _fake_client_error(400, "INVALID_ARGUMENT", "bad field")
 
     with pytest.raises(errors.ClientError):
-        probe.call_with_quota_retry(_call, "gemini-3.8-flash", "hi", None, sleep=lambda _: None)
+        probe.call_with_quota_retry(_call, "gemini-3.6-flash", "hi", None, sleep=lambda _: None)
     assert len(attempts) == 1
 
 
@@ -143,7 +143,7 @@ def test_dry_run_builds_no_client_and_writes_nothing(
     assert rc == 0
     assert not out.exists()
     captured = capsys.readouterr().out
-    assert "gemini-3.8-flash   thinking_level:MINIMAL" in captured
+    assert "gemini-3.6-flash   thinking_level:MINIMAL" in captured
     assert "no client built" in captured
 
 
@@ -179,10 +179,10 @@ def test_run_probe_measures_every_cell_and_sends_both_function_response_legs() -
             raise _fake_client_error(400, "INVALID_ARGUMENT", "thinking_level MINIMAL unsupported")
         return _text_response()
 
-    cells = probe.run_probe(_call, types, ("gemini-3.8-flash",), sleep=lambda _: None)
+    cells = probe.run_probe(_call, types, ("gemini-3.6-flash",), sleep=lambda _: None)
     by_check = {cell.check: cell for cell in cells}
     assert [cell.check for cell in cells] == [
-        cell.check for cell in probe.build_plan(("gemini-3.8-flash",))
+        cell.check for cell in probe.build_plan(("gemini-3.6-flash",))
     ]
     assert by_check["baseline"].outcome == "accept"
     assert by_check["thinking_level:LOW"].outcome == "accept"
@@ -228,9 +228,9 @@ def test_run_probe_marks_with_id_leg_when_provider_returns_no_call_id() -> None:
 
 def test_report_shape_and_matrix_render() -> None:
     cells = [
-        probe.accept_cell("gemini-3.8-flash", "baseline", _text_response()),
+        probe.accept_cell("gemini-3.6-flash", "baseline", _text_response()),
         probe.classify_exception(
-            "gemini-3.8-flash",
+            "gemini-3.6-flash",
             "thinking_level:MINIMAL",
             _fake_client_error(400, "INVALID_ARGUMENT", "unsupported"),
         ),
@@ -252,7 +252,7 @@ def test_report_shape_and_matrix_render() -> None:
     assert report["models"] == list(MODELS)
     assert len(report["plan"]) == 16
     assert report["cells"][1] == {
-        "model": "gemini-3.8-flash",
+        "model": "gemini-3.6-flash",
         "check": "thinking_level:MINIMAL",
         "outcome": "reject",
         "status_code": 400,

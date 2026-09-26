@@ -437,7 +437,7 @@ jobs:
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.ios == 'true')
+      needs['preflight-gate'].outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     env:

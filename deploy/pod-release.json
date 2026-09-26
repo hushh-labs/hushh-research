@@ -1,0 +1,19 @@
+{
+  "version": "2026.09-dev.1",
+  "channel": "dev",
+  "summary": "Private agent updates with explicit owner approval and verified recovery boundaries.",
+  "notes": {
+    "improvements": [
+      "Hosting and software updates are available from your profile.",
+      "Update status distinguishes recorded versions from verified installation."
+    ],
+    "fixes": [
+      "Successful updates retain their provider completion receipt."
+    ],
+    "security": [
+      "Update approval is bound to one image and your current pod.",
+      "Puppy inference requires a verified BYOC pod and device binding."
+    ]
+  },
+  "supportedUpgradeDigests": []
+}

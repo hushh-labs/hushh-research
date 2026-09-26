@@ -317,6 +317,14 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected Pub/Sub push OIDC audience. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service account. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Must be `true` in UAT/production so Pub/Sub push OIDC verification cannot silently default off. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ENABLED` | `hushh_mcp/services/public_profile_discovery_service.py` | Optional, default `false` | Global release gate. Keep off until schema, scheduler, provider credentials and cohort are verified. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ALLOWED_USER_IDS` | `hushh_mcp/services/public_profile_discovery_service.py` | Required for hosted cohort | Comma-separated Firebase UIDs allowed to use discovery; empty means local/development/test only. Never use `*`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_ENABLED` | `api/routes/profile_discovery_work_drain.py` | Required for worker | Separately enables the OIDC-authenticated background queue drain; defaults to `false`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Required for hosted worker | Exact HTTPS backend origin expected in Cloud Scheduler OIDC tokens for `POST /api/internal/profile-discovery/drain`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Required for hosted worker | Exact comma-separated dedicated Cloud Scheduler service-account allowlist. Empty refuses everyone. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DAILY_LIMIT` | `hushh_mcp/services/public_profile_discovery_service.py` | Optional, defaults to `1000` | Maximum new HusshOne scan-start requests per UTC database day; bounded to 100,000. A non-integer fails closed. |
+| `INTELLIGENCE_API_BASE_URL` | `hushh_mcp/services/public_profile_discovery_service.py` | Required for enabled discovery | HusshOne API base URL used only by the background worker. |
+| `INTELLIGENCE_API_KEY` | `hushh_mcp/services/public_profile_discovery_service.py` | Secret when enabled | Server-side HusshOne API credential; keep in Secret Manager and never expose it to the browser. |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so maintenance endpoints require `X-Hushh-Maintenance-Token`. |
 | `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Yes (hosted retention) | Dedicated maintenance token for One Location retention purge. It is not shared with One Email maintenance tokens. |
@@ -648,7 +656,8 @@ echo -n "https://your-backend.run.app" | gcloud secrets versions add BACKEND_URL
 ```
 
 **Required backend 8:** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `GOOGLE_MAPS_API_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`.
-**Required backend Plaid secrets when brokerage is enabled:** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN_KEY`.
+**Required backend Plaid secrets when the vault brokerage flow is enabled:** `PLAID_CLIENT_ID`, `PLAID_SECRET`.
+**Legacy retirement secret:** `PLAID_ACCESS_TOKEN_KEY` is needed only while server-held Plaid rows remain to be retired; remove it only after the retirement script and migration are verified in each target environment.
 **Required frontend 12:** `BACKEND_URL`, `APP_FRONTEND_ORIGIN`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY`.
 
 **Native Your Map archive inputs:** `NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY`. These are restricted client configuration delivered only to the corresponding signed archive; they are not Cloud Run environment variables and must never reuse `GOOGLE_MAPS_API_KEY`.

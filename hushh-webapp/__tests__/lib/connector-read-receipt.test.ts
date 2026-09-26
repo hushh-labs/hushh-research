@@ -49,6 +49,87 @@ describe("connector read receipts", () => {
       .toMatchObject({ status: "reconnect_required", sourceRefs: [] });
   });
 
+  it("projects a provider-specific setup card only for an explicit Workspace MCP permission result", () => {
+    // Private tool arguments are removed at the wire boundary. The safe
+    // provider enum in the result must be sufficient to offer reconnection.
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool",
+      { status: "permission_required", provider: "calendar", private_result: "not_retained" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "calendar",
+      status: "connect_required",
+    });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive", tools: [] },
+      { provider: "drive" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "drive",
+      status: "connect_required",
+    });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool",
+      { status: "permission_required" },
+      { provider: "gmail", query: "private search terms" },
+    )).toMatchObject({ provider: "gmail", status: "connect_required" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive" },
+      { provider: "gmail" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "ok", provider: "drive" },
+      { provider: "drive" },
+    )).toMatchObject({ provider: "drive", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "api_available", provider: "gmail" },
+      { provider: "gmail" },
+    )).toMatchObject({ provider: "gmail", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool", { status: "ok", provider: "gmail" }, { provider: "gmail" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "untrusted_tool",
+      { status: "permission_required", provider: "drive" },
+      { provider: "drive" },
+    )).toBeNull();
+  });
+
+  it("projects only a generic setup action for the owner's private connectors", () => {
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ name: "PRIVATE CONNECTOR NAME", status: "saved" }],
+    });
+    expect(result).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "custom",
+      status: "manage_available",
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTOR NAME");
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", provider: "custom",
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", result: { status: "setup_available", provider: "custom" },
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("other_tool", {
+      status: "setup_available", provider: "custom",
+    })).toBeNull();
+  });
+  it("shows only bounded, identified connector metadata in the Chat card", () => {
+    const id = `custom_${"a".repeat(32)}`;
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ id, name: "Synthetic app", status: "reconnect_needed", token: "synthetic-private-token" }],
+    });
+    expect(result).toMatchObject({ provider: "custom", saved: [{ id, name: "Synthetic app", status: "reconnect_needed" }] });
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-token");
+  });
+
   it("admits an owner compilation action only on a successful Drive metadata listing", () => {
     const sources = Array.from({ length: 30 }, (_, index) => ({
       source_ref: `document:${index.toString(16).padStart(32, "0")}`,

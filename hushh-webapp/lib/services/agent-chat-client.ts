@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
 import {
@@ -9,6 +10,9 @@ import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
+import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -34,6 +38,8 @@ export type AgentChatMessage = {
     structuredExperienceId?: string | null;
     structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
     connectorRead?: ConnectorReadExperience | null;
+    /** Bound history descriptor for the turn's Activity rows (enums and opaque ids only). */
+    turnActivity?: { activityType?: string; content?: unknown } | null;
   } | null;
 };
 
@@ -61,6 +67,8 @@ export type AgentChatToolEvent = {
   message: string;
   reason?: string | null;
   status?: string;
+  /** App-authored step tag such as "Read" or "Needs review". */
+  tag?: string;
   requiresConfirmation: boolean;
   trustedActivationRequired: boolean;
   raw: Record<string, unknown>;
@@ -80,6 +88,14 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Ephemeral native review: never append its references or receipt to history/debug events. */
+  onMcpReview?: (review: {
+    reference: McpCallReviewReference;
+    conversationId: string;
+    isCurrent: () => boolean;
+    loadConfiguration?: () => Promise<CustomConnectorConfiguration | undefined>;
+    resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
+  }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
@@ -87,6 +103,8 @@ export type AgentChatStreamHandlers = {
   /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
   onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
+  /** Provider-authored thought summary only; never raw thoughts or continuation signatures. */
+  onThinkingSummary?: (chunk: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
@@ -332,15 +350,109 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Drive",
     message: "Checking selected file status.",
   },
+  inspect_private_connectors: {
+    label: "Connectors",
+    message: "Checking your saved connectors.",
+  },
+  discover_workspace_tools: {
+    label: "Connector access",
+    message: "Checking which connected capabilities are available.",
+  },
+  read_workspace_tool: {
+    label: "Connected app read",
+    message: "Reading the selected connected capability.",
+  },
+  ask_email_agent: {
+    label: "Gmail",
+    message: "Checking your mail request.",
+  },
   ask_documents_agent: {
     label: "Google Drive",
     message: "Searching your Drive for this answer.",
+  },
+  ask_connected_systems_agent: {
+    label: "Connected systems",
+    message: "Checking the connected-systems request.",
+  },
+  ask_consent_agent: {
+    label: "Consent",
+    message: "Checking the consent request.",
   },
   list_pending_connection_requests: {
     label: "Connection requests",
     message: "Checking your pending connection requests.",
   },
 };
+
+export const TURN_ACTIVITY_TYPE = "one.turn_activity.v1" as const;
+
+/** A restored Activity row: the same app-authored fields the live panel renders. */
+export type RestoredActivityStep = {
+  id: string;
+  label: string;
+  message: string;
+  status: "done" | "waiting" | "blocked";
+  tag?: "Read" | "Needs review" | "Public";
+  provider?: "gmail" | "drive" | "calendar";
+  toolName: string;
+  /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
+  connectorId?: string;
+};
+
+/**
+ * Rebuild a turn's Activity rows from the server's bound history descriptor.
+ * Labels and sentences come from the same app-owned table as the live stream;
+ * the descriptor only chooses among them. Unknown tools, statuses, or fields
+ * drop the row rather than render provider text.
+ */
+export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivityStep[] {
+  const record = asRecord(descriptor);
+  if (!record || record.activityType !== TURN_ACTIVITY_TYPE) return [];
+  const steps = asRecord(record.content)?.steps;
+  if (!Array.isArray(steps)) return [];
+  return steps.slice(-10).flatMap((value): RestoredActivityStep[] => {
+    const step = asRecord(value);
+    const id = typeof step?.id === "string" ? step.id.trim().slice(0, 128) : "";
+    const toolName = typeof step?.tool === "string" ? step.tool : "";
+    const rawStatus = step?.status;
+    if (!step || !id || !toolName) return [];
+    const mcp = /^mcp_[0-9a-f]{40}$/.test(toolName);
+    const presentation = SERVER_TOOL_PRESENTATION[toolName];
+    if (!mcp && !presentation) return [];
+    if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
+    const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
+    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    if (mcp) {
+      const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
+        ? step.connectorId : undefined;
+      const tag = status === "waiting" && step.review === "required" ? "Needs review"
+        : status === "done" && step.review === "read_only" ? "Read"
+          : status === "done" && step.review === "no_credential" ? "Public" : undefined;
+      return [{
+        id, toolName, label: "Connected tool", status,
+        message: rawStatus === "interrupted" ? "This step did not finish."
+          : status === "done" ? "Connector call finished."
+            : status === "waiting" ? "Waiting for your review." : "Connector call needs attention.",
+        ...(tag ? { tag } : {}),
+        ...(connectorId ? { connectorId } : {}),
+      }];
+    }
+    if (!presentation) return [];
+    let message = presentation.message;
+    if (rawStatus === "interrupted") message = "This step did not finish.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
+    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+      message = step.readStatus === "status_checked" ? "Drive status checked."
+        : step.readStatus === "ok" ? `${source} read finished.`
+          : step.readStatus === "input_required" ? `${source} needs more detail.`
+            : `${source} could not complete that read.`;
+    }
+    return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
+  });
+}
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
@@ -410,6 +522,7 @@ export async function streamAgentChat(input: {
   message: string;
   conversationId?: string | null;
   vaultOwnerToken: string;
+  loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
   personSelectionHandle?: string;
   /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
@@ -426,6 +539,26 @@ export async function streamAgentChat(input: {
   const timezone = resolveBrowserTimeZone();
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const mcpOwner = snapshotValidatedAuthSessionOwner();
+  const mcpVaultEpoch = snapshotVaultSessionEpoch();
+  const mcpSessionCurrent = () => Boolean(
+    mcpOwner && mcpOwner.userId === input.userId &&
+    isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
+    isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
+  );
+  // Owner-authored names from the owner's own vault, keyed by opaque id. The
+  // provider-authored tool name never labels a step: a server can write anything.
+  const connectorNames = new Map<string, string>();
+  const connectorProjection = async () => {
+    if (!input.loadConnectorConfigurations) return {};
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    const configurations = await input.loadConnectorConfigurations();
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    const mcpConfigurations = projectCustomConnectorTurnConfigurations(configurations);
+    connectorNames.clear();
+    for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
+    return { mcpConfigurations };
+  };
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
@@ -489,13 +622,23 @@ export async function streamAgentChat(input: {
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
+  const mcpReviews = new Map<string, McpCallReviewReference>();
+  // The server streams each native confirmation's projected arguments. A
+  // MESSAGES_SNAPSHOT can already hold the same call, and the AG-UI client then
+  // appends the streamed delta onto the snapshot's copy, which no longer parses.
+  // Parse the confirmation from its own streamed deltas instead.
+  const confirmationArgs = new Map<string, string>();
+  const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
     const serverPresentation = SERVER_TOOL_PRESENTATION[name];
     const resolvedActionId = typeof actionId === "string" ? actionId : null;
-    const label = action?.label || serverPresentation?.label || "One task";
+    // Native MCP identities are opaque digests. Never render their raw name or
+    // provider-authored descriptions as app-owned activity labels.
+    const label = action?.label || serverPresentation?.label ||
+      (/^mcp_[0-9a-f]{40}$/.test(name) ? "Connected tool" : "Agent step");
     const requiresConfirmation = action?.execution_policy === "confirm_required";
     const trustedActivationRequired =
       action?.activation_policy === "trusted_activation_required";
@@ -517,7 +660,8 @@ export async function streamAgentChat(input: {
         ? describeDirectiveForOwner(resolvedActionId, label, args, {
             requiresConfirmation: requiresConfirmation || trustedActivationRequired,
           })
-        : serverPresentation?.message || "One is working on your request.",
+        : serverPresentation?.message ||
+          (/^mcp_[0-9a-f]{40}$/.test(name) ? "Using a connected tool." : "Completing a step for your request."),
       requiresConfirmation,
       trustedActivationRequired,
       raw: {
@@ -531,6 +675,7 @@ export async function streamAgentChat(input: {
             tools,
             context: [],
             forwardedProps: {
+              ...await connectorProjection(),
               timezone,
               pkmContext: input.pkmContext,
               personSelectionHandle: input.personSelectionHandle,
@@ -545,6 +690,19 @@ export async function streamAgentChat(input: {
   };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
+    onEvent: ({ event }) => {
+      if (event.type === "REASONING_MESSAGE_CONTENT") {
+        const delta = (event as { delta?: unknown }).delta;
+        const metadata = (event as { metadata?: unknown }).metadata;
+        if (asRecord(metadata)?.husshThoughtSummary === true &&
+            typeof delta === "string" && delta.length > 0) {
+          handlers.onThinkingSummary?.(delta.slice(0, 2048));
+        }
+      }
+      return String(event.type).startsWith("REASONING_")
+        ? { stopPropagation: true }
+        : undefined;
+    },
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onMessagesSnapshotEvent: (snapshot) => {
       const { event } = snapshot;
@@ -558,11 +716,50 @@ export async function streamAgentChat(input: {
     },
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
+      if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
+    onToolCallArgsEvent: ({ event }) => {
+      const buffered = confirmationArgs.get(event.toolCallId);
+      if (buffered === undefined) return;
+      // Bounded like the server projection; an oversized review fails closed.
+      const next = buffered + (event.delta ?? "");
+      if (next.length > 64_000) confirmationArgs.delete(event.toolCallId);
+      else confirmationArgs.set(event.toolCallId, next);
+    },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
-        ? {} : toolCallArgs;
+      if (toolCallName === "adk_request_confirmation") {
+        const streamed = confirmationArgs.get(event.toolCallId);
+        confirmationArgs.delete(event.toolCallId);
+        let nativeArgs: Record<string, unknown> = toolCallArgs;
+        if (streamed) {
+          try { nativeArgs = asRecord(JSON.parse(streamed)) ?? toolCallArgs; } catch { /* keep client args */ }
+        }
+        const review = parseMcpCallReview(nativeArgs);
+        if (review) {
+          mcpReviews.set(event.toolCallId, review);
+          // Publish only after RUN_FINISHED supplies the native interrupt id.
+          // Neither pending handles nor private review details enter generic diagnostics.
+          return;
+        }
+        const original = asRecord(nativeArgs.originalFunctionCall);
+        const confirmation = asRecord(nativeArgs.toolConfirmation);
+        if ((typeof original?.name === "string" && original.name.startsWith("mcp_")) ||
+            asRecord(confirmation?.payload)?.kind === "mcp_call_review") {
+          handlers.onError?.("The connector review could not be verified. Please ask again.");
+          return;
+        }
+      }
+      const workspaceConnectorTool =
+        toolCallName === "discover_workspace_tools" ||
+        toolCallName === "read_workspace_tool";
+      const safeArgs = workspaceConnectorTool
+        ? { provider: toolCallArgs.provider }
+        : toolCallName === "inspect_private_connectors"
+          ? {}
+        : toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
+          ? {}
+          : toolCallArgs;
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -570,6 +767,41 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (/^mcp_[0-9a-f]{40}$/.test(toolName)) {
+        // Connector content belongs to owner presentation/history, never the
+        // generic debug payload or model-authored app-action parser. Approval
+        // references use the separate native interrupt/review contract.
+        const payload = toolPayload(event.toolCallId, toolName);
+        const result = parseRecord(event.content);
+        const outcome = result?.status;
+        const connectorId = result?.connectorId;
+        const connectorName = typeof connectorId === "string" ? connectorNames.get(connectorId) : undefined;
+        if (connectorName) payload.label = connectorName;
+        // A blocked or failed connector call must not render as a completed step.
+        payload.execution = outcome === "ok" || outcome === "review_required" ? "server" : "blocked";
+        if (outcome === "review_required") {
+          payload.status = "waiting";
+          payload.tag = "Needs review";
+        } else if (outcome === "ok" && result?.review === "read_only") {
+          payload.tag = "Read";
+        } else if (outcome === "ok" && result?.review === "no_credential") {
+          // Ran unreviewed because no credential was used, not because it only
+          // read: an unannotated tool on a public server may still change things.
+          payload.tag = "Public";
+        }
+        payload.message = outcome === "ok"
+          ? "Connector call finished."
+          : outcome === "review_required"
+            ? "Waiting for your review."
+            : "Connector call needs attention.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      const workspaceConnectorTool =
+        toolName === "discover_workspace_tools" ||
+        toolName === "read_workspace_tool" ||
+        toolName === "inspect_private_connectors";
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
       if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
@@ -589,6 +821,29 @@ export async function streamAgentChat(input: {
               ? `${source} needs more detail.`
               : `${source} could not complete that read.`;
         payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
+        return;
+      }
+      if (workspaceConnectorTool) {
+        const safeArgs = toolArgs.get(event.toolCallId) || {};
+        const experience = parseAgentToolResultExperience(
+          toolName,
+          event.content,
+          safeArgs,
+        );
+        const payload = toolPayload(event.toolCallId, toolName, safeArgs);
+        payload.execution = "server";
+        payload.message = toolName === "inspect_private_connectors"
+          ? "One checked your connectors."
+          : "Connector access checked.";
+        payload.raw = {
+          protocol: "ag-ui",
+          toolName,
+          ...(toolName === "inspect_private_connectors" ? {} : { provider: safeArgs.provider }),
+        };
         handlers.onToolResult?.(payload);
         if (experience) {
           handlers.onStructuredExperience?.(experience, event.toolCallId);
@@ -653,7 +908,11 @@ export async function streamAgentChat(input: {
           stopAfterConfirmation();
         }
       }
-      const experience = parseAgentToolResultExperience(toolName, event.content);
+      const experience = parseAgentToolResultExperience(
+        toolName,
+        event.content,
+        toolArgs.get(event.toolCallId),
+      );
       if (experience) {
         // Redelivery can assign a new transport message while retaining the
         // same invocation. One invocation owns one evolving card.
@@ -756,6 +1015,65 @@ export async function streamAgentChat(input: {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
         }
+        for (const [callId, reference] of mcpReviews) {
+          const interruptId = interruptsByToolCall.get(callId);
+          if (!interruptId || publishedMcpReviews.has(callId)) continue;
+          publishedMcpReviews.add(callId);
+          let attempted = false;
+          handlers.onMcpReview?.({
+            reference,
+            conversationId: threadId,
+            isCurrent: mcpSessionCurrent,
+            loadConfiguration: input.loadConnectorConfigurations ? async () => {
+              const projection = await connectorProjection();
+              const configuration = projection.mcpConfigurations?.find(item => item.connectorId === reference.connectorId);
+              if (reference.connectorId.startsWith("custom_") && !configuration) {
+                throw new Error("This connector was removed. Prepare a new request.");
+              }
+              return configuration;
+            } : undefined,
+            resume: async (approval, signal) => {
+              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= Date.now()) {
+                throw new Error("This connector review expired or was already used.");
+              }
+              if (approval && (
+                approval.directiveId !== reference.directiveId ||
+                approval.connectorId !== reference.connectorId ||
+                approval.toolName !== reference.toolName ||
+                approval.pendingHandle !== reference.pendingHandle ||
+                !/^[A-Za-z0-9_-]{32,128}$/.test(approval.receipt)
+              )) throw new Error("This confirmation does not match the connector review.");
+              // A lost acknowledgement must not cause an automatic second mutation.
+              attempted = true;
+              const abortResume = () => agent.abortRun();
+              input.signal?.addEventListener("abort", abortResume, { once: true });
+              signal?.addEventListener("abort", abortResume, { once: true });
+              try {
+                await agent.runAgent({
+                  tools, context: [],
+                  forwardedProps: {
+                    ...await connectorProjection(),
+                    timezone, pkmContext: input.pkmContext,
+                    personSelectionHandle: input.personSelectionHandle,
+                    gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
+                    screenContext: input.screenContext,
+                    ...(approval ? { mcpApproval: {
+                      directiveId: approval.directiveId, connectorId: approval.connectorId,
+                      toolName: approval.toolName, pendingHandle: approval.pendingHandle,
+                      receipt: approval.receipt,
+                    } } : {}),
+                  },
+                  resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
+                }, subscriber);
+                if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
+                if (failure) throw failure;
+              } finally {
+                input.signal?.removeEventListener("abort", abortResume);
+                signal?.removeEventListener("abort", abortResume);
+              }
+            },
+          });
+        }
         interrupted = true;
         handlers.onInterrupt?.({ conversationId: threadId });
         // The visible confirmation card owns the next step. The resumable
@@ -797,6 +1115,7 @@ export async function streamAgentChat(input: {
       tools,
       context: [],
       forwardedProps: {
+        ...await connectorProjection(),
         timezone,
         pkmContext: input.pkmContext,
         personSelectionHandle: input.personSelectionHandle,
@@ -907,6 +1226,7 @@ export async function getAgentChatHistory(input: {
         structuredExperienceId?: string | null;
         structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
         specialist_read?: unknown;
+        turnActivity?: { activityType?: string; content?: unknown } | null;
       } | null;
     }>;
   };
@@ -929,6 +1249,8 @@ export async function getAgentChatHistory(input: {
             structuredExperience: message.metadata.structuredExperience,
             structuredExperienceId: message.metadata.structuredExperienceId,
             structuredExperiences: message.metadata.structuredExperiences,
+            ...(message.role === "assistant" && message.metadata.turnActivity
+              ? { turnActivity: message.metadata.turnActivity } : {}),
             connectorRead:
               message.role === "assistant"
                 ? parseConnectorReadReceipt(message.metadata.specialist_read)
@@ -936,6 +1258,38 @@ export async function getAgentChatHistory(input: {
           }
         : message.metadata,
     }));
+}
+
+/** Record only a request locator; the Chat owner derives the history card from its ledger. */
+export async function recordAgentChatInformationRequest(input: {
+  conversationId: string;
+  sourceActivityId: string;
+  bundleId: string;
+  idempotencyKey: string;
+  vaultOwnerToken: string;
+}): Promise<AgentStructuredExperience> {
+  const response = await ApiService.apiFetch(
+    `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+      body: JSON.stringify({
+        source_activity_id: input.sourceActivityId,
+        bundle_id: input.bundleId,
+        idempotency_key: input.idempotencyKey,
+      }),
+    },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  const payload = (await response.json()) as { descriptor?: { activityType?: string; content?: unknown } };
+  const descriptor = payload.descriptor;
+  const experience = descriptor?.activityType === "one.information_request_review.v1"
+    ? parseAgentActivityExperience(descriptor.activityType, descriptor.content) : null;
+  if (!experience || experience.type !== "one.information_request_review.v1"
+    || experience.phase !== "submitted" || experience.bundleId !== input.bundleId) {
+    throw new Error("The submitted request history could not be verified.");
+  }
+  return experience;
 }
 
 /**
@@ -1011,4 +1365,260 @@ export async function deleteAgentChatConversation(input: {
     throw new Error(await readError(response));
   }
   return (await response.json()) as { conversation_id: string; deleted: boolean };
+}
+
+/**
+ * Where a turn is answered: the shared hub, or the person's own pod.
+ *
+ * Returned alongside the answer so the UI can SAY which cell replied. The north star
+ * requires the person to be able to tell whose compute served them; a silent switch
+ * would make "your own private agent" an unverifiable claim.
+ */
+export type TurnCell = "hub" | "pod";
+
+/** How long a turn waits for the pod address before reporting unavailable status.
+ *
+ * Short enough that a person with no agent never notices, long enough to cover a
+ * status read that is merely in flight (measured on dev: ~330ms). */
+export const POD_VERDICT_WAIT_MS = 1_500;
+
+async function waitForPodVerdict(input: {
+  podResolved?: boolean;
+  podHushhId?: string | null;
+  podState?: string | null;
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
+}): Promise<void> {
+  const read = input.readPodAddress;
+  if (!read) return; // the caller cannot re-read; answer with what we have
+  const deadline = Date.now() + POD_VERDICT_WAIT_MS;
+  while (Date.now() < deadline) {
+    const latest = read();
+    if (latest.resolved) {
+      input.podResolved = true;
+      input.podHushhId = latest.hushhId;
+      input.podState = latest.state;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+export function agentTurnAvailabilityMessage(code: string): string | null {
+  if (code === "AGENT_SETUP_REQUIRED") {
+    return "Set up your private agent before sending a message.";
+  }
+  if (code === "AGENT_STATUS_UNKNOWN") {
+    return "Your private agent's status could not be confirmed. Check its setup and try again.";
+  }
+  if (code === "AGENT_UNAVAILABLE") {
+    return "Your private agent is not available yet. Check its setup before trying again.";
+  }
+  return null;
+}
+
+export type AgentTurnResult = {
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  cell: TurnCell;
+  /** Present only for a pod turn: DERIVED by the pod, never asserted by the client. */
+  grounded?: boolean;
+  provider?: string | null;
+  runtimeMode?: string | null;
+};
+
+/**
+ * Run one Agent Chat turn on whichever cell belongs to this person.
+ *
+ * WHY THIS EXISTS RATHER THAN A BRANCH IN THE COMPONENT
+ * `ApiService.runPodTurn` was complete and had ZERO callers, so every turn went to the
+ * shared hub even for someone whose pod was live -- the north star's central claim
+ * ("their complete agent ecosystem runs in their pod") was unreachable from the product.
+ *
+ * The two cells do not answer the same SHAPE. The hub streams SSE; the pod returns one
+ * complete response. Branching inside the chat component would have put that difference
+ * in a 4,600-line file at two separate call sites. It lives here instead, so the
+ * component asks one question -- "run this turn" -- and the shape difference is owned in
+ * one place.
+ *
+ * HONEST STREAMING, NOT FAKE STREAMING
+ * A pod turn is delivered as ONE `onToken` call with the whole answer. It would have
+ * been easy to slice the text and emit it character by character so the UI looked
+ * identical, and that would be a lie about where the latency went: the person would see
+ * a typing animation for text that had already fully arrived. The rail shows real
+ * progress or it shows none.
+ */
+export async function runAgentChatTurn(input: {
+  userId: string;
+  message: string;
+  conversationId?: string | null;
+  vaultOwnerToken: string;
+  pkmContext?: string;
+  screenContext?: Record<string, unknown> | null;
+  runtimeCredential?: string | null;
+  runtimeCredentialMode?: string | null;
+  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider?: "puppy" | null;
+  puppyDeviceId?: string | null;
+  runtimeVertexProject?: string | null;
+  runtimeVertexLocation?: string | null;
+  /** The visible transcript, oldest first, supplements durable pod memory. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  delegateAgentId?: string | null;
+  delegateResult?: Record<string, unknown>;
+  signal?: AbortSignal;
+  handlers?: AgentChatStreamHandlers;
+  /** The owner's pod address; absence requires setup, never shared execution. */
+  podHushhId?: string | null;
+  /** Whether the pod status has been read at least once. `false` means unknown. */
+  podResolved?: boolean;
+  /** Re-read the caller's latest pod address; supplied by the surface that polls. */
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
+  /** Their pod's lifecycle state. Only `active` is answerable. */
+  podState?: string | null;
+}): Promise<AgentTurnResult> {
+  // An unresolved or inactive private agent never grants shared-runtime authority.
+  if (input.podResolved === false) {
+    await waitForPodVerdict(input);
+  }
+  let unavailable: string | null = null;
+  if (input.podResolved === false || (!input.podHushhId && input.podResolved !== true)) {
+    unavailable = "AGENT_STATUS_UNKNOWN";
+  } else if (!input.podHushhId) {
+    unavailable = "AGENT_SETUP_REQUIRED";
+  } else if (input.podState !== "active") {
+    unavailable = "AGENT_UNAVAILABLE";
+  }
+  if (unavailable) {
+    input.handlers?.onError?.(unavailable);
+    throw new Error(unavailable);
+  }
+
+  const handlers = input.handlers ?? {};
+  const conversationId = input.conversationId || "";
+  try {
+    const turn = await ApiService.runPodTurn({
+      hushhId: String(input.podHushhId),
+      vaultOwnerToken: input.vaultOwnerToken,
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: resolveBrowserTimeZone(),
+      runtimeCredential: input.runtimeCredential,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId,
+      vertexProject: input.runtimeVertexProject,
+      vertexLocation: input.runtimeVertexLocation,
+      // The owner's own consented projection, decrypted on their device. This is what
+      // makes a pod turn grounded WITHOUT the pod holding PKM or reaching a database.
+      pkmContext: input.pkmContext,
+      history: input.history,
+      signal: input.signal,
+    });
+
+    // Remember which pod and which runtime served this conversation, so the close
+    // sent on leaving the chat can run the review on the SAME model without a
+    // second vault read at the one moment (pagehide) there is no time for one.
+    if (conversationId) {
+      lastPodConversation = {
+        hushhId: String(input.podHushhId),
+        conversationId,
+        runtimeCredential: input.runtimeCredential ?? null,
+        runtimeCredentialTransport: input.runtimeCredentialTransport ?? null,
+        runtimeProvider: input.runtimeProvider ?? null,
+        puppyDeviceId: input.puppyDeviceId ?? null,
+        vertexProject: input.runtimeVertexProject ?? null,
+        vertexLocation: input.runtimeVertexLocation ?? null,
+      };
+    }
+
+    handlers.onStart?.({ conversationId, model: turn.model });
+    if (turn.text) handlers.onToken?.(turn.text);
+    handlers.onComplete?.({ conversationId, model: turn.model });
+    return {
+      conversationId: input.conversationId ?? null,
+      model: turn.model,
+      text: turn.text,
+      cell: "pod",
+      grounded: turn.grounded,
+      provider: turn.provider,
+      runtimeMode: turn.runtimeMode,
+    };
+  } catch (error) {
+    // The three typed failures `runPodTurn` raises are about THIS person's pod, and
+    // each has a different remedy. Falling back to the hub would answer them anyway and
+    // hide the fault -- the person would believe their pod served a turn it never saw,
+    // which is the "200 on an empty page" failure this codebase argues against
+    // everywhere else. Surface it and let the caller decide.
+    const message = error instanceof Error ? error.message : "AGENT_UNREACHABLE";
+    handlers.onError?.(message);
+    throw error;
+  }
+}
+
+type PodConversationRuntime = {
+  hushhId: string;
+  conversationId: string;
+  runtimeCredential: string | null;
+  runtimeCredentialTransport: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider: "puppy" | null;
+  puppyDeviceId: string | null;
+  vertexProject: string | null;
+  vertexLocation: string | null;
+};
+
+// The last conversation a pod turn served in this page, with the runtime that
+// served it. Module-level on purpose: the close fires from a `pagehide` or a
+// route change, where no component state is guaranteed to still exist.
+let lastPodConversation: PodConversationRuntime | null = null;
+
+/** Test seam and page-lifecycle reset. */
+export function _resetLastPodConversation(): void {
+  lastPodConversation = null;
+}
+
+/**
+ * The person left a conversation: let their pod review it and learn.
+ *
+ * WHY HERE. Decision 3 of the owner-pod plan (2026-09-10): the private agent learns
+ * on conversation close, plus a catch-up before the next answer. Learning on every
+ * reply would slow each answer; learning never would leave the transcript
+ * un-curated. The close is the cheap moment, and the pod's own catch-up covers a
+ * close that never arrived (tab killed, network gone), so this call is best-effort
+ * by design and its result is never needed by the UI.
+ *
+ * Fires only for a conversation a POD turn actually served; a shared-hub
+ * conversation has no pod to review it. Idempotent per conversation id: a route
+ * change and a `pagehide` for the same chat send one close, not two.
+ */
+export async function closeAgentChatConversation(input: {
+  conversationId?: string | null;
+  /** When omitted, the conversation the last pod turn served is closed. */
+  hushhId?: string | null;
+}): Promise<boolean> {
+  const remembered = lastPodConversation;
+  const conversationId = input.conversationId || remembered?.conversationId || "";
+  const hushhId = input.hushhId || remembered?.hushhId || "";
+  if (!conversationId || !hushhId) return false;
+  if (!remembered || remembered.conversationId !== conversationId) {
+    // Not a conversation this page's pod turns served: nothing to review here.
+    return false;
+  }
+  lastPodConversation = null;
+  try {
+    await ApiService.closePodConversation({
+      hushhId,
+      conversationId,
+      runtimeCredential: remembered.runtimeCredential,
+      runtimeCredentialTransport: remembered.runtimeCredentialTransport,
+      runtimeProvider: remembered.runtimeProvider,
+      puppyDeviceId: remembered.puppyDeviceId,
+      vertexProject: remembered.vertexProject,
+      vertexLocation: remembered.vertexLocation,
+    });
+    return true;
+  } catch {
+    // Best-effort: the pod catches up before its next answer.
+    return false;
+  }
 }

@@ -50,7 +50,7 @@ flowchart LR
   `claude/hushh-infrastructure-analysis-7o991c` is branch-only and feature
   flagged off. It proves a backend-neutral compute seam and a bounded GCP
   deployment loop, but official per-user A2A routing, remote revocation
-  enforcement, sensitive-action step-up, live Anypoint provisioning, and
+  enforcement, sensitive-action step-up, live BYOC acceptance, and
   concrete pod storage remain incomplete.
 - Signature Vault is a north-star consent pattern, not a shipped e-signature
   service. DocuSign remains the signing system until a separately verified

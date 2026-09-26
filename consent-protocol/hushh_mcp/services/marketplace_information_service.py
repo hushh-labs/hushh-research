@@ -158,8 +158,11 @@ class MarketplaceInformationService:
         self,
         pkm_service: PersonalKnowledgeModelService | None = None,
         request_service: MarketplaceRequestService | None = None,
+        *,
+        strict_reads: bool = False,
     ) -> None:
-        self._pkm = pkm_service or PersonalKnowledgeModelService()
+        self._strict_reads = strict_reads
+        self._pkm = pkm_service or PersonalKnowledgeModelService(strict_reads=strict_reads)
         self._requests = request_service or MarketplaceRequestService()
 
     async def _demand_snapshot(self, *, user_id: str) -> dict[str, Any]:
@@ -174,8 +177,12 @@ class MarketplaceInformationService:
         }
         try:
             requests = await self._requests.list_requests(owner_user_id=user_id)
-        except Exception:
-            logger.exception("marketplace.earnings_demand_read_failed")
+        except Exception as exc:
+            logger.warning(
+                "marketplace.earnings_demand_read_failed error_type=%s", type(exc).__name__
+            )
+            if self._strict_reads:
+                raise RuntimeError("Marketplace demand unavailable") from None
             return empty
         pending = [r for r in requests if r.get("status") == "pending"]
         approved = [r for r in requests if r.get("status") == "approved"]

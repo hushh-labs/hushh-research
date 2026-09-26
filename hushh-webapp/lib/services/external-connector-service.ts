@@ -1,5 +1,13 @@
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  projectCustomConnectorTurnConfigurations,
+  type CustomConnectorConfiguration,
+} from "@/lib/connections/custom-connector-configuration";
+import {
+  parseMcpCallApproval, parseMcpCallPreview,
+  type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
+} from "@/lib/agent/mcp-call-review";
 
 export type ExternalConnectorAuthStyle = "api_key" | "oauth";
 
@@ -81,6 +89,14 @@ export type PendingNativeDrivePicker = {
 };
 
 export type ConnectorEffectGuard = () => boolean;
+
+/** A provider credential failed during catalog discovery; never expose its response. */
+export class McpCatalogAuthenticationError extends Error {
+  constructor() {
+    super("Connector sign-in needs attention.");
+    this.name = "McpCatalogAuthenticationError";
+  }
+}
 /** Never persist this response, put it in React state, or send it through messages. */
 export type DrivePickerSession = {
   sessionId: string;
@@ -173,6 +189,140 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
+  /** Explicit connection only. Never used as an automatic tool-call retry. */
+  static async privateMcpOAuth(input: {
+    vaultOwnerToken: string; connectorId: string;
+    operation: "begin" | "complete" | "cancel";
+    payload: Record<string, unknown>; signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<unknown> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    if (!/^custom_[a-f0-9]{32}$/.test(input.connectorId) || !current()) throw new Error("Your connection changed.");
+    const response = await ApiService.apiFetch(`/api/connectors/${input.connectorId}/mcp/oauth/${input.operation}`, {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify(input.payload),
+    });
+    if (!response.ok || !current()) throw new Error("Connection was not completed. Please connect again.");
+    if (response.status === 204) return null;
+    const value: unknown = await response.json();
+    if (!current()) throw new Error("Your connection changed.");
+    return value;
+  }
+
+  static async refreshMcpCatalog(input: {
+    vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
+    signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<Array<{ id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review: "required" | "not_required" }>> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    if (!current()) throw new Error("Your vault session changed.");
+    const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (!configuration) throw new Error("Enable this connector before refreshing.");
+    const response = await ApiService.apiFetch(`/api/connectors/${encodeURIComponent(configuration.connectorId)}/mcp/catalog`, {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ connectorConfiguration: configuration }),
+    });
+    if (!current()) throw new Error("Your vault session changed.");
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null);
+      const detail = payload && typeof payload === "object" && "detail" in payload
+        ? payload.detail : null;
+      const code = detail && typeof detail === "object" && "code" in detail
+        ? detail.code : null;
+      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED")
+        throw new McpCatalogAuthenticationError();
+      throw new Error("Could not refresh tools. Check the connection and try again.");
+    }
+    const value = await response.json();
+    if (!current() || value?.connectorId !== configuration.connectorId || value?.configurationRevision !== configuration.revision ||
+        !["available", "empty"].includes(value?.status) || !Array.isArray(value?.tools) || value.tools.length > 500) {
+      throw new Error("Connector tools changed. Refresh again.");
+    }
+    return value.tools.map((tool: Record<string, unknown>) => {
+      if (!tool || typeof tool.id !== "string" || !/^mcp_[a-f0-9]{40}$/.test(tool.id) ||
+          typeof tool.name !== "string" || tool.name.length > 256 || typeof tool.revision !== "string" ||
+          tool.revision.length > 256 || typeof tool.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(tool.fingerprint) ||
+          !["ask_first", "blocked"].includes(String(tool.permission)) ||
+          (tool.review !== undefined && !["required", "not_required"].includes(String(tool.review))))
+        throw new Error("Invalid connector tools.");
+      // An older server omits `review`; that means every call is reviewed.
+      return { id: tool.id, name: tool.name, revision: tool.revision,
+        fingerprint: tool.fingerprint as string, permission: tool.permission as "ask_first" | "blocked",
+        review: tool.review === "not_required" ? "not_required" : "required" };
+    });
+  }
+
+  /** Fetch exact arguments into the active review only; never cache or log them. */
+  static async reviewMcpCall(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<McpCallPreview> {
+    const payload = await this.mcpReviewRequest(input, "review", {});
+    const preview = parseMcpCallPreview(payload, input.reference);
+    if (!preview) throw new Error("This connector review changed. Please review it again.");
+    return preview;
+  }
+
+  /** Explicit tap only. A failed acknowledgement never triggers an automatic retry. */
+  static async confirmMcpCall(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallPreview;
+    configuration?: CustomConnectorConfiguration;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<McpCallApproval> {
+    const payload = await this.mcpReviewRequest(input, "confirm", input.reference.arguments);
+    const approval = parseMcpCallApproval(payload, input.reference);
+    if (!approval) throw new Error("Confirmation could not be verified. No automatic retry was made.");
+    return approval;
+  }
+
+  private static async mcpReviewRequest(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallReviewReference;
+    configuration?: CustomConnectorConfiguration;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }, operation: "review" | "confirm", args: Record<string, unknown>): Promise<unknown> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent() &&
+      Date.parse(input.reference.expiresAt) > Date.now();
+    if (!current()) throw new Error("This review expired or your vault session changed.");
+    const configuration = input.configuration === undefined ? undefined :
+      projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (configuration && (!configuration.enabled || configuration.connectorId !== input.reference.connectorId)) {
+      throw new Error("This connector configuration changed. Open the review again.");
+    }
+    const response = await ApiService.apiFetch(
+      `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
+      {
+        method: "POST", cache: "no-store", signal: input.signal,
+        isEffectCurrent: current,
+        headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: input.conversationId,
+          toolName: input.reference.toolName,
+          pendingHandle: input.reference.pendingHandle,
+          arguments: args,
+          ...(configuration ? { connectorConfiguration: configuration } : {}),
+          ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
+        }),
+      },
+    );
+    // Never echo response bodies: they may contain private arguments or provider text.
+    if (!response.ok) throw new Error("Connector review is unavailable. No automatic retry was made.");
+    const payload: unknown = await response.json().catch(() => null);
+    if (!current()) throw new Error("Your vault session changed. Open the review again.");
+    return payload;
+  }
+
   static nativeDriveOAuthCallbackUri(): string {
     return nativeDriveOAuthCallbackUri();
   }

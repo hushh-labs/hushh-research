@@ -88,27 +88,23 @@ describe("Drive popup boundary", () => {
     expect(done).toHaveBeenCalledOnce();
     expect(target.close).toHaveBeenCalledOnce();
   });
-  it.each(["abort", "close", "expire"])(
+  it.each(["abort", "cancel", "expire"])(
     "reconciles %s without claiming provider success",
     async (kind) => {
       const target = popup();
       const controller = new AbortController();
-      const result = waitForDrivePopup(target, attempt(), controller.signal);
+      const cancel = new AbortController();
+      const result = waitForDrivePopup(target, attempt(), controller.signal, cancel.signal);
       if (kind === "abort") controller.abort();
-      else {
-        if (kind === "close")
-          Object.defineProperty(target, "closed", { value: true });
-        await vi.advanceTimersByTimeAsync(kind === "expire" ? 60_000 : 500);
-      }
+      else if (kind === "cancel") cancel.abort();
+      else await vi.advanceTimersByTimeAsync(60_000);
       expect(await result).toBeUndefined();
       expect(target.close).toHaveBeenCalledOnce();
     },
   );
-  it.each([
-    ["close", "closed"],
-    ["expire", "expired"],
-  ] as const)("reports the bounded %s completion reason", async (kind, reason) => {
+  it("reports bounded expiry without reading popup closure", async () => {
     const target = popup();
+    Object.defineProperty(target, "closed", { get: () => { throw new Error("COOP blocked"); } });
     const onFinish = vi.fn();
     const currentAttempt = attempt();
     const result = waitForOAuthPopup({
@@ -119,15 +115,18 @@ describe("Drive popup boundary", () => {
       storageValue: () => null,
       onFinish,
     });
-    if (kind === "close") {
-      Object.defineProperty(target, "closed", { value: true });
-      await vi.advanceTimersByTimeAsync(500);
-    } else {
-      await vi.advanceTimersByTimeAsync(60_000);
-    }
+    await vi.advanceTimersByTimeAsync(60_000);
 
     await result;
-    expect(onFinish).toHaveBeenCalledExactlyOnceWith(reason);
+    expect(onFinish).toHaveBeenCalledExactlyOnceWith("expired");
+  });
+  it("does not inspect a cross-origin popup's closed property", async () => {
+    const target = popup();
+    Object.defineProperty(target, "closed", { get: () => { throw new Error("COOP blocked"); } });
+    const cancel = new AbortController();
+    const result = waitForDrivePopup(target, attempt(), new AbortController().signal, cancel.signal);
+    cancel.abort();
+    await expect(result).resolves.toBeUndefined();
   });
   it("rejects malformed expiry without an unbounded watcher", async () => {
     const target = popup();

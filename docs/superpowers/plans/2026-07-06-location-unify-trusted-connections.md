@@ -12,13 +12,8 @@
 
 ## Visual Map
 
-```mermaid
-flowchart LR
-  share[Share location] --> dir[list_verified_recipients: broad directory]
-  checkin[Check-in / SOS] --> tc[(trusted_connections)]
-  claim[Circle-invite claim] --> tc
-  seed[Dev-account seeding] -.removed.-> x[gone]
-```
+Historical design map: see the [dated design snapshot](../specs/2026-07-06-location-unify-trusted-connections-design.md#visual-map). Verify the current trusted-connection implementation before using its old broad-directory premise.
+
 
 ## Global Constraints
 

@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from copy import deepcopy
@@ -238,26 +239,38 @@ def _node_version(node: dict[str, Any] | None) -> int:
         return 0
 
 
-def _load_evolution_deprecations() -> tuple[dict[str, Any], ...]:
-    """Load exact-revision, fail-closed capability retirement declarations.
-
-    Workflow migrations live with the owning workflow package. A removed node
-    cannot carry its own declaration in the new graph, so deprecations use this
-    small checked-in ledger and must name the exact predecessor revision and
-    version. Broad or stale acknowledgements never suppress the breaking gate.
-    """
-
+def _load_evolution_contract() -> dict[str, Any]:
     try:
         payload = json.loads(EVOLUTION_CONTRACT_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise RuntimeError("Capability graph evolution contract is unavailable.") from exc
+    allowed_keys = {"schema_version", "deprecations"}
     if (
         not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "deprecations"}
+        or set(payload) not in (allowed_keys, allowed_keys | {"workflow_predecessor_refs"})
         or payload.get("schema_version") != CAPABILITY_GRAPH_EVOLUTION_SCHEMA_VERSION
         or not isinstance(payload.get("deprecations"), list)
     ):
         raise RuntimeError("Capability graph evolution contract is invalid.")
+    return payload
+
+
+def _load_workflow_predecessor_refs() -> tuple[str, ...]:
+    refs = _load_evolution_contract().get("workflow_predecessor_refs", [])
+    if (
+        not isinstance(refs, list)
+        or len(refs) > 8
+        or any(not isinstance(ref, str) or not re.fullmatch(r"[0-9a-f]{40}", ref) for ref in refs)
+        or len(set(refs)) != len(refs)
+    ):
+        raise RuntimeError("Capability graph workflow predecessors are invalid.")
+    return tuple(refs)
+
+
+def _load_evolution_deprecations() -> tuple[dict[str, Any], ...]:
+    """Load exact-revision, fail-closed capability retirement declarations."""
+
+    payload = _load_evolution_contract()
     declarations: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     required = {
@@ -813,7 +826,7 @@ def build_payload(
         graph,
         semantic_diff,
     )
-    for ref in workflow_predecessor_refs:
+    for ref in dict.fromkeys((*_load_workflow_predecessor_refs(), *workflow_predecessor_refs)):
         _merge_workflow_predecessor(graph, _read_workflow_predecessor(ref))
     return graph
 

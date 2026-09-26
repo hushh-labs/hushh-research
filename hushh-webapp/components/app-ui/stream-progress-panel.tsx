@@ -7,6 +7,7 @@ import {
   Brain,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Loader2,
   type LucideIcon,
 } from "@/components/icons";
@@ -21,14 +22,20 @@ import { HelperText } from "@/components/app-ui/typography";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { cn } from "@/lib/utils";
 
-export type AppStreamProgressStatus = "running" | "done" | "blocked" | "error";
+/** `waiting` is paused on the person (e.g. a review), neither running nor done. */
+export type AppStreamProgressStatus = "running" | "waiting" | "done" | "blocked" | "error";
 
 export type AppStreamProgressItem = {
   id: string;
   label?: string;
   message: string;
   status?: AppStreamProgressStatus;
+  /** Replaces the status icon (specialist summaries). */
   badge?: string;
+  /** Shown beside the label while keeping the status icon. */
+  tag?: string;
+  /** Optional decorative mark before the label (e.g. an official connector logo). */
+  mark?: ReactNode;
 };
 
 type AppStreamEventListProps = {
@@ -43,6 +50,7 @@ function ProgressStatusIcon({ status }: { status: AppStreamProgressStatus }) {
   if (status === "blocked" || status === "error") {
     return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
   }
+  if (status === "waiting") return <Clock className="h-3.5 w-3.5 text-accent-strong" />;
   return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong" />;
 }
 
@@ -81,8 +89,18 @@ export const AppStreamEventList = memo(function AppStreamEventList({
                 <ProgressStatusIcon status={status} />
               </span>
             )}
-            <div className="min-w-0">
-              {item.label ? <p className="font-medium text-foreground">{item.label}</p> : null}
+            <div className="min-w-0" data-status={status}>
+              {item.label || item.tag ? (
+                <p className="flex flex-wrap items-center gap-x-1.5 font-medium text-foreground">
+                  {item.mark ? <span className="inline-flex shrink-0" aria-hidden="true">{item.mark}</span> : null}
+                  {item.label ? <span className="min-w-0 break-words">{item.label}</span> : null}
+                  {item.tag ? (
+                    <span className="rounded-full bg-accent-surface px-1.5 py-px text-[0.6875rem] font-semibold text-accent-strong">
+                      {item.tag}
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
               <p className="break-words text-muted-foreground">{item.message}</p>
             </div>
           </li>

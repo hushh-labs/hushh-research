@@ -8,6 +8,22 @@ backend_cloudbuild="$REPO_ROOT/deploy/backend.cloudbuild.yaml"
 frontend_cloudbuild="$REPO_ROOT/deploy/frontend.cloudbuild.yaml"
 ria_proxy_route="$REPO_ROOT/hushh-webapp/app/api/ria/[...path]/route.ts"
 
+# Cloud Build rejects a template that references an undeclared substitution,
+# even when that setting is optional and the deploy workflow leaves it empty.
+python3 - "$backend_cloudbuild" "$frontend_cloudbuild" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+for name in sys.argv[1:]:
+    source = Path(name).read_text(encoding="utf-8")
+    referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", source))
+    declared = set(re.findall(r"^  (_[A-Z0-9_]+):", source, re.MULTILINE))
+    missing = sorted(referenced - declared)
+    if missing:
+        raise SystemExit(f"{name}: undeclared Cloud Build substitutions: {', '.join(missing)}")
+PY
+
 if grep -q 'consent-protocol-rpphvsc3tq-uc.a.run.app' "$backend_helper"; then
   echo "❌ backend route helper still hardcodes a production backend fallback."
   exit 1

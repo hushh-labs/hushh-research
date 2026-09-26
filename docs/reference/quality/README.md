@@ -28,6 +28,8 @@ flowchart TD
   root --> n7
   n10["Morphy Agent Experience"]
   root --> n10
+  n12["ADK Orchestration Documentation Audit"]
+  root --> n12
 ```
 
 This is the north-star entrypoint for design-system rules plus verification contracts that decide whether UI and analytics behavior are trustworthy.
@@ -47,3 +49,6 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [morphy-agent-experience.md](./morphy-agent-experience.md): internal AX snapshot, intelligence-validation boundary, presentation posture, and performance contract.
 - [pr-contributor-readiness.md](./pr-contributor-readiness.md): contributor-facing merge readiness, common blockers, maintainer patch/harvest handling, and attribution rules.
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.
+- [adk-orchestration-docs-audit.md](./adk-orchestration-docs-audit.md): revision-bound source audit for One delegation, Plaid passthrough, and related operational documentation.
+- [diagram-structure-audit-2026-09-25.md](./diagram-structure-audit-2026-09-25.md): integrated-branch diagram and structure review; the [per-figure disposition ledger](./diagram-dispositions-2026-09-25.jsonl) records every maintained Mermaid figure.
+- [architecture-fitness-baseline.json](./architecture-fitness-baseline.json): measured post-pilot debt baseline for the new-or-worsened CI ratchet; existing findings remain visible.

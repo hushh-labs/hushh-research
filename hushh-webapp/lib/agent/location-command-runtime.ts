@@ -132,6 +132,7 @@ class CommandRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code = "COMMAND_UNAVAILABLE",
   ) {
     super(message);
   }
@@ -146,6 +147,7 @@ export type CommandPresentation = {
   recoverable?: CommandCheckpoint[];
 };
 export type CommandPorts = {
+  modelConnection?: () => Promise<Record<string, unknown>>;
   authority(): { userId: string; token: string; vaultKey: string } | null;
   context(): Record<string, unknown>;
   execute(
@@ -177,6 +179,7 @@ export class LocationCommandRuntime {
   private generation = 0;
   private admission: Admission | null = null;
   private abort = new AbortController();
+  private transcriptionAbort = new AbortController();
   private busy = false;
   private transcript = "";
   private permissionGate = false;
@@ -190,6 +193,10 @@ export class LocationCommandRuntime {
     null;
 
   constructor(private readonly ports: CommandPorts) {}
+
+  get hasActiveCheckpoint(): boolean {
+    return this.run?.checkpoint !== undefined && this.run?.checkpoint !== null;
+  }
 
   clearReferences(): void {
     this.references.clear();
@@ -242,25 +249,49 @@ export class LocationCommandRuntime {
     path: string,
     body?: unknown,
     method = "POST",
+    signal = this.abort.signal,
   ): Promise<T> {
     const authority = this.authority();
-    const response = await ApiService.apiFetch(`/api/one/${path}`, {
+    const init: RequestInit = {
       method,
-      headers: {
-        Authorization: `Bearer ${authority.token}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+    };
+    const response = path.startsWith("pod/commands/")
+      ? await ApiService.ownerPodRequest(path.slice(4), { ...init, signal })
+      : await ApiService.apiFetch(`/api/one/${path}`, {
+          ...init,
+          headers: {
+            ...init.headers,
+            Authorization: `Bearer ${authority.token}`,
+          },
+        });
     if (this.ports.authority()?.userId !== authority.userId)
       throw new Error("Your account changed. Unlock to continue.");
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
+      const code =
+        typeof result?.detail?.code === "string"
+          ? result?.detail.code
+          : "COMMAND_UNAVAILABLE";
+      const messages: Record<string, string> = {
+        AGENT_PRIVATE_RUNTIME_REQUIRED:
+          "Connect your private pod to use this command.",
+        POD_DIRECT_NOT_READY: "Your private pod connection is not ready yet.",
+        LOCAL_AUTHORITY_UNAVAILABLE:
+          "Your private pod could not verify this session. Reconnect to continue.",
+      };
       throw new CommandRequestError(
-        typeof result.detail === "string"
-          ? result.detail
-          : "The command could not continue. Refresh its checkpoint.",
+        messages[code] ??
+          (typeof result?.detail === "string"
+            ? result?.detail
+            : response.status === 401 || response.status === 403
+              ? "Unlock your vault and reconnect to continue."
+              : response.status >= 500
+                ? "The command service is temporarily unavailable. Try again shortly."
+                : "The command could not continue. Try again."),
         response.status,
+        code,
       );
     }
     const result = (await response.json()) as T;
@@ -289,14 +320,44 @@ export class LocationCommandRuntime {
       throw new Error("Command paused.");
   }
 
+  cancelTranscription(): void {
+    this.transcriptionAbort.abort();
+  }
+
   async transcribe(audioBase64: string): Promise<string> {
+    this.cancelTranscription();
+    this.transcriptionAbort = new AbortController();
     const generation = this.generation;
     const result = await this.request<{ transcript: string }>(
-      "transcriptions",
-      { audio_base64: audioBase64 },
+      "pod/commands/transcriptions",
+      {
+        audio_base64: audioBase64,
+        model: (await this.ports.modelConnection?.()) ?? {},
+      },
+      "POST",
+      this.transcriptionAbort.signal,
     );
     this.check(generation);
     return result.transcript;
+  }
+
+  private async assessPrivately(
+    input: Record<string, unknown>,
+  ): Promise<unknown> {
+    const generation = this.generation;
+    const grant = await this.request<{ scopeToken: string }>(
+      "agent-chat/proposals/prepare",
+    );
+    this.check(generation);
+    const model = (await this.ports.modelConnection?.()) ?? {};
+    this.check(generation);
+    const result = await this.request<unknown>("pod/commands/assess", {
+      ...input,
+      scope_token: grant.scopeToken,
+      model,
+    });
+    this.check(generation);
+    return result;
   }
 
   async submit(
@@ -334,9 +395,13 @@ export class LocationCommandRuntime {
         ...(typedAction
           ? { action: typedAction }
           : {
-              query: this.transcript,
+              semantic: await this.assessPrivately({
+                query: this.transcript,
+                context: this.ports.context(),
+                plan_version: "location.plan.v2",
+                observations: this.references.list(this.authority().userId),
+              }),
               plan_version: "location.plan.v2",
-              observations: this.references.list(this.authority().userId),
             }),
         context: this.ports.context(),
       });
@@ -662,25 +727,37 @@ export class LocationCommandRuntime {
       throw new Error(
         "Resume the original operation before changing this task.",
       );
+    const savedObservations = (this.run.observations || []).filter((value) =>
+      this.run!.plan.steps.slice(this.run!.checkpoint.next_step).some(
+        (step) =>
+          "action_id" in step &&
+          step.references?.some((item) => item.reference === value.reference),
+      ),
+    );
+    const semantic = await this.assessPrivately({
+      context: this.ports.context(),
+      plan_version: this.run.plan.schema_version,
+      completed_steps: this.run.plan.steps.slice(
+        0,
+        this.run.checkpoint.next_step,
+      ),
+      observations: this.references.list(this.authority().userId),
+      saved_observations: savedObservations,
+      query: JSON.stringify({
+        intent_summary: this.run.plan.intent_summary,
+        pending_steps: this.run.plan.steps.slice(this.run.checkpoint.next_step),
+        clarification: input,
+      }),
+    });
+    this.check(generation);
     const result = await this.request<{
       plan: LocationCommandPlan;
       assessment_token: string;
       observations?: LocationObservation[];
     }>(`action-proposals/${this.run.checkpoint.command_id}/resolve`, {
       ...this.body(),
-      observations: this.references.list(this.authority().userId),
-      saved_observations: (this.run.observations || []).filter((value) =>
-        this.run!.plan.steps.slice(this.run!.checkpoint.next_step).some(
-          (step) =>
-            "action_id" in step &&
-            step.references?.some((item) => item.reference === value.reference),
-        ),
-      ),
-      query: JSON.stringify({
-        intent_summary: this.run.plan.intent_summary,
-        pending_steps: this.run.plan.steps.slice(this.run.checkpoint.next_step),
-        clarification: input,
-      }),
+      semantic,
+      saved_observations: savedObservations,
     });
     this.check(generation);
     const replacement = {
@@ -1502,7 +1579,8 @@ export class LocationCommandRuntime {
     };
     if (
       admission.workflow_finalize_renewed === true &&
-      result.run.pendingDirective?.contractId === "one.location.awaiting_vault_finalize.v2" &&
+      result.run.pendingDirective?.contractId ===
+        "one.location.awaiting_vault_finalize.v2" &&
       result.run.pkmFinalizeAuthorization &&
       !result.run.evidence.place
     ) {
@@ -1635,6 +1713,7 @@ export class LocationCommandRuntime {
       throw new Error("Unlock the original account to cancel this task.");
     const generation = ++this.generation;
     this.abort.abort();
+    this.cancelTranscription();
     this.ports.pauseWorkflow?.();
     this.run = null;
     this.admission = null;
@@ -1686,6 +1765,7 @@ export class LocationCommandRuntime {
   pause(): void {
     this.generation++;
     this.abort.abort();
+    this.cancelTranscription();
     this.ports.pauseWorkflow?.();
     this.run = null;
     this.pendingCancellation = null;

@@ -343,7 +343,7 @@ export async function previewAgentPkmMemory(params: {
   };
 }
 
-function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
+export function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
   const structureDecision = toRecord(card.structure_decision);
   const manifestDraft = card.manifest_draft && typeof card.manifest_draft === "object"
     ? card.manifest_draft
@@ -382,6 +382,8 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
+  /** Stable operation identity for safe retries of a reviewed import. */
+  idempotencyScope?: string;
   confirmation: PkmWriteAuthorization;
   beforeEffect?: () => Promise<void>;
   mayPublish?: () => boolean;
@@ -556,7 +558,10 @@ export async function addToPKM(params: {
                     affectedExportIds: sharingImpact.affected_export_ids,
                   }
                 : undefined,
-            },
+        },
+        idempotencyScope: params.idempotencyScope
+          ? `${params.idempotencyScope}:${cardId}`
+          : undefined,
         build: async () => ({
           domainData: candidatePayload,
           summary: {

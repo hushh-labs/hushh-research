@@ -39,6 +39,7 @@ import {
   type KaiStreamEnvelope,
 } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
+import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
   toDurationBucket,
   trackApiRequestCompleted,
@@ -511,6 +512,12 @@ export function webFetchTimeoutMsForPath(path: string): number {
 }
 
 /**
+ * Pod turns may use a slow, owner-local model. Keep a client ceiling above the
+ * hub and pod route ceilings so typed backend timeouts reach the caller.
+ */
+export const POD_TURN_FETCH_TIMEOUT_MS = 170_000;
+
+/**
  * `fetch` has no default timeout. A request that never receives a response
  * leaves its promise pending for as long as the tab lives, and every caller
  * awaiting it spins with no error and no way back. The native branch of
@@ -554,6 +561,7 @@ export async function fetchWithWebTimeout(
 }
 
 export type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
   /** Revalidate effect authority after async transport setup, including retries. */
   beforeDispatch?: () => Promise<void>;
   /** Synchronous final check: no await may separate authority from dispatch. */
@@ -564,7 +572,7 @@ async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, ...fetchOptions } = options;
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -885,13 +893,12 @@ async function apiFetch(
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
       // unbounded — keep legitimately-slow uploads/downloads working).
-      // Synchronous Drive work, document preparation included, waits as long
-      // natively as on the web (webFetchTimeoutMsForPath).
-      const readTimeoutMs = isLongDriveSharingPath(path)
+      // Synchronous Drive work can take longer on web and native.
+      const readTimeoutMs = requestTimeoutMs ?? (isLongDriveSharingPath(path)
           ? 180_000
           : isLongRunningRoute
             ? 90_000
-            : 60_000;
+            : 60_000);
       const request: {
         url: string;
         method: string;
@@ -920,7 +927,7 @@ async function apiFetch(
             ...fetchOptions,
             credentials: "include",
             headers: mergedHeaders,
-          }, webFetchTimeoutMsForPath(path));
+          }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
           return await settleAuthenticatedResponse(formResponse);
         }
         if (typeof options.body === "string") {
@@ -1011,7 +1018,7 @@ async function apiFetch(
       ...fetchOptions,
       credentials: "include",
       headers: mergedHeaders,
-    }, webFetchTimeoutMsForPath(path));
+    }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
@@ -1465,6 +1472,328 @@ export class ApiService {
     return getDirectBackendUrl();
   }
 
+  static async composeKaiVoiceReply(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    response: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    context?: Record<string, unknown>;
+    structuredContext?: unknown;
+    turnId?: string;
+    responseId?: string;
+    mode?: string;
+    actionId?: string | null;
+    slots?: Record<string, unknown>;
+    guards?: string[];
+    replyStrategy?: string;
+    clarification?: Record<string, unknown> | null;
+    actionCompletion?: string | null;
+    actionResult?: Record<string, unknown> | null;
+    memoryShort?: unknown[];
+    memoryRetrieved?: unknown[];
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/voice/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        response: data.response,
+        app_state: data.appState,
+        context: data.context || {},
+        context_structured: data.structuredContext || {},
+        turn_id: data.turnId,
+        response_id: data.responseId,
+        mode: data.mode,
+        action_id: data.actionId,
+        slots: data.slots || {},
+        guards: data.guards || [],
+        reply_strategy: data.replyStrategy,
+        clarification: data.clarification ?? null,
+        action_completion: data.actionCompletion ?? null,
+        action_result: data.actionResult ?? null,
+        memory_short: data.memoryShort || [],
+        memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async planOneVoiceIntent(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    context?: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    plannerV2?: {
+      turnId: string;
+      transcriptFinal: string;
+      structuredContext?: unknown;
+      memoryShort?: unknown[];
+      memoryRetrieved?: unknown[];
+    };
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return apiFetch("/api/one/voice/plan", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        context: data.context || {},
+        app_state: data.appState,
+        turn_id: data.plannerV2?.turnId,
+        transcript_final: data.plannerV2?.transcriptFinal,
+        context_structured: data.plannerV2?.structuredContext,
+        memory_short: data.plannerV2?.memoryShort || [],
+        memory_retrieved: data.plannerV2?.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async beginByocAuthorize(input: {
+    projectId: string;
+    filesEnabled?: boolean;
+  }): Promise<{ authUrl: string }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/authorize/begin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ projectId: input.projectId, filesEnabled: input.filesEnabled ?? false }),
+    });
+    if (!response.ok) throw new Error("BYOC_AUTHORIZE_BEGIN_FAILED");
+    return response.json();
+  }
+
+  static async completeByocAuthorize(input: {
+    code: string;
+    state: string;
+  }): Promise<{ jobId: string; projectId: string; status: "running" }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/authorize/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error("BYOC_AUTHORIZE_FAILED");
+    return response.json();
+  }
+
+  static async checkByocProject(projectId: string): Promise<{
+    projectId: string;
+    valid: boolean;
+    available: boolean | null;
+    reason: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/project/check", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ projectId }),
+    });
+    if (!response.ok) throw new Error("BYOC_CHECK_FAILED");
+    return response.json();
+  }
+
+  static async planByocProject(input: {
+    projectId: string;
+    displayName?: string;
+    parentType?: "organization" | "folder";
+    parentId?: string;
+  }): Promise<{
+    guided: {
+      mode: string;
+      projectId: string;
+      consoleUrl: string;
+      cliCommand: string;
+      billingNote: string;
+      whatHushhGets: string;
+    };
+    delegated: Record<string, string>;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/project/plan", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        projectId: input.projectId,
+        displayName: input.displayName ?? "",
+        parentType: input.parentType ?? null,
+        parentId: input.parentId ?? "",
+      }),
+    });
+    if (!response.ok) throw new Error("BYOC_PLAN_FAILED");
+    return response.json();
+  }
+
+  static async suggestByocProject(): Promise<{
+    projectId: string;
+    displayName: string;
+    editable: boolean;
+    rationale: string;
+    creationModes: string[];
+    filesAvailable?: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/project/suggest", {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("BYOC_SUGGESTION_UNAVAILABLE");
+    return response.json();
+  }
+
+  static async saveByocProject(input: {
+    projectId: string;
+    region?: string;
+    bootstrapServiceAccountId?: string;
+  }): Promise<{
+    projectId: string;
+    region: string;
+    bootstrapServiceAccount: string;
+    authorized: boolean;
+    hushhCaller: string;
+    nextStep: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/project/save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        projectId: input.projectId,
+        region: input.region ?? "us-central1",
+        bootstrapServiceAccountId: input.bootstrapServiceAccountId ?? "one-bootstrap",
+      }),
+    });
+    if (!response.ok) throw new Error("BYOC_SAVE_FAILED");
+    return response.json();
+  }
+
+  static async getByocSetupStatus(): Promise<{
+    status: "none" | "running" | "recorded" | "failed";
+    stage: string;
+    stages: Array<{ stage: string; at: string }>;
+    projectId: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    stale: boolean;
+    updatedAt: string | null;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/setup/status", {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("BYOC_SETUP_STATUS_FAILED");
+    return response.json();
+  }
+
+  static async getByocAuthorizationInstructions(): Promise<{
+    projectId: string;
+    bootstrapServiceAccount: string;
+    hushhCaller: string;
+    disclosure: {
+      grants_to_bootstrap_sa?: Array<{ role: string; why: string; scope?: string }>;
+      grants_to_hushh?: Array<{ role: string; on: string; why: string }>;
+      hushh_never_receives?: string[];
+      revocation?: string;
+    };
+    script: string;
+    scriptFilename: string;
+    revokeCommand: string;
+    authorized: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/authorize/instructions", {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("BYOC_AUTHORIZATION_INSTRUCTIONS_FAILED");
+    return response.json();
+  }
+
+  static async selectHostedCloud(): Promise<{
+    deploymentTarget: string;
+    assurance: string;
+    migratable: boolean;
+    nextStep: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/select", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error("HOSTED_SELECT_FAILED");
+    return response.json();
+  }
+
+  static async selectSharedHosting(): Promise<{
+    hostingMode: "shared";
+    nextStep: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/shared/select", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    return response.json();
+  }
+
+  static async selectManagedGeminiRuntime(): Promise<{
+    status: "ready";
+    model: string;
+    location: string;
+    agentScheduled: boolean;
+    agentReason: string;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/managed/select", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error("MANAGED_RUNTIME_NOT_READY");
+    return response.json();
+  }
+
   // ==================== App Config ====================
 
   /**
@@ -1672,11 +2001,15 @@ export class ApiService {
         },
         body: JSON.stringify({
           subject,
-          reviewer_uid: options?.reviewerUid || undefined,
           smoke_passphrase:
             typeof options?.smokePassphrase === "string" &&
             options.smokePassphrase.trim().length > 0
               ? options.smokePassphrase
+              : undefined,
+          reviewer_uid:
+            typeof options?.reviewerUid === "string" &&
+            options.reviewerUid.trim().length > 0
+              ? options.reviewerUid.trim()
               : undefined,
         }),
       });
@@ -3234,6 +3567,604 @@ export class ApiService {
         },
       },
     );
+  }
+
+  static async provisionPersonalAgent(input: {
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+  }): Promise<{ success?: boolean; status?: string; capped?: boolean; hushhId?: string | null }> {
+    const response = await ApiService.apiFetch("/api/one/personal-agent/provision", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...ApiService.getAuthHeaders(input.vaultOwnerToken),
+      },
+      body: JSON.stringify({}),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`AGENT_PROVISION_FAILED:${response.status}`);
+    return response.json();
+  }
+
+  static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<{
+    state?: string | null;
+    featureEnabled?: boolean;
+    hushhId?: string | null;
+    health?: string | null;
+    lastSeenAt?: string | null;
+    cloudProject?: string | null;
+    cloudRegion?: string | null;
+    deploymentTarget?: string | null;
+    hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown";
+    credentialMode?: string | null;
+    runningImage?: string | null;
+    targetImage?: string | null;
+    updateAvailable?: boolean;
+    updateOfferable?: boolean;
+    updateInProgress?: boolean;
+    updateFailed?: boolean;
+    updateError?: string | null;
+    updateVerified?: boolean;
+    installedReleaseVerified?: boolean;
+    installedReleaseVerifiedAt?: string;
+    releaseCheckedAt?: string;
+    installedRelease?: { version: string; sourceRevision?: string; imageDigest?: string };
+    availableRelease?: {
+      version: string;
+      summary: string;
+      releasedAt: string;
+      notes: { improvements: string[]; fixes: string[]; security: string[] };
+    };
+    update?: {
+      releaseId: string;
+      summary: string;
+      presentationState: "ready" | "deferred" | "scheduled" | "updating" | "blocked";
+      remindAt?: string;
+      reminderDue?: boolean;
+      operationId?: string;
+    };
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async approvePersonalAgentUpdate(input: {
+    releaseId: string;
+    idempotencyKey: string;
+  }): Promise<{ operationId: string; releaseId: string; status: "scheduled" }> {
+    return ApiService.postPersonalAgentUpdate("approve", input);
+  }
+
+  static async deferPersonalAgentUpdate(input: {
+    releaseId: string;
+  }): Promise<{ releaseId: string; status: "deferred"; remindAt: string }> {
+    return ApiService.postPersonalAgentUpdate("defer", input);
+  }
+
+  private static async postPersonalAgentUpdate(
+    action: "approve" | "defer",
+    input: { releaseId: string; idempotencyKey?: string },
+  ): Promise<any> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(`/api/one/personal-agent/update/${action}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        releaseId: input.releaseId,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      }),
+    });
+    if (!response.ok) throw new Error(`AGENT_UPDATE_${action.toUpperCase()}_FAILED:${response.status}`);
+    return response.json();
+  }
+
+  static async wakePod(): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/pod/wake", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`pod wake failed: HTTP ${response.status}`);
+    return response.json();
+  }
+
+  static async adoptOrphanPod(): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/adopt", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`pod adopt failed: HTTP ${response.status}`);
+    return response.json();
+  }
+
+  static async getPodInfo(hushhId: string): Promise<{ hushhId: string; podStatus: number; pod: unknown }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(`/api/one/u/${encodeURIComponent(hushhId)}/info`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`pod info failed: HTTP ${response.status}`);
+    return response.json();
+  }
+
+  static async getPodLifecycle(options: { cursor: number; signal?: AbortSignal }): Promise<{
+    snapshot?: Record<string, unknown>;
+    events?: Array<Record<string, unknown>>;
+    nextCursor?: number;
+    terminal?: boolean;
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(`/api/one/pod/lifecycle?cursor=${Math.max(0, options.cursor)}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: options.signal,
+    });
+    if (!response.ok) throw new Error(`pod lifecycle read failed: HTTP ${response.status}`);
+    return response.json();
+  }
+
+  static async openPodLifecycleStream(options: { cursor: number; signal?: AbortSignal }): Promise<Response> {
+    const token = await ApiService.getFirebaseToken();
+    return ApiService.apiFetchStream(`/api/one/pod/lifecycle/stream?cursor=${Math.max(0, options.cursor)}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: options.signal,
+    });
+  }
+
+  static async runPodTurn(input: {
+    hushhId: string;
+    vaultOwnerToken?: string;
+    message: string;
+    conversationId?: string;
+    timezone?: string | null;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key";
+    runtimeProvider?: "puppy";
+    puppyDeviceId?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+    pkmContext?: string | null;
+    history?: Array<{ role: "user" | "assistant"; content: string }> | null;
+    signal?: AbortSignal;
+  }): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+    degraded?: string;
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const body = JSON.stringify({
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: input.timezone || undefined,
+      runtimeCredential: input.runtimeCredential || undefined,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId || undefined,
+      vertexProject: input.vertexProject || undefined,
+      vertexLocation: input.vertexLocation || undefined,
+      history: input.history?.length ? input.history : undefined,
+      pkmContext: input.pkmContext || undefined,
+    });
+    const direct = await ApiService.ownerDirectPodTurn(
+      input.hushhId,
+      body,
+      input.signal,
+      input.runtimeProvider === "puppy" && input.puppyDeviceId
+        ? { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken }
+        : undefined,
+    );
+    if (direct) return direct;
+    if (input.runtimeProvider === "puppy") {
+      throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
+    }
+
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/turn`,
+      {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+      signal: input.signal,
+      timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
+      },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; status?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      if (detail && typeof detail === "object" && detail.code === "AGENT_NOT_READY") {
+        throw new Error(`AGENT_NOT_READY:${detail.status || "unknown"}`);
+      }
+      if (response.status === 403) throw new Error("AGENT_NOT_YOURS");
+      throw new Error("AGENT_UNREACHABLE");
+    }
+    return response.json();
+  }
+
+  static async closePodConversation(input: {
+    hushhId: string;
+    conversationId: string;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+    runtimeProvider?: "puppy" | null;
+    puppyDeviceId?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+  }): Promise<{ hushhId: string; memory?: { written?: number; review?: { outcome?: string } } } | null> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/conversation/${encodeURIComponent(input.conversationId)}/close`,
+      {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          runtimeCredential: input.runtimeCredential || undefined,
+          runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+          runtimeProvider: input.runtimeProvider || undefined,
+          puppyDeviceId: input.puppyDeviceId || undefined,
+          vertexProject: input.vertexProject || undefined,
+          vertexLocation: input.vertexLocation || undefined,
+        }),
+      },
+    );
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  static async getPodMemoryStatus(hushhId: string): Promise<{
+    hushhId: string;
+    records?: number;
+    facts?: number;
+    tombstones?: number;
+    unreviewed?: number;
+    provider?: { consent?: "absent" | "granted" | "revoked"; bank?: boolean; stale?: boolean };
+  } | null> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/memory/status`,
+      { method: "GET", headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  static async setPodMemoryProviderConsent(
+    hushhId: string,
+    granted: boolean,
+  ): Promise<{ hushhId: string; provider?: { consent?: string } } | null> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/memory/provider-consent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ granted }),
+      },
+    );
+    if (!response.ok) throw new Error(`memory provider consent failed: HTTP ${response.status}`);
+    return response.json().catch(() => null);
+  }
+
+  private static async activatePuppyWhenIdle(deviceId: string, vaultOwnerToken?: string, signal?: AbortSignal): Promise<void> {
+    const activation = await import("./pod-activation");
+    return activation.activatePuppyWhenIdle(deviceId, vaultOwnerToken, signal,
+      { status: (id) => this.ownerDirectPuppyStatus(id, signal), hub: (url, init) => this.apiFetch(url, init) });
+  }
+
+  static async issuePuppyInferenceGrant(deviceId: string): Promise<{
+    device_id: string;
+    scope: "cap.puppy.inference";
+    token: string;
+    expires_at: number;
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-inference-grant`,
+      { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!response.ok) throw new Error(`PUPPY_INFERENCE_GRANT_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async getPuppyAccess(deviceId: string, vaultOwnerToken: string): Promise<boolean> {
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-access`,
+      { method: "GET", headers: { Authorization: `Bearer ${vaultOwnerToken}` }, cache: "no-store" },
+    );
+    if (!response.ok) throw new Error(`PUPPY_ACCESS_UNAVAILABLE:${response.status}`);
+    return Boolean(((await response.json()) as { enabled?: boolean }).enabled);
+  }
+
+  static async setPuppyAccess(
+    deviceId: string,
+    enabled: boolean,
+    vaultOwnerToken: string,
+  ): Promise<{ enabled: boolean; revocationPending: boolean }> {
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
+    const ownerPod = await import("./owner-pod-endpoint");
+    const transport = await ApiService.ownerPodTransport();
+    const status = await ApiService.getPersonalAgentStatus();
+    if (status.hostingMode !== "byoc" || !status.hushhId) {
+      throw new Error("PUPPY_REQUIRES_BYOC_POD");
+    }
+    let revocationPending = false;
+    if (enabled) {
+      await ownerPod.refreshEndpointFromHub(uid, transport);
+    }
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-access`,
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${vaultOwnerToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_ACCESS_CHANGE_FAILED:${response.status}`);
+    if (!enabled) {
+      const changed = (await response.json()) as { bindingVersion?: number };
+      const atVersion = Number(changed.bindingVersion);
+      if (!Number.isInteger(atVersion) || atVersion < 1) {
+        throw new Error("PUPPY_ACCESS_DISABLED_REVOCATION_RETRY_REQUIRED");
+      }
+      try {
+        const revoked = await ownerPod.revokeAtPod(uid, deviceId, transport, {
+          atVersion,
+          reason: "owner_withdrew_puppy_access",
+          hushhId: status.hushhId,
+        });
+        revocationPending = !revoked.delivered;
+      } catch {
+        // New grants are disabled at the hub. The UI must report that the old
+        // pod session still needs a signed revocation, not claim completion.
+        revocationPending = true;
+      }
+    }
+    return { enabled, revocationPending };
+  }
+
+  static async getPuppyRelayStatus(deviceId: string): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+    relay?: {
+      connected: boolean;
+      state: string;
+      busy: boolean;
+      generation: number | null;
+      last_seen_age_seconds?: number;
+      model?: string;
+      capabilities?: Record<string, boolean>;
+      probe_mode?: string;
+    };
+  }> {
+    const pinnedStatus = await ApiService.ownerDirectPuppyStatus(deviceId);
+    if (pinnedStatus) return pinnedStatus;
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/puppy/status/${encodeURIComponent(deviceId)}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async revokeTrustedDeviceEverywhere(deviceId: string): Promise<{
+    hub: Response;
+    pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: unknown }
+      | { delivered: false; pending: null; unpinned: true };
+  }> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    let pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: unknown }
+      | { delivered: false; pending: null; unpinned: true } = {
+      delivered: false,
+      pending: null,
+      unpinned: true,
+    };
+    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
+      pod = await ownerPod.revokeAtPod(uid, deviceId, await ApiService.ownerPodTransport());
+    }
+    const hub = await ApiService.revokeTrustedDevice(deviceId);
+    return { hub, pod };
+  }
+
+  private static async ownerPodTransport(): Promise<
+    import("./owner-pod-endpoint").OwnerPodTransport
+  > {
+    const firebaseIdToken = await ApiService.getFirebaseToken();
+    return {
+      hub: (path, init) =>
+        apiFetch(path, {
+          ...init,
+          headers: {
+            ...((init.headers as Record<string, string> | undefined) ?? {}),
+            ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          },
+        }),
+      direct: (url, init) => apiFetch(url, init),
+    };
+  }
+
+  /** Exact app routes only; content never falls back to the shared hub. */
+  static async ownerPodRequest(path: string, init: RequestInit = {}): Promise<Response> {
+    const access = await import("./pod-app-access");
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: apiFetch });
+  }
+
+  static async reconnectOwnerPod(): Promise<void> {
+    const access = await import("./pod-app-access");
+    return access.reconnectOwnerPod({ transport: () => this.ownerPodTransport(), fetch: apiFetch,
+      hosting: () => this.getPersonalAgentStatus() });
+  }
+
+  private static async ownerDirectPodTurn(
+    hushhId: string,
+    body: string,
+    signal?: AbortSignal,
+    puppy?: { deviceId: string; vaultOwnerToken?: string },
+  ): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    let pin = await ownerPod.loadPinnedEndpoint(uid);
+    if (!pin) {
+      const hosting = await ApiService.getPersonalAgentStatus();
+      if (hosting.hostingMode !== "byoc" || hosting.state !== "active") return null;
+      if (hosting.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
+      const transport = await ApiService.ownerPodTransport();
+      try {
+        pin = await ownerPod.refreshEndpointFromHub(uid, transport);
+      } catch (error) {
+        if (
+          error instanceof ownerPod.OwnerPodError &&
+          (error.code === "ENDPOINT_UNAVAILABLE:404" ||
+            error.code === "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY")
+        ) {
+          return null;
+        }
+        const code = error instanceof Error ? error.message : "unknown";
+        throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+      }
+    }
+    if (pin.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
+    let session: import("./owner-pod-endpoint").PodSessionRecord;
+    try {
+      const connection = await ownerPod.currentPodConnection(uid, await ApiService.ownerPodTransport());
+      if (connection.endpoint.hushhId !== hushhId || AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+      pin = connection.endpoint;
+      session = connection.session;
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "unknown";
+      throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+    }
+    if (puppy) {
+      await ApiService.activatePuppyWhenIdle(puppy.deviceId, puppy.vaultOwnerToken, signal);
+      if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+    }
+    const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session}` },
+      body,
+      signal,
+      timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; reason?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      const code = detail && typeof detail === "object" ? String(detail.code ?? "") : "";
+      if (code === "PUPPY_OFFLINE") throw new Error("PUPPY_OFFLINE");
+      if (code === "POD_TURN_TIMEOUT") throw new Error("AGENT_UNREACHABLE");
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(code ? `AGENT_NOT_YOURS:${code}` : "AGENT_NOT_YOURS");
+      }
+      throw new Error(code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE");
+    }
+    const answer = (await response.json()) as {
+      text: string;
+      model: string;
+      modelReported: boolean;
+      provider: string;
+      grounded: boolean;
+      runtimeMode: string;
+    };
+    return { hushhId, ...answer };
+  }
+
+  private static async ownerDirectPuppyStatus(deviceId: string, signal?: AbortSignal): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    if (!(await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) return null;
+    const { endpoint: pin, session } = await ownerPod.currentPodConnection(
+      uid, await ApiService.ownerPodTransport(),
+    );
+    if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+    const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${session.session}` },
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    const status = (await response.json()) as {
+      subjects?: Array<{ subjectId: string; state: string; scopes?: string[] }>;
+      puppy?: { links?: Array<{ deviceId: string; busy: boolean }> };
+    };
+    const subject = (status.subjects ?? []).find((s) => s.subjectId === deviceId);
+    const link = (status.puppy?.links ?? []).find((entry) => entry.deviceId === deviceId);
+    const trusted = Boolean(subject && subject.state === "trusted");
+    const inferenceScoped = Boolean(subject?.scopes?.includes("puppy.inference"));
+    const state: "revoked" | "ready" | "busy" | "offline" | "unavailable" =
+      subject
+        ? subject.state === "revoked"
+          ? "revoked"
+          : link
+            ? link.busy
+              ? "busy"
+              : "ready"
+            : "offline"
+        : "unavailable";
+    return {
+      device_id: deviceId,
+      state,
+      linked: trusted,
+      inference_ready: trusted && inferenceScoped && state === "ready",
+      execution_target: trusted && (state === "ready" || state === "busy") ? "puppy" : "unavailable",
+    };
   }
 
   /**

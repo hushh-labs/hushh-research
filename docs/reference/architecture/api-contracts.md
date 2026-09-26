@@ -180,7 +180,30 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### Private Agent Space Name
+
+`GET` and `PUT /api/one/personal-agent/space-name` require Firebase owner
+authentication and the existing personal-agent feature flag. PUT accepts
+`spaceName`, validates the handle, and updates only the existing owner row's
+`space_id`. It preserves pod status, custody, billing identity and lifecycle
+timestamps. An absent or concurrently deleted row returns the existing
+`409 NO_AGENT`; naming cannot create a registry row.
+
 ### One Person Request History
+
+Chat records an inline scope-discovery send through
+`POST /api/one/agent-chat/history/{conversation_id}/information-requests`.
+It requires the requester's VAULT_OWNER token and accepts only
+`source_activity_id`, `bundle_id`, and `idempotency_key` from the confirmed
+request. The server verifies that the conversation and discovery belong to the
+owner, that the request ledger binds the key to that bundle and recipient, and
+derives an allowlisted submitted-card descriptor from current request metadata.
+One deterministic, content-less encrypted ADK session event is appended per
+discovery card; retries return that event without a second request or card.
+Chat history suppresses the superseded discovery card and restores the
+submitted descriptor. This history receipt is presentation-only: grant status
+and encrypted exports must still be reread under current authority, and no
+vault key, connector credential, scope payload, or decrypted value is stored.
 
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
@@ -210,6 +233,25 @@ projection is truncated; it is a locator, not decryption authority.
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
+| POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
+| POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+
+Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
+registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
+required registry observation or recovery persistence fails. Wake uses
+`409 POD_STATE_CHANGED` and `503 POD_STATUS_UNAVAILABLE` for those respective
+boundaries. These errors ask the caller to retry; they never claim that a stale
+probe proves the current host is gone. Existing successful response shapes remain
+unchanged. Parked BYOC setup can still resolve before a registry cloud exists;
+its probe cannot clear authorization on an unrelated registry row.
+
+Private pod storage uses the existing error responses for unavailable history.
+Migration export and import return a sanitized `409` when ordinary log replay
+is refused, including an authenticated erasure fence. A pod turn that encounters
+that fence while resolving local grounding returns `409`; it does not continue
+to the model with an empty local context. Request and successful response shapes
+are unchanged. These storage checks are not a public erasure endpoint or a
+replacement for consent, lifecycle admission, or draining already admitted work.
 
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
@@ -339,7 +381,41 @@ server-side, then bind both actions to that source.
 
 The maintained architecture reference is [Personal Gmail Information Requests](./personal-gmail-information-requests.md).
 
+### One-time Public Profile Discovery
+
+Discovery is explicitly opt-in, one-time, and independent of PKM storage. Public
+findings stay in the service-only shared pool; private edits are client-encrypted
+under the unlocked vault; `claimed` is an owner-scoped terminal handoff state.
+The background worker uses HusshOne's existing scan API and never runs in the
+browser request path.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/profile-discovery` | Firebase Bearer | Read only the signed-in owner's job and, once ready, its revision-pinned public profile. |
+| POST | `/api/one/profile-discovery/start` | Firebase Bearer | Start or resume the owner's one-time job. Requires versioned public-web consent; external phone matching has a separate opt-in. |
+| POST | `/api/one/profile-discovery/anchors` | Firebase Bearer | Add optional name, email, public profile URL, employer or city details to a pending owner job. These do not write to the shared public pool. |
+| POST | `/api/one/profile-discovery/draft` | `VAULT_OWNER` | Store only the encrypted owner review draft for the pinned profile revision. |
+| POST | `/api/one/profile-discovery/claim` | `VAULT_OWNER` | Complete the one-time handoff after the client reports all selected PKM writes succeeded, or after explicit reject-all. |
+| POST | `/api/one/profile-discovery/cancel` | Firebase Bearer | Cancel pending owner discovery. |
+| POST | `/api/internal/profile-discovery/drain` | Cloud Scheduler OIDC | Process a bounded batch under a dedicated scheduler identity and publish the transactional Feed outbox. |
+
+The global feature and worker gates default off. Hosted access also requires a
+small Firebase UID allowlist. See [public profile discovery storage and rollout](./public-profile-discovery.md)
+for the current implementation boundary and release checks.
+
 ### One Google Calendar
+
+Private-pod Calendar reads use the existing owner-bound
+`POST /api/one/pod/specialist/calendar/read` broker. Its optional `calendarRead`
+contains `operation` (`events`, `availability`, or `openings`), offset-qualified
+`start_at`/`end_at` spanning at most 31 days, and for openings a 5–720 minute
+`duration_minutes` with `limit` 1–20. No owner selector or write operation is
+accepted. The pod verifies the returned operation and range; older hub responses
+without coverage fail safely. Event results expose `coverage_complete` because
+provider pagination may truncate the bounded result. Failed free/busy responses
+cannot become free slots. These are transitional consented hub reads, not proof
+of pod-native specialist execution.
+
 
 Calendar is a live Google provider integration. Connection lifecycle uses
 Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
@@ -787,37 +863,24 @@ within 24 hours and need explicit Resume after restart. See the
 | POST   | `/api/kai/portfolio/analyze-losers`          | Analyze losers vs Renaissance                                                                            |
 | POST   | `/api/kai/portfolio/analyze-losers/stream`   | Streaming losers analysis (SSE, deterministic config, cash-excluded investable universe)                 |
 
-#### Kai Plaid Brokerage Connectivity
+#### Kai Plaid Vault Passthrough
 
-Plaid is the read-only brokerage connectivity layer for Kai. It supports Link/OAuth, holdings, investment transactions, refresh, and connection health. It does not place trades.
-
-| Method | Path                                   | Description                                                                                                |
-| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/kai/plaid/status/{user_id}`      | Load Plaid aggregate status, active source, items, holdings, and transactions summary                      |
-| POST   | `/api/kai/plaid/link-token`            | Create a new Plaid Link token for investment connectivity                                                  |
-| POST   | `/api/kai/plaid/link-token/update`     | Create an update-mode Plaid Link token for reconnect/add-account flows                                     |
-| POST   | `/api/kai/plaid/oauth/resume`          | Resume a web OAuth Link flow using an active opaque resume session                                         |
-| POST   | `/api/kai/plaid/exchange-public-token` | Exchange Plaid `public_token`, sync holdings + investment transactions, and aggregate the read-only source |
-| POST   | `/api/kai/plaid/refresh`               | Start a manual refresh run for one or more connected Plaid Items                                           |
-| GET    | `/api/kai/plaid/refresh/{run_id}`      | Inspect a Plaid refresh run status                                                                         |
-| POST   | `/api/kai/plaid/source`                | Persist the active Kai portfolio source (`statement`, `plaid`)                                             |
-| POST   | `/api/kai/plaid/webhook`               | Receive Plaid webhook updates for holdings refresh and item health                                         |
-
-Operational note:
-
-- webhook URLs are supplied to Plaid during Link token creation via backend configuration, not dashboard allowlisting
-- if `PLAID_WEBHOOK_URL` changes after Items exist, existing Items need a one-time `/item/webhook/update` maintenance pass
-
-#### Kai Plaid Vault Passthrough (zero-knowledge)
-
-Stateless Plaid calls on behalf of the owner's device. The access token is returned to the device and sealed in the owner's vault; the server stores nothing, registers no webhook, and logs no bodies. All routes require `VAULT_OWNER` and answer `Cache-Control: no-store`. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
+The vault route performs Plaid provider calls for the owner's device. The backend transiently
+handles access tokens and readable provider responses but does not persist vault-route
+payloads. The device seals connection state in the owner's vault. Existing server-held data
+still requires the per-environment retirement procedure and migration evidence; source removal
+does not establish deployed cleanup. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
 
 | Method | Path                                | Description                                                                                  |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect)           |
+| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect; update mode accepts a sealed token) |
 | POST   | `/api/kai/plaid/vault/exchange`     | Exchange `public_token` and return the access token plus Item and institution metadata       |
 | POST   | `/api/kai/plaid/vault/snapshot`     | Fetch accounts, holdings, and a cursor-based transactions sync; re-link needs return 200     |
 | POST   | `/api/kai/plaid/vault/remove`       | Revoke the Item at Plaid (idempotent)                                                        |
+
+The legacy server-backed endpoints and webhook may still exist at the audited `HEAD`, but
+their removal and database cleanup are pending working-tree retirement changes. They are not
+the documented integration path for new clients.
 
 #### Kai Support Messaging
 
@@ -1053,6 +1116,231 @@ No silent success is emitted on terminal failures.
 ---
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
+
+### Legacy owner-private MCP registration (compatibility only)
+
+The readable private-registration path below is superseded by the owner's
+browser-encrypted vault configuration. Do not apply migration 243 to enable new
+custom connectors. Existing callers remain until replacement parity is proven;
+their presence does not establish the intended custody architecture.
+
+`POST /api/connectors/registrations` requires a Vault Owner token and accepts only
+`registrationId` (a stable retry UUID), `displayName`, `endpoint`, and `authStyle`
+(`api_key` or `oauth`). The server derives the owner and connector identity. It admits
+public HTTPS endpoints on port 443 without URL credentials, query parameters, or
+fragments; transport-time public-address validation is a separate required boundary.
+Registration neither authenticates a provider nor grants tool execution permission.
+The response is a safe connector summary with `registrationKind=private` and
+`status=not_connected`, never endpoint or credential configuration.
+
+`GET /api/connectors` lists the operator-curated registry and the authenticated
+owner's connection statuses; custom definitions are loaded separately from the
+browser-encrypted vault. This overview does not require migration 243's private
+registration columns. Legacy API-key connection lookup remains owner-scoped.
+Repeating an unchanged registration UUID is idempotent;
+changing its definition returns 409, as does exceeding 32 active private registrations.
+Owner-scoped reads require migration 243; unavailable registry storage returns 503,
+not a misleading empty catalog. Validation responses omit submitted input and use
+`Cache-Control: no-store`.
+
+Release caveat: environments already carrying legacy private registrations need
+an explicit recovery/migration check before removing their old Settings entry
+points. The curated overview is not proof that those records were migrated.
+
+This is a backend registration boundary, not certification of custom OAuth,
+Settings controls, ADK invocation, or native acceptance. Those remain separate gates.
+
+### Owner-private MCP exact-call review
+
+`POST /api/connectors/{connector_id}/mcp/review` requires a Vault Owner token,
+`conversationId`, namespaced `toolName`, and bounded JSON `arguments` (32 KB).
+The request stream is capped at 64 KB before JSON parsing, with a five-second
+body-read deadline; chunked input cannot bypass that cap.
+It verifies the owner's connector configuration and encrypted ADK conversation,
+resolves current credentials, rediscovers tools and validates the exact schema.
+It issues metadata-only authority through the existing action ledger (migration
+244), returning the complete arguments for transient browser review plus the
+directive ID and expiry. It does not invoke the provider tool.
+
+Vault-backed calls supply optional `connectorConfiguration`: one versioned
+configuration for the exact connector, including its transient access credential.
+The browser projection excludes OAuth refresh tokens; the server rejects them.
+This field is excluded from model serialization and representation. The server
+validates endpoint, owner, enabled state and credential expiry, and binds approval
+to the complete configuration as well as the discovered tool revision. It does
+not create a private registry row. Omission retains the legacy registration path
+for compatibility. Client transport and backend review support are implemented;
+Chat's authenticated workspace now loads these configurations from the encrypted
+`runtime_secrets` domain using a forced coherent snapshot. Initial turns, action
+resumes and connector review/confirmation reload the catalog and check the
+authenticated owner and vault-session epoch before dispatch. Failed loading is
+not treated as an empty catalog or a reason to fall back to private registration.
+This is source-level integration, not verified live provider/native acceptance.
+
+The existing Connectors panel includes a custom-server editor for public HTTPS
+endpoints with no authentication or a supplied Authorization header. It writes
+through browser-encrypted runtime settings, never the private-registration API,
+and labels records as saved rather than connected. This editor does not yet
+implement remote OAuth or persistent permissions management. Removal
+requires an explicit confirmation and the displayed record revision, and deletes
+only its encrypted vault settings; it does not revoke the provider's grant or
+undo completed actions.
+Those remain explicit integration gaps; do not advertise a saved definition as
+a verified provider connection. Owner/vault guards fence preparation, dispatch,
+retry and cache publication through the existing encrypted write service.
+
+Block/Enable updates the existing encrypted `enabled` field with revision checks.
+Blocked definitions are omitted from new turn projections, including credentials;
+enabling restores Ask first, not standing execution permission. This does not
+cancel an already-dispatched provider operation or revoke a provider grant.
+
+Custom remote OAuth remains a separate, incomplete custody boundary. The legacy
+`ExternalConnectorOAuthService.complete` writes to the server-owned credential
+store and must not be reused unchanged for vault-owned custom connectors. The
+installed MCP SDK's `OAuthClientProvider` supplies reusable protocol behavior.
+`one_adk/mcp_oauth_storage.py` now implements its request-only TokenStorage port
+over the existing expiring secret handoff, with single delivery of tokens and
+registered client information for eventual browser-vault persistence. Focused
+tests include a synthetic SDK authorization exchange, owner invalidation,
+expiry, bounded storage and one-time delivery. This adapter is not yet wired
+to a public login route; it does not establish browser or provider acceptance.
+Callback and protected-resource/issuer discovery integration still need owner-bound
+vault custody and endpoint protection. `ConnectOnlyMcpOAuthProvider` now restricts
+OAuth retries to setup/read-only protocol methods, redacts the installed SDK's
+auth logger messages and tracebacks, sanitizes propagated errors and bounds the
+live flow by the attempt deadline. It compares the authorization metadata's issuer
+to the exact advertised issuer before SDK URL normalization, requires S256 and
+validates public HTTPS endpoint syntax before registration or authorization.
+Metadata changes clear previously admitted endpoints; metadata GETs cannot carry
+Authorization/Cookie headers, and credential POSTs use admitted endpoints only.
+Admission validates the complete SDK `OAuthMetadata` model, then requires the
+SDK's accepted metadata to equal that admitted model before registration or
+authorization. This prevents malformed optional fields from causing a silent
+SDK fallback beneath a raw-JSON endpoint whitelist. Successful delivery uses
+the provider's `take_result()`, not the storage method directly: its terminal
+cleanup clears both expiring storage references and SDK token/client copies.
+Failure, cancellation and generator abandonment
+clear the temporary storage. The synthetic tests exercise these boundaries, not
+a public callback API. `McpOAuthCallback` binds the SDK-generated state and exact
+advertised issuer to the workflow's verified owner and current-session guard.
+It rejects replay and checks the guard again before delivering the code. The
+`iss` callback parameter is required when metadata advertises support; whenever
+present it must match exactly. `use_callback` installs this handoff before the SDK
+starts and cannot be rebound during the flow. The authenticated routes below
+establish owner/attempt authority and fail closed on lost worker continuity.
+The adapter's `create_http_client`
+uses the existing public-network transport with a 65,536-byte streamed response
+limit. It requests identity encoding and rejects compressed responses before
+decompression, keeping the bound meaningful. Redirects and environment proxies
+remain disabled. Ordinary MCP clients retain their existing stream behavior;
+this additional bound is specific to OAuth setup. Synthetic transport tests cover
+exact-limit bodies, overflow, compression refusal and stream closure.
+
+`one_adk/mcp_oauth_connection.py` composes the real SDK Streamable HTTP transport,
+`ClientSession.initialize`, callback handoff and single-use result delivery into
+one live attempt. It binds owner, connector and configuration revision, bounds the
+attempt to five minutes, and closes temporary resources on completion/cancellation.
+No product tool runs during connection. Tests use synthetic OAuth/MCP HTTP responses
+with the real SDK; they do not prove public login, browser/native return or a real
+Workspace server. The handshake closes local streams
+without an OAuth-retried server-session DELETE; remote session expiry remains the
+server's responsibility and needs provider acceptance.
+
+The private `/api/connectors/{connector_id}/mcp/oauth/{begin,complete,cancel}`
+POST routes require Vault Owner authority and accept only custom connector IDs.
+`begin` receives endpoint and configuration revision; the server fixes the return
+path to `/one/profile/connectors/oauth/return` on `APP_FRONTEND_ORIGIN`, never an
+arbitrary client-supplied redirect. HTTPS is required except localhost in
+development/test. The provider must admit that exact return URI too.
+Attempts are process-local, expire after five minutes, and are bounded to two per
+owner and 128 per worker. Completion claims an attempt once and binds owner,
+connector, revision, SDK state and issuer. Its no-store result contains tokens and
+client registration for **browser-encrypted vault delivery only**. Both proxy and
+backend bound request bodies to 64KB. Restart or another worker fails closed;
+multiworker affinity and aggregate admission remain deployment prerequisites.
+Custom connector Settings now offers web Sign in when encrypted Chat recovery is
+available. It starts the private attempt, saves the existing encrypted recovery
+capsule plus opaque connector/revision references, and navigates in the same tab.
+The shared return page distinguishes this marker from legacy provider flows,
+removes callback query parameters, requires the same owner and an unlocked vault,
+and completes once. It forces a fresh connector snapshot, checks the original
+revision, and uses the existing CAS encrypted writer. Client registration and
+refresh credentials remain vault-only; turn projections contain only the access
+token and expiry. Missing/expired token lifetimes reject rather than inventing
+one. A tool refresh follows save, with a distinct recoverable refresh-failure
+message. This is covered by synthetic component/service tests, not live OAuth or
+physical-device proof. The native app-owned HTTPS return is implemented, but
+live physical-device proof and refresh-token renewal remain open; standard
+OAuth support is not proof of Workspace server compatibility.
+
+The adapter rejects preloaded tokens in a fresh provider. Do not load a vault refresh token into
+a fresh SDK provider until the issuer/token-endpoint binding is verified: its
+initial refresh can otherwise fall back to the MCP origin's `/token` endpoint.
+Use OAuth only for a connection handshake, not mutating tool invocation, because
+the SDK may replay the original HTTP request after authorization.
+No static API-key form or Google provider token passthrough proves standard MCP
+OAuth support. See the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
+`POST /api/connectors/{connector_id}/mcp/catalog` takes a transient
+`connectorConfiguration` under Vault Owner authority. Settings' explicit Refresh
+tools action reloads the encrypted record and calls the same governed toolset as
+Chat with execution disabled. The no-store response contains connector/configuration
+revision and namespaced tool IDs, names, revisions, exact descriptor fingerprints,
+and `ask_first` or `blocked` permission. Per-tool Block is an encrypted vault
+preference bound to the exact discovered descriptor; Chat and call review filter
+blocked tools before admission, while Settings still lists them for re-enablement.
+Changed tool descriptors return to Ask first. Connector-wide Block remains separate.
+It contains no tool results or credentials and issues no action approval.
+Settings rejects mismatched or late responses and bounds the visible tool list.
+Discovery uses the shared toolset's bounded pagination and timeout; an empty
+catalog is distinct from failure. Provider notifications and persistent
+allow-without-review remain unimplemented.
+
+Protocol proof: `test_real_sdk_protocol_paginates_reviews_invokes_and_rejects_changed_tools`
+in `tests/test_governed_mcp_toolset.py` uses a real MCP Server/ClientSession over
+the SDK memory transport and the native ADK tool implementation. It verifies two
+catalog pages, no invocation while application approval is pending, exact wire
+tool/arguments on one permitted invocation, and rejection of an old tool after
+catalog revision changes. Session acquisition and the approval decision are test
+seams; this does not certify HTTPS, real consent-ledger approval, OAuth, browser,
+or provider behavior.
+
+Chat ingress accepts `forwardedProps.mcpConfigurations` only with current Vault
+Owner authority. It removes that private field before handing the input to
+AG-UI, validates the bounded catalog, and stages it in the existing process-local
+secret store with a 60-second expiry and event-loop cleanup of abandoned
+handoffs. Disabled connector credentials are excluded from browser projections.
+The owner/conversation-bound reference is
+consumed once and removed from state before the ADK bridge runs. The turn-local
+toolset receives the configuration, rechecks authority per call, and closes at
+turn completion. An explicit empty catalog cannot resurrect a custom connector
+from the legacy database. Omitted catalogs retain compatibility behavior until
+all compatibility callers have migrated. The authenticated Chat workspace sends
+an explicit catalog, including an empty one. This server ingress is covered
+by focused contract tests, not live provider or browser acceptance.
+
+For a native ADK pending call, include `pendingHandle`. Review resolves its
+owner/thread/tool/call-bound transient arguments and verifies both stored native
+call identities and the current catalog. It returns the original directive,
+never a second directive; send `{}` as `arguments` when fetching that preview.
+Confirmation includes the same handle and exact reviewed arguments. A changed
+directive, call, arguments or catalog is rejected. The native resume separately
+checks the pending handle's function-call ID before consuming the receipt.
+
+`POST /api/connectors/{connector_id}/mcp/confirm` accepts those same terms,
+`directiveId` and strict boolean `confirmed=true`. It reconstructs current terms
+and confirms only an exact, unexpired ledger match. The returned short-lived
+receipt belongs in browser/request memory only—not Chat history, model input,
+logs or persistent storage. The resumed native ADK tool must consume it once
+before dispatch. There is no separate HTTP tool-execution endpoint.
+
+Both routes use the existing Next connector proxy and return `no-store`, including
+errors. Validation/errors never echo private input or provider diagnostics.
+These endpoints currently admit owner-private configurations/registrations only; curated
+Workspace adapters, Chat review-card/resume wiring and live acceptance remain
+separate integration gates. Confirmation is not proof that a tool executed.
+
+### Drive lifecycle
 
 The Drive lifecycle extends the existing external-connector registry and credential store;
 it does not migrate Gmail/Calendar credentials or change Firebase authentication. These

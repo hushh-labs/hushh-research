@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/use-auth";
+import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
@@ -67,7 +68,10 @@ const LocationCommandContext = createContext<
  * not re-render on every audio frame. Only the agent bar's meter reads them.
  */
 type LocationCommandLive = { level: number; elapsedMs: number };
-const LOCATION_COMMAND_LIVE_IDLE: LocationCommandLive = { level: 0, elapsedMs: 0 };
+const LOCATION_COMMAND_LIVE_IDLE: LocationCommandLive = {
+  level: 0,
+  elapsedMs: 0,
+};
 const LocationCommandLiveContext = createContext<LocationCommandLive>(
   LOCATION_COMMAND_LIVE_IDLE,
 );
@@ -148,6 +152,37 @@ function useCommandController(enabled = true) {
   const [command] = useState(
     () =>
       new LocationCommandRuntime({
+        modelConnection: async () => {
+          const owner = latest.current;
+          if (
+            !owner.user ||
+            !owner.vaultKey ||
+            !owner.vaultOwnerToken ||
+            !owner.isVaultUnlocked
+          )
+            throw new Error("Unlock your vault to continue.");
+          const connection = await resolveGeminiRuntimeConnection({
+            userId: owner.user.uid,
+            vaultKey: owner.vaultKey,
+            vaultOwnerToken: owner.vaultOwnerToken,
+          });
+          if (
+            latest.current.user?.uid !== owner.user.uid ||
+            !latest.current.isVaultUnlocked
+          )
+            throw new Error("Your session changed. Unlock to continue.");
+          if (connection.mode === "byok" && !connection.credential)
+            throw new Error(
+              "Reconnect your model key before using this command.",
+            );
+          return {
+            runtimeCredential:
+              connection.mode === "byok" ? connection.credential : undefined,
+            runtimeCredentialTransport: connection.transport,
+            vertexProject: connection.vertexProject,
+            vertexLocation: connection.vertexLocation,
+          };
+        },
         authority: () => {
           const value = latest.current;
           return value.user?.uid &&
@@ -290,6 +325,7 @@ function useCommandController(enabled = true) {
     [report],
   );
   const cancelCapture = useCallback(() => {
+    command.cancelTranscription();
     captureGeneration.current++;
     recordingRef.current = null;
     processingRef.current = false;
@@ -300,7 +336,7 @@ function useCommandController(enabled = true) {
     lease.current?.release("command_capture_cancelled");
     lease.current = null;
     useAgentVoiceState.getState().reset();
-  }, [capture]);
+  }, [capture, command]);
   const finishCapture = useCallback(async () => {
     if (!recordingRef.current) return;
     if (recordingRef.current === "starting") {
@@ -486,13 +522,14 @@ function useCommandController(enabled = true) {
   useEffect(() => {
     cancelCapture();
     command.pause();
-    if (user?.uid && isVaultUnlocked && vaultOwnerToken && vaultKey)
+    if (enabled && user?.uid && isVaultUnlocked && vaultOwnerToken && vaultKey)
       run(command.recover());
     return () => {
       cancelCapture();
       command.pause();
     };
   }, [
+    enabled,
     user?.uid,
     isVaultUnlocked,
     vaultOwnerToken,
@@ -618,7 +655,8 @@ function useCommandController(enabled = true) {
           surfaceMetadata: getVoiceSurfaceMetadata(),
           allowedActionIds:
             current.oneVoiceContextSnapshot.executable_action_ids ?? null,
-          hasPortfolioData: current.appRuntimeState.portfolio.has_portfolio_data,
+          hasPortfolioData:
+            current.appRuntimeState.portfolio.has_portfolio_data,
           busyOperations: value.busyOperations,
           setAnalysisParams: value.setAnalysisParams,
           switchPersona: value.switchPersona,
@@ -631,7 +669,9 @@ function useCommandController(enabled = true) {
       } catch (error) {
         bridge.dispatchAgentActionStatus = `error:${actionId}`;
         bridge.dispatchAgentActionError =
-          error instanceof Error ? error.message : "native action dispatch failed";
+          error instanceof Error
+            ? error.message
+            : "native action dispatch failed";
         throw error;
       }
     };
@@ -681,9 +721,9 @@ function useCommandController(enabled = true) {
   const hapticCancel = useCallback(() => capture.haptic("cancel"), [capture]);
   const active = Boolean(
     recording ||
-      view.phase === "working" ||
-      view.phase === "gate" ||
-      view.phase === "recovery",
+    view.phase === "working" ||
+    view.phase === "gate" ||
+    view.phase === "recovery",
   );
   // Memoised: this value reaches the bottom shell and the agent bar on every
   // persistent-chrome route. Without the memo a new object per render (and

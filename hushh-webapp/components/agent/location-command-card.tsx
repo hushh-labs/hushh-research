@@ -101,7 +101,7 @@ export function LocationCommandCard() {
           {view.gate.kind === "confirmation" ? "Confirm" : "Continue"}
         </button>
       ) : null}
-      {view.gate?.kind === "unavailable" ? (
+      {view.gate?.kind === "unavailable" && command.hasActiveCheckpoint ? (
         <button
           type="button"
           className="mt-3 w-full rounded-full bg-primary py-3 text-primary-foreground"
@@ -136,7 +136,7 @@ export function LocationCommandCard() {
             else cancelTask();
           }}
         >
-          {view.phase === "result" ? "Dismiss result" : "Cancel task"}
+          {view.phase === "result" ? "Dismiss result" : command.hasActiveCheckpoint ? "Cancel task" : "Dismiss"}
         </button>
       ) : null}
     </div>

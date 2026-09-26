@@ -33,7 +33,7 @@ CLOUDBUILD = REPO_ROOT / "deploy" / "backend.cloudbuild.yaml"
 BASELINE = REPO_ROOT / "config" / "deploy-env-coverage.json"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
-_BIND = re.compile(r'add_secret "\$\{(_[A-Z0-9_]+_SECRET)\}"')
+_BIND = re.compile(r'(?:add_secret|append_optional_secret) "\$\{(_[A-Z0-9_]+_SECRET)\}"')
 # Most secrets are bound through an indirect-expansion loop rather than a
 # literal `add_secret "${_X_SECRET}"`:
 #     for n in FOO BAR BAZ; do v="_${n}_SECRET"; add_secret "${!v}" "${n}"; done
@@ -62,6 +62,9 @@ def bound_substitutions() -> list[str]:
     """
     text = CLOUDBUILD.read_text(encoding="utf-8")
     defaults = _defaults(text)
+    script = REPO_ROOT / "scripts" / "deploy" / "backend-deploy.sh"
+    if script.exists() and "scripts/deploy/backend-deploy.sh" in text:
+        text += "\n" + script.read_text(encoding="utf-8")
     names: list[str] = list(_BIND.findall(text))
     for match in _LOOP.finditer(text):
         # Ordinary environment loops use _${n}, not _${n}_SECRET. They must

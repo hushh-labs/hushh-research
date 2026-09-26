@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from hushh_mcp.one_adk import drive_tools
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
-from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
 def test_live_chat_does_not_register_legacy_account_wide_drive_tools():
@@ -87,7 +87,7 @@ async def test_drive_mcp_missing_grant_does_not_misrepresent_selected_file_conne
 
     class Service:
         async def read_tool(self, **_kwargs):
-            raise GoogleConnectionError("private provider detail", status_code=403)
+            raise DriveOAuthError("private provider detail", status_code=403)
 
     monkeypatch.setattr(drive_tools, "pod_mode", lambda: False)
     monkeypatch.setattr(drive_tools, "resolve_request_secret", lambda _ref: "owner-token")

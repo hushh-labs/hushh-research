@@ -72,12 +72,11 @@ For every recursive pass:
 
 ## Current Recursive Findings
 
-As of this pass, the proven oversized guide candidates are:
-
-- `docs/guides/mobile.md`
-- `docs/guides/one-location-uat-test-plan.md`
-
-Both should become stable entrypoints with phase-specific child pages. This keeps the contributor path readable while preserving mobile parity and One Location UAT detail where it belongs.
+As checked on 2026-09-23, `docs/guides/mobile.md` and
+`docs/guides/one-location-uat-test-plan.md` are entrypoints with child pages in
+`docs/guides/mobile/` and `docs/guides/one-location-uat/`. Keep their links and
+ownership current; use the inventory commands below to identify any new split
+candidate.
 
 ## Verification
 

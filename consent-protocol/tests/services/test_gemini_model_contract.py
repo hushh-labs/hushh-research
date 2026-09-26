@@ -31,21 +31,24 @@ from hushh_mcp.runtime_providers import (
 )
 
 SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
-# Measured 2026-09-24 (see registry._MEASURED_VERTEX_LOCATIONS); anything
+# Measured 2026-09-25 (see registry._MEASURED_VERTEX_LOCATIONS); anything
 # unmeasured stays global-only.
-MEASURED = {"gemini-3.8-flash": ("global", "us", "eu")}
+MEASURED = {
+    "gemini-3.7-flash": ("global", "us", "eu"),
+    "gemini-3.6-flash": ("global", "us", "eu"),
+}
 ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
 
 
 def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
-    assert SUPPORTED == ("gemini-3.8-flash", "gemini-3.7-flash")
+    assert SUPPORTED == ("gemini-3.7-flash", "gemini-3.6-flash")
     assert GEMINI_MODEL in SUPPORTED
     for model in SUPPORTED:
         assert gemini_config.is_supported_gemini_text_model(model)
         assert gemini_config.is_supported_gemini_text_model(f"models/{model}")
         assert gemini_config.is_supported_gemini_text_model(model.upper())
     for other in (
-        "gemini-3.6-flash",
+        "gemini-3.8-flash",
         "gemini-3.1-pro-preview",
         "gemini-3.8-flash-live-preview",
         "gemini-3.1-flash-lite",
@@ -58,6 +61,8 @@ def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
 
 def test_retired_generation_helpers_are_gone() -> None:
     for name in (
+        "GEMINI_38_FLASH",
+        "is_gemini_38_flash",
         "GEMINI_36_FLASH",
         "is_gemini_36_flash",
         "GEMINI_31_PRO_PREVIEW",
@@ -111,7 +116,8 @@ def test_supported_model_passes_accepted_thinking_levels_through(model: str, lev
 
 @pytest.mark.parametrize("model", SUPPORTED)
 def test_supported_model_maps_minimal_to_low(model: str) -> None:
-    # MINIMAL measured reject 400 INVALID_ARGUMENT on both releases; LOW measured accept.
+    # MINIMAL: 3.7 measured reject 400 INVALID_ARGUMENT, 3.6 measured accept (2026-09-25);
+    # the adapter maps it to LOW for both so the fleet keeps one thinking floor.
     sdk_cfg = genai_types.ThinkingConfig(
         thinking_level=genai_types.ThinkingLevel.MINIMAL,
         include_thoughts=True,
@@ -157,7 +163,7 @@ def test_supported_model_drops_a_minimal_config_it_cannot_rebuild(model: str) ->
 
 def test_unsupported_ids_pass_through_unchanged() -> None:
     minimal = genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.MINIMAL)
-    for model in ("gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.1-pro-preview", None):
+    for model in ("gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.1-pro-preview", None):
         result = generation_config_kwargs(
             model,
             temperature=0,
@@ -248,9 +254,39 @@ def test_managed_binding_filters_unsupported_failover_locations() -> None:
         locations=("global", "us", "asia-south1", "eu"),
         auth_mode="vertex_adc",
     )
-    assert binding.locations_for_model("gemini-3.7-flash") == ("global",)
-    # Configured order is kept; an unmeasured endpoint is never used for failover.
-    assert binding.locations_for_model("gemini-3.8-flash") == ("global", "us", "eu")
+    for model in SUPPORTED:
+        # Configured order is kept; an unmeasured endpoint is never used for failover.
+        assert binding.locations_for_model(model) == ("global", "us", "eu")
+
+
+def test_managed_binding_keeps_configured_order_for_a_measured_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stand-in entry proves the failover filter independently of which releases are
+    # current: configured order is kept and an unmeasured endpoint is dropped.
+    from hushh_mcp.runtime_providers import registry
+
+    measured = registry.ModelEntry(
+        provider="gemini",
+        model="measured-stand-in",
+        supported_vertex_locations=("global", "us", "eu"),
+    )
+    real = registry.resolve_model_entry
+    monkeypatch.setattr(
+        registry,
+        "resolve_model_entry",
+        lambda provider, model: measured if model == "measured-stand-in" else real(provider, model),
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="test-project",
+        locations=("global", "us", "asia-south1", "eu"),
+        auth_mode="vertex_adc",
+    )
+    assert binding.locations_for_model("measured-stand-in") == ("global", "us", "eu")
+    no_global = ManagedGeminiRuntimeBinding(
+        project="test-project", locations=("us", "eu"), auth_mode="vertex_adc"
+    )
+    assert no_global.locations_for_model("measured-stand-in") == ("us", "eu")
 
 
 def test_managed_binding_fails_when_global_is_not_configured() -> None:
@@ -259,6 +295,7 @@ def test_managed_binding_fails_when_global_is_not_configured() -> None:
         locations=("us", "eu"),
         auth_mode="vertex_adc",
     )
+    for model in SUPPORTED:
+        assert binding.locations_for_model(model) == ("us", "eu")
     with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
-        binding.locations_for_model("gemini-3.7-flash")
-    assert binding.locations_for_model("gemini-3.8-flash") == ("us", "eu")
+        binding.locations_for_model("gemini-embedding-001")

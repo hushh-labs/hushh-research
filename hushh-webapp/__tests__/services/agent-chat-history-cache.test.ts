@@ -54,23 +54,50 @@ describe("agent chat history memory cache", () => {
     mocks.history.mockResolvedValue(messages);
   });
 
-  it("single-flights unlock warming and serves the latest history from memory", async () => {
+  it("single-flights list warming and warms the latest history independently", async () => {
     const input = { userId: "user-1", vaultOwnerToken: "token" };
     const [first, joined] = await Promise.all([
       warmAgentChatHistoryCache(input),
       warmAgentChatHistoryCache(input),
     ]);
 
-    expect(first.latestMessages).toEqual(messages);
+    expect(first.conversations).toEqual([conversation]);
     expect(joined).toEqual(first);
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(mocks.history).toHaveBeenCalledTimes(1);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
 
     await warmAgentChatHistoryCache(input);
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(peekAgentChatHistoryCache("user-1")?.latestConversationId).toBe(
       "conversation-1",
     );
+  });
+
+  it("shows the conversation list while the newest transcript is still pending", async () => {
+    let resolveHistory: ((value: typeof messages) => void) | undefined;
+    mocks.history.mockImplementationOnce(() => new Promise<typeof messages>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    const input = { userId: "user-1", vaultOwnerToken: "token" };
+    const result = await warmAgentChatHistoryCache(input);
+    expect(result.conversations).toEqual([conversation]);
+    expect(result.latestMessages).toEqual([]);
+    expect(peekAgentChatHistoryCache(input.userId)?.conversations).toEqual([conversation]);
+    resolveHistory?.(messages);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    expect(peekAgentChatHistoryCache(input.userId)?.latestMessages).toEqual(messages);
+  });
+
+  it("cannot restore a late transcript after vault lock", async () => {
+    let resolveHistory: ((value: typeof messages) => void) | undefined;
+    mocks.history.mockImplementationOnce(() => new Promise<typeof messages>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    await warmAgentChatHistoryCache({ userId: "user-1", vaultOwnerToken: "token" });
+    clearAgentChatHistoryCache("user-1");
+    resolveHistory?.(messages);
+    await vi.waitFor(() => expect(peekAgentChatHistoryCache("user-1")).toBeNull());
   });
 
   it("loads non-latest conversations lazily and clears protected history on lock", async () => {

@@ -196,6 +196,15 @@ async def test_transcription_is_bounded_whole_recording_without_live_or_tools():
     assert generate.await_count == 1
 
 
+async def test_injected_model_uses_authored_transcriber_with_wrapped_client():
+    model = FakeCommandModel(responses=['{"transcript":"Open Location"}'])
+    brain = LocationCommandBrain(client=object(), transcriber_adk_model=model)
+    assert await brain.transcribe(wav()) == "Open Location"
+    assert len(model.requests) == 1
+    assert model.requests[0].config.system_instruction
+    assert not model.requests[0].config.tools
+
+
 @pytest.mark.asyncio
 async def test_semantic_agent_returns_typed_proposal_only():
     model = FakeCommandModel(

@@ -12,7 +12,7 @@
  * For web/cloud deployment, use the existing API routes instead.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import type {
   // Consent types
@@ -103,7 +103,8 @@ export interface HushhAuthPlugin {
    */
   connectGmail(options: {
     serverClientId: string;
-    purpose: "read" | "send";
+    purpose: "read" | "send" | "compose";
+    preserveSend?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;
@@ -734,13 +735,9 @@ export interface HushhDatabasePlugin {
   close(): Promise<{ success: boolean }>;
 }
 
-export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
-  "HushhDatabase",
-  {
-    web: () =>
-      import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  },
-);
+// Database persistence is owned by the shared vault service. Keep the web
+// adapter contract available for legacy unit fixtures, but do not register a
+// Capacitor plugin until iOS and Android implementations exist.
 
 // ==================== HushhAgentPlugin ====================
 // Local agent runtime
@@ -788,9 +785,9 @@ export interface HushhAgentPlugin {
   }>;
 }
 
-export const HushhAgent = registerPlugin<HushhAgentPlugin>("HushhAgent", {
-  web: () => import("./plugins/agent-web").then((m) => new m.HushhAgentWeb()),
-});
+// The local intent runtime is a shared TypeScript service, not a native
+// Capacitor plugin. Registration here would advertise an iOS/Android contract
+// with no corresponding native implementation.
 
 // ==================== HushhSyncPlugin ====================
 // Handles local-cloud data synchronization
@@ -912,6 +909,10 @@ export type BackgroundShareSession = {
 };
 
 export interface HushhLocationPlugin {
+  addListener(
+    eventName: "backgroundShareStopped",
+    listenerFunc: () => void,
+  ): Promise<PluginListenerHandle>;
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
   /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */

@@ -1198,6 +1198,144 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "files.manage"
+        ],
+        "data": [
+          "files.read"
+        ],
+        "invocation": [
+          "files.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Organize and read the owner's private pod library through bounded, consented tools.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "consent_required",
+        "source_changed",
+        "unavailable"
+      ],
+      "icon": null,
+      "id": "agent_files",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/files/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Files Agent",
+      "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "limited",
+        "knowledge_package_ref": null,
+        "service_id": "files",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "files.owner_request",
+          "files.untrusted_content",
+          "files.metadata"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "POD_FILES_ENABLED",
+        "rollback": "Disable Files entrypoints while preserving encrypted objects and owner recovery keys.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "283f6706b0eb6fac17ecd8b6c558b6a1e3b3e73553a1f77fcc982562b898a96e",
+      "telemetry_namespace": "agent.files",
+      "tools": [
+        {
+          "description": "List one bounded page of owner library metadata after analysis consent.",
+          "name": "list_files",
+          "py_func": "hushh_mcp.one_adk.files_tools.list_files",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Read supported bounded text content after library analysis consent.",
+          "name": "read_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.read_file",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Create an empty folder with idempotent request identity and current consent.",
+          "name": "create_folder",
+          "py_func": "hushh_mcp.one_adk.files_tools.create_folder",
+          "required_scope": "files.manage"
+        },
+        {
+          "description": "Apply a revision-checked reversible rename or move.",
+          "name": "organize_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.organize_file",
+          "required_scope": "files.manage"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [],
         "invocation": []
@@ -2129,7 +2267,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "041e4d6069dea704102e2dc14239205a7b4f72db2a4f6ebb913677538444bd46",
+      "system_instruction_sha256": "b252e87ecdfd37224e1127a76c5caf002511bed2ee8e12fb82cc2958f55fc554",
       "telemetry_namespace": "agent.kai",
       "tools": [
         {
@@ -2594,6 +2732,7 @@
       },
       "optional_scopes": [
         "cap.location.live.view",
+        "cap.location.command.read",
         "cap.location.live.refer_request"
       ],
       "outputs": [],
@@ -3636,7 +3775,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.8-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3682,7 +3821,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.8-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3723,19 +3862,25 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "fefbac17f56b49e0cd8ce1bbb14459a667a745bdcdf004dd10d3a9880d396ed2",
+      "system_instruction_sha256": "8cd64c6334ff437462f5da55184e69daa9bafe78734250159264c170d98e74f0",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
-          "description": "Discover the current official Google Drive MCP read capabilities and exact input schemas in authenticated Chat.",
-          "name": "discover_google_drive_tools",
-          "py_func": "hushh_mcp.one_adk.drive_tools.discover_google_drive_tools",
+          "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
+          "name": "inspect_private_connectors",
+          "py_func": "hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors",
           "required_scope": "vault.owner"
         },
         {
-          "description": "Read one item from the owner's connected Google Drive through a reviewed MCP operation; no file mutation or sending.",
-          "name": "read_google_drive",
-          "py_func": "hushh_mcp.one_adk.drive_tools.read_google_drive",
+          "description": "Check connected Drive, Gmail or Calendar read availability; return exact admitted hosted tools only when callable, otherwise report the applicable connection or API state.",
+          "name": "discover_workspace_tools",
+          "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.discover_workspace_tools",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Perform one bounded Workspace MCP read using its discovered schema; provider writes require their existing reviewed app action.",
+          "name": "read_workspace_tool",
+          "py_func": "hushh_mcp.one_adk.workspace_mcp_tools.read_workspace_tool",
           "required_scope": "vault.owner"
         }
       ],

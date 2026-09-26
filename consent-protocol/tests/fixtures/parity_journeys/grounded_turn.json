@@ -1,0 +1,24 @@
+{
+  "name": "grounded_turn",
+  "mode": "exact",
+  "hub_grounded": true,
+  "hub_frames": [
+    {
+      "event": "token",
+      "data": {
+        "text": "Your portfolio is concentrated in tech."
+      }
+    }
+  ],
+  "pod_turn": {
+    "text": "Your portfolio is concentrated in tech.",
+    "grounded": true,
+    "directiveCount": 0,
+    "runtimeMode": "user_adc"
+  },
+  "pod_specialist_statuses": [],
+  "expect_hub_directive_kinds": [],
+  "expect_hub_specialists": [],
+  "expect_hub_text": true,
+  "expect_hub_grounded": true
+}

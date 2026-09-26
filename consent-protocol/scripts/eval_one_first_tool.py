@@ -4,7 +4,7 @@
 Usage:
     GENAI_GOOGLE_CLOUD_PROJECT=<project> GOOGLE_GENAI_USE_VERTEXAI=true \\
       PYTHONPATH=. python scripts/eval_one_first_tool.py [--families consent,location]
-      [--reps 2] [--model gemini-3.8-flash] [--thinking-level low|medium|high]
+      [--reps 2] [--model gemini-3.7-flash] [--thinking-level low|medium|high]
       [--instruction-file a.txt --instruction-file b.txt]   (A/B mode)
       [--case-id consent.granted_readback --case-id drive.browse_live_files]
       [--min-overall-rate 0.9] [--min-family-rate consent=1.0 --min-family-rate 0.8]
@@ -76,7 +76,7 @@ RUN_APP_ACTION = "run_app_action"
 DEFAULT_CASES_PATH = CONSENT_PROTOCOL_ROOT / "scripts" / "eval_cases" / "one_first_tool.v1.json"
 DEFAULT_REPORT_DIR = CONSENT_PROTOCOL_ROOT / "artifacts"
 LATEST_REPORT_NAME = "one_first_tool_eval_latest.json"
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.7-flash"
 DEFAULT_REPS = 2
 DEFAULT_MIN_OVERALL_RATE = 0.9
 DEFAULT_MIN_FAMILY_RATE = 0.8
@@ -234,16 +234,24 @@ def _canonical_roster() -> list[Any]:
     """Wrap the built roster the way `LlmAgent.canonical_tools` does.
 
     Bare callables become `FunctionTool`; `BaseTool` instances (AgentTool,
-    the wrapped google_search) pass through. The model string is a dummy so
+    the wrapped google_search) pass through. Native toolsets resolve without an
+    owner context, so private registrations are not admitted by this harness.
+    The model string is a dummy so
     nothing here consults the model registry or credentials.
     """
     from google.adk.tools import BaseTool, FunctionTool
+    from google.adk.tools.base_toolset import BaseToolset
 
     agent = _agent_tree().build_one_text_agent(
-        model="eval-first-tool-dummy-model", allow_owner_drive_tools=True
+        model="eval-first-tool-dummy-model", allow_workspace_tools=True
     )
     roster: list[Any] = []
     for entry in agent.tools:
+        if isinstance(entry, BaseToolset):
+            # Connector toolsets resolve their tools per turn against the
+            # authenticated owner's connections; they have no static
+            # declarations for an offline first-tool eval to score.
+            continue
         if isinstance(entry, BaseTool):
             roster.append(entry)
             continue

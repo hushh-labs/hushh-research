@@ -1837,6 +1837,49 @@
       "native_surface_id": "native-route-feed"
     },
     {
+      "route_pattern": "/one/files",
+      "page_file": "app/one/files/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.files",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.files",
+        "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "File changes complete only after the owner-bound pod confirms the matching operation; destructive changes require explicit confirmation.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally without inventing a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "route_mode": "standard",
@@ -3671,13 +3714,13 @@
     {
       "route_pattern": "/one/profile/connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.connectors",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.connectors",
-        "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+        "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
         "screen": "profile_connectors",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -3693,8 +3736,8 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-        "next_route": "/",
-        "return_policy": "navigate",
+        "next_route": null,
+        "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -3705,7 +3748,7 @@
       "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
@@ -3753,6 +3796,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.discovery",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.discovery",
+        "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+        "screen": "profile_discovery",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the person's review goal.",
+          "cancelled": "Respect the cancellation and leave findings unclaimed.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+          "callback_error": "Return to the protected review workspace without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_discovery",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile-discovery"
     },
     {
       "route_pattern": "/one/profile/gmail",
@@ -3968,6 +4054,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/profile/hosting",
+      "page_file": "app/one/profile/hosting/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.hosting",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.hosting",
+        "purpose": "Help the person understand hosting through verified settings controls.",
+        "screen": "profile_hosting",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_hosting",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/integrations",
@@ -4820,6 +4949,49 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/software-updates",
+      "page_file": "app/one/profile/software-updates/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.software-updates",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.software-updates",
+        "purpose": "Help the person understand software updates through verified settings controls.",
+        "screen": "profile_software-updates",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_software-updates",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
       "route_pattern": "/one/profile/support",
       "page_file": "app/one/profile/support/page.tsx",
       "route_mode": "standard",
@@ -5012,8 +5184,9 @@
         "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
-        "primary_action_id": "setup.open_connections",
+        "primary_action_id": "setup.open_cloud",
         "happy_path_action_ids": [
+          "setup.open_cloud",
           "setup.open_connections",
           "setup.open_gmail",
           "setup.open_calendar",
@@ -5045,6 +5218,7 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_calendar",
+        "setup.open_cloud",
         "setup.open_connected_systems",
         "setup.open_connections",
         "setup.open_email",
@@ -5154,6 +5328,53 @@
       },
       "trust_boundary": "auth",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.cloud",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.cloud",
+        "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+        "screen": "one_setup_cloud",
+        "entry_cue": "Name the project your agent will live in, then run the one-line grant we give you.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.finish_cloud",
+        "happy_path_action_ids": [
+          "setup.finish_cloud"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_cloud",
+      "voice_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-setup-cloud"
     },
     {
       "route_pattern": "/one/setup/connected-systems",

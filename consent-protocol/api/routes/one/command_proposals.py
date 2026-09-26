@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hmac
-import importlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -12,13 +11,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from google.genai.errors import APIError
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from api.middleware import require_vault_owner_token
 from api.models.location_workflow import location_run_result
 from api.routes.one.agent_context import sanitize_agent_context
 from hushh_mcp.agents.location.command_brain import LocationCommandBrain
-from hushh_mcp.operons.location.capabilities import compile_location_capabilities
 from hushh_mcp.operons.location.plan import (
     CommandCapsule,
     CommandValue,
@@ -31,12 +29,14 @@ from hushh_mcp.operons.location.plan import (
     validate_assessment,
 )
 from hushh_mcp.operons.location.references import LocationObservation
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
 )
-from hushh_mcp.services.action_gateway import is_navigation_action, list_action_gateway_actions
+from hushh_mcp.services.action_gateway import is_navigation_action
 from hushh_mcp.services.command_checkpoints import CommandCheckpointConflict, CommandCheckpointStore
+from hushh_mcp.services.location_command_catalog import command_catalog as _catalog
 from hushh_mcp.services.location_command_continuation import (
     inspect_remaining_command,
     pause_remaining_command,
@@ -48,6 +48,7 @@ from hushh_mcp.services.location_command_membership_receipts import (
     MembershipPreparation,
     prepare_membership_plan,
 )
+from hushh_mcp.services.location_command_semantics import CommandSemanticResult
 from hushh_mcp.services.location_command_workflow import (
     WorkflowAlreadyBound,
     cancel_bound_command,
@@ -56,16 +57,37 @@ from hushh_mcp.services.location_command_workflow import (
     workflow_command_descriptor,
 )
 
+
+def require_private_runtime(token: dict = Depends(require_vault_owner_token)) -> dict:
+    """Authenticate before declining shared-runtime proposal execution."""
+    if not pod_mode():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"},
+        )
+    return token
+
+
 router = APIRouter(tags=["Agent One"])
 logger = logging.getLogger(__name__)
 _checkpoints = CommandCheckpointStore()
 _ledger = ActionDirectiveStore()
 
 
-class ProposalRequest(CommandValue):
+class SemanticInputRequest(CommandValue):
+    query: str | None = Field(default=None, min_length=1, max_length=8192)
+    semantic: CommandSemanticResult | None = None
+
+    @model_validator(mode="after")
+    def one_semantic_source(self):
+        if (self.query is None) == (self.semantic is None):
+            raise ValueError("Supply exactly one semantic source")
+        return self
+
+
+class ProposalRequest(SemanticInputRequest):
     plan_version: Literal["location.plan.v1", "location.plan.v2"] = "location.plan.v1"
     request_id: UUID
-    query: str = Field(min_length=1, max_length=4096)
     context: dict[str, Any]
     observations: list[LocationObservation] = Field(default_factory=list, max_length=50)
 
@@ -93,9 +115,8 @@ class CheckpointRequest(StepRequest):
     assessment_token: str | None = None
 
 
-class ResolveRequest(StepRequest):
+class ResolveRequest(StepRequest, SemanticInputRequest):
     saved_observations: list[LocationObservation] = Field(default_factory=list, max_length=50)
-    query: str = Field(min_length=1, max_length=8192)
     observations: list[LocationObservation] = Field(default_factory=list, max_length=50)
 
 
@@ -121,21 +142,6 @@ class SettlementRequest(CommandValue):
     operation_id: str = Field(max_length=128)
     execution_receipt: str = Field(max_length=128)
     status: Literal["succeeded", "failed", "review_required"]
-
-
-def _catalog(plan_version: str = "location.plan.v1") -> tuple[str, dict[str, dict[str, Any]]]:
-    workflows = None
-    if plan_version == "location.plan.v2":
-        from hushh_mcp.services.app_intelligence_runtime import get_service_onboarding_workflow
-
-        workflow = get_service_onboarding_workflow("workflow.setup.location")
-        if workflow is None:
-            raise HTTPException(503, "Location workflow capabilities are unavailable.")
-        workflows = [workflow]
-    return cast(
-        tuple[str, dict[str, dict[str, Any]]],
-        compile_location_capabilities(list_action_gateway_actions(), workflows),
-    )
 
 
 def _context(value: dict[str, Any]) -> dict[str, Any]:
@@ -185,7 +191,7 @@ def _check_plan(
     revision, catalog = _catalog(payload.plan.schema_version)
     if not refresh and revision != payload.plan.capability_revision:
         raise HTTPException(409, "Location capabilities changed. Review a refreshed plan.")
-    return catalog
+    return cast(dict[str, dict[str, Any]], catalog)
 
 
 async def _save(
@@ -224,52 +230,26 @@ async def _assess(
 ) -> LocationPlan:
     revision, catalog = _catalog(plan_version)
     try:
-        from hushh_mcp.hushh_adk.context import HushhContext
         from hushh_mcp.services.location_command_reads import LocationCommandReadService
+        from hushh_mcp.services.location_command_semantics import assess_semantics
 
         if not token or not token.get("user_id") or not token.get("token"):
             raise HTTPException(401, "Location command read authority is required.")
-        brain = LocationCommandBrain()
-        from hushh_mcp.services.app_intelligence_runtime import get_dynamic_service_knowledge
-
-        service = get_dynamic_service_knowledge("location") or {}
-        knowledge = {
-            "package": service.get("knowledge_package"),
-            "semantic_profile": (service.get("knowledge_projection") or {}).get("semantic_profile"),
-            "feature_groups": service.get("feature_groups", []),
-        }
-        # The authored command roster is separate from the compatibility text
-        # tools, some of which mutate. Only scoped, declared read adapters bind.
-        read_tools = []
-        for path in brain.manifest.capabilities.get("command_read_tools", []):
-            module, name = path.rsplit(".", 1)
-            if module != "hushh_mcp.agents.location.command_read_tools":
-                raise ValueError("A command tool is outside the read-only owner.")
-            read_tools.append(getattr(importlib.import_module(module), name))
         reads = LocationCommandReadService(
             user_id=token["user_id"],
             observations=observations,
             saved_observations=saved_observations,
         )
-        with HushhContext(
-            user_id=token["user_id"],
+        result = await assess_semantics(
+            query=query,
+            context=context,
+            plan_version=plan_version,
+            brain=LocationCommandBrain(),
+            reads=reads,
             consent_token=token["token"],
-            service_ports={"location_command_reads": reads},
-        ):
-            assessment = await brain.assess(
-                query=query,
-                context={
-                    **context,
-                    "observations": reads.semantic_observations(),
-                    "completed_steps": [
-                        {"step_index": index, **step.model_dump()}
-                        for index, step in enumerate(completed_steps or [])
-                    ],
-                },
-                catalog=catalog,
-                read_tools=read_tools,
-                knowledge=knowledge,
-            )
+            completed_steps=completed_steps,
+        )
+        assessment = result.assessment
         plan = validate_assessment(
             assessment,
             catalog,
@@ -307,10 +287,83 @@ async def _assess(
         ) from None
 
 
+async def _proposal_plan(
+    payload: SemanticInputRequest,
+    context: dict[str, Any],
+    plan_version: Literal["location.plan.v1", "location.plan.v2"],
+    *,
+    token: dict,
+    observed: list[dict[str, Any]],
+    completed_steps: list[Any] | None = None,
+    observations: list[LocationObservation] | None = None,
+    saved_observations: list[LocationObservation] | None = None,
+) -> LocationPlan:
+    if payload.semantic is None:
+        require_private_runtime(token)
+        if payload.query is None:
+            raise HTTPException(422, detail={"code": "COMMAND_QUERY_REQUIRED"})
+        return await _assess(
+            payload.query,
+            context,
+            plan_version,
+            token=token,
+            observed=observed,
+            completed_steps=completed_steps,
+            observations=observations,
+            saved_observations=saved_observations,
+        )
+    revision, catalog = _catalog(plan_version)
+    if payload.semantic.capability_revision != revision:
+        raise HTTPException(409, detail={"code": "COMMAND_CAPABILITY_MISMATCH"})
+    from hushh_mcp.operons.location.references import fresh_observations
+
+    try:
+        # The owner's returned proposal is untrusted, like /typed. Only the hub
+        # compiles execution policy; references are locators, never permissions.
+        refs = fresh_observations(payload.semantic.observations)
+        if len(refs) != len(payload.semantic.observations):
+            raise ValueError("Stale command observations")
+        plan = validate_assessment(
+            payload.semantic.assessment,
+            catalog,
+            capability_revision=revision,
+            context_revision=context["context_revision"],
+            plan_version=plan_version,
+            completed_steps=completed_steps,
+            reference_kinds={item.reference: item.kind for item in refs},
+        )
+    except ValueError:
+        raise HTTPException(422, detail={"code": "COMMAND_ASSESSMENT_INVALID"}) from None
+    observed.extend(item.model_dump(mode="json") for item in refs)
+    return plan
+
+
+@router.post("/api/one/agent-chat/proposals/prepare")
+async def prepare_command(token: dict = Depends(require_vault_owner_token)):
+    from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
+    from hushh_mcp.services.pod_access_audit import resolve_serving_owner_hushh_id
+
+    if not await resolve_serving_owner_hushh_id(str(token["user_id"])):
+        raise HTTPException(409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
+    try:
+        grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+            str(token["user_id"]),
+            scope=ConsentScope.CAP_LOCATION_COMMAND_READ,
+            grant_kind="location_command_read",
+            expires_in_ms=15 * 60 * 1000,
+            scope_description="Read connections, circles and Location settings for this command",
+        )
+    except PermissionError:
+        raise HTTPException(403, detail={"code": "COMMAND_READ_GRANT_REFUSED"}) from None
+    return {"scopeToken": grant["token"], "expiresAt": grant["expiresAt"]}
+
+
 @router.post("/api/one/transcriptions")
 async def transcribe(
     payload: TranscriptionRequest, token: dict = Depends(require_vault_owner_token)
 ):
+    require_private_runtime(token)
     try:
         return {
             "transcript": await LocationCommandBrain(
@@ -338,8 +391,8 @@ async def propose(payload: ProposalRequest, token: dict = Depends(require_vault_
     if await _ledger.command_outcome(user_id=user, command_id=command, step=0):
         raise HTTPException(409, "This command identity was already used. Start a new request.")
     observed: list[dict[str, Any]] = []
-    plan = await _assess(
-        payload.query,
+    plan = await _proposal_plan(
+        payload,
         _context(payload.context),
         payload.plan_version,
         token=token,
@@ -465,8 +518,8 @@ async def resolve(
     if any(item.reference not in pending_handles for item in payload.saved_observations):
         raise HTTPException(422, "Saved references must belong to this unfinished task.")
     observed: list[dict[str, Any]] = []
-    proposed = await _assess(
-        payload.query,
+    proposed = await _proposal_plan(
+        payload,
         _context(payload.context),
         payload.plan.schema_version,
         token=token,

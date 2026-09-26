@@ -87,7 +87,10 @@ async def read_google_drive(
         if error.status_code == 403:
             return {
                 "status": "permission_required",
-                "message": "Connect live Drive access to search files without selecting them first.",
+                "message": (
+                    "Connect live Drive access to search files without selecting them first. "
+                    "The selected-file library in Connectors is separate."
+                ),
             }
         return {"status": "unavailable", "message": "Drive could not complete that read."}
     except Exception:  # noqa: BLE001 - provider diagnostics may contain private content

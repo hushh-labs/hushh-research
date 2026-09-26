@@ -1,5 +1,12 @@
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
-import { parseConnectorReadReceipt, type ConnectorReadExperience } from "./connector-read-receipt";
+import {
+  parseConnectorReadReceipt,
+  parseWorkspaceConnectorSetup,
+  parseWorkspaceConnectorSetupDescriptor,
+  WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+  type ConnectorReadExperience,
+  type WorkspaceConnectorSetupExperience,
+} from "./connector-read-receipt";
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -164,6 +171,7 @@ export type EvidenceBriefExperience = {
 export type AgentStructuredExperience =
   | PersonSelectionExperience
   | ConnectorReadExperience
+  | WorkspaceConnectorSetupExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | DocumentRequestReviewExperience
@@ -575,6 +583,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [KYC_READINESS_EXPERIENCE_TYPE]: parseKycReadiness,
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
+  [WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE]: parseWorkspaceConnectorSetupDescriptor,
 };
 
 export function parseAgentActivityExperience(
@@ -590,7 +599,14 @@ export function parseAgentActivityExperience(
 export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
+  toolArguments?: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
+  const connectorSetup = parseWorkspaceConnectorSetup(
+    toolName,
+    content,
+    toolArguments,
+  );
+  if (connectorSetup) return connectorSetup;
   if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
     const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
     return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")

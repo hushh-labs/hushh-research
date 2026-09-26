@@ -6,6 +6,7 @@ import {
   CheckIcon as Check,
   MessageSquareIcon as MessageSquare,
   DotsThreeIcon as MoreHorizontal,
+  Loader2Icon as Loader2,
   PanelLeftCloseIcon as PanelLeftClose,
   PanelLeftOpenIcon as PanelLeftOpen,
   PencilIcon as Pencil,
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +64,7 @@ type AgentHistorySidebarProps = {
   surface?: "one" | "puppy";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
-  onOpenConnectors?: () => void;
+  onOpenConnectors?: (trigger: HTMLButtonElement) => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -117,19 +119,21 @@ function formatRelativeTime(timestamp: number): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-type ConversationGroupKey = "today" | "yesterday" | "previous7" | "earlier";
+type ConversationGroupKey = "today" | "yesterday" | "previous7" | "previous30" | "earlier";
 
 const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   today: "Today",
   yesterday: "Yesterday",
-  previous7: "Previous 7 days",
-  earlier: "Earlier",
+  previous7: "Last 7 days",
+  previous30: "Last 30 days",
+  earlier: "Older",
 };
 
 const GROUP_ORDER: ConversationGroupKey[] = [
   "today",
   "yesterday",
   "previous7",
+  "previous30",
   "earlier",
 ];
 
@@ -142,10 +146,16 @@ function conversationGroupKey(
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTodayMs = startOfToday.getTime();
   if (timestamp >= startOfTodayMs) return "today";
-  const startOfYesterdayMs = startOfTodayMs - 24 * 60 * 60 * 1000;
+  const yesterday = new Date(startOfToday);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const startOfYesterdayMs = yesterday.getTime();
   if (timestamp >= startOfYesterdayMs) return "yesterday";
-  const startOfPrevious7Ms = startOfTodayMs - 7 * 24 * 60 * 60 * 1000;
-  if (timestamp >= startOfPrevious7Ms) return "previous7";
+  const previous7 = new Date(startOfToday);
+  previous7.setDate(previous7.getDate() - 7);
+  if (timestamp >= previous7.getTime()) return "previous7";
+  const previous30 = new Date(startOfToday);
+  previous30.setDate(previous30.getDate() - 30);
+  if (timestamp >= previous30.getTime()) return "previous30";
   return "earlier";
 }
 
@@ -242,10 +252,11 @@ export function AgentHistorySidebar({
     cancelRename();
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteTarget) return;
-    await onDeleteConversation(deleteTarget.id);
+    const targetId = deleteTarget.id;
     setDeleteTarget(null);
+    void Promise.resolve(onDeleteConversation(targetId)).catch(() => undefined);
   };
 
   const renderConversationItem = (conversation: AgentChatConversation) => {
@@ -369,11 +380,15 @@ export function AgentHistorySidebar({
             <div
               className={cn(
                 "absolute right-1 top-1/2 -translate-y-1/2",
-                !isMobileMode && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
+                !isMobileMode && !pending && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
                 isMobileMode && "opacity-100"
               )}
             >
-              <DropdownMenu>
+              {pending ? (
+                <span role="status" aria-label={`Deleting ${title}`} className="grid h-7 w-7 place-items-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                </span>
+              ) : <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -409,7 +424,7 @@ export function AgentHistorySidebar({
                     Delete chat
                   </DropdownMenuItem>
                 </DropdownMenuContent>
-              </DropdownMenu>
+              </DropdownMenu>}
             </div>
           </div>
         )}
@@ -423,8 +438,8 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
-            ? "chrome-glass-surface rounded-br-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
-            : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
+            ? "chrome-glass-surface rounded-r-[28px] border-r border-black/[0.06] !bg-background/90 !backdrop-saturate-100 shadow-[18px_0_42px_rgba(0,0,0,0.25)] backdrop-blur-2xl dark:border-white/[0.08]"
+            : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -595,23 +610,6 @@ export function AgentHistorySidebar({
                 onClear={() => setSearchQuery("")}
               />
             </div>
-            {onOpenConnectors ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className={cn(
-                  "mt-2 h-11 w-full justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
-                  isMobileMode
-                    ? "rounded-full bg-black/[0.035] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
-                    : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
-                )}
-                onClick={onOpenConnectors}
-                aria-label="Open Connectors"
-              >
-                <PlugIcon className="h-4 w-4" aria-hidden="true" />
-                <span className="truncate">Connectors</span>
-              </Button>
-            ) : null}
           </div>
         ) : null}
 
@@ -687,7 +685,7 @@ export function AgentHistorySidebar({
             <div className="space-y-4">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
-                  <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted-foreground/70">
                     {group.label}
                   </div>
                   <div
@@ -704,6 +702,24 @@ export function AgentHistorySidebar({
             </div>
           )}
         </div>
+        {onOpenConnectors ? (
+          <ShellActionSurface
+            variant="pill"
+            type="button"
+            pressScale={false}
+            wrapperClassName="w-full shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            className={cn(
+              "h-11 min-h-11 w-full justify-start rounded-xl px-3 text-[13px] font-medium text-foreground",
+              collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",
+            )}
+            onClick={(event) => onOpenConnectors(event.currentTarget)}
+            aria-label="Open Connectors"
+            title={collapsed && !isMobileMode ? "Connectors" : undefined}
+          >
+            <PlugIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            {collapsed && !isMobileMode ? null : <span className="truncate">Connectors</span>}
+          </ShellActionSurface>
+        ) : null}
       </aside>
 
       <AlertDialog

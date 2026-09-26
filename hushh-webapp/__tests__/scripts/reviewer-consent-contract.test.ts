@@ -268,12 +268,13 @@ describe("incremental reviewer stream observation", () => {
     expect(JSON.stringify(proofs())).not.toMatch(/private|never retained/);
   });
   it("records RUN_ERROR on an HTTP-200 stream", async () => {
-    window.fetch = vi.fn(async () => new Response('data: {"type":"RUN_ERROR","message":"private"}\n\ndata: {"type":"RUN_FINISHED"}\n\n'));
+    window.fetch = vi.fn(async () => new Response('data: {"type":"RUN_ERROR","code":"MCP_CATALOG_UNAVAILABLE","message":"private"}\n\ndata: {"type":"RUN_FINISHED"}\n\n'));
     installConsentStreamProbe();
     await window.fetch("/api/one/agent-chat");
     const proofs = () => (window as unknown as { __consentRehearsalStreams: Array<{ settled: boolean }> }).__consentRehearsalStreams;
     await vi.waitFor(() => expect(proofs()[0].settled).toBe(true));
-    expect(() => assertStreamProof(proofs()[0])).toThrow("STREAM_RUN_ERROR");
+    expect(() => assertStreamProof(proofs()[0])).toThrow("STREAM_RUN_ERROR_connector");
     expect(JSON.stringify(proofs())).not.toContain("private");
+    expect(JSON.stringify(proofs())).not.toContain("MCP_CATALOG_UNAVAILABLE");
   });
 });

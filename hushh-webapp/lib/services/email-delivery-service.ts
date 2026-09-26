@@ -112,6 +112,9 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_SEND_DISABLED") {
     return "Reconnect Mail to finish enabling mail sending.";
   }
+  if (code === "GMAIL_COMPOSE_PERMISSION_REQUIRED") {
+    return "Enable Gmail drafts in Connectors, then review this draft again.";
+  }
   if (code === "GMAIL_NOT_CONNECTED") {
     return "Connect Mail before you draft or send mail.";
   }
@@ -177,6 +180,27 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 }
 
 export class EmailDeliveryService {
+  static async saveGmailDraft(input: EmailDeliveryAuth & {
+    draft: EmailDraft;
+  }): Promise<void> {
+    if (input.draft.driveFileId) {
+      throw new EmailDeliveryError("Gmail draft attachments are not available yet.", 400);
+    }
+    const payload = await postJson<unknown>("/api/one/email/draft/save", input, {
+      to: input.draft.to,
+      cc: input.draft.cc,
+      bcc: input.draft.bcc,
+      subject: input.draft.subject,
+      body: input.draft.body,
+      html_body: input.draft.htmlBody,
+    });
+    const record = asRecord(payload);
+    if (record?.status !== "saved" || !stringValue(record, "draft_id")) {
+      throw new EmailDeliveryError(
+        "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
+      );
+    }
+  }
   static async draft(input: EmailDeliveryAuth & { instruction: string }): Promise<EmailDraftResult> {
     const payload = await postJson<unknown>("/api/one/email/draft", input, {
       instruction: input.instruction,

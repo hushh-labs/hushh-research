@@ -50,6 +50,13 @@ describe("Agent One chat workspace wiring contract", () => {
     );
   });
 
+  it("keeps the One connector catalog reachable before any provider is connected", () => {
+    expect(source).toContain("onOpenConnectors={!isPuppySurface");
+    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).not.toContain("connectionsAvailable");
+    expect(source).toContain("initialConnector={connectorPanelInitialConnector}");
+  });
+
   it("keeps slow history warming out of the canonical chat interaction path", () => {
     const canSendBlock = source.slice(
       source.indexOf("const canSend ="),

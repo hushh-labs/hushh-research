@@ -51,6 +51,7 @@ function page(number: number, revision = "a".repeat(64)): ViewerPersonProfile {
 describe("current-authority inline Chat catalog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.user.uid = "reviewer-a";
     mocks.unlocked = true;
     mocks.getViewer.mockReset();
     mocks.getViewer.mockResolvedValue(page(1));
@@ -109,6 +110,113 @@ describe("current-authority inline Chat catalog", () => {
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       personRef: person, scopeRefs: ["opaque-professional-root"],
     })));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns a bound Chat submission into the submitted card and opens only its current grant", async () => {
+    const scopeRef = "opaque-professional-root";
+    const bundleId = "bundle_12345678";
+    const requestId = "request_12345678";
+    const purpose = "Synthetic professional review";
+    const bundle = (status: "pending" | "granted") => ({
+      personRef: person, bundleId, purpose, durationSeconds: 168 * 3600, cancelled: false,
+      items: [{ requestId, scopeRef, label: "Professional Domain", sensitivity: "standard", status }],
+    });
+    mocks.getViewer.mockResolvedValue({ ...page(1), requestableScopes: [
+      { scopeRef, label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
+    ] });
+    mocks.create.mockResolvedValue(bundle("pending"));
+    mocks.getInformationRequest.mockResolvedValue(bundle("pending"));
+    mocks.getInformationRequestExports.mockResolvedValue([{
+      requestId, scopeRef,
+      encryptedExport: {
+        request_id: requestId, scope: "attr.professional.*", export_revision: 1,
+        export_envelope: { version: 2, export_id: "export-1", aad: {
+          version: 2, app_id: "agent_one", grant_id: requestId, export_id: "export-1",
+          revision: 1, machine_scope: "attr.professional.*", payload_algorithm: "AES-256-GCM",
+          expires_at_ms: Date.now() + 3600_000,
+        } },
+      },
+    }]);
+    mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
+
+    const onInformationRequestSubmitted = vi.fn(async () => undefined);
+    const view = render(<AgentStructuredExperienceView experience={experience}
+      onInformationRequestSubmitted={onInformationRequestSubmitted} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Professional Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
+    fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: purpose } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText("Request sent to Synthetic Recipient")).toBeInTheDocument();
+    expect(await screen.findByText("Waiting for their decision")).toBeInTheDocument();
+    expect(onInformationRequestSubmitted).toHaveBeenCalledWith({
+      bundleId, subjectRef: person, idempotencyKey: expect.any(String),
+    });
+    expect(JSON.stringify(onInformationRequestSubmitted.mock.calls)).not.toContain("Synthetic analyst");
+    expect(mocks.getInformationRequest).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
+    expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
+
+    mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "CONSENT_GRANTED", bundleId, requestId,
+    } })));
+    expect(await screen.findByTestId("chat-shared-information")).toHaveTextContent("Synthetic analyst");
+    expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
+
+    await act(async () => {
+      mocks.unlocked = false;
+      view.rerender(<AgentStructuredExperienceView experience={experience} />);
+    });
+    expect(screen.queryByText("Synthetic analyst")).toBeNull();
+    await act(async () => {
+      mocks.user.uid = "reviewer-b";
+      mocks.unlocked = true;
+      view.rerender(<AgentStructuredExperienceView experience={experience} />);
+    });
+    expect(await screen.findByRole("button", { name: "Professional Domain" })).toBeInTheDocument();
+    expect(screen.queryByText("Synthetic analyst")).toBeNull();
+    expect(screen.queryByText("Request sent to Synthetic Recipient")).toBeNull();
+  });
+
+  it("does not promote a submitted response bound to another subject", async () => {
+    mocks.create.mockResolvedValue({
+      personRef: "another-subject-ref", bundleId: "bundle_12345678",
+      purpose: "Synthetic sharing rehearsal", durationSeconds: 168 * 3600, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Synthetic field 1", sensitivity: "standard", status: "pending" }],
+    });
+    render(<AgentStructuredExperienceView experience={experience} />);
+    fireEvent.click(await screen.findByText("Synthetic field 1"));
+    fireEvent.click(screen.getByText("Review request"));
+    fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
+    expect(screen.queryByText("Request sent to Synthetic Recipient")).toBeNull();
+    expect(mocks.getInformationRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not promote a bundle that repeats one scope instead of matching the selected set", async () => {
+    const profile = page(1);
+    profile.requestableScopes.push({
+      scopeRef: "scope-2", label: "Synthetic field 2", description: null,
+      domain: "professional", sensitivity: "standard", wildcard: false,
+    });
+    mocks.getViewer.mockResolvedValue(profile);
+    mocks.create.mockResolvedValue({
+      personRef: person, bundleId: "bundle_12345678",
+      purpose: "Synthetic sharing rehearsal", durationSeconds: 168 * 3600, cancelled: false,
+      items: [1, 2].map(number => ({
+        requestId: `request_1234567${number}`, scopeRef: "scope-1", label: "Synthetic field 1",
+        sensitivity: "standard", status: "pending",
+      })),
+    });
+    render(<AgentStructuredExperienceView experience={experience} />);
+    fireEvent.click(await screen.findByText("Synthetic field 1"));
+    fireEvent.click(screen.getByText("Synthetic field 2"));
+    fireEvent.click(screen.getByText("Review request"));
+    fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
+    expect(mocks.getInformationRequest).not.toHaveBeenCalled();
   });
 
   it("clears selected fields when continuation reports a changed catalog", async () => {

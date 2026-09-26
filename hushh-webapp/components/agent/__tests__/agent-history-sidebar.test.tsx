@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
@@ -23,6 +23,7 @@ function renderSidebar() {
       activeConversationId="conv_1"
       mode="mobile"
       onClose={vi.fn()}
+      onOpenConnectors={vi.fn()}
       onToggleCollapsed={vi.fn()}
       onCreateNew={vi.fn()}
       onSelectConversation={vi.fn()}
@@ -33,6 +34,82 @@ function renderSidebar() {
 }
 
 describe("AgentHistorySidebar", () => {
+  it("keeps Connectors in a dedicated footer below the scrollable chat list", () => {
+    renderSidebar();
+    const button = screen.getByRole("button", { name: "Open Connectors" });
+    expect(button).toHaveClass("min-h-11", "text-[13px]");
+    const footer = button.parentElement;
+    expect(footer).toHaveClass("shrink-0", "border-t");
+    expect(screen.getByLabelText("Agent chat history").lastElementChild).toBe(footer);
+    expect(footer?.contains(screen.getByRole("searchbox", { name: "Search chats" }))).toBe(false);
+  });
+
+  it("groups chats quietly by last activity", () => {
+    const older = new Date();
+    older.setDate(older.getDate() - 15);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    render(<AgentHistorySidebar
+      conversations={[
+        conversations[0],
+        { ...conversations[0], id: "conv_2", title: "Yesterday", last_message_at: yesterday.toISOString() },
+        { ...conversations[0], id: "conv_3", title: "Two weeks ago", last_message_at: older.toISOString() },
+      ]}
+      activeConversationId="conv_1"
+      mode="mobile"
+      onCreateNew={vi.fn()}
+      onSelectConversation={vi.fn()}
+      onRenameConversation={vi.fn()}
+      onDeleteConversation={vi.fn()}
+    />);
+    expect(within(screen.getByRole("list", { name: "Today conversations" })).getByText("What needs a reply today?")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Yesterday conversations" })).getByText("Yesterday")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Last 30 days conversations" })).getByText("Two weeks ago")).toBeInTheDocument();
+  });
+
+  it("shows deletion progress in place of the menu while the request is pending", () => {
+    const { rerender } = render(<AgentHistorySidebar
+      conversations={conversations}
+      activeConversationId={null}
+      actionPendingId="conv_1"
+      mode="desktop"
+      onCreateNew={vi.fn()}
+      onSelectConversation={vi.fn()}
+      onRenameConversation={vi.fn()}
+      onDeleteConversation={vi.fn()}
+    />);
+    expect(screen.getByRole("status", { name: "Deleting What needs a reply today?" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open actions for/ })).not.toBeInTheDocument();
+    rerender(<AgentHistorySidebar
+      conversations={conversations}
+      activeConversationId={null}
+      mode="desktop"
+      onCreateNew={vi.fn()}
+      onSelectConversation={vi.fn()}
+      onRenameConversation={vi.fn()}
+      onDeleteConversation={vi.fn()}
+    />);
+    expect(screen.getByRole("button", { name: /Open actions for/ })).toBeInTheDocument();
+  });
+
+  it("closes confirmation immediately while deletion continues asynchronously", async () => {
+    const onDeleteConversation = vi.fn(() => new Promise<void>(() => undefined));
+    render(<AgentHistorySidebar
+      conversations={conversations}
+      activeConversationId="conv_1"
+      mode="mobile"
+      onCreateNew={vi.fn()}
+      onSelectConversation={vi.fn()}
+      onRenameConversation={vi.fn()}
+      onDeleteConversation={onDeleteConversation}
+    />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Open actions for What needs a reply today?" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onDeleteConversation).toHaveBeenCalledWith("conv_1");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("uses the compact Chats drawer in mobile mode and omits desktop collapse controls", () => {
     renderSidebar();
 

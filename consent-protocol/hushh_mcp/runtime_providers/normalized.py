@@ -47,6 +47,9 @@ class NormalizedChunk:
 
     text: str = ""
     function_calls: tuple[NormalizedFunctionCall, ...] = field(default_factory=tuple)
+    # The model the provider says answered, when it says. Empty means "not
+    # reported", which the ADK adapter turns into the requested id and the turn
+    # response reports as ``modelReported: false`` rather than as a guess.
     model_version: str = ""
 
     @property

@@ -133,7 +133,8 @@ The microphone now enters the Location command runtime. Ordinary typed Kai text 
 1. Confirm `Statement` remains editable.
 2. Confirm `Plaid` remains read-only.
 3. Confirm `Combined` remains comparison-only and cannot launch Debate or Optimize directly.
-4. If webhook target changed after prior connections, do a one-time operator maintenance pass using Plaid's `/item/webhook/update`.
+4. Confirm connect, refresh and relink use the vault route. It does not register webhooks;
+   handle existing server rows through the per-environment retirement procedure.
 
 ## 8) Web-Only Behavior Validation
 1. Confirm web-only plugins/features remain explicitly documented.

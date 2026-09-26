@@ -103,6 +103,28 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("shows provider thought summaries inside Chat separately from Activity and Response", () => {
+    const { rerender } = render(<AgentTurnStreamPanel
+      streamEvents={[]}
+      thinkingSummary="I checked the connected capability."
+      responseText=""
+      isStreaming
+    />);
+    expect(screen.getByText("I checked the connected capability.")).toBeVisible();
+    rerender(<AgentTurnStreamPanel
+      streamEvents={[]}
+      thinkingSummary="I checked the connected capability."
+      responseText="Here is the answer."
+      isStreaming
+    />);
+    const thinking = screen.getByRole("button", { name: /Thinking summary/i });
+    expect(thinking).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(thinking);
+    expect(thinking).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("I checked the connected capability.")).toBeInTheDocument();
+    expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+  });
   it("renders metadata provenance and opens Connectors only on explicit click", () => {
     const onOpenConnections = vi.fn();
     const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,
@@ -117,8 +139,9 @@ describe("AgentTurnStreamPanel", () => {
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
       isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
       onOpenConnections={onOpenConnections} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Connectors" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Gmail access" }));
     expect(onOpenConnections).toHaveBeenCalledOnce();
+    expect(onOpenConnections).toHaveBeenCalledWith("gmail", expect.any(HTMLButtonElement));
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
   });
   it("renders tool progress without leaking raw action payloads", () => {
@@ -539,5 +562,67 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.getAllByRole("region", { name: "Information available from Alex Morgan" })).toHaveLength(2);
     expect(screen.getByText("A short clarification.")).toBeInTheDocument();
+  });
+
+  it("shows a connector step by the owner's name with its review tag, never a success mark on failure", () => {
+    const read = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read",
+    }), 1);
+    const review = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-review", actionId: null, label: "Hussh Wiki", execution: "server",
+      status: "waiting", message: "Waiting for your review.", tag: "Needs review",
+    }), 2);
+    const failed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-failed", actionId: null, label: "DeepWiki", execution: "blocked",
+      message: "Connector call needs attention.",
+    }), 3);
+    expect(read).toMatchObject({ status: "done", tag: "Read" });
+    expect(review).toMatchObject({ status: "waiting", tag: "Needs review" });
+    expect(failed.status).toBe("blocked");
+    expect(failed.tag).toBeUndefined();
+    const { container } = render(<AgentTurnStreamPanel streamEvents={[read, review, failed]}
+      responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    expect(screen.getByText("Microsoft Learn")).toBeInTheDocument();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    const failedRow = screen.getByText("DeepWiki").closest("li");
+    expect(failedRow?.querySelector(".text-destructive")).not.toBeNull();
+    expect(failedRow?.querySelector(".text-emerald-600")).toBeNull();
+    const reviewRow = screen.getByText("Hussh Wiki").closest("li");
+    expect(reviewRow?.querySelector(".text-emerald-600")).toBeNull();
+    expect(container.querySelector('[data-status="waiting"]')).not.toBeNull();
+  });
+
+  it("labels Google connector steps with their official mark, and nothing for private connectors", () => {
+    const calendar = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "calendar-access", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "calendar" },
+    }), 1);
+    const mail = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mail-read", actionId: null, label: "Gmail", execution: "server",
+      message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
+    }), 2);
+    const custom = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read", raw: { protocol: "ag-ui", toolName: `mcp_${"a".repeat(40)}` },
+    }), 3);
+    const spoofed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "spoof", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "https://evil.test/logo" },
+    }), 4);
+    expect(calendar.brand).toBe("calendar");
+    expect(mail.brand).toBe("gmail");
+    expect(custom.brand).toBeUndefined();
+    expect(spoofed.brand).toBeUndefined();
+    render(<AgentTurnStreamPanel streamEvents={[calendar, mail, custom]} responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    const calendarRow = screen.getByText("Connector access").closest("li");
+    expect(calendarRow?.querySelector('img[data-connector-brand="calendar"]')).toHaveAttribute("src", "/icons/connectors/calendar.svg");
+    expect(screen.getByText("Microsoft Learn").closest("li")?.querySelector("img")).toBeNull();
+    expect(screen.getByText("Read")).toBeInTheDocument();
   });
 });

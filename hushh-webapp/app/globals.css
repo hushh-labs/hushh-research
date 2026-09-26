@@ -31,6 +31,15 @@
  */
 @source "../lib/morphy-ux/tokens/semantic-roles.ts";
 
+/* Portaled connector and shared overlay classes must be present in the first
+ * stylesheet, including in ignored development worktrees where automatic
+ * source detection may not see these files. */
+@source "../components/agent/agent-connections-drawer.tsx";
+@source "../components/ui/dialog.tsx";
+@source "../components/ui/sheet.tsx";
+@source "../components/ui/popover.tsx";
+@source inline("sm:max-w-md [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]");
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
@@ -687,9 +696,8 @@ textarea {
   /* Fixed bottom navbar clearance fallback (before runtime measurement). */
   --bottom-nav-offset: 88px;
   --app-bottom-shell-max-width: 48rem;
-  /* The desktop Agent Bar and navigation share the same dock chassis. Keeping
-   * these widths aligned prevents a narrow voice input above a wide nav pill. */
-  --app-agent-bar-max-width: var(--app-bottom-shell-max-width);
+  /* Keep the voice launcher compact above the wider five-item navigation. */
+  --app-agent-bar-max-width: 34rem;
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
@@ -2301,7 +2309,7 @@ body:has(.profile-account-content)
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
@@ -2330,11 +2338,6 @@ body:has(.profile-account-content)
     transform: none;
     transition: none;
   }
-}
-
-/* When the chat history drawer is open, elevate the chat workspace above the bottom navigation bar */
-body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
-  z-index: 550 !important;
 }
 
 html.kb-open .agent-chat-workspace,
@@ -4034,8 +4037,8 @@ body:has([data-testid="one-location-onboarding"])
 
 .dark {
   /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Accent tuned BRIGHT for legibility on black; the light -deep tone is
-     too faint on dark surfaces. */
+     The accent -deep stays #007aff by design (see the ONE Action Blue note
+     below); only the translucent tint/surface washes take alpha form on dark. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
      under html[data-accent="gold"].dark below. ONE Action Blue across both
@@ -6304,7 +6307,8 @@ html[data-accent="gold"].dark {
  * filters are recomputed during every frame of page and overlay motion. Keep
  * both persistent chrome and modal scrims blur-free on native Android; the
  * shared scrim color still dims and isolates blocking surfaces without the
- * physical-device frame-time regression. */
+ * physical-device frame-time regression. The measured Galaxy S24 Ultra
+ * sheet trace improved from 7 uneven frames to 23 evenly spaced frames. */
 html.native-android *,
 html.native-android *::before,
 html.native-android *::after {

@@ -42,6 +42,7 @@ web_ci_build() {
   web_dir="$(web_ci_dir)"
   cd "$web_dir"
 
+  BACKEND_URL="${BACKEND_URL:-https://api.example.com}" \
   NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
   NEXT_PUBLIC_DEVELOPER_API_URL="${NEXT_PUBLIC_DEVELOPER_API_URL:-https://api.example.com}" \
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \

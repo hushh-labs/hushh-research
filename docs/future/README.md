@@ -7,12 +7,18 @@
 ```mermaid
 flowchart TD
   root["docs/future/<br/>planning-only roadmap home"]
+  personalAgent["personal-agent/<br/>Sovereign per-user agent (Private Cloud Compute) — ACTIVE"]
+  identity["identity-assurance/<br/>WebAuthn/FIDO2 + Titan passkey login (M14)"]
+  aPlus["apple-a-plus/<br/>Apple/Jobs A+ grading loop"]
   kai["kai/<br/>assistant and workflow concepts"]
-  oneInfra["hussh-one-infra/<br/>One infrastructure future architecture"]
+  oneInfra["hussh-one-infra/<br/>One infrastructure future architecture (2026-05, older)"]
   oneSurface["one-product-surface-evolution-plan.md<br/>One product surface scaling"]
   oneNav["one-nav-runtime-plan.md<br/>One/Kai/Nav/KYC runtime migration"]
   execution["promotion to execution docs<br/>only after approval"]
 
+  root --> personalAgent
+  personalAgent --> identity
+  personalAgent --> aPlus
   root --> kai
   root --> oneInfra
   root --> oneSurface
@@ -60,6 +66,9 @@ Promotion targets:
 
 ## Current Domains
 
+- **[Private-agent plans and evidence](./personal-agent/README.md).** Start with the [owner-pod direct-runtime handoff](./personal-agent/OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) for the inspected baseline and next dev milestone. The [remaining roadmap](./personal-agent/ROADMAP.md) retains deferred requirements; earlier architecture and test reports are historical provenance, not current deployment or completion claims.
+- [identity-assurance/README.md](./identity-assurance/README.md): WebAuthn/FIDO2 passkey + hardware-key (Google Titan/YubiKey) login and NIST 800-63B AAL mapping (personal-agent M14 companion).
+- [apple-a-plus/PLAN.md](./apple-a-plus/PLAN.md): the Apple/Jobs "A+" grading loop for the "your sovereign agent is alive" throughline (shares the personal-agent status surface).
 - [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
 - [hussh-one-infra/README.md](./hussh-one-infra/README.md): planning-only One infrastructure architecture for Founder Wiki validation, Salesforce/MuleSoft partner boundaries, private compute, BYOA, and code-persona alignment
 - [one-product-surface-evolution-plan.md](./one-product-surface-evolution-plan.md): planning-only product-surface evolution path for One, Kai, Nav, KYC, PCHP, PKM, OpenClaw/LLM Wiki-style projections, signature, brokerage, and brand-side access

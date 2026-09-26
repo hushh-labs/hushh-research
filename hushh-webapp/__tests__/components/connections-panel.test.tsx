@@ -214,6 +214,31 @@ describe("Connectors owner and mutation fences", () => {
     });
     expect(p.onClearRecovery).not.toHaveBeenCalled();
   });
+  it("starts selected-file OAuth when live Drive access is not admitted", async () => {
+    state.overview.mockResolvedValue({
+      ...overview(),
+      features: {
+        ...overview().features,
+        google_drive_live: false,
+      },
+      connectors: [{ connectorId: "google_drive", status: "not_connected", available: true }],
+    });
+    state.nativeStart.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      connectorId: "google_drive",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const p = props();
+    p.onPrepareRecovery.mockResolvedValue("busy");
+    render(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
+    await waitFor(() => expect(state.nativeStart).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "selected" }),
+    ));
+  });
   it("cannot resurrect a removed document from an earlier same-owner read", async () => {
     let stale!: (value: unknown) => void;
     state.documents
@@ -259,11 +284,12 @@ describe("Connectors owner and mutation fences", () => {
     state.token = "vault-b";
     state.overview.mockResolvedValue(overview("new-owner@example.invalid"));
     view.rerender(<ConnectorsPanel {...p} />);
-    await screen.findByText("new-owner@example.invalid");
+    await openDriveDetail();
+    await screen.findByText(/new-owner@example\.invalid/);
     await act(async () => {
       stale(overview("old-owner@example.invalid"));
     });
-    expect(screen.queryByText("old-owner@example.invalid")).toBeNull();
+    expect(screen.queryByText(/old-owner@example\.invalid/)).toBeNull();
   });
   it("new connection gate does not disable selected-file management on existing grant", async () => {
     const result = overview();
@@ -400,8 +426,8 @@ describe("Connectors owner and mutation fences", () => {
     state.nativePending.mockResolvedValue(null);
     const p = props();
     render(<ConnectorsPanel {...p} />);
-    expect(await screen.findByText("drive@example.invalid")).toBeVisible();
     await openDriveDetail();
+    expect(await screen.findByText(/drive@example\.invalid/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled();
 
     state.nativePending.mockResolvedValue({

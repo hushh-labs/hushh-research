@@ -24,9 +24,9 @@ const shellActionSurfaceVariants = cva(
     variants: {
       variant: {
         icon:
-          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
+          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground",
         pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
+          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {
@@ -35,12 +35,20 @@ const shellActionSurfaceVariants = cva(
   }
 );
 
-export const SHELL_ICON_BUTTON_CLASSNAME = shellActionSurfaceVariants({ variant: "icon" });
-export const SHELL_PILL_TRIGGER_CLASSNAME = shellActionSurfaceVariants({ variant: "pill" });
+export const SHELL_ICON_BUTTON_CLASSNAME = cn(
+  shellActionSurfaceVariants({ variant: "icon" }),
+  "active:scale-90",
+);
+export const SHELL_PILL_TRIGGER_CLASSNAME = cn(
+  shellActionSurfaceVariants({ variant: "pill" }),
+  "active:scale-[0.97]",
+);
 
 interface ShellActionSurfaceProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof shellActionSurfaceVariants> {
+  /** Keep ripple feedback while opting out of the shell's press-scale motion. */
+  pressScale?: boolean;
   badge?: React.ReactNode;
   badgeClassName?: string;
   contentClassName?: string;
@@ -62,6 +70,7 @@ export const ShellActionSurface = React.forwardRef<
     badgeClassName,
     children,
     type = "button",
+    pressScale = true,
     ...props
   },
   ref
@@ -71,7 +80,11 @@ export const ShellActionSurface = React.forwardRef<
       <button
         ref={ref}
         type={type}
-        className={cn(shellActionSurfaceVariants({ variant }), className)}
+        className={cn(
+          shellActionSurfaceVariants({ variant }),
+          pressScale && (variant === "icon" ? "active:scale-90" : "active:scale-[0.97]"),
+          className,
+        )}
         {...props}
       >
         <span

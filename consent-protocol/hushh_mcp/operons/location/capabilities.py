@@ -29,6 +29,17 @@ def compile_location_capabilities(
                 "workflow_id": workflow["capability_id"],
                 "workflow": workflow,
             }
+            # A workflow may expose a separately authored navigation entry. Keep
+            # that route action available for explicit opening without treating
+            # it as a Location mutation or folding it into completion.
+            entry_action_id = str(workflow.get("entry_action_id") or "")
+            if entry_action_id:
+                entry_action = next(
+                    (item for item in actions if item.get("action_id") == entry_action_id),
+                    None,
+                )
+                if entry_action is not None:
+                    catalog[entry_action_id] = entry_action
     canonical = json.dumps(catalog, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest(), catalog
 

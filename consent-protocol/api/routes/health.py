@@ -3,6 +3,7 @@
 Health check endpoints.
 """
 
+import asyncio
 import hmac
 import logging
 import os
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from api.middlewares.rate_limit import limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+from db.connection import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,24 @@ def _first_env(*keys: str) -> str:
 
 
 def _resolve_reviewer_uid() -> str:
-    return _first_env(REVIEWER_UID_KEY, *DEPRECATED_REVIEWER_UID_KEYS)
+    # The local reviewer-mode script writes the canonical UID to this ignored
+    # overlay. Runtime dotenv loading uses override=False, so an older .env
+    # value can otherwise mint the wrong Firebase subject despite preflight.
+    # Never prefer the overlay in production or outside explicit review mode.
+    return _review_mode_overlay_uid() or _first_env(REVIEWER_UID_KEY, *DEPRECATED_REVIEWER_UID_KEYS)
+
+
+def _review_mode_overlay_uid() -> str:
+    if not _is_app_review_mode_enabled() or _is_production_runtime():
+        return ""
+    try:
+        overlay = Path(__file__).resolve().parents[2] / ".env.local"
+        values = dotenv_values(str(overlay)) if overlay.is_file() else {}
+        if str(values.get("APP_REVIEW_MODE", "")).strip().lower() not in {"1", "true", "yes", "on"}:
+            return ""
+        return str(values.get(REVIEWER_UID_KEY, "")).strip()
+    except Exception:
+        return ""
 
 
 def _resolve_reviewer_vault_passphrase() -> str:
@@ -130,29 +149,28 @@ def _select_review_mode_identity(
     smoke_passphrase: str | None,
     requested_uid: str | None = None,
 ) -> tuple[str, str]:
-    """Pick the identity a review-mode session mints.
+    """Select a configured identity; a client UID never grants that identity.
 
-    Returns ``(uid, subject)``. The primary reviewer is minted exactly as
-    before this pair existed: for no passphrase (the App Store reviewer
-    button), for production (where the bypass is ignored, as documented), for
-    a backend holding no configured pair (the localhost overlay carries only
-    APP_REVIEW_MODE and REVIEWER_UID), and for a passphrase that matches no
-    pair. The counterpart pair only adds a second match: a passphrase equal to
-    a configured pair's mints that pair's uid. In non-production, a requested_uid
-    matching a configured reviewer pair mints that pair directly. Values are never logged.
+    The no-passphrase reviewer button and unmatched-passphrase fallback retain
+    the primary identity. A counterpart needs its configured passphrase. When
+    the client supplies an expected UID, reject a mismatch instead of silently
+    signing it into a different account.
     """
     primary = (_resolve_reviewer_uid(), "reviewer")
-    configured = _configured_reviewer_identities()
-    if requested_uid and not _is_production_runtime():
-        clean_requested = str(requested_uid).strip()
-        for candidate_uid, _, subject in configured:
-            if candidate_uid == clean_requested:
-                return candidate_uid, subject
     provided_passphrase = str(smoke_passphrase or "").strip()
-    if not provided_passphrase or _is_production_runtime():
-        return primary
-    matched = _match_reviewer_identity(provided_passphrase, configured)
-    return matched or primary
+    matched = (
+        _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+        if provided_passphrase and not _is_production_runtime()
+        else None
+    )
+    selected = matched or primary
+    if requested_uid is not None and str(requested_uid).strip() != selected[0]:
+        raise HTTPException(
+            status_code=403,
+            detail="Reviewer identity mismatch",
+            headers=NO_STORE_HEADERS,
+        )
+    return selected
 
 
 def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
@@ -179,6 +197,88 @@ def _agent_model() -> dict[str, object]:
     }
 
 
+# ── Pod-fleet signal (optional; off unless POD_FLEET_HEALTH_SIGNAL_ENABLED) ──
+# Terminal statuses meaning the fleet gave up standing a pod up. NOTHING writes
+# ``provisioning_failed`` yet: it is declared ahead of its writer in the read-side
+# status map in api/routes/one/personal_agent.py, and
+# hushh_mcp/services/personal_agent_provisioning_service.py still only ever writes
+# pending / provisioning / provisioned. So on its own this set would count zero
+# forever -- a check that reports green because it measures nothing. It is listed
+# anyway to match that declared contract (the reconcile sweep already treats it as
+# a stalled status), so the write side lands without a second edit here.
+POD_FLEET_FAILED_STATUSES = ("provisioning_failed",)
+
+# The failure signature that is real TODAY: a row left wedged in ``provisioning``.
+# ``provision()`` records that status before minting the standing read and re-raises
+# on failure without clearing it, so a stalled provision is visible as an old
+# ``provisioning`` row. Caveat, stated where it lives rather than in a runbook:
+# personal_agent_registry.updated_at has no ON UPDATE trigger and
+# personal_agent_registry_repo.py never sets it, so it is effectively the row's
+# creation time -- meaning a RE-provision of an old row looks wedged for the few
+# seconds it is in flight. Accepted, because this signal is reported, never gating.
+POD_FLEET_STALE_PROVISIONING_SECONDS = 900
+
+POD_FLEET_FAILED_COUNT_SQL = """
+SELECT count(*)
+  FROM personal_agent_registry
+ WHERE status = ANY($1::text[])
+    OR (status = 'provisioning'
+        AND updated_at < now() - make_interval(secs => $2::double precision))
+"""
+
+
+async def _pod_fleet_check() -> str | None:
+    """Count pods the fleet failed to stand up. ``None`` when the signal is off.
+
+    FAIL-SAFE by construction. Every failure mode -- signal off, missing table
+    (``personal_agent_registry`` ships as a dev-only parked migration and does not
+    exist in UAT or production), slow query, unavailable pool -- resolves to a
+    reported string or ``None``, never to ``ready = False``. A broken fleet check is
+    not a broken service.
+
+    That is also why a breached threshold reports ``degraded`` instead of gating:
+    the pods are separate hosts, so a fleet-wide pod outage that pulled every
+    control-plane instance out of rotation at once would convert a partial failure
+    into a total one (AGENTS.md: a component's failure degrades the system rather
+    than breaking it). The caller records this result and leaves ``ready`` alone.
+
+    Cost when enabled: one extra pool acquisition and one bounded (<=2s) count
+    query per readiness probe. That budget is the reason the signal ships dark.
+    """
+    # Deferred import, matching _one_runtime_dependency_evidence above: the probe
+    # pulls in no personal-agent settings surface until this is actually called.
+    from hushh_mcp.runtime_settings import (
+        pod_fleet_failed_threshold,
+        pod_fleet_health_signal_enabled,
+    )
+
+    if not pod_fleet_health_signal_enabled():
+        return None
+
+    try:
+        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
+        async with pool.acquire() as conn:
+            raw = await asyncio.wait_for(
+                conn.fetchval(
+                    POD_FLEET_FAILED_COUNT_SQL,
+                    list(POD_FLEET_FAILED_STATUSES),
+                    float(POD_FLEET_STALE_PROVISIONING_SECONDS),
+                ),
+                timeout=2.0,
+            )
+        failed = int(raw or 0)
+    except Exception as exc:
+        # Includes UndefinedTableError wherever the parked migration is unapplied.
+        logger.warning("health_ready.pod_fleet_unavailable error=%s", type(exc).__name__)
+        return "unknown"
+
+    threshold = pod_fleet_failed_threshold()
+    if failed > threshold:
+        logger.warning("health_ready.pod_fleet_degraded failed=%s threshold=%s", failed, threshold)
+        return "degraded"
+    return "ok"
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -200,6 +300,71 @@ def health():
 #: Deliberately short: this is the set the UI actually branches on, not every
 #: provider the backend talks to.
 _REPORTED_CAPABILITIES = ("vertex_ai", "voice", "maps")
+
+
+@router.get("/health/ready")
+async def health_ready(request: Request):
+    """Readiness probe: checks real dependencies; 503 if the service can't serve.
+
+    Wire this (not ``/health``) as the deploy/load-balancer readiness gate so a
+    DB-down instance is pulled from rotation instead of accepting traffic it
+    cannot honor. The shared runtime gates on its DB and, in production, Firebase
+    Admin. A private pod reports process readiness without hub dependencies.
+    The optional pod-fleet signal is reported for the shared runtime but does
+    not gate readiness (see :func:`_pod_fleet_check`); it is absent unless
+    ``POD_FLEET_HEALTH_SIGNAL_ENABLED`` is on.
+    """
+    # A private pod has no database credential or fleet registry. Its deploy
+    # liveness probe is /health; this endpoint reports process readiness only.
+    # Do not turn the hub's database dependency into a pod outage.
+    if getattr(request.app.state, "runtime_topology", None) == "private_pod":
+        return JSONResponse(
+            {"status": "ready", "checks": {"pod_process": "ok"}},
+            headers=NO_STORE_HEADERS,
+        )
+
+    checks: dict[str, str] = {}
+    ready = True
+
+    # Database: a short-timeout SELECT 1 through the shared pool.
+    try:
+        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
+        async with pool.acquire() as conn:
+            await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=2.0)
+        checks["database"] = "ok"
+    except Exception as exc:
+        ready = False
+        checks["database"] = "unavailable"
+        logger.warning("health_ready.database_unavailable error=%s", type(exc).__name__)
+
+    # Firebase Admin: cached "configured" check (no network round-trip).
+    try:
+        configured, _ = ensure_firebase_auth_admin()
+        if configured:
+            checks["firebase_admin"] = "ok"
+        else:
+            checks["firebase_admin"] = "not_configured"
+            if _is_production_runtime():
+                ready = False
+    except Exception as exc:
+        checks["firebase_admin"] = "error"
+        if _is_production_runtime():
+            ready = False
+        logger.warning("health_ready.firebase_check_failed error=%s", type(exc).__name__)
+
+    # Pod fleet: optional and OFF by default. When off this adds no key and issues
+    # no query, so the body stays byte-identical to the pre-signal contract. When
+    # on it only ever adds a key -- ``ready`` is deliberately never touched here.
+    pod_fleet = await _pod_fleet_check()
+    if pod_fleet is not None:
+        checks["pod_fleet"] = pod_fleet
+
+    body = {"status": "ready" if ready else "not_ready", "checks": checks}
+    return JSONResponse(
+        body,
+        status_code=200 if ready else 503,
+        headers=NO_STORE_HEADERS,
+    )
 
 
 @router.get("/health/capabilities")

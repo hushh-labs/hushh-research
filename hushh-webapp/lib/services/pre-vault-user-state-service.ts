@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/cache-service";
 import {
   normalizeOneSetupCapabilityId,
+  ONE_CLOUD_SETUP_PREREQUISITE_ID,
   ONE_RUNTIME_SETUP_PREREQUISITE_ID,
 } from "@/lib/onboarding/setup-capability-ids";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -490,6 +491,22 @@ export class PreVaultUserStateService {
   ): boolean {
     return Boolean(
       state?.setupCapabilityIds.includes(ONE_RUNTIME_SETUP_PREREQUISITE_ID),
+    );
+  }
+
+  /**
+   * Has the server recorded a valid agent-home choice?
+   *
+   * The marker is written by an authenticated server flow: BYOC writes it only after
+   * proving project access, while Shared records an explicit no-pod choice after the
+   * server confirms there is no existing or pending pod assignment. Hussh Pods retains
+   * its own gated selection flow. A client cannot mark the prerequisite complete alone.
+   */
+  static hasOneCloudProject(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
+    return Boolean(
+      state?.setupCapabilityIds.includes(ONE_CLOUD_SETUP_PREREQUISITE_ID),
     );
   }
 

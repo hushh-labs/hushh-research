@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 DEFAULT_CASES = ROOT / "scripts/eval_cases/nav_specialist_turns.v1.json"
 SCHEMA_VERSION = "nav.specialist_turns.v1"
-MODELS = ("gemini-3.8-flash", "gemini-3.7-flash")
+MODELS = ("gemini-3.7-flash", "gemini-3.6-flash")
 
 
 def build_live_model(model: str):
@@ -446,7 +446,7 @@ def main(argv=None) -> int:
     if args.runs < 1:
         parser.error("runs must be positive")
     if args.mode == "adk" and args.model == "both":
-        parser.error("ADK mode requires --model gemini-3.7-flash or gemini-3.8-flash")
+        parser.error("ADK mode requires --model gemini-3.7-flash or gemini-3.6-flash")
     if args.report.exists():
         parser.error("Report already exists; choose a new path to preserve historical evidence")
     if (

@@ -21,6 +21,12 @@ const PUBLIC_ROUTES = [
 // API routes are handled separately
 const API_PREFIX = "/api";
 const LEGACY_CONNECT_ROOT = "/connect";
+const DIRECT_PROFILE_ROUTES = new Set([
+  ROUTES.ONE_PROFILE_DISCOVERY,
+  ROUTES.PROFILE_CONNECTORS,
+  ROUTES.PROFILE_HOSTING,
+  ROUTES.PROFILE_SOFTWARE_UPDATES,
+]);
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   "/chat": ROUTES.HOME,
@@ -89,6 +95,7 @@ export function proxy(request: NextRequest) {
       pathname === "/profile" ||
       pathname.startsWith("/one/profile/") ||
       pathname.startsWith("/profile/")) &&
+    !DIRECT_PROFILE_ROUTES.has(legacyRedirectPath) &&
     !pathname.includes("oauth/return")
   ) {
     const rawSubpath = pathname

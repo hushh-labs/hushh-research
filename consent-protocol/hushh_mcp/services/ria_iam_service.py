@@ -32,6 +32,12 @@ from hushh_mcp.services.contact_sync_contract import (
 )
 from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
+from hushh_mcp.services.ria_pick_package_projection import (
+    build_pick_package_summary,
+    coerce_package_rows,
+    count_screening_rows,
+    normalize_ria_pick_thesis_text,
+)
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
     NameVerificationResult,
@@ -6456,14 +6462,11 @@ class RIAIAMService:
 
     @staticmethod
     def _coerce_package_rows(rows: Any) -> list[dict[str, Any]]:
-        if not isinstance(rows, list):
-            return []
-        return [dict(row) for row in rows if isinstance(row, dict)]
+        return coerce_package_rows(rows)
 
     @staticmethod
     def _normalize_ria_pick_thesis_text(value: Any) -> str | None:
-        text = str(value or "").strip()
-        return text[:_RIA_PICK_THESIS_MAX_LENGTH] if text else None
+        return normalize_ria_pick_thesis_text(value, max_length=_RIA_PICK_THESIS_MAX_LENGTH)
 
     @staticmethod
     def _build_ria_advisor_thesis(
@@ -6746,16 +6749,7 @@ class RIAIAMService:
 
     @staticmethod
     def _count_screening_rows(screening_sections: list[dict[str, Any]] | None) -> int:
-        if not isinstance(screening_sections, list):
-            return 0
-        total = 0
-        for section in screening_sections:
-            if not isinstance(section, dict):
-                continue
-            rows = section.get("rows")
-            if isinstance(rows, list):
-                total += len(rows)
-        return total
+        return count_screening_rows(screening_sections)
 
     def _pick_package_has_material_content(self, package: dict[str, Any] | None) -> bool:
         if not isinstance(package, dict):
@@ -6831,20 +6825,16 @@ class RIAIAMService:
         active_share_count: int = 0,
         has_package: bool = True,
     ) -> dict[str, Any]:
-        top_picks = package.get("top_picks") if isinstance(package, dict) else []
-        avoid_rows = package.get("avoid_rows") if isinstance(package, dict) else []
-        screening_sections = package.get("screening_sections") if isinstance(package, dict) else []
-        return {
-            "has_package": bool(has_package),
-            "storage_source": storage_source,
-            "package_revision": int(revision or 0),
-            "top_pick_count": len(top_picks) if isinstance(top_picks, list) else 0,
-            "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
-            "screening_row_count": self._count_screening_rows(screening_sections),
-            "last_updated": updated_at,
-            "active_share_count": max(0, int(active_share_count or 0)),
-            "path": _RIA_PICKS_PKM_PATH,
-        }
+        return build_pick_package_summary(
+            package=package,
+            storage_source=storage_source,
+            revision=revision,
+            updated_at=updated_at,
+            active_share_count=active_share_count,
+            has_package=has_package,
+            pkm_path=_RIA_PICKS_PKM_PATH,
+            count_rows=self._count_screening_rows,
+        )
 
     async def _count_active_pick_shares(
         self,

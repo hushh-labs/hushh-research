@@ -164,10 +164,27 @@ substituted for one another:
 - Physical-device tests use a separately authorised test session and terminate
   their launched app even when an XCTest assertion fails.
 
+The anonymous account-recovery CI smoke leaves final termination to its host.
+`hushh-webapp/scripts/native/ios-simulator-cleanup.py` requires an explicit simulator UUID,
+bounds termination and process checks, and verifies absence of the exact app's
+launchd label or a freshly observed shutdown of that exact simulator. A failed
+inventory query records timeout, refusal, or invalid output separately; missing,
+duplicate, transitioning or unavailable device state cannot prove absence.
+The existing cold-audit wrapper uses the same helper. Test failure
+remains failure; successful assertions with unverified cleanup also fail. This
+proves app-process absence only, not cleanup of every WebKit child or XCTest
+runner. Direct invocations of that smoke must run the same host cleanup.
+
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
-and a pinned id fails only after a full build. Interactive runs resolve a
-concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+and a pinned id fails only after a full build. Simulator launches resolve a
+concrete device at launch time. The compatibility command
+`APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
+`.codex/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+native environment resolver. It keeps Simulator in the background, bounds boot
+readiness to 120 seconds, and verifies the bundled backend before installation.
+Its historical default remains UAT; select dev explicitly for private-branch work.
+Authenticated rehearsal follows the reviewer workflow and is separate from launch proof.
 A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its

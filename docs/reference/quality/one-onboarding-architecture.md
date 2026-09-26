@@ -29,22 +29,45 @@ create the first vault. Vault keys and owner tokens remain in memory only.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)\ntiles + live status\nmaster Finish setup"]
-  Connections["/one/setup/connections\nrequired explicit managed or BYOK choice"]
-  Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
-  Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
-  Wizard["/one/setup/finance (wizard)\nquestionnaire -> persona"]
-  Import["/one/setup/finance/import\nPlaid, statement, or set up later"]
+  Hub["/one/setup (hub)<br/>tiles + live status<br/>master Finish setup"]
+  Placement["/one/setup/cloud<br/>choose where One runs"]
+  Shared["Hussh Shared<br/>shared runtime; no personal pod"]
+  Byoc["BYOC<br/>owner's Google Cloud pod"]
+  Hosted["Hussh Pods<br/>Hussh-operated pod; new assignments gated"]
+  Connections["/one/setup/connections<br/>choose model provider and credential"]
+  Pod["Assigned private-agent pod"]
+  Gmail["/one/setup/gmail (workspace)<br/>Connect, review receipt signals, Finish Gmail setup"]
+  Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
+  Wizard["/one/setup/finance (wizard)<br/>questionnaire then persona"]
+  Import["/one/setup/finance/import<br/>Plaid, statement, or set up later"]
+  Dash["/one (dashboard)<br/>reached after the master acknowledgement"]
 
-  Hub -->|choose how One runs| Connections -->|durable choice marker| Hub
+  Hub --> Placement
+  Placement -->|no assignment or pending setup| Shared
+  Placement -->|verified owner-cloud setup| Byoc
+  Placement -->|only when the hosted gate opens| Hosted
+  Byoc -.-> Pod
+  Hosted -.-> Pod
+  Hub --> Connections
+  Connections -.->|"verified model access may start assigned-pod provisioning"| Pod
   Hub -->|Connect Gmail| Gmail
   Gmail -->|verified connection + Finish Gmail setup| Hub
   Hub -->|choose capability| Static
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after Connections: Finish setup -> required vault| Dash
+  Hub -->|after placement and Connections: Finish setup then required vault| Dash
 ```
+
+An account with no assigned pod and no pending setup resolves to Hussh Shared.
+The hosting selector offers BYOC and Hussh Pods as alternatives; new Hussh Pods
+assignments remain server-gated. Existing pod assignments and pending setup are
+preserved. Model provider and credential choice are a separate setup step.
+
+The dotted edges are deliberately dotted: provisioning does not block the setup
+journey. A verified model connection can start pod provisioning only when an
+owner-cloud or hosted pod target is already assigned. Hussh Shared never creates
+a pod as a side effect of connecting a model.
 
 The setup catalog is a deliberate subset of the broader One capability catalog
 (single source of truth:
@@ -101,9 +124,11 @@ presentation alone.
 
 ```mermaid
 flowchart TD
-  One["One setup (ROOT)\n/one/setup\nonce per account"]
-  Kai["Finance preferences (SUB)\n/one/setup/finance"]
-  Cap["Static capability setup (SUB)\n/one/setup/<capability>"]
+  One["One setup (ROOT)<br/>/one/setup<br/>once per account"]
+  Kai["Finance preferences (SUB)<br/>/one/setup/finance"]
+  Cap["Static capability setup (SUB)<br/>/one/setup/&lt;capability&gt;"]
+  Ria["RIA advisor verification (SUB)<br/>/one/setup/ria"]
+  Kyc["KYC identity workflow (SUB)<br/>/one/setup/email"]
   One --> Kai
   One --> Cap
   One --> Ria
@@ -124,11 +149,15 @@ registry — add or extend an `OnboardingDefinition` instead.**
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
 gate only after its Finish setup action and successful private-vault creation
-or unlock. The action remains disabled until the person explicitly selects
-Hussh-managed Gemini or BYOK at `/one/setup/connections`. The visible surface
-is named AI access; `connections` remains the route/action compatibility ID. AI access is a
-root prerequisite, not an agent capability: it does not change the capability
-count or publish a generated voice action. `/one/setup/finance` is the Finance preferences wizard and
+or unlock. The action remains disabled until the hosting choice and AI access
+prerequisites are complete. `/one/setup/cloud` selects Hussh Shared, BYOC, or
+the gated Hussh Pods option; no pod assignment defaults to Shared only after
+registry and setup-job reads confirm there is no assigned or pending pod.
+Existing assignments are not silently changed. The visible AI access surface
+separately selects a supported provider and credential; `connections` remains
+its route/action compatibility ID. AI access is a root prerequisite, not an
+agent capability: it does not change the capability count or publish a generated
+voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
 capability has its own static setup route. The legacy `/one/setup/[capability]`
 and `/one/setup/kai` routes are redirect-only compatibility paths with no
@@ -200,7 +229,7 @@ See the note in
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
 via its own shared bottom action: **Finish setup**. It is not available until
-the durable Connections-choice marker exists. The click/voice handler
+the durable placement and Connections markers exist. The click/voice handler
 force-revalidates that marker immediately, then shows the required vault flow.
 Only vault success acknowledges the root gate, primes the local completion
 latch, mirrors it account-wide, and redirects. The shared top-bar Back action
@@ -211,6 +240,39 @@ Root acknowledgement never writes Finance completion into the Kai profile.
 The AI access setup preface writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
+
+### Hosting placement and AI access are separate decisions
+
+Hosting placement determines whether a person has a personal pod. With no pod
+assignment and no pending setup, the server resolves the account to Hussh Shared.
+The selected deployment target is authoritative for BYOC (`user_gcp`) and Hussh
+Pods (`gcp`). The model provider and credential are a separate axis.
+
+When a pod target is already assigned, the model connection is verified before
+provisioning begins:
+
+| Choice | Route | What proves it |
+| --- | --- | --- |
+| Hussh-managed | `POST /api/one/runtime/managed/select` | a real generation against the managed provider |
+| Bring your own key | `POST /api/one/runtime/gemini/validate` | a real generation against the person's own key |
+
+These endpoints report whether pod provisioning was scheduled. An absent or
+failed model connection does not create a pod. A successful connection on Hussh
+Shared also does not create one; pending placement or unreadable setup evidence
+fails closed rather than silently switching tiers.
+
+That ordering is the correction of a real defect, and the reason is worth
+keeping. Provisioning used to fire on phone verification, which put billable,
+warm, heart-beating compute behind an event that says nothing about whether the
+agent could ever answer a question. Signing in is not evidence of a working
+agent; a successful model call is.
+
+The consequence is that hosting placement is not inferred from model access.
+The setup map shows the placement and credential steps separately. The pod
+journey itself lives in
+[Architecture § 1a](../architecture/architecture.md) and the dynamic view in the
+[Architecture View Catalog](../architecture/architecture-view-catalog.md);
+do not restate its internals here.
 
 ### Static capability workspaces
 

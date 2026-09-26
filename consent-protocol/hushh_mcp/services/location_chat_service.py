@@ -330,7 +330,9 @@ class LocationChatService:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._location_service = location_service
         self._scope_tokens = dict(scope_tokens or {})
-        self._use_adk = model_call is None
+        # A supplied ADK model is authoritative for the migrated path. The
+        # legacy model_call remains injectable for compatibility and auth probes.
+        self._use_adk = model is not None
         self._adk_model = model
 
         if model_call is not None:

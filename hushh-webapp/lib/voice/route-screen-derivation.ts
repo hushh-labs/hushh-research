@@ -74,6 +74,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP) {
     return { screen: "one_setup_hub", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_SETUP_CLOUD) {
+    return { screen: "one_setup_cloud", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_SETUP_CONNECTIONS) {
     return { screen: "one_setup_connections", subview: null };
   }
@@ -342,6 +345,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE) {
     return { screen: "app", subview: "trusted-device-authorization" };
   }
+  if (normalizedPath === ROUTES.ONE_PROFILE_DISCOVERY) {
+    return { screen: "profile_discovery", subview: null };
+  }
   // Legacy direct links settle immediately on the canonical RIA profile.
   if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
     return { screen: "profile_regulatory", subview: null };
@@ -353,6 +359,12 @@ export function deriveVoiceRouteScreen(
     // Compatibility entries retain their authored screen until the redirect
     // settles on Chat's connector panel.
     return { screen: "profile_connectors", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_HOSTING) {
+    return { screen: "profile_hosting", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) {
+    return { screen: "profile_software-updates", subview: null };
   }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);

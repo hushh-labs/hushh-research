@@ -17,6 +17,17 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("<ConnectorsPanel");
     expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
   });
+  it("keeps the connector manager bounded, scrollable, and on the shared modal scrim", () => {
+    const drawer = read("components/agent/agent-connections-drawer.tsx");
+    const panel = read("components/agent/connectors-panel.tsx");
+    const dialog = read("components/ui/dialog.tsx");
+
+    expect(drawer).toContain('contentDragDismiss={false}');
+    expect(drawer).toContain('className="h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md"');
+    expect(panel).toContain("min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain");
+    expect(dialog).toContain("[backdrop-filter:var(--app-scrim-filter)]");
+    expect(dialog).toContain("[-webkit-backdrop-filter:var(--app-scrim-filter)]");
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");
@@ -38,7 +49,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
-    expect(history).toContain("bg-[linear-gradient(180deg");
+    expect(history).toContain("ShellActionSurface");
     expect(history).not.toContain('"border-r border-border/70');
   });
 
@@ -61,7 +72,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("keeps compact composer controls inside a rectangular editor and opens a separate long-form editor", () => {
+  it("keeps one composer and lets auto-expanded drafts return to compact size", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain("agent-chat-composer-expand");
@@ -70,7 +81,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("overflow-y-auto");
     expect(workspace).toContain("agent-chat-composer-surface");
     expect(workspace).toContain("px-0 py-3");
-    expect(workspace).toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
+    expect(workspace).not.toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
     expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
@@ -79,8 +90,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
-    expect(workspace).toContain("h-[min(38dvh,18rem)]");
-    expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
+    expect(workspace).toContain("h-[30dvh]");
+    expect(workspace).toContain("{ duration: 120, easing, fill: \"none\" }");
+    expect(workspace).toContain("transformOrigin: \"left bottom\"");
+    expect(workspace).toContain("manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey)");
+    expect(workspace).toContain("!manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey)");
+    expect(workspace).toContain("onClick={composerExpanded ? collapseComposer : expandComposer}");
     // `composerLong` was removed from this file some time ago; the expanded
     // editor is driven by `composerExpanded` now. The stale name had left this
     // whole case red, which is how a red suite stops being read at all.
@@ -136,12 +151,10 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('data-testid="agent-chat-self-avatar"');
     expect(workspace).toContain("<AvatarBubble");
     expect(workspace).not.toContain('return "Ready";');
-    // The slot is a reserved fixed-width span now, rendered unconditionally so
-    // the right-hand cluster cannot jump sideways when the status appears and
-    // disappears. The old `{statusText ? (` assertion outlived that change and
-    // had been failing ever since.
-    expect(workspace).toContain('role="status"');
-    expect(workspace).toContain("{statusText}");
+    // Status belongs below One, not beside the profile avatar. The subtitle
+    // crossfades without moving the right-hand controls.
+    expect(workspace).toContain('statusText || "Your private agent"');
+    expect(workspace).not.toContain('title={statusText || undefined}');
   });
 
   it("keeps One's cloud model picker out of the Puppy One surface", () => {

@@ -30,9 +30,124 @@ export type ConnectorReadExperience = {
   ownerCompileWindow?: DriveOwnerCompileWindow;
 };
 
+export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
+  "one.workspace_connector_setup.v1" as const;
+
+export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar" | "custom";
+
+export type WorkspaceConnectorSetupExperience = {
+  type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
+  provider: WorkspaceConnectorProvider;
+  status: "connect_required" | "manage_available";
+  saved?: Array<{ id: string; name: string; status: "saved" | "disabled" | "reconnect_needed" }>;
+};
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : null;
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      return record(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return record(value);
+}
+
+/**
+ * Project only the authenticated tool's explicit missing-grant state into a
+ * provider-specific setup card. Provider data never authorizes the connection
+ * or starts OAuth; the person must tap through the existing connector UI.
+ */
+export function parseWorkspaceConnectorSetup(
+  toolName: string,
+  value: unknown,
+  toolArguments?: unknown,
+): WorkspaceConnectorSetupExperience | null {
+  if (toolName === "inspect_private_connectors") {
+    const outer = parseRecord(value);
+    const result = outer && (typeof outer.status === "string" ? outer : [outer.result, outer.content, outer.data]
+      .map(parseRecord)
+      .find((candidate) => candidate?.status) ?? outer);
+    const saved = parseSavedConnectors(result?.saved);
+    return result?.status === "setup_available" && result.provider === "custom"
+      ? {
+        type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+        provider: "custom",
+        status: "manage_available",
+        ...(saved ? { saved } : {}),
+      }
+      : null;
+  }
+  if (toolName !== "discover_workspace_tools" && toolName !== "read_workspace_tool") {
+    return null;
+  }
+
+  const outer = parseRecord(value);
+  if (!outer) return null;
+  const result = [outer.result, outer.content, outer.data]
+    .map(parseRecord)
+    .find((candidate) => candidate?.status) ?? outer;
+  if (result.status !== "permission_required" &&
+    !(toolName === "discover_workspace_tools" && ["api_available", "ok"].includes(String(result.status)))) return null;
+
+  const args = parseRecord(toolArguments);
+  const resultProvider = result.provider;
+  const argumentProvider = args?.provider;
+  if (resultProvider && argumentProvider && resultProvider !== argumentProvider) {
+    return null;
+  }
+  const provider = resultProvider ?? argumentProvider;
+  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") {
+    return null;
+  }
+
+  return {
+    type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+    provider,
+    status: result.status === "permission_required" ? "connect_required" : "manage_available",
+  };
+}
+
+type SavedConnector = NonNullable<WorkspaceConnectorSetupExperience["saved"]>[number];
+
+function parseSavedConnectors(value: unknown): SavedConnector[] | null {
+  if (!Array.isArray(value) || value.length > 32) return null;
+  const saved = value.map((raw) => {
+    const item = record(raw);
+    return item && typeof item.id === "string" && /^custom_[a-f0-9]{32}$/.test(item.id) &&
+      typeof item.name === "string" && item.name.trim().length > 0 && item.name.length <= 100 &&
+      !/[\x00-\x1f\x7f]/.test(item.name) &&
+      ["saved", "disabled", "reconnect_needed"].includes(String(item.status))
+      ? { id: item.id, name: item.name, status: item.status as SavedConnector["status"] }
+      : null;
+  });
+  return saved.every(Boolean) && saved.length ? saved as SavedConnector[] : null;
+}
+
+/**
+ * Restore a connect/manage card from the server's bound history descriptor.
+ * Only a provider enum, a setup status and validated saved-connector labels
+ * are accepted; the card still reads the current connection before acting.
+ */
+export function parseWorkspaceConnectorSetupDescriptor(
+  content: unknown,
+): WorkspaceConnectorSetupExperience | null {
+  const input = parseRecord(content);
+  const provider = input?.provider;
+  const status = input?.status;
+  if (provider === "custom") {
+    if (status !== "manage_available") return null;
+    const saved = parseSavedConnectors(input?.saved);
+    return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status, ...(saved ? { saved } : {}) };
+  }
+  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") return null;
+  if (status !== "connect_required" && status !== "manage_available") return null;
+  return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status };
 }
 
 function utcDay(value: unknown): number | null {

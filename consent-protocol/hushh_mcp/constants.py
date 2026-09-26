@@ -62,6 +62,7 @@ class ConsentScope(str, Enum):
     # scopes, not durable attr.location.* PKM scopes.
     CAP_LOCATION_LIVE_SHARE = "cap.location.live.share"
     CAP_LOCATION_LIVE_VIEW = "cap.location.live.view"
+    CAP_LOCATION_COMMAND_READ = "cap.location.command.read"
     CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
@@ -100,6 +101,35 @@ class ConsentScope(str, Enum):
     # the consent surface renders a sentence rather than title-casing the raw
     # handle into "Cap Contact Discovery".
 
+    # ==================== POD DATA DOOR READ CAPABILITIES ====================
+    # Read-only capability scopes that let a KEYLESS per-person pod READ a
+    # DB-backed specialist THROUGH the hub broker (the pod data door, see
+    # hushh_mcp/services/pod_data_door.py). Each is the narrow, owner-revocable,
+    # Nav-narrated scope the relay mints per turn with a short TTL and couriers to
+    # the pod; the broker re-validates it and runs one fixed read-only read. They
+    # are deliberately distinct from vault.owner (which the relay never hands a
+    # pod) and from the write/action capabilities: a VIEW scope can only read a
+    # fail-closed projection, never mutate. `cap.location.live.view` was the first
+    # such door; these open the next ones named in the north-star's staged
+    # door-by-door plan (email, calendar) plus finance CONNECTION STATUS (never the
+    # vault-gated portfolio itself, which no hub-run read can decrypt).
+    CAP_EMAIL_INBOX_VIEW = "cap.email.inbox.view"
+    CAP_CALENDAR_EVENTS_VIEW = "cap.calendar.events.view"
+    CAP_FINANCE_CONNECTIONS_VIEW = "cap.finance.connections.view"
+
+    # Owner-approved inference over the linked Puppy One device relay. This
+    # authorizes model inference only; it never grants vault, shell, or tool
+    # execution authority.
+    CAP_PUPPY_INFERENCE = "cap.puppy.inference"
+
+    # Owner consent for the person's OWN provider (Vertex Memory Bank in their
+    # project) to process agent memory: generate from a turn, retrieve on recall.
+    # Provider-derived memory has its own processing boundary (AGENTS.md doctrine
+    # 1); a sealed log under pod custody does not imply the provider may read it.
+    # Without a recorded consent the pod never calls memories:generate or
+    # memories:retrieve. Never a vault, PKM or action authority.
+    CAP_MEMORY_PROVIDER_PROCESS = "cap.memory.provider.process"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -107,6 +137,13 @@ class ConsentScope(str, Enum):
     # read-only; MANAGE gates owner-confirmed publication and access changes.
     CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
     CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
+
+    # ==================== INTERNAL AGENT-RUNTIME CAPABILITIES ====================
+    # Control-plane capability a Hushh-operated agent runtime (pod) uses to fetch
+    # its own system prompt at runtime (prompt-sync). INTERNAL ONLY: never
+    # external-requestable and never a data authority, so it can never read PKM or
+    # a user's data. Listed in INTERNAL_ONLY_SCOPE_VALUES below.
+    CAP_AGENT_PROMPT_SYNC = "cap.agent.prompt.sync"
 
     @classmethod
     def list(cls):
@@ -281,6 +318,7 @@ class ConsentScope(str, Enum):
             cls.CAP_ONE_INVOKE,
             cls.CAP_LOCATION_LIVE_SHARE,
             cls.CAP_LOCATION_LIVE_VIEW,
+            cls.CAP_LOCATION_COMMAND_READ,
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
@@ -292,6 +330,11 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_PLACE_RATING_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
+            cls.CAP_EMAIL_INBOX_VIEW,
+            cls.CAP_CALENDAR_EVENTS_VIEW,
+            cls.CAP_FINANCE_CONNECTIONS_VIEW,
+            cls.CAP_PUPPY_INFERENCE,
+            cls.CAP_MEMORY_PROVIDER_PROCESS,
         ]
 
     @classmethod
@@ -329,6 +372,7 @@ INTERNAL_ONLY_SCOPE_VALUES: frozenset[str] = frozenset(
         ConsentScope.VAULT_OWNER.value,
         ConsentScope.PKM_READ.value,
         ConsentScope.PKM_WRITE.value,
+        ConsentScope.CAP_AGENT_PROMPT_SYNC.value,
     }
 )
 EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(
@@ -385,14 +429,14 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 #
 # One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
 # at once (manifests say `gemini-default` and resolve here). The default is the
-# last generation proven in every lane; a lane flips the switch through the
-# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
-# policy admits the new id. Founder rule 2026-09-14: the Gemini catalog
-# (runtime_providers/model_catalog.py and registry.py) lists only the last two
-# releases at all times; a roll-forward replaces the oldest, never adds a third.
+# selected generation; a lane flips the switch through the
+# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex policy admits it.
+# The 2026-09-25 performance decision selects 3.7 Flash and 3.6 Flash, with 3.7
+# as default. The catalog and registry retain exactly two supported text models;
+# recency alone does not determine the selected pair.
 # Every text manifest, the memory chain included, names `gemini-default`; only
 # the Live head pins a model directly, and that pin stays explicit in its manifest.
-FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.7-flash"
 
 
 def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:

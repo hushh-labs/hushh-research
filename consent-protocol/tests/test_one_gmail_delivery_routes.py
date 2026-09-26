@@ -117,6 +117,30 @@ def test_send_passes_opaque_attachment_token_to_owner_service():
     assert service.execute.await_args.kwargs["draft_payload"]["attachment_token"] == token
 
 
+def test_save_gmail_draft_is_explicit_and_rejects_attachments():
+    draft = AsyncMock(return_value={"status": "saved", "draft_id": "draft-1"})
+    with patch.object(module, "create_reviewed_gmail_draft", draft):
+        client = TestClient(_app())
+        response = client.post("/api/one/email/draft/save", json=_envelope())
+        rejected = client.post(
+            "/api/one/email/draft/save",
+            json={**_envelope(), "drive_attachment": {"file_id": "private-file"}},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"status": "saved", "draft_id": "draft-1"}
+    assert rejected.status_code == 422
+    draft.assert_awaited_once()
+    assert draft.await_args.kwargs["user_id"] == "firebase-user"
+
+
+def test_save_gmail_draft_rejects_malformed_service_acknowledgement():
+    draft = AsyncMock(return_value={"status": "saved", "draft_id": ""})
+    with patch.object(module, "create_reviewed_gmail_draft", draft):
+        response = TestClient(_app()).post("/api/one/email/draft/save", json=_envelope())
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "GMAIL_SEND_NOT_READY"
+
+
 def test_source_bound_delivery_uses_the_common_routes_without_trusting_the_browser_envelope():
     delivery = MagicMock()
     delivery.prepare = AsyncMock(return_value={"action_id": "action", "state": "prepared"})

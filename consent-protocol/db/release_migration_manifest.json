@@ -212,6 +212,7 @@
     "237_gmail_personal_information_request_incremental_backfill.sql",
     "238_gmail_personal_information_request_classifier_policy_version.sql",
     "239_drop_server_plaid_custody.sql",
+    "240_public_profile_discovery.sql",
     "241_drive_live_sharing.sql",
     "242_drive_live_query_requests.sql",
     "243_drive_live_query_cancel.sql",
@@ -219,7 +220,8 @@
     "245_drive_owner_shares.sql",
     "246_drive_feed_projection.sql",
     "247_private_mcp_registration.sql",
-    "248_adk_chat_action_authority.sql"
+    "248_adk_chat_action_authority.sql",
+    "249_public_profile_bridge.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -446,6 +448,7 @@
     "226_pkm_manifest_path_repair.sql": "rollback/226_pkm_manifest_path_repair.rollback.sql",
     "227_gmail_personal_information_request_incremental_backfill.sql": "rollback/227_gmail_personal_information_request_incremental_backfill.rollback.sql",
     "239_drop_server_plaid_custody.sql": "rollback/239_drop_server_plaid_custody.rollback.sql",
+    "240_public_profile_discovery.sql": "rollback/240_public_profile_discovery.rollback.sql",
     "241_drive_live_sharing.sql": "rollback/241_drive_live_sharing.rollback.sql",
     "242_drive_live_query_requests.sql": "rollback/242_drive_live_query_requests.rollback.sql",
     "243_drive_live_query_cancel.sql": "rollback/243_drive_live_query_cancel.rollback.sql",
@@ -453,6 +456,7 @@
     "245_drive_owner_shares.sql": "rollback/245_drive_owner_shares.rollback.sql",
     "246_drive_feed_projection.sql": "rollback/246_drive_feed_projection.rollback.sql",
     "247_private_mcp_registration.sql": "rollback/247_private_mcp_registration.rollback.sql",
-    "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql"
+    "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql",
+    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql"
   }
 }

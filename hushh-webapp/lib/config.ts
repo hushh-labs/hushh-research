@@ -28,6 +28,35 @@ export const ENVIRONMENT_MODE = getEnvironmentMode();
 export const isDevelopment = () => getEnvironmentMode() === "development";
 export const isProduction = () => getEnvironmentMode() === "production";
 
+/**
+ * May this process honour a development AUTH bypass?
+ *
+ * `isDevelopment()` answers "is this build labelled development", which is the right
+ * question for a URL default and the wrong one for `DEV_AUTO_GRANT`, `Bearer
+ * DEV_TOKEN`, and the vault routes that skip a failed validation. Those are auth
+ * bypasses, and the label alone would hand them to any hosted deployment that
+ * happens to be named development.
+ *
+ * That is not hypothetical. The dev backend now reports `ENVIRONMENT=dev`; the moment
+ * the frontend follows with `NEXT_PUBLIC_APP_ENV=dev`, `resolveAppEnvironment()`
+ * normalises it to `development` and all twelve bypasses would turn on for an
+ * internet-reachable service holding real test accounts.
+ *
+ * So this requires the label AND the absence of a deploy lane. `HUSHH_DEPLOY_ENV` is
+ * set on every hosted Cloud Run service (verified present on `hushh-webapp` in
+ * `hushh-pda-dev`) and absent on a developer's machine, which is what "local"
+ * actually means. It is read without a `NEXT_PUBLIC_` prefix on purpose: every caller
+ * is a server-side route handler, and a value the browser could see would be a value
+ * an attacker could reason about.
+ *
+ * Behaviour today is unchanged — the frontend still reports `uat`, so `isDevelopment()`
+ * is already false on every hosted lane. This closes the door before it is opened.
+ */
+export const devAuthBypassAllowed = () => {
+  if (!isDevelopment()) return false;
+  return String(process.env.HUSHH_DEPLOY_ENV ?? "").trim() === "";
+};
+
 // Backend URL for Python consent-protocol server
 export const BACKEND_URL =
   normalizeUrl(resolveRuntimeBackendUrl()) ||

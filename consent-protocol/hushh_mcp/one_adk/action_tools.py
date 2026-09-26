@@ -5009,32 +5009,39 @@ async def read_my_profile_status(tool_context: ToolContext) -> dict[str, Any]:
     # failure-boundary reasoning -- an exception must never escape a live-session
     # tool call -- awaited instead of called, following
     # read_my_pkm_domain_summary.
-    phone_verified: bool | None = None
-    email_verified: bool | None = None
-    try:
-        identities = await ActorIdentityService().get_many([user_id])
-        identity = identities.get(user_id) or {}
-        phone_verified = bool(identity.get("phone_verified"))
-        email_verified = bool(identity.get("email_verified"))
-    except Exception:  # noqa: BLE001 - report the gap, never the internals
-        logger.exception("one_adk_read_tool_failed label=profile_identity reason=unexpected")
+    async def read_identity() -> tuple[bool | None, bool | None]:
+        try:
+            identities = await ActorIdentityService().get_many([user_id])
+            identity = identities.get(user_id) or {}
+            return bool(identity.get("phone_verified")), bool(identity.get("email_verified"))
+        except Exception:  # noqa: BLE001 - report the gap, never the internals
+            logger.exception("one_adk_read_tool_failed label=profile_identity reason=unexpected")
+            return None, None
 
-    pending_consents: int | None = None
-    try:
-        summary = await ConsentCenterService().get_center_summary(user_id, actor="investor")
-        counts = summary.get("counts") if isinstance(summary, dict) else None
-        if isinstance(counts, dict):
-            pending_consents = int(counts.get("pending") or 0)
-    except Exception:  # noqa: BLE001
-        logger.exception("one_adk_read_tool_failed label=profile_consents reason=unexpected")
+    async def read_consents() -> int | None:
+        try:
+            summary = await ConsentCenterService().get_center_summary(user_id, actor="investor")
+            counts = summary.get("counts") if isinstance(summary, dict) else None
+            return int(counts.get("pending") or 0) if isinstance(counts, dict) else None
+        except Exception:  # noqa: BLE001
+            logger.exception("one_adk_read_tool_failed label=profile_consents reason=unexpected")
+            return None
 
-    marketplace_visible: bool | None = None
-    try:
-        persona_state = await RIAIAMService().get_persona_state(user_id)
-        if isinstance(persona_state, dict):
-            marketplace_visible = bool(persona_state.get("investor_marketplace_opt_in"))
-    except Exception:  # noqa: BLE001
-        logger.exception("one_adk_read_tool_failed label=profile_persona reason=unexpected")
+    async def read_persona() -> bool | None:
+        try:
+            persona_state = await RIAIAMService().get_persona_state(user_id)
+            if isinstance(persona_state, dict):
+                return bool(persona_state.get("investor_marketplace_opt_in"))
+            return None
+        except Exception:  # noqa: BLE001
+            logger.exception("one_adk_read_tool_failed label=profile_persona reason=unexpected")
+            return None
+
+    # Independent owner-authorized reads have no ordering dependency. Keep
+    # their failure boundaries separate while paying only the slowest I/O wait.
+    (phone_verified, email_verified), pending_consents, marketplace_visible = await asyncio.gather(
+        read_identity(), read_consents(), read_persona()
+    )
 
     result = {
         "phone_verified": phone_verified,

@@ -80,6 +80,10 @@ from hushh_mcp.one_adk.agent_tree import (
     open_gmail_information_request_reply,
     open_screen,
 )
+from hushh_mcp.one_adk.agui_turn_timing import (
+    timed_one_after_model,
+    timed_one_before_model,
+)
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
@@ -95,14 +99,25 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
-    def test_chat_thinking_policy_preserves_provider_baseline_without_public_summaries(
+    def test_chat_thinking_policy_defaults_to_low_without_public_summaries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Founder decision 2026-09-25: chat runs at LOW thinking by default.
         monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
 
         config = _one_chat_thinking_config()
 
         assert config.include_thoughts is False
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
+    @pytest.mark.parametrize("value", ["default", "provider", "PROVIDER"])
+    def test_chat_thinking_policy_can_restore_provider_baseline(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", value)
+
+        config = _one_chat_thinking_config()
+
         assert getattr(config, "thinking_level", None) is None
 
     def test_chat_thinking_policy_can_request_low_without_affecting_other_heads(
@@ -115,9 +130,20 @@ class TestAgentTreeShape:
         assert config.include_thoughts is False
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
+    @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.6-flash"])
+    def test_chat_thinking_policy_uses_selected_flash_model(self, monkeypatch, model):
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
+
+        config = _one_chat_thinking_config(model)
+
+        assert config.include_thoughts is False
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"
+        assert agent.before_model_callback is timed_one_before_model
+        assert agent.after_model_callback is timed_one_after_model
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
         }
@@ -276,9 +302,12 @@ class TestAgentTreeShape:
             "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
         )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
-        assert "Consent cancellation is an explicit exception" in ONE_IDENTITY_INSTRUCTION
+        assert (
+            "This exact rule overrides the general action-discovery rule"
+            in ONE_IDENTITY_INSTRUCTION
+        )
         assert "cancel that request I just sent" in ONE_IDENTITY_INSTRUCTION
-        assert "CONSENT CANCELLATION PRIORITY" in ONE_IDENTITY_INSTRUCTION
+        assert "Cancellation priority:" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
         assert "Use your intelligence in the current turn" in ONE_IDENTITY_INSTRUCTION

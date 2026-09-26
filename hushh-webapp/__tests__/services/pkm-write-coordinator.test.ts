@@ -223,6 +223,31 @@ describe("PkmWriteCoordinator", () => {
         }),
       );
     });
+
+    it("keeps a reviewed import mutation idempotent across retries", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { favorite: "sushi" } },
+      });
+      const operation = {
+        ...BASE_PARAMS,
+        idempotencyScope: "public-profile-claim-stable-operation",
+        build: () => ({ domainData: { favorite: "sushi" }, summary: { item_count: 1 } }),
+      };
+
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+
+      const firstPlan = pkmStorePreparedDomainMock.mock.calls[0]?.[0]?.mutationPlan;
+      const retryPlan = pkmStorePreparedDomainMock.mock.calls[1]?.[0]?.mutationPlan;
+      expect(firstPlan?.plan_id).toBeTruthy();
+      expect(retryPlan?.plan_id).toBe(firstPlan?.plan_id);
+    });
   });
 
   describe("blocked_pending_unlock", () => {

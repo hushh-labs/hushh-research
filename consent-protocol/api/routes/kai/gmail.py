@@ -29,11 +29,11 @@ class GmailConnectStartRequest(BaseModel):
     redirect_uri: str | None = Field(default=None, max_length=2048)
     login_hint: str | None = Field(default=None, max_length=512)
     include_granted_scopes: bool = False
-    purpose: Literal["read", "send"] = "read"
+    purpose: Literal["read", "send", "compose"] = "read"
 
 
 class GmailNativeConnectStartRequest(BaseModel):
-    purpose: Literal["read", "send"] = "read"
+    purpose: Literal["read", "send", "compose"] = "read"
 
 
 class GmailConnectCompleteRequest(BaseModel):

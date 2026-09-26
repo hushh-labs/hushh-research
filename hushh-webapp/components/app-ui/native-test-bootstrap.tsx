@@ -331,7 +331,7 @@ export function NativeTestBootstrap() {
   ]);
 
   useEffect(() => {
-    if (!config.enabled || !config.autoReviewerLogin || !config.vaultPassphrase) {
+    if (!config.enabled || !config.autoReviewerLogin || (!config.vaultPassphrase && !isVaultUnlocked)) {
       return;
     }
 
@@ -402,6 +402,10 @@ export function NativeTestBootstrap() {
       });
       return;
     }
+
+    // A fresh-user rehearsal creates its vault through the visible UI. Report
+    // that real unlocked context above even when automatic unlock was not armed.
+    if (!config.vaultPassphrase) return;
 
     if (unlockInFlightForUidRef.current === vaultUser.uid) {
       return;

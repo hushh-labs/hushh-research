@@ -98,4 +98,3 @@ Route enter attribution (no profiling build: commit columns empty):
 | bottom-nav-switch | /one/ | - | 20 | 29 | 0 | 0 | - |
 | bottom-nav-switch | /one/connect/ | - | 20 | 37 | 0 | 0 | - |
 | bottom-nav-switch | /one/ | - | 18 | 31 | 0 | 0 | - |
-

@@ -18,20 +18,21 @@ flowchart TB
     flow["Import + review flows"]
     financial["KaiFinancialResource"]
     market["KaiMarketHomeResource"]
-    source["Portfolio source selection<br/>statement vs Plaid"]
+    source["Vault-backed portfolio status<br/>statement vs Plaid"]
     stream["Debate stream + decision UI"]
   end
 
   subgraph backend["Backend routes and services"]
     pkm["PKM routes / financial domain"]
-    plaid["Plaid routes + refresh services"]
+    plaid["Plaid vault passthrough<br/>transient provider calls"]
     insights["Market insights routes + cache"]
     debate["Kai analysis stream / decision services"]
   end
 
   subgraph data["Persistence and providers"]
     encrypted["Encrypted financial PKM"]
-    prefs["Source preferences + refresh runs"]
+    legacy["Legacy server Plaid rows<br/>retirement pending"]
+    retirement["Per-environment retirement<br/>script + migration 239"]
     marketcache["Market cache tiers"]
     providers["Plaid + market providers"]
   end
@@ -44,9 +45,10 @@ flowchart TB
   portfolioDetails --> financial
   analysis --> stream --> debate
   analysis --> financial
-  source --> plaid --> prefs
-  source --> pkm
-  plaid --> providers
+  source --> plaid --> providers
+  plaid --> source
+  source --> pkm --> encrypted
+  legacy -.remove after retirement proof.-> retirement
   debate --> encrypted
   financial --> encrypted
 ```
@@ -87,11 +89,11 @@ Notes:
 
 | Step | Route/UI | Web Service Layer | Backend Route | Persistence | Cache / Sync |
 | --- | --- | --- | --- | --- | --- |
-| Link token + OAuth start | `/one/kai/import`, `/one/kai/portfolio` | `PlaidPortfolioService.createLinkToken`, brokerage Link loader, opaque session helper | `/api/kai/plaid/link-token`, `/api/kai/plaid/link-token/update` | `kai_plaid_link_sessions` | session-scoped opaque resume id only |
-| OAuth return + resume | `/one/kai/plaid/oauth/return` | callback page + fresh `VAULT_OWNER` issuance | `/api/kai/plaid/oauth/resume`, `/api/kai/plaid/exchange-public-token` | `kai_plaid_link_sessions` -> `kai_plaid_items` | no vault key persistence; Link resumed with `receivedRedirectUri` |
-| Holdings + investment transactions sync | dashboard source switcher / refresh actions | `PlaidPortfolioService`, `usePortfolioSources` | `/api/kai/plaid/status/{user_id}`, `/api/kai/plaid/refresh`, `/api/kai/plaid/refresh/{run_id}` | `kai_plaid_items`, `kai_plaid_refresh_runs`, `kai_portfolio_source_preferences` | background task center polls active refresh runs |
-| Webhook-driven update | public webhook receiver | Next proxy -> backend Plaid service | `/api/kai/plaid/webhook` | server-side Plaid item snapshots | dashboard freshness and sync status update on reload |
-| Portfolio source selection | dashboard / analysis / optimize entry | `usePortfolioSources`, `kai-session-store` | `/api/kai/plaid/source` | active source preference row + derived `financial` source metadata | statement editable, Plaid immutable, Combined comparison-only |
+| Link token and OAuth start | `/one/kai/import`, `/one/kai/portfolio` | `plaid-link-loader`, `vault-sync.ts`, vault OAuth session helper | `/api/kai/plaid/vault/link-token` | no persistent connection row in the vault route; token is returned to the device | web stores the Link token for one OAuth return; native SDK retains the in-process Link session |
+| Exchange, first snapshot and seal | Link completion | `vault-sync.ts` | `/api/kai/plaid/vault/exchange`, `/api/kai/plaid/vault/snapshot` | device seals the connection and snapshot into the owner's encrypted financial domain | backend transiently processes the token and readable response; the route does not persist them |
+| Refresh and relink | unlock refresh or explicit Refresh; Link update mode | `vault-sync.ts`, `usePortfolioSources` | `/api/kai/plaid/vault/snapshot`, `/api/kai/plaid/vault/link-token`, `/api/kai/plaid/vault/remove` | sealed state remains in the owner vault; source selection is in encrypted `financial` data | unlock refresh is single-flight; no webhook or server refresh-run queue |
+| Legacy server data retirement | operator procedure per environment | `plaid_server_custody_retire.py` | Plaid `/item/remove` through the retirement script | existing server rows until script and migration 239 succeed | branch code does not establish migration, disconnection or cleanup in a deployed environment |
+| Portfolio source selection | dashboard / analysis / optimize entry | `usePortfolioSources`, `kai-session-store` | PKM read/write route | active source in encrypted `financial` data | Statement editable, Plaid read-only, Combined comparison-only |
 
 ### 3) Kai Home (`/one/kai`) -> Token Guard -> Market Cache -> Providers
 
@@ -151,10 +153,12 @@ Notes:
 ### `/one/kai/plaid/oauth/return`
 - UI: `hushh-webapp/app/kai/plaid/oauth/return/page.tsx`
 - Session helper: `hushh-webapp/lib/kai/brokerage/plaid-oauth-session.ts`
-- Backend route: `consent-protocol/api/routes/kai/plaid_vault.py` (stateless pass-through; the
-  server-held Plaid routes, service, and webhook were retired, see
+- Backend route: `consent-protocol/api/routes/kai/plaid_vault.py` (the route handles request
+  data transiently and does not persist vault-path payloads; previous server-held routes and
+  services are removed on the current branch, see
   [plaid-vault-passthrough.md](./plaid-vault-passthrough.md))
-- Persistence: none on the server; the access token is sealed in the person's vault
+- Persistence: the device seals the access token in the person's vault; pre-existing server
+  rows require per-environment retirement and migration evidence
 
 ### `/one/kai/analysis`
 - UI stream consumer: `hushh-webapp/components/kai/debate-stream-view.tsx`

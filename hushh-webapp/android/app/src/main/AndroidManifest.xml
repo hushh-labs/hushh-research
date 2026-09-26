@@ -42,7 +42,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Required for Firebase Auth OAuth redirect flows (e.g., Apple Sign-In via OAuthProvider) -->
+            <!-- Firebase Auth can also return through its app-owned scheme. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -96,12 +96,15 @@
                 <data android:pathPrefix="/one/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/one/profile/google/oauth/return" />
                 <data android:pathPrefix="/one/profile/gmail/oauth/return" />
+                <data android:pathPrefix="/one/profile/connectors/oauth/return" />
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
             </intent-filter>
         </activity>
 
+        <service android:name=".plugins.HushhLocation.BackgroundLocationService"
+            android:exported="false" android:foregroundServiceType="location" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -118,5 +121,9 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 </manifest>

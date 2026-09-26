@@ -10,15 +10,25 @@ action -- both go through the same connect path so "connect from chat" and
 
 from __future__ import annotations
 
-from typing import Literal, Optional
-from urllib.parse import urlencode
+import asyncio
+from typing import Any, Literal, Optional
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.routing import APIRoute
+from mcp.shared.auth import OAuthClientInformationFull
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from hushh_mcp.one_adk import mcp_review_service
+from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
+from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_features
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
@@ -33,11 +43,79 @@ from hushh_mcp.services.external_connector_oauth_service import (
     get_external_connector_oauth_service,
 )
 from hushh_mcp.services.external_connector_registry_service import (
+    ConnectorRegistrationError,
     get_external_connector_registry_service,
 )
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
 
-router = APIRouter(prefix="/api/connectors", tags=["external-connectors"])
+
+class PrivateConnectorRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_handler(request: Request):
+            try:
+                if self.path.endswith(
+                    (
+                        "/mcp/review",
+                        "/mcp/confirm",
+                        "/mcp/catalog",
+                        "/mcp/oauth/begin",
+                        "/mcp/oauth/complete",
+                        "/mcp/oauth/cancel",
+                    )
+                ):
+                    # Bound the stream BEFORE FastAPI parses JSON, including
+                    # chunked requests with no trustworthy Content-Length.
+                    chunks, size = [], 0
+                    try:
+                        async with asyncio.timeout(5):
+                            async for chunk in request.stream():
+                                size += len(chunk)
+                                if size > 64_000:
+                                    raise HTTPException(
+                                        status_code=413,
+                                        detail="Connector review request is too large.",
+                                    )
+                                chunks.append(chunk)
+                    except TimeoutError:
+                        raise HTTPException(
+                            status_code=408, detail="Connector review request timed out."
+                        ) from None
+                    request._body = b"".join(chunks)
+                response = await handler(request)
+            except RequestValidationError:
+                # Validation errors otherwise echo submitted credentials/URLs.
+                response = JSONResponse(
+                    status_code=422, content={"detail": "Invalid connector request."}
+                )
+            except HTTPException as error:
+                response = JSONResponse(
+                    status_code=error.status_code,
+                    content={"detail": error.detail},
+                    headers=error.headers,
+                )
+            except ConnectorRegistrationError as error:
+                response = JSONResponse(
+                    status_code=error.status_code,
+                    content={
+                        "detail": {
+                            "code": error.code,
+                            "message": "The connector registration could not be completed. Please check your details or retry.",
+                        }
+                    },
+                )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return private_handler
+
+
+router = APIRouter(
+    prefix="/api/connectors", tags=["external-connectors"], route_class=PrivateConnectorRoute
+)
 
 
 def _user_id(token_data: dict) -> str:
@@ -57,11 +135,303 @@ class ConnectorSummary(BaseModel):
     revocationOutcome: str = "not_attempted"
     lastErrorCode: Optional[str] = None
     available: bool = True
+    registrationKind: Literal["curated", "private"] = "curated"
 
 
 class ConnectorsResponse(BaseModel):
     connectors: list[ConnectorSummary]
     features: dict[str, bool] = Field(default_factory=dict)
+
+
+class RegisterConnectorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    registrationId: UUID
+    displayName: str = Field(min_length=1, max_length=100)
+    endpoint: str = Field(min_length=1, max_length=4096)
+    authStyle: Literal["api_key", "oauth"]
+
+
+class McpConfigurationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
+
+    @field_validator("connectorConfiguration")
+    @classmethod
+    def validate_configuration(cls, value):
+        if value is None:
+            return None
+        try:
+            return next(iter(validate_mcp_turn_configurations([value]).values()))
+        except ExternalMcpError:
+            raise ValueError("Invalid connector configuration.") from None
+
+
+class McpReviewRequest(McpConfigurationRequest):
+    conversationId: str = Field(min_length=1, max_length=256)
+    toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
+    arguments: dict[str, Any]
+    pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
+
+    @field_validator("arguments")
+    @classmethod
+    def bound_arguments(cls, value):
+        try:
+            return validated_mcp_arguments({"type": "object"}, value)
+        except ExternalMcpError:
+            raise ValueError("Invalid or oversized MCP arguments.") from None
+
+
+class McpConfirmRequest(McpReviewRequest):
+    directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
+    confirmed: StrictBool
+
+
+class McpRegisteredClient(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issuer: str = Field(min_length=1, max_length=2048, repr=False)
+    clientId: str = Field(min_length=1, max_length=8192, repr=False)
+    clientSecret: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+    tokenEndpointAuthMethod: Literal["none", "client_secret_basic", "client_secret_post"]
+
+
+class McpOAuthBeginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: UUID
+    endpoint: str = Field(min_length=1, max_length=4096, repr=False)
+    registeredClient: McpRegisteredClient | None = Field(default=None, repr=False)
+
+
+class McpOAuthAttemptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: UUID
+    attemptId: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
+
+
+class McpOAuthCompleteRequest(McpOAuthAttemptRequest):
+    code: str = Field(min_length=1, max_length=8192, repr=False)
+    state: str = Field(min_length=1, max_length=512, repr=False)
+    issuer: str | None = Field(default=None, max_length=4096, repr=False)
+
+
+def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
+    import re
+
+    owner = _user_id(token)
+    if not owner or not re.fullmatch(r"custom_[0-9a-f]{32}", connector_id):
+        raise HTTPException(status_code=400, detail="Invalid connector authorization.")
+    return owner
+
+
+def _mcp_oauth_return_uri() -> str:
+    settings = get_app_runtime_settings()
+    origin = settings.app_frontend_origin
+    parsed = urlsplit(origin)
+    local = settings.environment in {"development", "test"} and parsed.hostname in {
+        "localhost",
+        "127.0.0.1",
+    }
+    if (
+        not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
+    ):
+        raise HTTPException(status_code=503, detail="Connector return address is not configured.")
+    return origin.rstrip("/") + "/one/profile/connectors/oauth/return"
+
+
+@router.post("/{connector_id}/mcp/oauth/begin")
+async def begin_private_mcp_oauth(
+    connector_id: str, body: McpOAuthBeginRequest, token: dict = Depends(require_vault_owner_token)
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    redirect_uri = _mcp_oauth_return_uri()
+    try:
+        result = await mcp_oauth_attempts.begin(
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+            endpoint=body.endpoint,
+            redirect_uri=redirect_uri,
+            registered_client=(
+                OAuthClientInformationFull(
+                    client_id=body.registeredClient.clientId,
+                    client_secret=body.registeredClient.clientSecret,
+                    token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
+                    redirect_uris=[AnyUrl(redirect_uri)],
+                )
+                if body.registeredClient
+                else None
+            ),
+            registered_issuer=body.registeredClient.issuer if body.registeredClient else None,
+        )
+        # The native shell may leave for a system browser only when the actual
+        # server-bound return is one of its claimed HTTPS app-link routes.
+        return {**result, "redirectUri": redirect_uri}
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Could not start connector login. Retry connecting."
+        ) from None
+
+
+@router.post("/{connector_id}/mcp/oauth/complete")
+async def complete_private_mcp_oauth(
+    connector_id: str,
+    body: McpOAuthCompleteRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    try:
+        result = await mcp_oauth_attempts.complete(
+            handle=body.attemptId,
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+            code=body.code,
+            state=body.state,
+            issuer=body.issuer,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=409, detail="Connector login expired or failed. Connect again."
+        ) from None
+    # Private no-store browser delivery only, never a model-facing tool result.
+    return {
+        "tokens": result.tokens.model_dump(mode="json", exclude_none=True),
+        "clientInfo": result.client_info.model_dump(mode="json", exclude_none=True),
+        "expiresAt": result.expires_at,
+    }
+
+
+@router.post("/{connector_id}/mcp/oauth/cancel", status_code=204)
+async def cancel_private_mcp_oauth(
+    connector_id: str,
+    body: McpOAuthAttemptRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    owner = _mcp_oauth_binding(connector_id, token)
+    try:
+        mcp_oauth_attempts.cancel(
+            handle=body.attemptId,
+            owner_id=owner,
+            connector_id=connector_id,
+            revision=str(body.revision),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=409, detail="Connector login is no longer available."
+        ) from None
+
+
+async def _mcp_review_response(operation, **kwargs):
+    try:
+        return await operation(**kwargs)
+    except ActionDirectiveAuthorityError:
+        raise HTTPException(
+            status_code=409, detail="This review changed or expired. Review the call again."
+        ) from None
+    except ExternalMcpError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail={
+                "code": error.code,
+                "message": "The connector call is unavailable. Reconnect or review it again.",
+            },
+        ) from None
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Connector review is temporarily unavailable. No automatic retry was made.",
+        ) from None
+
+
+@router.post("/{connector_id}/mcp/catalog")
+async def refresh_mcp_catalog(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    if body.connectorConfiguration is None:
+        raise HTTPException(
+            status_code=400, detail="Unlock and provide the current connector settings."
+        )
+    return await _mcp_review_response(
+        mcp_review_service.discover_catalog,
+        token=token,
+        connector_id=connector_id,
+        configuration=body.connectorConfiguration,
+    )
+
+
+@router.post("/{connector_id}/mcp/review")
+async def prepare_mcp_review(
+    connector_id: str, body: McpReviewRequest, token: dict = Depends(require_vault_owner_token)
+):
+    return await _mcp_review_response(
+        mcp_review_service.prepare_review,
+        token=token,
+        connector_id=connector_id,
+        conversation_id=body.conversationId,
+        tool_name=body.toolName,
+        arguments=body.arguments,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
+        **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
+    )
+
+
+@router.post("/{connector_id}/mcp/confirm")
+async def confirm_mcp_review(
+    connector_id: str, body: McpConfirmRequest, token: dict = Depends(require_vault_owner_token)
+):
+    if body.confirmed is not True:
+        raise HTTPException(status_code=400, detail="Confirm the exact call before continuing.")
+    return await _mcp_review_response(
+        mcp_review_service.confirm_review,
+        token=token,
+        connector_id=connector_id,
+        conversation_id=body.conversationId,
+        tool_name=body.toolName,
+        arguments=body.arguments,
+        directive_id=body.directiveId,
+        confirmed=body.confirmed,
+        **(
+            {"configuration": body.connectorConfiguration}
+            if body.connectorConfiguration is not None
+            else {}
+        ),
+        **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
+    )
+
+
+@router.post("/registrations", response_model=ConnectorSummary)
+async def register_connector(
+    body: RegisterConnectorRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        connector = await get_external_connector_registry_service().register_private(
+            user_id=_user_id(token_data),
+            registration_id=body.registrationId,
+            display_name=body.displayName,
+            endpoint=body.endpoint,
+            auth_style=body.authStyle,
+        )
+    except UnsafeMcpEndpoint:
+        raise HTTPException(
+            status_code=400,
+            detail="Use a public HTTPS connector endpoint without credentials, query parameters or a fragment.",
+            headers={"Cache-Control": "private, no-store"},
+        ) from None
+    return ConnectorSummary(
+        **connector.to_public_dict(), status="not_connected", registrationKind="private"
+    )
 
 
 class ConnectApiKeyRequest(BaseModel):
@@ -398,8 +768,17 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
     credentials = get_external_connector_credentials_service()
+    # This response is the operator-curated catalog plus owner connection
+    # status. Custom definitions are browser-decrypted vault records, not the
+    # retired private-registration table projection. Do not require migration
+    # 243 or resurrect server-readable custom configuration to render Settings.
     connectors = await registry.list_active_connectors()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
+    drive_available = (
+        await get_external_connector_oauth_service().drive().connection_available()
+        if any(item.connector_id == "google_drive" for item in connectors)
+        else False
+    )
     result = ConnectorsResponse(
         features=connector_features(user_id),
         connectors=[
@@ -408,6 +787,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 displayName=connector.display_name,
                 description=connector.description,
                 authStyle=connector.auth_style,
+                registrationKind="private" if connector.owner_user_id else "curated",
                 status=statuses.get(connector.connector_id, {}).get("status", "not_connected"),
                 accountLabel=statuses.get(connector.connector_id, {}).get("accountLabel"),
                 connectedAt=statuses.get(connector.connector_id, {}).get("connectedAt"),
@@ -419,6 +799,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                     "revocationOutcome", "not_attempted"
                 ),
                 lastErrorCode=statuses.get(connector.connector_id, {}).get("lastErrorCode"),
+                available=drive_available if connector.connector_id == "google_drive" else True,
             )
             for connector in connectors
         ],
@@ -456,7 +837,7 @@ async def connect_with_api_key(
 ):
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
-    connector = await registry.get_connector(connector_id)
+    connector = await registry.get_connector(connector_id, user_id=user_id)
     if connector is None:
         raise HTTPException(status_code=404, detail="Connector not found")
     if connector.auth_style != "api_key":

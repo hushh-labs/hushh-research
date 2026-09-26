@@ -42,11 +42,14 @@ test.beforeAll(async () => {
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
+          "@/lib/calendar/use-calendar-connection-status",
+          "@/lib/pkm/pkm-domain-resource",
+          "@/lib/kai/plaid-vault/vault-sync",
+          "@/lib/connections/custom-connector-configuration",
           "next/navigation",
         ].map((find) => ({
-          // Vite string aliases also match subpaths. Keep the Capacitor
-          // boundary mock exact so imports such as /stream use the real module.
-          find: find === "@/lib/capacitor" ? /^@\/lib\/capacitor$/ : find,
+          // Vite string aliases match subpaths; every boundary mock is exact.
+          find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
           replacement: path.join(
             root,
             "e2e/fixtures/connections-boundaries.tsx",
@@ -102,7 +105,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
-  await page.route(/\/icons\/agents\/(?:gmail|calendar)\.svg$/, (route) =>
+  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
@@ -193,6 +196,24 @@ test.beforeEach(async ({ page }) => {
   await awaitProductFont(page);
 });
 
+for (const width of [390, 768])
+  test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 640 });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const search = chats.getByRole("searchbox", { name: "Search chats" });
+    const connectors = chats.getByRole("button", { name: "Open Connectors" });
+    await expect(search).toBeVisible();
+    await expect(connectors).toBeVisible();
+    const searchBox = (await search.boundingBox())!;
+    const connectorBox = (await connectors.boundingBox())!;
+    const drawerBox = (await chats.boundingBox())!;
+    expect(connectorBox.y).toBeGreaterThan(searchBox.y + searchBox.height);
+    expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
+    expect(await chats.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await chats.locator("aside").evaluate((element) => getComputedStyle(element).borderTopRightRadius)).toBe("28px");
+  });
+
 for (const width of [320, 390, 768, 1440])
   test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];
@@ -205,7 +226,7 @@ for (const width of [320, 390, 768, 1440])
     const original = await draft.elementHandle();
     const receipt = page.getByRole("region", { name: "Mail read details" });
     await expect(receipt).toHaveText(/Reconnect Mail to continue/);
-    const button = receipt.getByRole("button", { name: "Open Connectors" });
+    const button = receipt.getByRole("button", { name: "Review Gmail access" });
     const bounds = (await button.boundingBox())!;
     expect(bounds.height).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
@@ -239,7 +260,24 @@ for (const width of [320, 390, 768, 1440])
       .fill("History filter");
     await page.getByLabel("Open Connectors", { exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
+    await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
+    if (width >= 768) {
+      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.x + box.width / 2 - width / 2);
+      }).toBeLessThan(2);
+    } else {
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.y + box.height - 820);
+      }).toBeLessThan(2);
+    }
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
+    const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
+    await expect(overlay).toBeVisible();
+    expect(await overlay.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(");
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
     await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
     await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toBeVisible();
@@ -305,6 +343,30 @@ for (const width of [320, 390, 768, 1440])
       .getByRole("button", { name: "Advance synthetic stream" })
       .click();
     await expect(page.getByTestId("stream")).toHaveText("Streaming turn 2");
+  });
+
+for (const width of [320, 390, 1440])
+  test(`connectors remain scrollable with a short ${width}px viewport`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 440 });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const scrollRegion = dialog.locator('[data-connections-panel] > div').last();
+    await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
+    expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+    const plaid = dialog.getByRole("button", { name: "Plaid" });
+    await plaid.scrollIntoViewIfNeeded();
+    await expect(plaid).toBeVisible();
+    const action = await plaid.boundingBox();
+    const bounds = await dialog.boundingBox();
+    expect(action).not.toBeNull();
+    expect(bounds).not.toBeNull();
+    expect(action!.y).toBeGreaterThanOrEqual(bounds!.y);
+    expect(action!.y + action!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 1);
+    expect(action!.x).toBeGreaterThanOrEqual(0);
+    expect(action!.x + action!.width).toBeLessThanOrEqual(width + 1);
   });
 
 test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
@@ -479,7 +541,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   );
 });
 
-test("real popup ignores forged settlement and reconciles server status after closing", async ({
+test("real popup ignores forged settlement and closing alone grants no access", async ({
   page,
   context,
 }) => {
@@ -545,7 +607,7 @@ test("real popup ignores forged settlement and reconciles server status after cl
   expect(popup.isClosed()).toBe(false);
   expect(statusReads).toBe(before);
   await popup.close();
-  await expect.poll(() => statusReads).toBeGreaterThan(before);
+  await page.getByRole("button", { name: "Cancel sign-in" }).click();
   await expect(
     page.getByRole("button", { name: "Connect Drive", exact: true }),
   ).toBeEnabled();

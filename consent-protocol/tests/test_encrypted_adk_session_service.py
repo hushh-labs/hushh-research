@@ -280,3 +280,20 @@ async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch)
     ]
     assert "_hushh_revision" not in persisted.model_dump_json()
     assert "_hushh_partial_history" not in persisted.model_dump_json()
+
+    receipt = Event(
+        id="request_submission_source_1",
+        author="one",
+        custom_metadata={"kind": "information_request_submission_v1", "sourceCardId": "source_1"},
+    )
+    await asyncio.gather(
+        *(
+            service.append_event_once(
+                app_name="one", user_id="owner", session_id="thread", event=receipt
+            )
+            for _ in range(3)
+        )
+    )
+    after_retry = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert after_retry is not None
+    assert [event.id for event in after_retry.events].count("request_submission_source_1") == 1

@@ -35,7 +35,11 @@ from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
 from hushh_mcp.services.external_connector_oauth_service import ExternalConnectorOAuthService
-from hushh_mcp.services.external_connector_registry_service import ExternalMcpConnectorDefinition
+from hushh_mcp.services.external_connector_registry_service import (
+    ConnectorRegistrationError,
+    ExternalConnectorRegistryService,
+    ExternalMcpConnectorDefinition,
+)
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
@@ -198,6 +202,248 @@ async def activate(store, attempt="attempt-a"):
 def sql(store, statement, params=None):
     with store.db.engine.begin() as connection:
         return connection.execute(text(statement), params or {})
+
+
+def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle):
+    migration = (MIGRATIONS / "247_private_mcp_registration.sql").read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(migration)
+        connection.exec_driver_sql(migration)
+    original = sql(
+        lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active"
+    ).all()
+    sql(
+        lifecycle,
+        """INSERT INTO external_mcp_connectors
+          (connector_id, display_name, mcp_endpoint, auth_style, created_by,
+           user_id, is_active, owner_enabled)
+          VALUES ('private-test', 'Private', 'https://example.invalid/mcp',
+                  'api_key', 'owner', 'owner', FALSE, TRUE)""",
+    )
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        sql(lifecycle, "UPDATE external_mcp_connectors SET is_active=TRUE WHERE user_id='owner'")
+    assert (
+        sql(lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active").all()
+        == original
+    )
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(
+            (MIGRATIONS / "rollback/247_private_mcp_registration.rollback.sql").read_text()
+        )
+    assert sql(
+        lifecycle,
+        "SELECT owner_enabled, is_active FROM external_mcp_connectors WHERE connector_id='private-test'",
+    ).one() == (False, False)
+    assert (
+        sql(lifecycle, "SELECT connector_id FROM external_mcp_connectors WHERE is_active").all()
+        == original
+    )
+
+
+@pytest.mark.asyncio
+async def test_private_registration_is_idempotent_owner_bound_and_non_authorizing(lifecycle):
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
+    service = ExternalConnectorRegistryService(db=lifecycle.db)
+    draft = dict(
+        registration_id=uuid.uuid4(),
+        display_name="Synthetic MCP",
+        endpoint="https://mcp.example.com/mcp",
+        auth_style="api_key",
+    )
+    first, retry = await asyncio.gather(
+        service.register_private(user_id="owner", **draft),
+        service.register_private(user_id="owner", **draft),
+    )
+    other = await service.register_private(user_id="other", **draft)
+    assert first.connector_id == retry.connector_id != other.connector_id
+    assert first.capability_policy == {}
+    assert first.owner_user_id == "owner"
+    assert sql(lifecycle, "SELECT count(*) FROM user_external_connector_connections").scalar() == 0
+    assert (
+        sql(
+            lifecycle, "SELECT count(*) FROM external_mcp_connectors WHERE user_id='owner'"
+        ).scalar()
+        == 1
+    )
+    assert (
+        sql(
+            lifecycle, "SELECT is_active FROM external_mcp_connectors WHERE user_id='owner'"
+        ).scalar()
+        is False
+    )
+    with pytest.raises(ConnectorRegistrationError, match="registration_revision_conflict"):
+        await service.register_private(
+            user_id="owner", **{**draft, "endpoint": "https://other.example/mcp"}
+        )
+    sql(lifecycle, "UPDATE external_mcp_connectors SET owner_enabled=FALSE WHERE user_id='owner'")
+    with pytest.raises(ConnectorRegistrationError, match="registration_revision_conflict"):
+        await service.register_private(user_id="owner", **draft)
+
+
+@pytest.mark.asyncio
+async def test_private_registration_missing_migration_is_explicitly_unavailable(lifecycle):
+    service = ExternalConnectorRegistryService(db=lifecycle.db)
+    with pytest.raises(ConnectorRegistrationError) as failure:
+        await service.register_private(
+            user_id="owner",
+            registration_id=uuid.uuid4(),
+            display_name="Synthetic MCP",
+            endpoint="https://mcp.example.com/mcp",
+            auth_style="api_key",
+        )
+    assert failure.value.code == "connector_registry_unavailable"
+    assert failure.value.status_code == 503
+    assert sql(lifecycle, "SELECT count(*) FROM external_mcp_connectors").scalar() == 3
+
+
+@pytest.mark.asyncio
+async def test_private_registration_limit_is_atomic(lifecycle, monkeypatch):
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
+    monkeypatch.setattr(
+        "hushh_mcp.services.external_connector_registry_service._MAX_PRIVATE_CONNECTORS", 1
+    )
+    service = ExternalConnectorRegistryService(db=lifecycle.db)
+    results = await asyncio.gather(
+        *[
+            service.register_private(
+                user_id="owner",
+                registration_id=uuid.uuid4(),
+                display_name="Synthetic MCP",
+                endpoint="https://mcp.example.com/mcp",
+                auth_style="oauth",
+            )
+            for _ in range(2)
+        ],
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, ExternalMcpConnectorDefinition) for result in results) == 1
+    failures = [result for result in results if isinstance(result, ConnectorRegistrationError)]
+    assert len(failures) == 1 and failures[0].code == "connector_registration_limit"
+
+
+@pytest.mark.asyncio
+async def test_secret_rotation_and_disconnect_advance_authority_generation(lifecycle, monkeypatch):
+    monkeypatch.setenv(
+        "EXTERNAL_CONNECTOR_CREDENTIAL_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode()
+    )
+
+    def execute_raw(statement, params):
+        with lifecycle.db.engine.begin() as connection:
+            result = connection.execute(text(statement), params)
+            return SimpleNamespace(data=list(result.mappings()) if result.returns_rows else [])
+
+    credentials = ExternalConnectorCredentialsService(db=SimpleNamespace(execute_raw=execute_raw))
+    await credentials.store_credential(
+        user_id="owner", connector_id="api-key", secret={"apiKey": "synthetic-one"}
+    )
+    row = await lifecycle.read(user_id="owner", connector_id="api-key")
+    assert (row["connection_generation"], row["credential_version"]) == (1, 1)
+    assert await lifecycle.mark_verified(
+        user_id="owner", connector_id="api-key", generation=1, version=1, policy_hash="test-policy"
+    )
+    await credentials.store_credential(
+        user_id="owner", connector_id="api-key", secret={"apiKey": "synthetic-two"}
+    )
+    row = await lifecycle.read(user_id="owner", connector_id="api-key")
+    assert (row["connection_generation"], row["credential_version"]) == (2, 2)
+    assert row["validation_state"] == "unverified" and row["verified_policy_hash"] is None
+    assert not await lifecycle.mark_verified(
+        user_id="owner", connector_id="api-key", generation=1, version=1, policy_hash="stale-policy"
+    )
+    assert await credentials.get_credential(user_id="owner", connector_id="api-key") == {
+        "apiKey": "synthetic-two"
+    }
+    await credentials.disconnect(user_id="owner", connector_id="api-key")
+    row = await lifecycle.read(user_id="owner", connector_id="api-key")
+    assert (row["connection_generation"], row["credential_version"]) == (3, 3)
+    assert row["status"] == "revoked" and row["credential_ciphertext"] is None
+    assert not await lifecycle.mark_verified(
+        user_id="owner", connector_id="api-key", generation=2, version=2, policy_hash="late-policy"
+    )
+
+
+@pytest.mark.parametrize("permanent", [False, True])
+def test_private_registry_erasure_preserves_other_owner_and_curated(lifecycle, permanent):
+    from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql((MIGRATIONS / "247_private_mcp_registration.sql").read_text())
+    for user in ("owner", "other"):
+        sql(
+            lifecycle,
+            """INSERT INTO external_mcp_connectors
+            (connector_id, display_name, description, mcp_endpoint, auth_style,
+             created_by, user_id, is_active, owner_enabled, api_key_header_name)
+            VALUES (:id, 'Private label', 'Private description', 'https://private.example/mcp',
+                    'api_key', :user, :user, FALSE, TRUE, 'Authorization')""",
+            {"id": f"private-{user}", "user": user},
+        )
+        sql(
+            lifecycle,
+            """INSERT INTO user_external_connector_connections
+            (user_id, connector_id, status, credential_ciphertext, credential_iv,
+             connection_generation, credential_version)
+            VALUES (:user, :id, 'connected', 'synthetic-ciphertext', 'iv', 3, 4)""",
+            {"user": user, "id": f"private-{user}"},
+        )
+        sql(
+            lifecycle,
+            """INSERT INTO external_connector_oauth_attempts
+            (attempt_id, user_id, connector_id, code_verifier_ciphertext, code_verifier_iv,
+             redirect_uri, expires_at)
+            VALUES (:id, :user, :id, 'synthetic-verifier', 'iv',
+                    'https://example.invalid/return', now() + interval '5 minutes')""",
+            {"user": user, "id": f"private-{user}"},
+        )
+    with lifecycle.db.engine.begin() as connection:
+        erase_drive_account_in_transaction(connection, user_id="owner", permanent=permanent)
+    assert (
+        sql(
+            lifecycle,
+            "SELECT count(*) FROM external_connector_oauth_attempts WHERE user_id='owner'",
+        ).scalar()
+        == 0
+    )
+    other = sql(
+        lifecycle,
+        "SELECT mcp_endpoint, owner_enabled FROM external_mcp_connectors WHERE user_id='other'",
+    ).one()
+    assert other == ("https://private.example/mcp", True)
+    assert (
+        sql(
+            lifecycle, "SELECT count(*) FROM external_mcp_connectors WHERE user_id IS NULL"
+        ).scalar()
+        == 3
+    )
+    if permanent:
+        assert (
+            sql(
+                lifecycle, "SELECT count(*) FROM external_mcp_connectors WHERE user_id='owner'"
+            ).scalar()
+            == 0
+        )
+        assert (
+            sql(
+                lifecycle,
+                "SELECT count(*) FROM user_external_connector_connections WHERE user_id='owner'",
+            ).scalar()
+            == 0
+        )
+    else:
+        assert sql(
+            lifecycle,
+            """SELECT owner_enabled, display_name, description,
+            mcp_endpoint, api_key_header_name FROM external_mcp_connectors WHERE user_id='owner'""",
+        ).one() == (False, "Removed connector", None, "https://removed.invalid", None)
+        assert sql(
+            lifecycle,
+            """SELECT status, credential_ciphertext, connection_generation,
+            credential_version FROM user_external_connector_connections WHERE user_id='owner'""",
+        ).one() == ("revoked", None, 4, 5)
 
 
 @pytest.mark.asyncio
@@ -708,11 +954,11 @@ async def test_native_handoff_contains_only_reference_and_requires_original_owne
 
 
 @pytest.mark.asyncio
-async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, monkeypatch):
+async def test_connection_rollout_flag_does_not_block_start_or_disconnect(drive, monkeypatch):
     await drive_connect(drive)
     monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    with pytest.raises(DriveOAuthError, match="connector_unavailable"):
-        await drive_start(drive)
+    started, _ = await drive_start(drive)
+    assert started["attemptId"]
     drive._post.side_effect = DriveOAuthError("provider_unavailable", status_code=503)
     result = await drive.disconnect(user_id="owner")
     assert result["status"] == "revoked" and result["revocationOutcome"] == "failed"
@@ -722,7 +968,7 @@ async def test_disabled_start_stays_closed_but_disconnect_still_works(drive, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["client", "registry", "flag", "cohort", "redirect"])
+@pytest.mark.parametrize("change", ["client", "registry", "redirect"])
 async def test_staged_native_credentials_cannot_activate_after_configuration_or_admission_changes(
     drive, monkeypatch, change
 ):
@@ -734,10 +980,6 @@ async def test_staged_native_credentials_cannot_activate_after_configuration_or_
         monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "rotated-client")
     elif change == "registry":
         drive.registry.get_connector.return_value = None
-    elif change == "flag":
-        monkeypatch.setenv("GOOGLE_DRIVE_CONNECTION", "false")
-    elif change == "cohort":
-        monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "different-owner")
     else:
         drive.registry.get_connector.return_value = replace(
             drive.registry.get_connector.return_value, registered_redirect_uris=()

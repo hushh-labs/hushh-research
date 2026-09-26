@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
+    create_reviewed_gmail_draft,
     get_gmail_delivery_service,
     normalize_draft,
 )
@@ -65,6 +66,10 @@ class EmailPrepareRequest(EmailEnvelope):
         max_length=128,
         pattern=r"^[A-Za-z0-9-]+$",
     )
+
+
+class EmailSaveDraftRequest(EmailEnvelope):
+    model_config = ConfigDict(extra="forbid")
 
 
 class EmailSendRequest(EmailEnvelope):
@@ -210,6 +215,31 @@ async def gmail_email_prepare(
     except Exception as exc:
         logger.warning("one.gmail_delivery.prepare_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
+
+
+@router.post("/email/draft/save")
+async def gmail_save_draft(
+    payload: EmailSaveDraftRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, str]:
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        result = await create_reviewed_gmail_draft(
+            user_id=owner, draft_payload=payload.model_dump(exclude_none=True)
+        )
+        status_value = result.get("status")
+        draft_id = result.get("draft_id")
+        if (
+            status_value != "saved"
+            or not isinstance(draft_id, str)
+            or not 1 <= len(draft_id) <= 256
+        ):
+            raise GmailApiError("Gmail draft outcome is unknown", status_code=502)
+        return {"status": status_value, "draft_id": draft_id}
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.save_draft_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from None
 
 
 @router.post("/email/send")

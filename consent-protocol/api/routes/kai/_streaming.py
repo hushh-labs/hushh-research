@@ -15,7 +15,12 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal, cast
 
-StreamKind = Literal["portfolio_import", "portfolio_optimize", "stock_analyze"]
+# `pod_lifecycle` is not a Kai stream, but it deliberately speaks THIS envelope:
+# one canonical SSE contract across the product, with the monotonic seq, the
+# monotonic progress clamp, `terminal`, and `retryable` inherited rather than
+# reimplemented. A second envelope would drift from this one in exactly the ways
+# nobody tests.
+StreamKind = Literal["portfolio_import", "portfolio_optimize", "stock_analyze", "pod_lifecycle"]
 SCHEMA_VERSION = "1.0"
 DEFAULT_STREAM_TIMEOUT_SECONDS = 120
 PORTFOLIO_IMPORT_TIMEOUT_SECONDS = 360

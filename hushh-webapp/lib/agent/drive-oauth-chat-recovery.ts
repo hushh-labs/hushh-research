@@ -16,6 +16,12 @@ export type DriveChatRecoveryReason =
   | "native_oauth"
   | "native_picker";
 
+export type CustomConnectorRecoveryReference = { connectorId: string; revision: string };
+function validCustomReference(value: CustomConnectorRecoveryReference | undefined): boolean {
+  return value === undefined || Boolean(value && /^custom_[a-f0-9]{32}$/.test(value.connectorId) &&
+    /^[a-f0-9-]{36}$/i.test(value.revision));
+}
+
 export type DriveChatRecoveryState = {
   conversationId: string | null;
   input: string;
@@ -42,6 +48,8 @@ type DriveChatRecoveryMarker = {
   attemptId: string;
   reason: DriveChatRecoveryReason;
   expiresAt: number;
+  customConnector?: CustomConnectorRecoveryReference;
+  returnTo?: "connector_settings";
 };
 
 function readMarker(key: string): DriveChatRecoveryMarker | null {
@@ -53,7 +61,8 @@ function readMarker(key: string): DriveChatRecoveryMarker | null {
       !ATTEMPT_ID.test(value.attemptId || "") ||
       !["web_full_page", "native_oauth", "native_picker"].includes(value.reason || "") ||
       !Number.isFinite(value.expiresAt) ||
-      (value.expiresAt ?? 0) <= Date.now()
+      (value.expiresAt ?? 0) <= Date.now() || !validCustomReference(value.customConnector)
+      || (value.returnTo !== undefined && value.returnTo !== "connector_settings")
     ) return null;
     return value as DriveChatRecoveryMarker;
   } catch {
@@ -64,6 +73,28 @@ function readMarker(key: string): DriveChatRecoveryMarker | null {
 /** Opaque correlation only: no draft, owner token, provider code or state. */
 export function readDriveChatRecoveryHandoff(): DriveChatRecoveryMarker | null {
   return readMarker(HANDOFF_KEY);
+}
+
+/** A Settings OAuth handoff has no Chat draft to recover. Keep only correlation in this tab. */
+export function saveCustomConnectorSettingsHandoff(input: {
+  ownerUserId: string;
+  attemptId: string;
+  customConnector: CustomConnectorRecoveryReference;
+}): void {
+  if (!input.ownerUserId || !input.customConnector || !ATTEMPT_ID.test(input.attemptId) ||
+      !validCustomReference(input.customConnector)) {
+    throw new Error("Invalid connector sign-in handoff.");
+  }
+  window.sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
+    version: 1,
+    ownerUserId: input.ownerUserId,
+    attemptId: input.attemptId,
+    reason: "web_full_page",
+    expiresAt: Date.now() + DRIVE_CHAT_RECOVERY_TTL_MS,
+    customConnector: input.customConnector,
+    returnTo: "connector_settings",
+  } satisfies DriveChatRecoveryMarker));
+  window.sessionStorage.removeItem(RETURN_KEY);
 }
 
 /** Called only after an OAuth callback or native opaque return arrives. */
@@ -130,11 +161,12 @@ export async function saveDriveChatRecovery(input: {
   attemptId: string;
   reason: DriveChatRecoveryReason;
   state: DriveChatRecoveryState;
+  customConnector?: CustomConnectorRecoveryReference;
 }): Promise<void> {
   if (
     !input.ownerUserId ||
     !ATTEMPT_ID.test(input.attemptId) ||
-    !validState(input.state)
+    !validState(input.state) || !validCustomReference(input.customConnector)
   ) {
     throw new Error("Invalid Drive chat recovery state.");
   }
@@ -166,6 +198,7 @@ export async function saveDriveChatRecovery(input: {
       attemptId: input.attemptId,
       reason: input.reason,
       expiresAt: capsule.expiresAt,
+      ...(input.customConnector ? { customConnector: input.customConnector } : {}),
     } satisfies DriveChatRecoveryMarker));
     window.sessionStorage.removeItem(RETURN_KEY);
   } catch {

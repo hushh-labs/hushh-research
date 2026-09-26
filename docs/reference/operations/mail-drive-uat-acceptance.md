@@ -1,6 +1,10 @@
 # Mail + Drive UAT acceptance
 
-Status: implementation evidence only; verify the live rollout and two-account acceptance separately.
+Status as of 2026-09-23: the later UAT delivery record below verifies the deployed
+source revision, fixed Drive registry, and enabled work-drain scheduler. Connector
+feature flags and the internal-owner cohort remain off; document processing and
+two-account acceptance are unverified. Earlier checkpoints and preflight observations
+below are historical evidence, not current runtime status.
 Runtime remains in `hushh-pda-uat`; the isolated Drive OAuth project is `hushh-drive-uat`.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
@@ -102,7 +106,8 @@ ingestion and native requirements do not gate the live request journey above.
   Publication switches complete versions atomically; text, source ranges and embeddings
   are encrypted together. Source denial purges the prior index; transient failures preserve it.
   The dedicated finite worker selects the scanner/parser/embedding implementation; no
-  API startup hook or live scheduler is activated by this source checkpoint.
+  API startup hook or live scheduler was activated at that source checkpoint;
+  see the later UAT delivery record for the enabled scheduler.
 - Mail chat checkpoint: the registered typed-chat Email specialist now performs only
   metadata-only `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
   UAT rollout admission and owner/task/call-bound invocation authority. It reuses Gmail grants,
@@ -166,7 +171,7 @@ ingestion and native requirements do not gate the live request journey above.
   tokens. Concurrent workers cannot redispatch an uncertain Google write; existing receipts are
   reconciled using reads. A default-off, OIDC-protected Drive work drain now sequences a small
   bounded UAT sweep (indexing -> suggestions -> permission work -> notifications); it has no API
-  startup/background hook and remains inactive until explicit UAT runtime/scheduler configuration.
+  startup/background hook. The later UAT delivery record documents its enabled scheduler.
 - Notification-outbox checkpoint: migration 235 gives the existing opaque Drive-share events a
   short lease, three bounded dispatch attempts, fair inspection and crash recovery. The finite
   worker sends only one of the six reviewed `document_share_*` event types plus opaque request,
@@ -320,11 +325,16 @@ DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pd
 DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://<exact-backend-origin>
 ```
 
-The feature flags remain independently default-off: `GOOGLE_DRIVE_CONNECTION`,
-`DRIVE_DOCUMENT_INDEXING`, and `DRIVE_DOCUMENT_SHARING` each require explicit activation.
-UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT` or
-`CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are mutually exclusive;
-`*` and `all` remain invalid cohort values, and production cannot enable either mode.
+Drive connection, selected-file setup, and owner-authorized Gmail/Drive Chat reads
+no longer require rollout flags or reviewer-cohort membership. A configured OAuth
+client, registered return URL, explicit Google approval, and current owner grant
+are still required. The connector catalog reports Drive unavailable if the OAuth
+configuration is incomplete. `DRIVE_DOCUMENT_INDEXING`, `DRIVE_DOCUMENT_SHARING`,
+and account-wide live Drive remain independently default-off staged effects.
+Their UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT`
+or `CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are
+mutually exclusive; `*` and `all` remain invalid cohort values, and production
+cannot enable staged effects through either mode.
 Google's OAuth app audience must independently allow the intended Google accounts.
 The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched

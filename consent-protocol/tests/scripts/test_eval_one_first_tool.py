@@ -122,12 +122,13 @@ def test_load_rejects_wrong_schema_version(tmp_path):
 def test_roster_is_the_production_roster(roster_names):
     assert len(roster_names) >= 40
     assert {"run_app_action", "ask_consent_agent", "google_search", "finance"} <= roster_names
-    assert {"discover_google_drive_tools", "read_google_drive"} <= roster_names
+    assert {"discover_workspace_tools", "read_workspace_tool"} <= roster_names
+    assert {"discover_google_drive_tools", "read_google_drive"}.isdisjoint(roster_names)
 
 
 def test_drive_email_first_tool_must_identify_file_before_draft(cases):
     case = next(case for case in cases if case.id == "drive.email_selected_file")
-    assert set(case.expected) == {"discover_google_drive_tools", "read_google_drive"}
+    assert set(case.expected) == {"discover_workspace_tools", "read_workspace_tool"}
     assert not harness.is_hit("open_gmail_email_draft", case.expected)
 
 
@@ -708,3 +709,32 @@ def test_wrapper_delegates_to_run_eval_with_consent_family(monkeypatch):
     assert captured["families"] == ["consent"]
     assert captured["instruction_files"] == ["a.txt", "b.txt"]
     assert captured["reps"] == 3
+
+
+def test_offline_roster_does_not_resolve_owner_bound_connector_toolsets(monkeypatch):
+    from google.adk.tools.base_toolset import BaseToolset
+
+    seen = []
+
+    def local_probe() -> str:
+        return "probe"
+
+    class NativeTools(BaseToolset):
+        async def get_tools(self, readonly_context=None):
+            seen.append(readonly_context)
+            return [FunctionTool(func=local_probe)]
+
+        async def close(self):
+            seen.append("closed")
+
+    monkeypatch.setattr(
+        harness,
+        "_agent_tree",
+        lambda: SimpleNamespace(
+            build_one_text_agent=lambda **kwargs: SimpleNamespace(
+                tools=[NativeTools(), FunctionTool(func=local_probe)]
+            )
+        ),
+    )
+    assert harness.roster_tool_names() == ["local_probe"]
+    assert seen == []

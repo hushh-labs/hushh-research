@@ -6,18 +6,15 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
-import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 
 export type BottomShellModel = {
-  ambientEnabled: boolean;
   navigationHidden: boolean;
   /** Chat owns the primary text composer, so its idle voice launcher is omitted. */
   agentBarHidden?: boolean;
@@ -88,29 +85,12 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
 
   if (hidden) return null;
 
-  // The mask rides the scroll progress the way the stack does: as a
-  // transform, never as a height. Its height used to be recomputed on every
-  // scroll frame (full height minus the progress travel), which was one
-  // layout plus a backdrop-blur re-render per frame under the moving bars,
-  // the only non-composited motion in this stack; the feed flick and the tab
-  // ride both read it as hitch. The gradient keeps its shape and the part
-  // that travels down goes off the bottom of the screen.
-  const maskStyle = {
-    height: "var(--bottom-chrome-full-height)",
-    transform:
-      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)",
-    willChange: "transform",
-  } as CSSProperties;
-
   return (
     <>
-      {model.ambientEnabled ? (
-        <AmbientChromeMask
-          edge="bottom"
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-          style={maskStyle}
-        />
-      ) : null}
+      {/* The fixed wrapper keeps its original hit box while the chrome
+          inside it rides the scroll transform. Let taps pass through that
+          empty area to content (especially Chat's composer); the actual nav
+          controls opt back into pointer events in Navbar. */}
       <div
         ref={shellRef}
         data-app-bottom-shell
@@ -124,7 +104,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
-        className="fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
       >
         <div
           data-bottom-shell-motion-stack

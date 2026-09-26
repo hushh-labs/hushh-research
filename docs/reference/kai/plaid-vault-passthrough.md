@@ -123,10 +123,10 @@ Owner: `hushh-webapp/lib/kai/plaid-vault/vault-sync.ts`.
 
 ## Legacy server custody retirement status
 
-The audited working tree removes the previous server-stored routes and services. At the audit
-revision these source and migration edits are uncommitted, so this is not evidence that any
-environment has applied them. Existing encrypted database rows and Plaid Items remain until
-the retirement script succeeds for that environment and migration 239 is confirmed applied.
+The current branch removes the previous server-stored routes and services and includes migration
+239. Branch source is not evidence that any environment has applied the migration. Existing
+encrypted database rows and Plaid Items remain until the retirement script succeeds for that
+environment and migration 239 is confirmed applied.
 
 Before deleting or resetting an account, the device revokes each sealed connection (and any
 unsaved link) at Plaid (`revokeVaultBanksBeforeErasure` in
@@ -152,7 +152,7 @@ Retirement order per environment:
      and marked `removed`, never deleted.
 
    Idempotent; prints counts and Plaid `error_code` counts only.
-3. Migration `239_drop_server_plaid_custody.sql` in the working tree drops `kai_plaid_*`,
+3. Migration `239_drop_server_plaid_custody.sql` on this branch drops `kai_plaid_*`,
    `kai_portfolio_source_preferences`, and every `kai_funding_*` table. Confirm it is included
    in the target lane and verify its migration ledger after deployment. It **aborts** while
    any Item is still live or regulated funding records exist. Those records need an export and

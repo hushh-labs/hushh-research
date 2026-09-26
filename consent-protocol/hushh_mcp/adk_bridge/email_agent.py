@@ -7,7 +7,7 @@ sending remain separate. Invocation grants no mailbox access by itself.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from hushh_mcp.adk_bridge.contract import (
     A2ATask,
@@ -24,7 +24,13 @@ DELEGATED_MODEL = "one+email"
 
 
 class EmailAgentA2A:
-    def __init__(self, service: Any = None) -> None:
+    def __init__(
+        self,
+        service: Any = None,
+        *,
+        require_read: Callable[[A2ATask], Awaitable[None]] | None = None,
+    ) -> None:
+        self._require_read = require_read
         if service is not None:
             self._service = service
         else:
@@ -57,6 +63,8 @@ class EmailAgentA2A:
                 raise PermissionError("Mail reads are unavailable")
             if await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
                 raise PermissionError("Mail owner authority is unavailable")
+            if self._require_read is not None:
+                await self._require_read(task)
 
         await require_access()
         out: dict = await self._service.handle_delegated_turn(

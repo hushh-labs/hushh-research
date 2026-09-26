@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
-import { PersonProfileService } from "@/lib/services/person-profile-service";
+import { PersonProfileService, type InformationRequestBundle } from "@/lib/services/person-profile-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
@@ -43,18 +43,21 @@ export function usePersonInformationRequest(personRef: string) {
     };
   }, [personRef, user?.uid, vaultKey, isVaultUnlocked]);
 
-  async function submit(draft: PersonInformationDraft): Promise<boolean> {
-    if (inFlight.current) return false;
+  async function submitWithReceipt(draft: PersonInformationDraft): Promise<{
+    bundle: InformationRequestBundle;
+    idempotencyKey: string;
+  } | null> {
+    if (inFlight.current) return null;
     if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !personRef) {
       setError("Unlock your vault before requesting information.");
-      return false;
+      return null;
     }
     const purpose = draft.purpose.trim();
     const scopeRefs = [...new Set(draft.scopeRefs)].sort();
     if (!scopeRefs.length || scopeRefs.length > 50 || purpose.length < 8 || purpose.length > 500
       || !REQUEST_DURATION_OPTIONS.some(option => option.hours === draft.durationHours)) {
       setError("Choose up to 50 fields, explain why you need them, and select an access duration.");
-      return false;
+      return null;
     }
     const run = generation.current;
     const fingerprint = JSON.stringify([user.uid, personRef, scopeRefs, purpose, draft.durationHours]);
@@ -68,7 +71,7 @@ export function usePersonInformationRequest(personRef: string) {
     const timeout = window.setTimeout(() => controller.abort(), 45_000);
     const stale = () => run !== generation.current || controller.signal.aborted;
     try {
-      await new Promise<void>((resolve, reject) => {
+      const created = await new Promise<InformationRequestBundle>((resolve, reject) => {
         const aborted = () => reject(new Error("Request preparation timed out."));
         controller.signal.addEventListener("abort", aborted, { once: true });
         void (async () => {
@@ -90,26 +93,34 @@ export function usePersonInformationRequest(personRef: string) {
               bundleId: created.bundleId,
               personRef,
             });
-            resolve();
+            resolve(created);
           } catch (reason) { reject(reason); }
           finally { controller.signal.removeEventListener("abort", aborted); }
         })();
       });
-      if (stale()) return false;
+      if (stale()) return null;
       retry.current = null;
-      return true;
+      return { bundle: created, idempotencyKey };
     } catch {
       if (run === generation.current) {
         setError(controller.signal.aborted
           ? "We could not confirm the request yet. Retry to check the same request."
           : "The request could not be confirmed. Your choices are kept; please try again.");
       }
-      return false;
+      return null;
     } finally {
       window.clearTimeout(timeout);
       if (run === generation.current) { inFlight.current = false; setPending(false); }
     }
   }
 
-  return { available, pending, error, submit };
+  async function submitWithResult(draft: PersonInformationDraft): Promise<InformationRequestBundle | null> {
+    return (await submitWithReceipt(draft))?.bundle ?? null;
+  }
+
+  async function submit(draft: PersonInformationDraft): Promise<boolean> {
+    return (await submitWithResult(draft)) !== null;
+  }
+
+  return { available, pending, error, submit, submitWithResult, submitWithReceipt };
 }

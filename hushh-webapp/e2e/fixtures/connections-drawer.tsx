@@ -97,7 +97,6 @@ function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
-  const [available, setAvailable] = useState(false);
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
@@ -144,9 +143,7 @@ function Fixture() {
             hideCloseButton
             mode="mobile"
             className="h-full w-full"
-            onOpenConnectors={
-              available ? () => setMode("connections") : undefined
-            }
+            onOpenConnectors={() => setMode("connections")}
           />
         }
         connections={
@@ -154,7 +151,6 @@ function Fixture() {
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
             onClose={() => changeOpen(false)}
-            onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
             onPrepareRecovery={async (request) => {
               const fixtureWindow = window as RecoveryFixtureWindow;
@@ -168,7 +164,7 @@ function Fixture() {
       <section inert={open} className="flex min-h-0 flex-1 flex-col p-4">
         <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
           status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
-          onOpenConnections={(trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
+          onOpenConnections={(_, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>
         <button onClick={() => setTurns(turns + 1)}>

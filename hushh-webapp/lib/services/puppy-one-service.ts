@@ -383,6 +383,52 @@ export const PUPPY_ONE_INSTALL_URL =
   "https://github.com/hushh-labs/hussh-one-hermes";
 
 /**
+ * One scheduled job, as the DEVICE describes it on its heartbeat.
+ *
+ * This is an ALLOW-LIST on the wire, not a filtered copy of the local job API
+ * (`PuppyJob` above). The device builds each row out of these fields alone and
+ * drops any row it cannot build, so there is no shape in which a prompt, a
+ * script, a working directory, a filesystem path, a URL, a token or a model
+ * credential can ride along. That is what makes a snapshot safe to store on
+ * One's servers and to show to a viewer who is nowhere near the machine.
+ *
+ * Adding a field here is therefore not a frontend change: it is a change to
+ * what leaves the owner's Mac.
+ *
+ * `next_at` is epoch SECONDS, unlike `next_cron_at` and every other clock in
+ * this file, which are epoch ms. The unit is the contract's, not ours, and a
+ * reader that forgets to multiply dates every job to January 1970.
+ */
+export interface PuppyHeartbeatScheduledJob {
+  /** The job's display name. Trimmed, up to 80 characters. */
+  name: string;
+  /** The schedule in words or in cron: "every 15m", "0 5 * * 0". */
+  when: string;
+  /** The scheduler's own word for off. Deliberate, never a fault. */
+  paused: boolean;
+  /** Epoch SECONDS. Omitted when the device does not know. */
+  next_at?: number;
+  /** Last run result: "ok", "error". Trimmed, up to 16 characters. */
+  last?: string;
+}
+
+/**
+ * One recent conversation, as the DEVICE describes it on its heartbeat.
+ *
+ * The same allow-list rule as `PuppyHeartbeatScheduledJob`: a title, a count
+ * and a time. No message body, no tool output, nothing a conversation was
+ * actually about. `at` is epoch SECONDS.
+ */
+export interface PuppyHeartbeatConversation {
+  /** Trimmed, up to 80 characters. */
+  title: string;
+  /** How many messages the conversation holds. */
+  messages: number;
+  /** Epoch SECONDS of the last activity. */
+  at: number;
+}
+
+/**
  * The runtime snapshot a device posts with its heartbeat, as One stores it.
  *
  * Field names stay snake_case: this is the backend's allow-list
@@ -407,6 +453,22 @@ export interface PuppyLinkHeartbeat {
   battery_minutes_remaining?: number;
   battery_charging?: boolean;
   on_ac?: boolean;
+  /**
+   * Up to 10 scheduled jobs, SOONEST first, so a truncated list is the useful
+   * half. The order is the device's and is rendered as sent, never re-sorted.
+   *
+   * Absent and empty are different facts and must stay different all the way
+   * to the screen: absent means the device did not report its schedule at all
+   * (an older agent, or a probe that failed), while `[]` means it reported
+   * having nothing scheduled. Defaulting one to the other would either invent
+   * an answer or hide one the owner gave.
+   */
+  scheduled?: PuppyHeartbeatScheduledJob[];
+  /**
+   * Up to 10 recent conversations, NEWEST first. Same absent-vs-empty rule as
+   * `scheduled`.
+   */
+  conversations?: PuppyHeartbeatConversation[];
 }
 
 export interface PuppyLinkDevice {

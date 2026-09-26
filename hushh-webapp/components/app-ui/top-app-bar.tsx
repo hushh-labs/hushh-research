@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -82,6 +83,7 @@ import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalid
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -457,11 +459,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"
@@ -1045,6 +1054,15 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
+              // Clip only vertically: the max-height collapse needs it, but the
+              // back button sits in a -ml-3.5 box so its glyph lines up with the
+              // content column, which put its pressed/focus circle ~10px past a
+              // horizontal clip edge and sliced it. `clip` (unlike `hidden`)
+              // keeps the other axis visible without becoming a scroll
+              // container; where `clip` is unsupported the overflow-hidden
+              // class still applies.
+              overflowX: "visible",
+              overflowY: "clip",
               maxHeight: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",

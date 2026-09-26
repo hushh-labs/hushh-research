@@ -949,6 +949,28 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
 
+  # Founder decision 2026-09-26: Drive runs on the Hussh PDA Google projects, not
+  # a dedicated Drive project. Localhost uses the dev/localhost OAuth client
+  # (project hushh-pda-uat), which registers the connector return for every
+  # local and hosted origin, and its Picker key; the Picker app id follows the
+  # client id. Encryption keys stay UAT's because localhost uses the UAT DB. The
+  # backend admits the loopback return only in development
+  # (external_connector_google_oauth.registered_redirect_uris).
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_ID" "false" "$file" GOOGLE_OAUTH_CLIENT_ID
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET" "false" "$file" GOOGLE_OAUTH_CLIENT_SECRET
+  set_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_PICKER_API_KEY" "false" "$file"
+  local drive_key
+  for drive_key in DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 \
+    EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$drive_key" "false" "$file"
+  done
+  upsert_env_value "$file" "GOOGLE_DRIVE_LIVE" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_INDEXING" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_SHARING" "true"
+
   local runtime_db_host runtime_db_port runtime_socket instance_name
   local cache_file="$file"
   runtime_db_host="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_HOST' "$cache_file")"
@@ -1164,8 +1186,12 @@ if profile_is_in_focus "uat"; then
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.uat.local")
 fi
 if profile_is_in_focus "dev"; then
-  # dev keeps the UAT runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
-  # infrastructure replica of UAT living in its own GCP project.
+  # The LOCAL dev profile still hydrates NEXT_PUBLIC_APP_ENV=uat, deliberately,
+  # even though the DEPLOYED dev environment now reports its own name. Local
+  # `--mode dev` runs the Next server on the developer's machine with no deploy
+  # lane set, so `development` there would satisfy devAuthBypassAllowed() and turn
+  # on the vault auth bypasses while talking to the SHARED dev backend. Changing
+  # this is a separate decision, not a consequence of the deploy rename.
   hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.dev.local")
 fi

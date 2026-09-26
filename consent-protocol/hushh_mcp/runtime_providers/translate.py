@@ -17,6 +17,10 @@ from typing import Any
 class NeutralMessage:
     role: str  # "user" | "assistant" | "tool"
     text: str = ""
+    # Tool metadata is deliberately optional so existing provider adapters and
+    # persisted conversation shapes remain source compatible.  The fields are
+    # populated from genai function_call/function_response parts and survive a
+    # relay hop without turning the provider into a second router.
     tool_call_id: str = ""
     tool_name: str = ""
     tool_arguments: dict[str, Any] | None = None
@@ -37,10 +41,14 @@ class NeutralRequest:
     temperature: float | None = None
     max_output_tokens: int | None = None
     tools: tuple[NeutralTool, ...] = field(default_factory=tuple)
-
+    # Structured output, tool choice, sampling and thinking knobs. Each one is
+    # optional so every existing adapter keeps its shape; an adapter that cannot
+    # honour a set field refuses before dispatch rather than dropping it, because
+    # a silently ignored schema or tool choice produces an answer that looks
+    # right and is not the one the agent asked for.
     response_schema: dict[str, Any] | None = None
     response_mime_type: str | None = None
-    tool_choice: str | None = None
+    tool_choice: str | None = None  # "auto" | "any" | "none"
     allowed_function_names: tuple[str, ...] = field(default_factory=tuple)
     top_p: float | None = None
     stop_sequences: tuple[str, ...] = field(default_factory=tuple)
@@ -56,6 +64,7 @@ class NeutralRequest:
         return self.response_schema is not None or mime == "application/json"
 
     def required_capabilities(self) -> tuple[str, ...]:
+        """Capability names (Puppy One harness vocabulary) this request needs."""
         needed: list[str] = []
         if self.requires_tool_calling():
             needed.append("tool_calling")
@@ -79,6 +88,7 @@ def _neutral_role(genai_role: str | None) -> str:
 
 
 def _schema_dict(value: Any) -> dict[str, Any] | None:
+    """One JSON-schema shape for a genai ``Schema``, a pydantic model or a dict."""
     if value is None:
         return None
     if isinstance(value, dict):
@@ -92,7 +102,25 @@ def _schema_dict(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
+    tools_attr = getattr(config, "tools", None) or []
+    neutral: list[NeutralTool] = []
+    for tool in tools_attr:
+        declarations = getattr(tool, "function_declarations", None) or []
+        for decl in declarations:
+            name = str(getattr(decl, "name", "") or "").strip()
+            if not name:
+                continue
+            description = str(getattr(decl, "description", "") or "")
+            params_dict = _schema_dict(getattr(decl, "parameters", None))
+            if params_dict is None:
+                params_dict = {"type": "object", "properties": {}}
+            neutral.append(NeutralTool(name=name, description=description, parameters=params_dict))
+    return tuple(neutral)
+
+
 def _tool_choice_from_config(config: Any) -> tuple[str | None, tuple[str, ...]]:
+    """``tool_config.function_calling_config`` -> (mode, allowed function names)."""
     tool_config = getattr(config, "tool_config", None)
     calling = getattr(tool_config, "function_calling_config", None)
     if calling is None:
@@ -115,32 +143,6 @@ def _thinking_from_config(config: Any) -> tuple[int | None, bool | None]:
         int(budget) if isinstance(budget, int) and not isinstance(budget, bool) else None,
         bool(include) if isinstance(include, bool) else None,
     )
-
-
-def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
-    tools_attr = getattr(config, "tools", None) or []
-    neutral: list[NeutralTool] = []
-    for tool in tools_attr:
-        declarations = getattr(tool, "function_declarations", None) or []
-        for decl in declarations:
-            name = str(getattr(decl, "name", "") or "").strip()
-            if not name:
-                continue
-            description = str(getattr(decl, "description", "") or "")
-            parameters = getattr(decl, "parameters", None)
-            params_dict: dict[str, Any]
-            if parameters is None:
-                params_dict = {"type": "object", "properties": {}}
-            elif isinstance(parameters, dict):
-                params_dict = parameters
-            elif hasattr(parameters, "model_dump"):
-                params_dict = parameters.model_dump(exclude_none=True)
-            elif hasattr(parameters, "to_json_dict"):
-                params_dict = parameters.to_json_dict()
-            else:
-                params_dict = {"type": "object", "properties": {}}
-            neutral.append(NeutralTool(name=name, description=description, parameters=params_dict))
-    return tuple(neutral)
 
 
 def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
@@ -170,12 +172,13 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
             response = getattr(part, "function_response", None)
             if response is not None:
                 name = str(getattr(response, "name", "") or "").strip()
+                result = getattr(response, "response", None)
                 messages.append(
                     NeutralMessage(
                         role="tool",
                         tool_call_id=str(getattr(response, "id", "") or ""),
                         tool_name=name,
-                        tool_result=getattr(response, "response", None),
+                        tool_result=result,
                     )
                 )
         text = "\n".join(text_chunks)
@@ -206,11 +209,9 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
         ),
         tool_choice=tool_choice,
         allowed_function_names=allowed_function_names,
-        top_p=(
-            float(top_p)
-            if isinstance(top_p, (int, float)) and not isinstance(top_p, bool)
-            else None
-        ),
+        top_p=float(top_p)
+        if isinstance(top_p, (int, float)) and not isinstance(top_p, bool)
+        else None,
         stop_sequences=tuple(
             str(stop) for stop in stop_sequences if isinstance(stop, str) and stop
         ),

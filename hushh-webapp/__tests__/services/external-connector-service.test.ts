@@ -14,6 +14,27 @@ import { ExternalConnectorService } from "@/lib/services/external-connector-serv
 describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => apiFetch.mockReset());
 
+  it("discards private OAuth delivery after vault authority changes", async () => {
+    let current = true;
+    apiFetch.mockImplementationOnce(async () => {
+      current = false;
+      return Response.json({ tokens: { access_token: "synthetic-private" } });
+    });
+    await expect(ExternalConnectorService.privateMcpOAuth({ vaultOwnerToken: "owner-token",
+      connectorId: "custom_" + "a".repeat(32), operation: "complete", payload: {},
+      signal: new AbortController().signal, isEffectCurrent: () => current,
+    })).rejects.toThrow("Connection was not completed");
+  });
+
+  it("does not echo a provider failure or retry an OAuth completion", async () => {
+    apiFetch.mockResolvedValue(Response.json({ detail: "synthetic-private-provider-error" }, { status: 409 }));
+    await expect(ExternalConnectorService.privateMcpOAuth({ vaultOwnerToken: "owner-token",
+      connectorId: "custom_" + "a".repeat(32), operation: "complete", payload: {},
+      signal: new AbortController().signal, isEffectCurrent: () => true,
+    })).rejects.toThrow("Connection was not completed. Please connect again.");
+    expect(apiFetch).toHaveBeenCalledOnce();
+  });
+
   it("starts a native attempt with the exact flow and effect guard", async () => {
     const isEffectCurrent = vi.fn(() => true);
     apiFetch.mockResolvedValue(

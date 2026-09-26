@@ -123,18 +123,16 @@ Forbidden:
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
 4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
 5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (iOS Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. RIA compatibility tokens must resolve through that same family; no persona may retint shared app chrome or bypass the active accent. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
-   5a. Promotion path for feature design systems: when a route (e.g. One Location) proves out a surface grammar, promote its tokens to `lib/morphy-ux/tokens/surfaces.ts` and its primitives to `lib/morphy-ux/ui/surface-primitives.tsx`, leave a re-export shim at the feature path, and consume the `--app-accent-*` family for any accent usage so the promoted pieces stay accent-neutral.
-   5b. Portable PDF artifacts use the Morphy-owned
-   `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
-   generator only: it reads Foundation tokens from `app/globals.css` and uses
-
-   a named `technical`, `partner`, or `founder` formatter profile. Light and
-   dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
-   `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
-   variants. Diagram labels inherit the profile's print-safe type scale, and
-   Mermaid is rendered locally to SVG before PDF generation. Protocol code
-   blocks retain the Sublime Monokai surface in every profile.
-
+5a. Promotion path for feature design systems: when a route (e.g. One Location) proves out a surface grammar, promote its tokens to `lib/morphy-ux/tokens/surfaces.ts` and its primitives to `lib/morphy-ux/ui/surface-primitives.tsx`, leave a re-export shim at the feature path, and consume the `--app-accent-*` family for any accent usage so the promoted pieces stay accent-neutral.
+5b. Portable PDF artifacts use the Morphy-owned
+    `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
+    generator only: it reads Foundation tokens from `app/globals.css` and uses
+    a named `technical`, `partner`, `founder`, or `executive` formatter profile. Light and
+    dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
+    `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
+    variants. Diagram labels inherit the profile's print-safe type scale, and
+    Mermaid is rendered locally to SVG before PDF generation. Protocol code
+    blocks retain the Sublime Monokai surface in every profile.
 6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`
@@ -260,15 +258,11 @@ are query-selected content inside `/one/kai`; they do not get a wider dashboard
 canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
-Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
-feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
-filter; the top mask keeps the shell legible through its visible tab stack and
-uses only a short, eased tail below the underline. The bottom mask uses the
-same short, eased edge treatment and contracts with the scroll-hidden
-navigation slot while retaining the Agent Bar tail. Those edges must remain
-present on mobile and desktop wherever the signed-in top/bottom shell is
-present.
+Persistent top chrome uses the neutral theme feather in
+`components/app-ui/ambient-chrome-mask.tsx`, with a short tail below the tab
+underline. Bottom navigation and the Agent Bar remain separate floating
+controls; no full-width bottom mask fades the page behind them. This applies
+on mobile and desktop.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
@@ -378,3 +372,76 @@ visible range, and current-page status with its page-jump controls. The shared
 bottom ambient material stays inside the measured fixed chrome footprint; its
 blur is clipped by the same edge dissolve as the tint and must never extend over
 the final route component.
+
+
+## Document + PDF Artifact Contract (canonical)
+
+Document generation has **exactly one lane**. `app/globals.css` is the single source of
+truth for tokens; the PDF pipeline reads it rather than restating it, so a token change
+reaches documents without a second edit.
+
+| Concern | Canonical path |
+|---|---|
+| Portable artifact procedure | `skills/pdf-artifact-generation/SKILL.md` |
+| Codex routing + curation | `.codex/skills/founder-brief-curation/SKILL.md` |
+| Claude discovery bridge | `.claude/skills/pdf-artifact-generation/SKILL.md` |
+| Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
+| Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
+| Design tokens | `hushh-webapp/app/globals.css` |
+| Design system rules | this document |
+
+### The four themes
+
+Two Foundation grounds crossed with two accents. These names are a **published contract** —
+documents already in circulation name them, and the DocuSign document is
+`molten-gold-light` — so they may not be renamed without migrating those call sites.
+
+| Theme | Ground | Accent | Accent source in `globals.css` |
+|---|---|---|---|
+| `light` | light | iOS Blue | `:root` |
+| `dark` | dark | iOS Blue | `:root` + every `.dark` block, merged in order |
+| `molten-gold-light` | light | Molten Gold | `html[data-accent="gold"]` |
+| `molten-gold` | dark | Molten Gold | `html[data-accent="gold"].dark` |
+
+```bash
+cd hushh-webapp
+node scripts/reports/export-markdown-pdf.mjs \
+  --input <doc.md> --output <doc.pdf> \
+  --theme light|dark|molten-gold-light|molten-gold \
+  --profile technical|partner|founder|executive
+```
+
+Guard: `hushh-webapp/__tests__/morphy-ax/pdf-theme-canon.test.ts`. It drives the **real**
+`resolveFormatter`, not a copy — an earlier version reimplemented the resolution logic and
+passed against broken code, which is how the `dark` theme stayed broken through every
+prior run. `scripts/ops/verify_pdf_artifact_contract.py` additionally protects the
+canonical skill and both platform bridges from drifting back into separate procedures.
+
+### Full-bleed executive cover
+
+An executive cover is assigned to the named `pdf-cover` A4 page, which has zero physical
+page margin. The shared exporter keeps ordinary reading margins on all other pages and
+lets CSS, not global browser margin options, own that geometry. A cover must be the first
+semantic block and be immediately followed by `<!-- pdf:page-break -->`; a white perimeter
+or corner bar around its dark ground is a release blocker.
+
+### Monthly executive calendar
+
+Monthly executive reports use the shared `pdf:table=calendar-list` semantic, rendered as a
+source-linked local-date progress list rather than a generic table or dense month grid. It is
+calendar-ready only when every date falls within the stated local IANA timezone/month and nearby
+prose defines the event measures.
+The timezone must be explicit; a PDF artifact must never fall back to UTC or its build machine's
+timezone for calendar labels. Individual delivery reports give each person a dedicated progress
+list; an organisation calendar never substitutes for that evidence. The seven-day
+`pdf:table=calendar` semantic remains available only when its spatial view is materially useful.
+The
+portable collector and monthly cadence live under
+`skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
+compensation, or individual performance.
+
+### Legacy Claude alias: `.claude/skills/morphy-pdf/`
+
+The historical name is retained only for discovery compatibility. Its skill is a pointer to
+the root portable procedure, and no active private CSS, renderer, or token vocabulary
+remains beside it. Do not extend it; evolve the formatter and the canonical skill instead.

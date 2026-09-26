@@ -449,8 +449,8 @@
       "family": "drive",
       "prompt": "find my Q3 planning notes in my connected Google Drive",
       "expected": [
-        "discover_google_drive_tools",
-        "read_google_drive"
+        "discover_workspace_tools",
+        "read_workspace_tool"
       ]
     },
     {
@@ -458,8 +458,8 @@
       "family": "drive",
       "prompt": "email the Q3 planning notes file from my Drive to dev@example.invalid",
       "expected": [
-        "discover_google_drive_tools",
-        "read_google_drive"
+        "discover_workspace_tools",
+        "read_workspace_tool"
       ]
     },
     {

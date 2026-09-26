@@ -4,11 +4,17 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
+  useCallback,
   type ReactNode,
   type KeyboardEvent,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 const selector =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -29,8 +35,8 @@ export function transitionConnectionsDrawer(
   return { open: action.open, mode: action.open ? state.mode : "chats" };
 }
 
-/** The production drawer, also mounted unchanged in browser contracts. Both
- * views stay mounted so switching preserves history search/scroll and drafts. */
+/** History stays mounted on the left; connectors use the shared modal/sheet.
+ * Neither surface replaces the transcript or its unsent draft. */
 export function AgentConnectionsDrawer({
   open,
   onOpenChange,
@@ -39,6 +45,7 @@ export function AgentConnectionsDrawer({
   chats,
   connections,
   triggerRef,
+  fallbackFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,10 +54,36 @@ export function AgentConnectionsDrawer({
   chats: ReactNode;
   connections: ReactNode;
   triggerRef: RefObject<HTMLButtonElement | null>;
+  fallbackFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const drawer = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const [presentationReady, setPresentationReady] = useState(false);
+  const [connectorHost, setConnectorHost] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const host = document.createElement("div");
+    host.className = "h-full min-h-0";
+    setConnectorHost(host);
+    setPresentationReady(true);
+    return () => host.remove();
+  }, []);
+  // Radix replaces its content implementation when an external Picker takes
+  // modal ownership. Keep the stateful panel in one stable portal so that
+  // handoff (or a breakpoint change) cannot abort OAuth/Picker or lose drafts.
+  const attachConnectorHost = useCallback((node: HTMLDivElement | null) => {
+    if (node && connectorHost) node.appendChild(connectorHost);
+  }, [connectorHost]);
+  const historyOpen = open && mode === "chats";
+  const connectorsOpen = open && mode === "connections";
+  const connectorActive = useRef(connectorsOpen);
+  useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
   const returnFocus = useRef<HTMLElement | null>(null);
   const modalActive = useRef(externalModalOpen);
+  const restoreFocus = useCallback(() => {
+    const target = [returnFocus.current, triggerRef.current, fallbackFocusRef?.current]
+      .find((element) => element?.isConnected && !element.closest("[inert], [hidden]"));
+    target?.focus({ preventScroll: true });
+  }, [triggerRef, fallbackFocusRef]);
   useLayoutEffect(() => {
     modalActive.current = externalModalOpen;
   }, [externalModalOpen]);
@@ -61,6 +94,11 @@ export function AgentConnectionsDrawer({
       (element) =>
         !element.closest("[hidden], [inert]") && element.offsetParent !== null,
     );
+  // Read at open time only: switching views while open must not move focus.
+  const modeAtOpen = useRef(mode);
+  useLayoutEffect(() => {
+    modeAtOpen.current = mode;
+  }, [mode]);
   useLayoutEffect(() => {
     if (!open) return;
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
@@ -68,28 +106,27 @@ export function AgentConnectionsDrawer({
     returnFocus.current = triggerRef.current;
     // The transcript becomes inert in this commit. Move focus now so an
     // immediate Escape cannot land on the old, inert trigger before a RAF.
-    focused()[0]?.focus();
+    if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
   }, [open, triggerRef]);
   useEffect(() => {
     if (open) return;
     // Passive closed-state effect runs after sibling inert attributes clear.
-    const target = returnFocus.current;
-    if (target?.isConnected && !target.closest("[inert], [hidden]")) target.focus();
+    restoreFocus();
     returnFocus.current = null;
-  }, [open]);
+  }, [open, restoreFocus]);
   useEffect(() => {
-    if (!open || modalActive.current) return;
+    if (!historyOpen || modalActive.current) return;
     const frame = requestAnimationFrame(() => {
       if (mode === "chats")
         drawer.current
           ?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
-          ?.focus();
-      else focused()[0]?.focus();
+          ?.focus({ preventScroll: true });
+      else focused()[0]?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [mode, open]);
+  }, [mode, historyOpen]);
   useEffect(() => {
-    if (!open) return;
+    if (!historyOpen) return;
     const escape = (event: globalThis.KeyboardEvent) => {
       // Recover only the brief body-focus gap while switching nested views.
       // An Escape originating in a provider/Radix portal must not also close
@@ -105,7 +142,7 @@ export function AgentConnectionsDrawer({
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [open, onOpenChange]);
+  }, [historyOpen, onOpenChange]);
   const keyDown = (event: KeyboardEvent) => {
     if (externalModalOpen || event.defaultPrevented) return;
     if (event.key === "Escape") {
@@ -129,14 +166,47 @@ export function AgentConnectionsDrawer({
       first.focus();
     }
   };
+  const connectorContentProps = {
+    showCloseButton: false,
+    onOpenAutoFocus: (event: Event) => {
+      if (modalActive.current) event.preventDefault();
+    },
+    onCloseAutoFocus: (event: Event) => {
+      event.preventDefault();
+      if (connectorActive.current || modalActive.current) return;
+      restoreFocus();
+    },
+    onInteractOutside: (event: Event) => {
+      if (externalModalOpen) event.preventDefault();
+    },
+    onEscapeKeyDown: (event: Event) => {
+      if (externalModalOpen) event.preventDefault();
+    },
+  };
   return (
     <>
+      {connectorHost && createPortal(connections, connectorHost)}
+      {presentationReady && (isMobile ? (
+        <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
+          <SheetContent {...connectorContentProps} side="bottom" contentDragDismiss={false} className="h-[85dvh] gap-0 overflow-hidden p-0">
+            <SheetTitle className="sr-only">Connectors</SheetTitle>
+            <div ref={attachConnectorHost} className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
+          <DialogContent {...connectorContentProps} className="h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
+            <DialogTitle className="sr-only">Connectors</DialogTitle>
+            <div ref={attachConnectorHost} className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
+          </DialogContent>
+        </Dialog>
+      ))}
       <div
         aria-hidden="true"
         className={cn(
           "fixed inset-0 bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
-          mode === "connections" ? "z-[550]" : "z-[520]",
-          open ? "opacity-100" : "pointer-events-none opacity-0",
+          "z-(--z-sheet-overlay)",
+          historyOpen ? "opacity-100" : "pointer-events-none opacity-0",
         )}
         onClick={() => {
           if (!externalModalOpen) onOpenChange(false);
@@ -146,16 +216,14 @@ export function AgentConnectionsDrawer({
         ref={drawer}
         role="dialog"
         aria-modal={externalModalOpen ? undefined : true}
-        aria-label={mode === "chats" ? "Agent chat history" : "Connectors"}
-        aria-hidden={!open || externalModalOpen}
-        inert={!open || externalModalOpen}
+        aria-label="Agent chat history"
+        aria-hidden={!historyOpen || externalModalOpen}
+        inert={!historyOpen || externalModalOpen}
         onKeyDown={keyDown}
         className={cn(
           "absolute bottom-0 transform transition-transform duration-150 motion-reduce:transition-none ease-out",
-          mode === "connections"
-            ? "right-0 top-0 z-[560] w-[min(100vw,560px)]"
-            : "left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)]",
-          open ? "translate-x-0" : mode === "connections" ? "translate-x-full" : "-translate-x-full",
+          "left-0 top-[var(--agent-chat-header-height)] z-(--z-sheet) w-[min(88vw,320px)]",
+          historyOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div
@@ -164,13 +232,6 @@ export function AgentConnectionsDrawer({
           className="h-full min-h-0"
         >
           {chats}
-        </div>
-        <div
-          hidden={mode !== "connections"}
-          inert={mode !== "connections"}
-          className="h-full min-h-0"
-        >
-          {connections}
         </div>
       </div>
     </>

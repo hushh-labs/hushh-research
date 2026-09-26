@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
+import uuid
 from typing import Any
 
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.events import Event
 from google.adk.sessions import InMemorySessionService
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
 from api.routes.one.agent_context import sanitize_agent_context
-from api.routes.one.command_proposals import router as command_proposals_router
+from api.routes.one.command_proposals import require_private_runtime
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -37,14 +38,42 @@ from hushh_mcp.one_adk.agent_tree import (
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
-from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
-from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.one_adk.external_read_boundary import (
+    STATE_EXECUTION_SURFACE,
+    STATE_UNTRUSTED_CONTENT,
+)
+from hushh_mcp.one_adk.history_projection import (
+    _bounded_text as _bounded_text,
+)
+from hushh_mcp.one_adk.history_projection import (
+    _call_providers,
+    project_conversation_history,
+)
+from hushh_mcp.one_adk.history_projection import (
+    _record as _record,
+)
+from hushh_mcp.one_adk.history_projection import (
+    _safe_turn_activity as _safe_turn_activity,
+)
+from hushh_mcp.one_adk.history_projection import (
+    _safe_workspace_connector_setup_descriptor as _safe_workspace_connector_setup_descriptor,
+)
+from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
+from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
+from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
     get_personal_gmail_information_request_service,
 )
+from hushh_mcp.services.information_request_service import (
+    InformationRequestError,
+    InformationRequestService,
+)
+from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
@@ -62,21 +91,41 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
-    try:
+    authorization_token = re.sub(r"^Bearer\s+", "", (authorization or "").strip(), flags=re.I)
+    authorization_is_consent = authorization_token.startswith("HCT:")
+    if consent_header is not None:
         token = await require_vault_owner_token(
             request=request,
-            authorization=authorization,
+            authorization=None,
             hushh_consent=consent_header,
         )
-    except HTTPException:
-        token = None
+    if authorization_is_consent:
+        bearer_token = await require_vault_owner_token(
+            request=request,
+            authorization=authorization,
+            hushh_consent=None,
+        )
+        if token is not None and bearer_token["user_id"] != token["user_id"]:
+            raise HTTPException(status_code=403, detail="Credential owner mismatch")
+        token = bearer_token
     firebase_uid = ""
-    if token is None and authorization:
-        try:
-            firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
-        except HTTPException:
-            firebase_uid = ""
+    if authorization and not authorization_is_consent:
+        firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+        if token is not None and firebase_uid != token["user_id"]:
+            raise HTTPException(status_code=403, detail="Credential owner mismatch")
+    if token is not None:
+        hosting_mode = await get_owner_hosting_mode(token["user_id"])
+        if hosting_mode == "unknown":
+            raise HTTPException(status_code=503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+        if hosting_mode != "shared":
+            raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
+    if (
+        forwarded.get("runtimeCredential")
+        or input_data.context
+        or (not token and forwarded.get("pkmContext"))
+    ):
+        raise HTTPException(status_code=400, detail="Private context requires the private agent")
     screen_payload = forwarded.get("screenContext")
     screen_context = sanitize_agent_context(
         screen_payload if isinstance(screen_payload, dict) else {}
@@ -98,6 +147,15 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
     user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    try:
+        mcp_approval = admit_resume_receipt(
+            forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
+        )
+    except ActionDirectiveAuthorityError:
+        raise HTTPException(
+            status_code=403,
+            detail="Connector confirmation is unavailable. Unlock and review again.",
+        ) from None
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
@@ -119,10 +177,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                 )
             )
         except PersonalGmailInformationRequestError as exc:
-            logger.info(
-                "one.gmail_information_request_context_unavailable code=%s",
-                exc.code,
-            )
+            logger.info("one.gmail_information_request_context_unavailable code=%s", exc.code)
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - do not surface provider details to chat
             logger.warning(
@@ -132,10 +187,21 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                 status_code=503,
                 detail="The selected Gmail request is temporarily unavailable. Please try again.",
             ) from exc
+    try:
+        mcp_configuration = admit_turn_configurations(
+            forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
+        )
+    except ExternalMcpError:
+        raise HTTPException(
+            status_code=403, detail="Connector configuration is unavailable. Unlock and try again."
+        ) from None
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_MCP_CONFIGURATION: mcp_configuration,
+        STATE_MCP_APPROVAL: mcp_approval,
+        WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),
         STATE_USER_ID: session_user_id,
-        STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
+        STATE_CONSENT_TOKEN: store_request_secret(str(token["token"])) if token else "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         # This is only an untrusted selection request. The resolver validates
@@ -153,17 +219,25 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000])
+        if token
+        else "",
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
         STATE_GMAIL_INFORMATION_REQUEST_CONTEXT: store_request_secret(
             gmail_information_request_context
-        ),
+        )
+        if workflow_id
+        else "",
+        # A selected email enters the instructions without any tool call, so
+        # no tool marks it. Mark the conversation here. Only ever set True: a
+        # request must never clear a durable mark left by an earlier turn.
+        **({STATE_UNTRUSTED_CONTENT: True} if gmail_information_request_context else {}),
     }
 
 
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(),
+    root_agent=build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(
@@ -185,7 +259,7 @@ _authenticated_capabilities = {
     "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
     "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
+    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
     "humanInTheLoop": {
         "supported": True,
         "approvals": True,
@@ -197,6 +271,7 @@ _authenticated_capabilities = {
 }
 _intro_capabilities = {
     **_authenticated_capabilities,
+    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
     "tools": {"supported": False, "parallelCalls": False, "clientProvided": False},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": False},
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},
@@ -242,7 +317,16 @@ _intro_agent = TimedADKAgent.from_app(
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
-    return _agent if state.get(STATE_CONSENT_TOKEN) else _intro_agent
+    reference = state.get(STATE_CONSENT_TOKEN)
+    if not reference:
+        return _intro_agent
+    if (
+        not isinstance(reference, str)
+        or not reference.startswith("one_secret_ref:")
+        or not resolve_request_secret(reference)
+    ):
+        raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
+    return _agent
 
 
 add_adk_fastapi_endpoint(
@@ -261,25 +345,6 @@ def _event_text(event: Any) -> str:
 
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
-
-
-def _record(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except (TypeError, ValueError):
-            return None
-        return parsed if isinstance(parsed, dict) else None
-    return None
-
-
-def _bounded_text(value: Any, limit: int) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = " ".join(value.split()).strip()
-    return normalized[:limit] or None
 
 
 def _safe_scope_catalog(value: Any, *, scope_count: int) -> dict[str, Any] | None:
@@ -522,6 +587,73 @@ def _safe_information_request_descriptor(
     return None
 
 
+def _safe_submitted_information_request_card(card: Any) -> dict[str, Any] | None:
+    """Allowlist display-only submission metadata, never consent authority."""
+    card = _record(card) or {}
+    if (
+        card.get("activityType") != "one.information_request_review.v1"
+        or card.get("direction") != "outgoing"
+        or card.get("phase") != "submitted"
+    ):
+        return None
+    person_name = _bounded_text(card.get("personName"), 120)
+    purpose = _bounded_text(card.get("purpose"), 500)
+    duration_label = _bounded_text(card.get("durationLabel"), 100)
+    status = _bounded_text(card.get("status"), 32)
+    if (
+        not person_name
+        or not purpose
+        or not duration_label
+        or status
+        not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
+    ):
+        return None
+    raw_fields = card.get("fields")
+    if not isinstance(raw_fields, list):
+        return None
+    fields: list[dict[str, Any]] = []
+    for raw_field in raw_fields[:50]:
+        field = _record(raw_field)
+        if not field:
+            continue
+        label = _bounded_text(field.get("label"), 120)
+        domain = _bounded_text(field.get("domain"), 80)
+        if not label or not domain:
+            continue
+        projected = {
+            "label": label,
+            "domain": domain,
+            "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
+        }
+        request_id = _bounded_text(field.get("requestId"), 128)
+        if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
+            projected["requestId"] = request_id
+        field_status = _bounded_text(field.get("status"), 32)
+        if field_status in {"pending", "cancelled", "granted", "denied", "expired", "revoked"}:
+            projected["status"] = field_status
+        fields.append(projected)
+    if not fields:
+        return None
+    content: dict[str, Any] = {
+        "direction": "outgoing",
+        "phase": "submitted",
+        "status": status,
+        "personName": person_name,
+        "purpose": purpose,
+        "durationLabel": duration_label,
+        "fields": fields,
+    }
+    for key, pattern in (
+        ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
+        ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
+        ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
+    ):
+        value = _bounded_text(card.get(key), 128)
+        if value and re.fullmatch(pattern, value):
+            content[key] = value
+    return {"activityType": "one.information_request_review.v1", "content": content}
+
+
 def _safe_document_request_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
@@ -647,106 +779,48 @@ def _safe_drive_share_descriptor(
 def _safe_submitted_information_request_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
-    """Restore a sent request from a browser settlement, never from authority.
-
-    The browser sends this allowlisted display descriptor as the result of the
-    already-authorized directive. It contains no proposal handle, scope
-    authority, connector, credential, or decrypted value. Current status is
-    deliberately not inferred from this historical event; the descriptor only
-    records the last safe status observed at submission time.
-    """
+    """Restore existing app-action settlements without replaying their authority."""
     parts = (
         selected_parts
         if selected_parts is not None
         else (getattr(getattr(event, "content", None), "parts", None) or [])
     )
     for part in parts:
-        function_response = getattr(part, "function_response", None)
-        if function_response is None or getattr(function_response, "name", "") != "run_app_action":
+        response = getattr(part, "function_response", None)
+        if response is None or response.name != "run_app_action":
             continue
-        response = _record(getattr(function_response, "response", None)) or {}
-        if response.get("status") != "succeeded":
+        result = _record(response.response) or {}
+        if result.get("status") != "succeeded":
             continue
-        data = _record(response.get("data")) or {}
-        card = _record(data.get("consentCard")) or {}
-        if (
-            card.get("activityType") != "one.information_request_review.v1"
-            or card.get("direction") != "outgoing"
-            or card.get("phase") != "submitted"
-        ):
-            continue
-        person_name = _bounded_text(card.get("personName"), 120)
-        purpose = _bounded_text(card.get("purpose"), 500)
-        duration_label = _bounded_text(card.get("durationLabel"), 100)
-        status = _bounded_text(card.get("status"), 32)
-        if (
-            not person_name
-            or not purpose
-            or not duration_label
-            or status
-            not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
-        ):
-            continue
-        raw_fields = card.get("fields")
-        if not isinstance(raw_fields, list):
-            continue
-        fields: list[dict[str, Any]] = []
-        for raw_field in raw_fields[:50]:
-            field = _record(raw_field)
-            if not field:
-                continue
-            label = _bounded_text(field.get("label"), 120)
-            domain = _bounded_text(field.get("domain"), 80)
-            if not label or not domain:
-                continue
-            projected = {
-                "label": label,
-                "domain": domain,
-                "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
-            }
-            request_id = _bounded_text(field.get("requestId"), 128)
-            if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
-                projected["requestId"] = request_id
-            field_status = _bounded_text(field.get("status"), 32)
-            if field_status in {
-                "pending",
-                "cancelled",
-                "granted",
-                "denied",
-                "expired",
-                "revoked",
-            }:
-                projected["status"] = field_status
-            fields.append(projected)
-        if not fields:
-            continue
-        content: dict[str, Any] = {
-            "direction": "outgoing",
-            "phase": "submitted",
-            "status": status,
-            "personName": person_name,
-            "purpose": purpose,
-            "durationLabel": duration_label,
-            "fields": fields,
-        }
-        for key, pattern in (
-            ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
-            ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
-            ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
-        ):
-            value = _bounded_text(card.get(key), 128)
-            if value and re.fullmatch(pattern, value):
-                content[key] = value
-        return {
-            "activityType": "one.information_request_review.v1",
-            "content": content,
-        }
+        data = _record(result.get("data")) or {}
+        descriptor = _safe_submitted_information_request_card(data.get("consentCard"))
+        if descriptor:
+            return descriptor
     return None
 
 
-def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
+def _safe_agent_history_metadata(
+    event: Any,
+    suppressed_discovery_ids: set[str] | None = None,
+    call_providers: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
     descriptors = []
     seen = set()
+    presentation = _record(getattr(event, "custom_metadata", None)) or {}
+    if presentation.get("kind") == "information_request_submission_v1":
+        if _submitted_source_id(event) is None:
+            return None
+        descriptor = _safe_submitted_information_request_card(presentation.get("card"))
+        return (
+            {
+                "kind": "structured_experience",
+                "structuredExperiences": [{"id": event.id, **descriptor}],
+                "structuredExperience": descriptor,
+                "structuredExperienceId": event.id,
+            }
+            if descriptor
+            else None
+        )
     event_identity = (
         _bounded_text(getattr(event, "id", None), 128)
         or _bounded_text(getattr(event, "invocation_id", None), 128)
@@ -763,11 +837,17 @@ def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
         if descriptor is None:
             descriptor = _safe_drive_share_descriptor(event, [part])
         if descriptor is None:
+            descriptor = _safe_workspace_connector_setup_descriptor(event, [part], call_providers)
+        if descriptor is None:
             continue
         invocation_identity = _bounded_text(
             getattr(getattr(part, "function_response", None), "id", None), 128
         )
         card_id = f"{event_identity}:{invocation_identity or index}"
+        if card_id in (suppressed_discovery_ids or set()) and _safe_discovery_descriptor(
+            event, [part]
+        ):
+            continue
         if card_id in seen:
             continue
         seen.add(card_id)
@@ -798,6 +878,130 @@ def _session_title(session: Any) -> str:
 
 class RenameConversation(BaseModel):
     title: str = Field(min_length=1, max_length=160)
+
+
+class RecordInformationRequestSubmission(BaseModel):
+    source_activity_id: str = Field(min_length=1, max_length=256)
+    bundle_id: uuid.UUID
+    idempotency_key: str = Field(min_length=16, max_length=256)
+
+
+def _discovery_source(session: Any, activity_id: str) -> tuple[str, dict[str, Any]] | None:
+    matches: list[tuple[str, dict[str, Any]]] = []
+    for event in session.events:
+        event_id = (
+            _bounded_text(getattr(event, "id", None), 128)
+            or _bounded_text(getattr(event, "invocation_id", None), 128)
+            or "event"
+        )
+        for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
+            descriptor = _safe_discovery_descriptor(event, [part])
+            if descriptor is None:
+                continue
+            tool_id = _bounded_text(
+                getattr(getattr(part, "function_response", None), "id", None), 128
+            )
+            card_id = f"{event_id}:{tool_id or index}"
+            if activity_id in {card_id, tool_id}:
+                matches.append((card_id, descriptor["content"]))
+    return matches[0] if len(matches) == 1 else None
+
+
+def _submitted_source_id(event: Any) -> str | None:
+    presentation = _record(getattr(event, "custom_metadata", None)) or {}
+    if presentation.get("kind") != "information_request_submission_v1" or event.content is not None:
+        return None
+    if _safe_submitted_information_request_card(presentation.get("card")) is None:
+        return None
+    source_id = _bounded_text(presentation.get("sourceCardId"), 256)
+    expected_id = f"request_submission_{hashlib.sha256(str(source_id).encode()).hexdigest()[:32]}"
+    return source_id if source_id and event.id == expected_id else None
+
+
+@router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
+async def record_information_request_submission(
+    conversation_id: str,
+    payload: RecordInformationRequestSubmission,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Record one confirmed browser request in the existing encrypted ADK history.
+
+    The caller supplies locators and the one-time request key, never a card body.
+    The request ledger and this owner's conversation derive every display field.
+    """
+    owner = str(token["user_id"])
+    session = await _session_service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    source = _discovery_source(session, payload.source_activity_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Discovery card not found.")
+    source_card_id, discovery = source
+    try:
+        bundle = await InformationRequestService().verify_submission_receipt(
+            requester_user_id=owner,
+            bundle_id=str(payload.bundle_id),
+            idempotency_key=payload.idempotency_key,
+        )
+    except InformationRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    person = discovery["person"]
+    if bundle["personRef"] != person.get("personRef") or not bundle.get("items"):
+        raise HTTPException(status_code=409, detail="Request recipient did not match discovery.")
+    statuses = [item["status"] for item in bundle["items"]]
+    status = statuses[0] if all(value == statuses[0] for value in statuses) else "mixed"
+    hours = bundle["durationSeconds"] // 3600
+    duration_label = (
+        f"{hours // 24} {'day' if hours // 24 == 1 else 'days'}"
+        if hours % 24 == 0
+        else f"{hours} {'hour' if hours == 1 else 'hours'}"
+    )
+    card = {
+        "activityType": "one.information_request_review.v1",
+        "direction": "outgoing",
+        "phase": "submitted",
+        "status": status,
+        "personName": person["displayName"],
+        "subjectRef": bundle["personRef"],
+        "bundleId": bundle["bundleId"],
+        "purpose": bundle["purpose"],
+        "durationLabel": duration_label,
+        "fields": [
+            {
+                "requestId": item["requestId"],
+                "label": item["label"],
+                "domain": "Information",
+                "sensitivity": item.get("sensitivity") or "standard",
+                "status": item["status"],
+            }
+            for item in bundle["items"]
+        ],
+    }
+    descriptor = _safe_submitted_information_request_card(card)
+    if descriptor is None:
+        raise HTTPException(status_code=409, detail="Request receipt could not be projected.")
+    event = Event(
+        id=f"request_submission_{hashlib.sha256(source_card_id.encode()).hexdigest()[:32]}",
+        author="one",
+        invocation_id=f"information_request_{payload.bundle_id}",
+        custom_metadata={
+            "kind": "information_request_submission_v1",
+            "sourceCardId": source_card_id,
+            "card": card,
+        },
+    )
+    persisted = await _session_service.append_event_once(
+        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id, event=event
+    )
+    persisted_metadata = _record(persisted.custom_metadata) or {}
+    persisted_descriptor = _safe_submitted_information_request_card(persisted_metadata.get("card"))
+    if _submitted_source_id(persisted) != source_card_id or not persisted_descriptor:
+        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
+    if persisted_descriptor["content"].get("bundleId") != str(payload.bundle_id):
+        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
+    return {"descriptor": persisted_descriptor, "sourceActivityId": source_card_id}
 
 
 @router.get("/api/one/agent-chat/conversations/{user_id}")
@@ -842,45 +1046,19 @@ async def conversation_history(
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    messages: list[dict[str, object]] = []
-    receipts: dict[str, dict[str, Any]] = {}
-    last_answer: dict[str, int] = {}
-    for index, event in enumerate(session.events):
-        if event.invocation_id and event.author == "one" and _event_text(event):
-            last_answer[event.invocation_id] = index
-        for part in event.content.parts or [] if event.content else []:
-            response = part.function_response
-            if response and response.name in READ_TOOLS:
-                receipt = redacted_read_receipt(response.response)
-                if isinstance(receipt.get("structured"), dict):
-                    receipts[event.invocation_id] = receipt["structured"]
-    for index, event in enumerate(session.events):
-        text = _event_text(event)
-        metadata = _safe_agent_history_metadata(event)
-        if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
-            continue
-        if event.author not in {"user", "one"}:
-            text = ""  # Tool events restore only allowlisted safe descriptors.
-        messages.append(
-            {
-                "id": event.id or f"{event.invocation_id}:{len(messages)}",
-                "conversation_id": conversation_id,
-                "role": "user" if event.author == "user" else "assistant",
-                "status": "interrupted" if event.interrupted else "complete",
-                "content": text,
-                "model": event.model_version,
-                "created_at": event.timestamp,
-                "completed_at": event.timestamp,
-                "metadata": (
-                    {**(metadata or {}), "specialist_read": receipts[event.invocation_id]}
-                    if event.author == "one"
-                    and event.invocation_id in receipts
-                    and last_answer.get(event.invocation_id) == index
-                    else metadata
-                ),
-            }
-        )
-    return {"conversation_id": conversation_id, "messages": messages[-limit:]}
+    submitted_discovery_ids = {
+        source_id for event in session.events if (source_id := _submitted_source_id(event))
+    }
+    call_providers = _call_providers(session.events)
+    return project_conversation_history(
+        session.events,
+        conversation_id,
+        limit,
+        project_event=lambda event: (
+            _event_text(event),
+            _safe_agent_history_metadata(event, submitted_discovery_ids, call_providers),
+        ),
+    )
 
 
 @router.patch("/api/one/agent-chat/conversations/{conversation_id}")
@@ -931,7 +1109,7 @@ class ActionSearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
 
 
-@router.post("/api/one/actions/search")
+@router.post("/api/one/actions/search", dependencies=[Depends(require_private_runtime)])
 async def search_actions_endpoint(
     payload: ActionSearchRequest,
     request: Request,
@@ -982,6 +1160,3 @@ async def search_actions_endpoint(
         "total": len(results),
         "results": results,
     }
-
-
-router.include_router(command_proposals_router)

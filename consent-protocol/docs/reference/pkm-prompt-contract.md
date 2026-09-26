@@ -264,7 +264,7 @@ Disallowed prompt evolution:
 
 Current PKM classifier candidates:
 
-- `gemini-default` (the switched fleet text model, `constants.GEMINI_MODEL`) for every stage, Memory Segmentation and Memory Intent included; the catalog holds only the last two Gemini Flash releases (`gemini-3.8-flash`, `gemini-3.7-flash`) and no stage pins a model of its own
+- `gemini-default` (the switched fleet text model, `constants.GEMINI_MODEL`) for every stage, Memory Segmentation and Memory Intent included; the catalog holds exactly two Gemini Flash releases, `gemini-3.7-flash` (default) and `gemini-3.6-flash` (founder decision 2026-09-25, chosen by measured chat latency; `gemini-3.8-flash` retired), and no stage pins a model of its own
 
 Live prompt-hardening posture:
 

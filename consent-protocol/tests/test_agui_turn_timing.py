@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 
 import pytest
 from ag_ui.core import (
@@ -105,6 +107,56 @@ async def _drain(agent: TimedADKAgent) -> list[BaseEvent]:
     return [event async for event in agent.run(_input())]
 
 
+async def test_vault_catalog_handoff_is_consumed_before_bridge_state(monkeypatch):
+    from hushh_mcp.one_adk.mcp_turn_scope import (
+        STATE_MCP_CONFIGURATION,
+        admit_turn_configurations,
+        current_mcp_turn,
+    )
+
+    run = _input()
+    run.state = {
+        "hussh:user_id": "owner",
+        STATE_MCP_CONFIGURATION: admit_turn_configurations(
+            {"mcpConfigurations": []},
+            owner_id="owner",
+            conversation_id=run.thread_id,
+        ),
+    }
+
+    async def bridge(self, input):
+        assert STATE_MCP_CONFIGURATION not in input.state
+        assert current_mcp_turn().has_vault_configurations
+        assert current_mcp_turn().vault_catalog("owner") == []
+        yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+
+    monkeypatch.setattr(ADKAgent, "run", bridge)
+    assert len([event async for event in _agent().run(run)]) == 1
+
+
+@pytest.mark.asyncio
+async def test_disconnect_closes_bridge_before_turn_resources(monkeypatch):
+    from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
+
+    observed = []
+
+    async def run(self, input):
+        scope = current_mcp_turn()
+        try:
+            yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        finally:
+            # The bridge may still need its MCP resources during teardown.
+            assert current_mcp_turn() is scope
+            observed.append(scope)
+
+    monkeypatch.setattr(ADKAgent, "run", run)
+    stream = _agent().run(_input())
+    await anext(stream)
+    await stream.aclose()
+    assert len(observed) == 1
+    assert observed[0]._closed
+
+
 @pytest.mark.asyncio
 async def test_measures_first_visible_and_elapsed_and_counts(monkeypatch, caplog):
     monkeypatch.setattr(ADKAgent, "run", _scripted_run(_normal_script()))
@@ -138,6 +190,51 @@ async def test_log_line_carries_no_identifying_records(monkeypatch, caplog):
 
     line = _timing_lines(caplog)[0]
     assert MESSAGE_TEXT not in line
+
+
+def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeypatch, caplog):
+    monkeypatch.setenv("HUSHH_ONE_CHAT_TIMING_DETAIL", "1")
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    timing = agui_turn_timing.TurnTiming(
+        head=HEAD_ONE, run="timing01", started_at=time.perf_counter()
+    )
+    token = agui_turn_timing._CURRENT_TURN.set(timing)
+    request = SimpleNamespace(
+        model="gemini-3.8-flash",
+        config=SimpleNamespace(
+            system_instruction="private system instruction",
+            thinking_config=SimpleNamespace(thinking_level=SimpleNamespace(value="LOW")),
+            tools=[{"name": "safe_tool_schema"}],
+        ),
+        contents=[SimpleNamespace(parts=[SimpleNamespace(text="private request text")])],
+    )
+    barrier_calls = []
+    monkeypatch.setattr(
+        agui_turn_timing,
+        "before_external_read_model",
+        lambda context, llm_request: barrier_calls.append((context, llm_request)),
+    )
+    try:
+        agui_turn_timing.timed_one_before_model(object(), request)
+        time.sleep(0.01)
+        agui_turn_timing.timed_one_after_model(object(), object())
+    finally:
+        agui_turn_timing._CURRENT_TURN.reset(token)
+
+    assert len(barrier_calls) == 1
+    assert timing.model_calls == 1
+    assert timing.model_call_total_ms >= 5
+    assert timing.prompt_chars_peak == len("private system instructionprivate request text")
+    assert timing.tool_schema_chars_peak == len(repr(request.config.tools))
+    assert timing.history_items_peak == 1
+
+    timing.log()
+    line = _timing_lines(caplog)[-1]
+    assert "model_calls=1" in line
+    assert "model_id=gemini-3.8-flash" in line
+    assert "thinking_level=LOW" in line
+    assert "private system instruction" not in line
+    assert "private request text" not in line
     assert THREAD_ID not in line
     assert USER_ID not in line
     assert RUN_ID not in line, "only the eight-character run label may appear"
@@ -179,12 +276,13 @@ async def test_run_error_event_marks_outcome_error(monkeypatch, caplog):
     fields = _fields(_timing_lines(caplog)[0])
     assert fields["head"] == HEAD_INTRO
     assert fields["outcome"] == OUTCOME_ERROR
+    assert fields["error_class"] == "model"
     assert fields["first_visible_ms"] == "None"
     assert fields["events"] == "2"
 
 
 @pytest.mark.asyncio
-async def test_escaped_exception_marks_outcome_error_and_reraises(monkeypatch, caplog):
+async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(monkeypatch, caplog):
     async def failing_run(self: ADKAgent, input: RunAgentInput):
         yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
         raise RuntimeError("runner exploded")
@@ -192,10 +290,114 @@ async def test_escaped_exception_marks_outcome_error_and_reraises(monkeypatch, c
     monkeypatch.setattr(ADKAgent, "run", failing_run)
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
 
-    with pytest.raises(RuntimeError):
-        await _drain(_agent())
+    events = await _drain(_agent())
 
     assert _fields(_timing_lines(caplog)[0])["outcome"] == OUTCOME_ERROR
+    assert _fields(_timing_lines(caplog)[0])["error_class"] == "escaped_exception"
+    assert events[-1].type == "RUN_ERROR"
+    assert "runner exploded" not in events[-1].model_dump_json()
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("MCP_CATALOG_UNAVAILABLE", "connector"),
+        ("DATABASE_UNAVAILABLE", "database"),
+        ("AGENT_RUNTIME_MODEL_UNAVAILABLE", "runtime"),
+        ("MODEL_ERROR", "model"),
+        ("PRIVATE_OWNER_VALUE", "other"),
+        (None, "untyped"),
+    ],
+)
+def test_error_class_discards_untrusted_code_and_message(code, expected):
+    assert agui_turn_timing._error_class(code) == expected
+
+
+def test_bridge_logger_discards_provider_exception_and_traceback():
+    try:
+        raise RuntimeError("private provider response")
+    except RuntimeError:
+        import sys
+
+        exception = sys.exc_info()
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "Background execution error: private provider response",
+        (),
+        exception,
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == "[ADK_BRIDGE] phase=background kind=other details=[redacted]"
+    assert record.exc_info is None
+    assert "private provider response" not in logging.Formatter().format(record)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (TimeoutError("secret"), "timeout"),
+        (ConnectionError("secret"), "connection"),
+        (PermissionError("secret"), "permission"),
+        (ValueError("secret"), "validation"),
+        (KeyError("secret"), "missing_key"),
+    ],
+)
+def test_bridge_logger_keeps_only_safe_failure_category(error, expected):
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "Error in new execution: secret",
+        (),
+        (type(error), error, None),
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == f"[ADK_BRIDGE] phase=execution kind={expected} details=[redacted]"
+    assert "secret" not in logging.Formatter().format(record)
+
+
+def test_bridge_logger_does_not_log_untrusted_exception_class_or_log_prefix():
+    class PrivateCustomerEmailError(Exception):
+        pass
+
+    error = PrivateCustomerEmailError("secret")
+    record = logging.LogRecord(
+        "ag_ui_adk.adk_agent",
+        logging.ERROR,
+        __file__,
+        1,
+        "PrivateCustomerEmailError: secret",
+        (),
+        (type(error), error, None),
+    )
+    agui_turn_timing._NoModelTextPreview().filter(record)
+    assert record.getMessage() == "[ADK_BRIDGE] phase=other kind=other details=[redacted]"
+    assert "PrivateCustomerEmailError" not in logging.Formatter().format(record)
+
+
+def test_endpoint_logger_drops_serialized_events_and_sanitizes_errors():
+    debug_record = logging.LogRecord(
+        "ag_ui_adk.endpoint", logging.DEBUG, __file__, 1, "HTTP Response: private", (), None
+    )
+    assert agui_turn_timing._NoEndpointPayload().filter(debug_record) is False
+    error_record = logging.LogRecord(
+        "ag_ui_adk.endpoint",
+        logging.ERROR,
+        __file__,
+        1,
+        "ADKAgent error: private",
+        (),
+        (ValueError, ValueError("private"), None),
+    )
+    assert agui_turn_timing._NoEndpointPayload().filter(error_record) is True
+    assert (
+        error_record.getMessage() == "[ADK_BRIDGE] phase=other kind=validation details=[redacted]"
+    )
+    assert error_record.exc_info is None
 
 
 @pytest.mark.asyncio
@@ -233,7 +435,13 @@ async def test_terminal_event_preserves_outcome_when_consumer_closes(
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
     agent = _agent_with_registry()
     stream = agent.run(_input())
-    assert await anext(stream) is terminal
+    observed = await anext(stream)
+    if terminal_error:
+        assert observed.type == terminal.type
+        assert observed.code == "AGENT_ERROR"
+        assert observed.message != terminal.message
+    else:
+        assert observed is terminal
     if close_kind == "close":
         await stream.aclose()
     else:

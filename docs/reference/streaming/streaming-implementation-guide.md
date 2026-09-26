@@ -9,7 +9,7 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
-- Emit SSE using canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`.
+- Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
 - Keep payload object-only.
@@ -36,7 +36,70 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Validate envelopes with `hushh-webapp/lib/streaming/kai-stream-types.ts`.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
-- In Agent Chat, consume the Agent SSE protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; `token` frames are the only source of incremental assistant response text.
+- In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+
+### Private connector events
+
+The existing `one_adk/drive_result_privacy.py` projection also covers governed
+dynamic MCP names (`mcp_` followed by a 40-character lowercase hexadecimal digest).
+Strip their argument chunks and raw protocol metadata from browser diagnostics
+and session copies. Successful native MCP content is processed in the live turn,
+not retained as durable tool payloads. Persist only safe outcome metadata.
+Server encryption at rest does not authorize retention of connector content.
+Approval receipts, credential material and error bodies are not history content.
+This projection alone does not certify assistant-text or other persistence paths;
+those require separate custody verification. Explicit PKM capture remains separate.
+The current browser tool-status projection stays metadata-only; richer connector
+presentation must use an owner content surface, not diagnostic event payloads.
+For failed AG-UI turns, timing logs and reviewer rehearsals retain only an
+allowlisted error category (`connector`, `database`, `runtime`, `model`,
+`other`, or `untyped`). Never retain the raw `RUN_ERROR` message or code as a
+diagnostic; either may contain provider or owner information. The public
+projection replaces bridge errors with a fixed message/code, including errors
+that escape the adapter before it emits a terminal event. Adapter and endpoint
+loggers drop raw exception text, tracebacks, and serialized SSE debug payloads;
+their fixed phase and exception-kind labels are diagnostic only. Use turn
+timing and those bounded labels to triage, not raw SDK exceptions.
+For resumed snapshots, collect private call identities before projecting messages;
+a result may precede its call and no start event may have been observed. The live
+model-turn object remains unchanged. This redaction does not authorize a tool,
+prove receipt consumption, or activate the shared toolset on the Chat roster.
+
+ADK confirmation events duplicate the original call under `originalFunctionCall`.
+The durable projection strips those nested arguments and private confirmation
+payloads too, retaining a non-actionable identity skeleton. Restore reviewed
+arguments only into the authenticated live invocation and revalidate exact-call
+authority before execution; a historical confirmation is not permission to replay.
+The browser resume receipt travels through scrubbed forwarded properties into a
+request-memory reference, never a model-visible tool response. Remove that
+reference from both persisted state deltas and public AG-UI state projections.
+
+Pending MCP call recovery uses the existing expiring request-secret store and a
+task-local resume scope. A server-issued handle binds the owner, conversation,
+tool and original function-call ID. The encrypted session reader restores both
+argument copies only on a deep-copied live session; normal history reads remain
+redacted. Expiration, another server instance, or a restart requires review again.
+`review_or_resume_call` requests native ADK confirmation on the first call and
+requires an app-ledger receipt on resume. It is not live roster activation:
+the browser review-card transport, pending-handle confirmation API, and governed
+roster must be connected and verified together before exposing custom tools.
+
+The Chat wire projection buffers native confirmation argument fragments (64 KB
+per call, at most 32 pending envelopes). For private MCP calls it exposes only
+the original call identity with empty arguments and the validated app review
+reference; nested private hints, arguments and extra payload fields are removed.
+The browser fetches exact review arguments through the authenticated review API.
+Malformed, oversized or incomplete confirmations fail closed. Snapshot projection
+also indexes confirmation identities before results, preventing an out-of-order
+confirmation reply from exposing a private payload. Before a private connector
+call, non-MCP confirmation contracts remain unchanged within those bounds. After
+one, unexpected confirmation arguments are withheld; only the validated native
+MCP review reference survives. Subsequent tool arguments/results are private even
+when the model invents a blocked first-party call. Blocking execution alone is
+not sufficient diagnostic isolation. Durable projection preserves safe outcomes,
+not native connector result bodies, while retaining earlier unrelated calls
+and fresh invocations; snapshot projection restarts that boundary at a new user
+message. Live model objects remain unchanged.
 
 ## 4.1 UI Stream Mapping
 
@@ -45,6 +108,13 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 - `Response` renders only real assistant/model text: SSE `token` deltas, or a final non-streamed assistant result when the backend did not stream tokens. Do not simulate token streaming from placeholders, staged strings, tool names, or progress events.
 - `Activity` renders app-owned lifecycle events: `tool_start`, `tool_waiting`, `tool_result`, route/action settlement, import stages, cancellation state, backend progress frames, and validated AG-UI `ACTIVITY_SNAPSHOT`/`ACTIVITY_DELTA` messages.
 - `Thinking` is optional provider telemetry. It must never be required for control flow, and it must never replace app-owned progress rows.
+- Authenticated One Chat may stream Gemini's provider-authored thought summaries
+  into the Chat body's `Thinking summary` section. The bridge forwards only
+  bounded summary text; signatures, raw events, and reasoning snapshots never
+  reach the browser. Browser SDK state and saved Chat history exclude reasoning.
+  The owner-bound encrypted ADK session may retain provider summaries for model
+  continuation. Intro Chat does not request or display them. A model may emit
+  no summaries; Activity and Response must still work normally.
 - Cards do not suppress assistant clarification or warnings. Avoid duplicate prose through the authored instruction, not text stripping. Discovery history projects allowlisted metadata in invocation order, deduplicates repeated invocation IDs, and excludes provider thought parts from answer text. Restoring a descriptor never executes its original action; current eligibility must be checked again before a consent mutation.
 - Ambiguous person discovery uses `one.person_selection.v1`. The browser sends its opaque selection handle separately from visible message text. The server validates its owner, thread and expiry before profile access, rejects a mismatched profile subject, and requires a new explicit choice when changing an already-selected recipient. Selection handles are not grants and must not become persistent browser state or visible labels.
 - Marketplace recommendations and other proactive cards should be preloaded by the workspace/session owner, then passed into the stream surface. Do not start durable fetches from a render-only accordion path when the workspace can load them at access or turn start.
@@ -57,6 +127,34 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
   review surface. Only the resumed terminal success/error settles the turn.
 
 ## 5. UI State Machines
+
+- Native MCP results never enter the generic debug-result payload or app-action
+  parser. A connector's returned JSON cannot become an executable Hussh directive.
+  Owner-visible content does not grant action authority or persistence permission.
+
+- Native MCP confirmation references use the ephemeral `onMcpReview` Chat
+  callback only after the matching AG-UI interrupt is available. They are not
+  structured history descriptors or generic diagnostic tool arguments.
+- `ExternalConnectorService.reviewMcpCall` retrieves the exact pending call for
+  an active owner/vault review; `confirmMcpCall` returns the existing ledger's
+  receipt. Both reject stale effects and mismatched references. The receipt
+  travels through scrubbed `forwardedProps.mcpApproval`; the ADK resume payload
+  contains only `confirmed`. Cancellation sends `confirmed: false` without a
+  receipt. Uncertain resumes are not retried automatically.
+- The review callback exposes the initiating validated-owner/vault-epoch guard;
+  the review surface uses it for fetches and invalidates private previews when
+  it changes. Resume rechecks the same guard rather than relying only on a
+  component having aborted its old turn.
+- `McpCallReviewCard` is the transient Chat review surface. It displays the
+  registered connector label, tool label and exact inputs, serializes visible
+  reviews, confirms once, and clears private inputs before resume. Unmounting
+  aborts the review operation; unknown outcomes offer no execution retry.
+  Expired or unavailable previews cannot be approved. A native denial returns
+  before argument validation or provider access, since recovered private
+  arguments are intentionally absent without an approval receipt.
+- Component tests do not establish live acceptance: the governed tool roster
+  still needs integration, authenticated browser/native proof and release
+  gates. Private previews and receipts must not enter persistence.
 
 - Drive state transitions from canonical `event` + `payload`.
 - Do not use thought events as control-plane requirements.

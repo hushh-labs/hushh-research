@@ -49,6 +49,7 @@ Non-owned surfaces:
 2. `consent-protocol/docs/README.md`
 3. `docs/reference/architecture/architecture.md`
 4. `docs/project_context_map.md`
+5. `docs/reference/architecture/pod-data-door.md`
 
 ## Workflow
 

@@ -44,4 +44,17 @@ describe("Next proxy root-entry contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
+
+  it.each([
+    "/one/profile/connectors",
+    "/one/profile/discovery",
+    "/one/profile/discovery/",
+    "/one/profile/hosting",
+    "/one/profile/software-updates",
+  ])("keeps the canonical %s page out of the legacy profile redirect", (route) => {
+    const response = proxy(request(route));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });

@@ -25,10 +25,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
+from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+
 logger = logging.getLogger("external_mcp_client")
 
 _DEFAULT_TIMEOUT_SECONDS = 20.0
 _MAX_RESULT_BYTES = 32_000
+_MAX_CATALOG_PAGES = 20
+_MAX_CATALOG_TOOLS = 500
+_MAX_CATALOG_BYTES = 1_000_000
+_MAX_SCHEMA_DEPTH = 32
+_MAX_SCHEMA_NODES = 4096
 
 
 class ExternalMcpError(RuntimeError):
@@ -126,6 +136,132 @@ def _normalize_and_cap(
     )
 
 
+def validate_tool_schema(schema: Any) -> dict[str, Any]:
+    """Admit bounded object schemas without fetching provider-controlled references.
+
+    Keep the provider's validation contract intact: unsupported schemas fail
+    admission instead of silently dropping constraints. Descriptions remain
+    untrusted content and do not determine execution permission.
+    """
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise ExternalMcpError("Invalid connector schema.", code="MCP_SCHEMA_INVALID")
+    schema_maps = {"$defs", "properties", "patternProperties", "dependentSchemas"}
+    schema_arrays = {"allOf", "anyOf", "oneOf", "prefixItems"}
+    schema_values = {
+        "additionalProperties",
+        "unevaluatedProperties",
+        "propertyNames",
+        "items",
+        "unevaluatedItems",
+        "contains",
+        "not",
+        "if",
+        "then",
+        "else",
+    }
+    pending = [(schema, 0, "schema")]
+    nodes = 0
+    while pending:
+        value, depth, kind = pending.pop()
+        nodes += 1
+        if depth > _MAX_SCHEMA_DEPTH or nodes > _MAX_SCHEMA_NODES:
+            raise ExternalMcpError("Connector schema is too large.", code="MCP_SCHEMA_LIMIT")
+        if isinstance(value, dict) and kind == "schema":
+            # Remote refs and rebasing IDs may otherwise turn validation into
+            # server-side requests, or change the meaning of local references.
+            for key in ("$ref", "$dynamicRef"):
+                reference = value.get(key)
+                if reference is not None and (
+                    not isinstance(reference, str) or not reference.startswith("#")
+                ):
+                    raise ExternalMcpError(
+                        "Unsupported connector schema reference.", code="MCP_SCHEMA_INVALID"
+                    )
+            if "$id" in value or "$recursiveRef" in value:
+                raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
+            dialect = value.get("$schema")
+            if dialect is not None and dialect != Draft202012Validator.META_SCHEMA["$id"]:
+                raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_kind = "data"
+                if kind == "map":
+                    child_kind = "schema"
+                elif kind == "schema":
+                    if key in schema_maps:
+                        child_kind = "map"
+                    elif key in schema_arrays:
+                        child_kind = "array"
+                    elif key in schema_values:
+                        child_kind = "schema"
+                pending.append((child, depth + 1, child_kind))
+        elif isinstance(value, list):
+            pending.extend(
+                (child, depth + 1, "schema" if kind == "array" else "data") for child in value
+            )
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError:
+        raise ExternalMcpError("Invalid connector schema.", code="MCP_SCHEMA_INVALID") from None
+    return schema
+
+
+_REVIEW_HINTS = ("readOnlyHint", "destructiveHint")
+
+
+def _review_hints(tool: Any) -> dict[str, bool]:
+    """Keep only boolean review hints; anything else is absent.
+
+    Hints are the server's own claim. Absent or malformed hints never relax
+    review, so dropping them here is the fail-closed direction. The pinned MCP
+    SDK parses tools in pydantic lax mode, so "true", 1 or "yes" already arrive
+    as True: the same claim, spelled loosely. Non-boolean shapes are dropped.
+    """
+    annotations = getattr(tool, "annotations", None)
+    return {
+        key: value
+        for key in _REVIEW_HINTS
+        if type(value := getattr(annotations, key, None)) is bool
+    }
+
+
+async def _list_session_tools(
+    session: Any, *, include_review_hints: bool = False
+) -> list[dict[str, Any]]:
+    """Read a complete bounded catalog; never present a partial list as complete."""
+    catalog: list[dict[str, Any]] = []
+    names: set[str] = set()
+    cursors: set[str] = set()
+    cursor: str | None = None
+    size = 0
+    for _ in range(_MAX_CATALOG_PAGES):
+        page = await session.list_tools(**({"cursor": cursor} if cursor else {}))
+        for tool in page.tools:
+            name = tool.name
+            if not isinstance(name, str) or not name or name in names:
+                raise ExternalMcpError("Invalid connector catalog.", code="MCP_CATALOG_INVALID")
+            item = {
+                "name": name,
+                "description": getattr(tool, "description", None) or "",
+                "inputSchema": getattr(tool, "inputSchema", None) or {},
+            }
+            if include_review_hints and (hints := _review_hints(tool)):
+                item["annotations"] = hints
+            validate_tool_schema(item["inputSchema"])
+            size += len(json.dumps(item).encode("utf-8"))
+            if len(catalog) >= _MAX_CATALOG_TOOLS or size > _MAX_CATALOG_BYTES:
+                raise ExternalMcpError("Connector catalog is too large.", code="MCP_CATALOG_LIMIT")
+            names.add(name)
+            catalog.append(item)
+        cursor = getattr(page, "nextCursor", None)
+        if cursor is None:
+            return sorted(catalog, key=lambda item: item["name"])
+        if not isinstance(cursor, str) or not cursor or cursor in cursors:
+            raise ExternalMcpError("Invalid connector continuation.", code="MCP_CATALOG_INVALID")
+        cursors.add(cursor)
+    raise ExternalMcpError("Connector catalog is too large.", code="MCP_CATALOG_LIMIT")
+
+
 async def list_tools(
     *, endpoint: str, headers: dict[str, str] | None = None, timeout_seconds: float | None = None
 ) -> list[dict[str, Any]]:
@@ -135,7 +271,11 @@ async def list_tools(
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        client_kwargs: dict[str, Any] = {"headers": dict(headers)} if headers else {}
+        validate_mcp_endpoint(endpoint)
+        client_kwargs: dict[str, Any] = {
+            "headers": dict(headers) if headers else None,
+            "httpx_client_factory": create_bounded_mcp_http_client,
+        }
         async with streamablehttp_client(endpoint, **client_kwargs) as (
             read_stream,
             write_stream,
@@ -143,18 +283,12 @@ async def list_tools(
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                result = await session.list_tools()
-        return [
-            {
-                "name": tool.name,
-                "description": getattr(tool, "description", None) or "",
-                "inputSchema": getattr(tool, "inputSchema", None) or {},
-            }
-            for tool in result.tools
-        ]
+                return await _list_session_tools(session)
 
     try:
         return await asyncio.wait_for(_run(), timeout=timeout_seconds or _DEFAULT_TIMEOUT_SECONDS)
+    except ExternalMcpError:
+        raise
     except TimeoutError as error:
         raise ExternalMcpTimeoutError() from error
     except Exception as error:
@@ -183,7 +317,11 @@ async def call_tool(
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        client_kwargs: dict[str, Any] = {"headers": dict(headers)} if headers else {}
+        validate_mcp_endpoint(endpoint)
+        client_kwargs: dict[str, Any] = {
+            "headers": dict(headers) if headers else None,
+            "httpx_client_factory": create_bounded_mcp_http_client,
+        }
         async with streamablehttp_client(endpoint, **client_kwargs) as (
             read_stream,
             write_stream,

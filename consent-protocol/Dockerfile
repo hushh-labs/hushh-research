@@ -18,17 +18,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv map requirements to virtual environment
 RUN pip install uv
 
-# Copy requirements and install Python dependencies using uv with bytecode compilation.
-# The BuildKit cache mount keeps uv's wheel cache OUT of the image layer while still
-# speeding partial re-resolves; the layer itself is cached in the registry (mode=max),
-# so an unchanged requirements.txt makes this whole step a cache hit.
-COPY requirements.txt .
+# Install the locked graph with its explicit CPU-only Torch package source.
+COPY pyproject.toml uv.lock ./
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --compile-bytecode -r requirements.txt
+    uv sync --frozen --no-dev --no-install-project --active
 
-# A complete, exact-revision, local E5 snapshot is a build artifact. Both the
-# request-serving API (query embeddings) and the separate document worker use
-# this same image; the child process is deliberately offline at runtime.
+# Bake the exact-revision local E5 snapshot in the same virtual environment as
+# the serving API. The document worker uses this image offline at runtime.
 COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_client_leaf.py
 COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
 RUN python -m scripts.ops.bake_drive_embedding_model
@@ -44,14 +43,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from builder
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hushh/models /opt/hushh/models
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small
 
 # Make sure scripts in .local are usable
-ENV PATH=/usr/local/bin:$PATH
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 # Copy application code
 COPY . .

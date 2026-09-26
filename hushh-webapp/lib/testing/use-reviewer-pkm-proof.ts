@@ -3,8 +3,16 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { createReviewerPkmProof, type ReviewerPkmJson } from "@/lib/testing/reviewer-pkm-proof";
+import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
+import {
+  canonicalJsonDigest,
+  createReviewerPkmProof,
+  type ReviewerPkmBridge,
+  type ReviewerPkmJson,
+} from "@/lib/testing/reviewer-pkm-proof";
 import type {} from "@/lib/testing/native-test";
+import { resolveAppEnvironment } from "@/lib/app-env";
 
 const consumedBridges = new WeakSet<object>();
 
@@ -44,7 +52,25 @@ export function useReviewerPkmProof(state: {
           data: result.data as Record<string, ReviewerPkmJson> };
       },
     });
-    const api = {
+    // The owner's own rendered projection, hashed in the owner's browser before
+    // any request exists, so the rehearsal never derives it from the export.
+    const DIGESTIBLE_SCOPE = /^attr\.(professional|travel)\.[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$/;
+    const api: ReviewerPkmBridge = {
+      projectionDigest: async (scope: string) => {
+        // A digest confirms guesses about the owner's information, so it exists
+        // only in local development builds; store builds are stamped "uat".
+        if (resolveAppEnvironment() !== "development") return { ok: false, code: "refused" };
+        if (!admitted() || !DIGESTIBLE_SCOPE.test(scope)) return { ok: false, code: "refused" };
+        try {
+          await guard.assertCurrent();
+          const built = await buildConsentExportForScope({ userId, scope, vaultKey, vaultOwnerToken });
+          await guard.assertCurrent();
+          const digest = await canonicalJsonDigest(projectGrantPayload(built.payload, scope.split(".")[1]));
+          return { ok: true, code: "digest", digest };
+        } catch {
+          return { ok: false, code: "unavailable" };
+        }
+      },
       begin: async () => {
         if (consumedBridges.has(bridge) || !bridge.pkmProofExpectation) {
           return { ok: false, code: "refused" as const };

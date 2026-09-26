@@ -7,7 +7,14 @@ WEB_DIR="$REPO_ROOT/hushh-webapp"
 "$REPO_ROOT/scripts/ci/web-core-check.sh"
 
 cd "$WEB_DIR"
-npm run test:ci
+# Bound Vitest fan-out so local and hosted runs have a predictable resource
+# envelope. A loaded developer host can use one worker without changing the gate.
+WEB_TEST_MAX_WORKERS="${HUSHH_WEB_TEST_MAX_WORKERS:-2}"
+[[ "$WEB_TEST_MAX_WORKERS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "HUSHH_WEB_TEST_MAX_WORKERS must be a positive integer" >&2
+  exit 2
+}
+npm run test:ci -- --maxWorkers="$WEB_TEST_MAX_WORKERS"
 npm run verify:voice-gateway
 npm run verify:one-voice
 npm run verify:surface-map

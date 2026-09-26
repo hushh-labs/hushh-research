@@ -29,6 +29,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -229,8 +230,6 @@ export const Navbar = ({
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const pendingConsents = useConsentPendingSummaryCount();
-  const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -238,6 +237,13 @@ export const Navbar = ({
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
+  // The persistent navigation is hidden while the session/setup shell is
+  // deciding. Keep its presentation-only badge requests idle during that
+  // interval so they cannot consume the connection pool needed by the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const badgesAreVisible = !useOnboardingChrome && !chromeSuppressed;
+  const pendingConsents = useConsentPendingSummaryCount({ enabled: badgesAreVisible });
+  const feedUnreadCount = useFeedUnreadCount({ enabled: badgesAreVisible });
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const setAgentNavigationContext = useKaiSession(

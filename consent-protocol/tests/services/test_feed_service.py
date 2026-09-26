@@ -137,6 +137,29 @@ def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
     ]
 
 
+def test_profile_discovery_feed_projection_accepts_only_generic_status_metadata() -> None:
+    db = _Db()
+    service = FeedService()
+    service._db = db
+
+    service.record_event(
+        user_id="user-1",
+        source_domain="profile_discovery",
+        event_type="profile_discovery_ready",
+        metadata={
+            "user_facing_status": "ready",
+            "claim": "private public-web finding",
+            "source_url": "https://example.invalid/person",
+        },
+        source_row_id="opaque-job:3",
+    )
+
+    assert len(db.raw_calls) == 1
+    _, params = db.raw_calls[0]
+    assert params["source_domain"] == "profile_discovery"
+    assert params["metadata_json"] == '{"user_facing_status": "ready"}'
+
+
 def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> None:
     list_query = _Query(
         data=[
@@ -191,7 +214,7 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
         "actor_label": f"  {'A' * 200}  ",
         "metadata": {
             "counterpart_label": f"  {'B' * 300}  ",
-            "counterpart_photo_url": f"  https://cdn.example.test/{'p' * 1200}.jpg  ",
+            "counterpart_photo_url": f"  https://cdn.example.test/{'p' * 999}  ",
             "phone_number": "+1 555 010 1234",
             "requester_masked_phone": "***1234",
             "requested_duration_hours": 3,
@@ -212,6 +235,7 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
     assert item["actor_label"] == "A" * 160
     assert item["metadata"] == {
         "counterpart_label": "B" * 256,
+        "counterpart_photo_url": "https://cdn.example.test/" + "p" * 999,
         "requested_duration_hours": 3,
         "is_extension": True,
     }

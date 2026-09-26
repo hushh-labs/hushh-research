@@ -189,6 +189,7 @@ export const Navigation = createCanonicalIcon(Phosphor.NavigationArrow);
 export const Newspaper = createCanonicalIcon(Phosphor.Newspaper);
 export const PanelLeftIcon = createCanonicalIcon(Phosphor.SidebarSimple, "regular");
 export const Pause = createCanonicalIcon(Phosphor.Pause);
+export const PauseCircle = createCanonicalIcon(Phosphor.PauseCircle);
 export const Pencil = createCanonicalIcon(Phosphor.Pencil);
 export const PencilLine = createCanonicalIcon(Phosphor.Pencil);
 export const PenLine = createCanonicalIcon(Phosphor.Pencil);
