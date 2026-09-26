@@ -49,11 +49,14 @@ class ModelEntry:
 OPENAI_REALTIME_PROVIDERS: tuple[ProviderId, ...] = ("gemini", "openai")
 
 # Vertex endpoints measured to serve a text model; unmeasured models stay
-# global-only. 2026-09-24: gemini-3.8-flash answered generateContent on the
-# `us` and `eu` multi-region endpoints while `global` returned 429
-# RESOURCE_EXHAUSTED on 7 of 7 calls, so HUSHH_VERTEX_LOCATIONS failover is real.
+# global-only. 2026-09-24: the since-retired 3.8 Flash answered generateContent on
+# the `us` and `eu` multi-region endpoints while `global` returned 429, so
+# HUSHH_VERTEX_LOCATIONS failover is real. 2026-09-25: gemini-3.7-flash and
+# gemini-3.6-flash each answered generateContent 2 of 2 on `global`, `us` and `eu`
+# (managed bridge project). Add a row here only from a live probe.
 _MEASURED_VERTEX_LOCATIONS: dict[str, tuple[str, ...]] = {
-    "gemini-3.8-flash": ("global", "us", "eu"),
+    "gemini-3.7-flash": ("global", "us", "eu"),
+    "gemini-3.6-flash": ("global", "us", "eu"),
 }
 
 _MODELS: tuple[ModelEntry, ...] = (
@@ -70,15 +73,15 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(
         provider="gemini",
-        model="gemini-3.8-flash",
+        model="gemini-3.7-flash",
         supports_prompt_caching=True,
-        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.8-flash"],
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.7-flash"],
     ),
     ModelEntry(
         provider="gemini",
-        model="gemini-3.7-flash",
+        model="gemini-3.6-flash",
         supports_prompt_caching=True,
-        supported_vertex_locations=("global",),
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.6-flash"],
     ),
     # Retrieval-only model used by the server-owned Location Brain semantic
     # index. Global-only availability makes ManagedGeminiRuntimeBinding return

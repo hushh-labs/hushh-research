@@ -1,13 +1,16 @@
 """Generation-aware Gemini generation configuration.
 
 Exactly two Gemini text releases are supported at any time (founder rule 2026-09-14:
-the catalog lists only the last two releases; a roll-forward replaces the oldest and
-never adds a third). Both own their sampling policy, so callers must not send the
-legacy sampling knobs to them, and both accept ``thinking_level`` LOW, MEDIUM and
-HIGH while rejecting MINIMAL with 400 INVALID_ARGUMENT ("Thinking level is
-unsupported: THINKING_LEVEL_MINIMAL"). Measured live 2026-09-14 against
-gemini-3.8-flash and gemini-3.7-flash, cell by cell; the contract test pins that
-matrix. Keeping this rule in one adapter prevents every product agent from
+two releases, never a third). Founder decision 2026-09-25 chose the pair by measured
+chat latency rather than recency: gemini-3.7-flash (default) and gemini-3.6-flash,
+both at LOW thinking in chat. 3.8 Flash was retired from the fleet after a
+two-round, same-window matrix measured it at 58 s per model call (3.6 LOW: 1.2 s,
+3.7 LOW: 3.3 s). Both releases own their sampling policy, so callers must not send
+the legacy sampling knobs, and both accept ``thinking_level`` LOW, MEDIUM and HIGH.
+MINIMAL is rejected by gemini-3.7-flash with 400 INVALID_ARGUMENT ("Thinking level is
+unsupported: THINKING_LEVEL_MINIMAL", measured 2026-09-14) and accepted by
+gemini-3.6-flash (measured 2026-09-25); the adapter maps MINIMAL to LOW for both so
+the fleet keeps one thinking floor. The contract test pins that matrix. Keeping this rule in one adapter prevents every product agent from
 independently guessing the provider contract. Any other model id passes through
 untouched: there are no model-specific branches beyond "supported or not".
 """
@@ -16,11 +19,10 @@ from __future__ import annotations
 
 from typing import Any
 
-GEMINI_38_FLASH = "gemini-3.8-flash"
 GEMINI_37_FLASH = "gemini-3.7-flash"
 
 # Newest first. Exactly two ids, consecutive minor releases; the policy test enforces it.
-SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = (GEMINI_38_FLASH, GEMINI_37_FLASH)
+SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = (GEMINI_37_FLASH, "gemini-3.6-flash")
 
 _SUPPORTED_MODEL_NAMES = frozenset(
     name for model in SUPPORTED_GEMINI_TEXT_MODELS for name in (model, f"models/{model}")
@@ -39,10 +41,6 @@ _COERCED_THINKING_LEVEL = "LOW"
 
 def _normalize_model(model: str | None) -> str:
     return str(model or "").strip().lower()
-
-
-def is_gemini_38_flash(model: str | None) -> bool:
-    return _normalize_model(model) in {GEMINI_38_FLASH, f"models/{GEMINI_38_FLASH}"}
 
 
 def is_gemini_37_flash(model: str | None) -> bool:
