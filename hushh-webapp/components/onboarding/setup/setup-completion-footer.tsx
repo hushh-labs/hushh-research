@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "@/components/icons";
+import { FLOW_ACTION_MEASURE_CLASSNAME } from "@/components/app-ui/flow-actions";
 
 import { Button } from "@/lib/morphy-ux/button";
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types";
@@ -113,7 +114,7 @@ export function SetupCompletionFooter({
             {supportingText}
           </p>
         ) : null}
-        <div className="mx-auto w-full sm:max-w-[22rem]">
+        <div className={FLOW_ACTION_MEASURE_CLASSNAME}>
           <Button
             type="button"
             onClick={onComplete}
@@ -122,12 +123,12 @@ export function SetupCompletionFooter({
             loading={busy}
             variant={visualVariant}
             effect={effect}
-            size="lg"
+            size="prominent"
             fullWidth
             className={cn(
-              "h-12 text-base",
+              "justify-center",
               isQuietSetupAction &&
-                "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
+                "!border-0 !bg-transparent !text-[var(--app-accent-ink)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent-ink)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
               isBlockedFilledAction &&
                 "disabled:!border-border disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
               isBlockedTappableAction &&

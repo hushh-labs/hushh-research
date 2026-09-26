@@ -5,9 +5,9 @@
 
 .setupHeader :global(h1),
 .stepHeader :global(h1) {
-  font-size: 1.75rem !important;
-  line-height: 1.08 !important;
-  letter-spacing: -0.01em !important;
+  font-size: var(--type-page-title-size) !important;
+  line-height: var(--type-page-title-line) !important;
+  letter-spacing: var(--type-page-title-tracking, -0.01em) !important;
 }
 
 .setupHeader :global([data-slot="page-header-description"]),
@@ -28,8 +28,8 @@
 
 .flatChecklist [data-slot="settings-group-shell"] {
   --settings-group-radius: 18px;
-  border: 0;
-  background: var(--app-card-surface-default-solid);
+  border: 1px solid var(--app-settings-border);
+  background: var(--app-settings-surface);
   border-radius: 18px;
   box-shadow: none;
 }
@@ -46,9 +46,9 @@
 .flatChecklist :global([data-slot="settings-row-title"]),
 .stepGroup :global([data-slot="settings-row-title"]) {
   font-family: var(--font-app-text);
-  font-size: 1.0625rem !important;
+  font-size: var(--type-row-label-size) !important;
   font-weight: 400 !important;
-  line-height: 1.375rem !important;
+  line-height: var(--type-row-label-line) !important;
   letter-spacing: 0 !important;
 }
 
@@ -70,5 +70,11 @@
   .setupHeader :global(h1),
   .stepHeader :global(h1) {
     font-size: 1.95rem !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setupProgressFill {
+    transition: none;
   }
 }

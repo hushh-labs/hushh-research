@@ -7,6 +7,7 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  AGENT_HEADER_GLOBAL_CSS,
   AGENT_SURFACE_SOURCE as SRC,
   evaluateShippedExpression,
 } from "./fixtures/agent-surface-source";
@@ -72,7 +73,7 @@ import {
  * Run: npx playwright test e2e/agent-surface-model-authority.layout.spec.ts --project=chromium
  */
 
-const WIDTHS = [360, 390, 430, 768, 1024, 1280] as const;
+const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280] as const;
 
 /** A person with a choice of cloud models, so One's picker exists at all. */
 const MODEL_PREFERENCE = {
@@ -199,8 +200,8 @@ function renderScreen(mode: Mode, variant: Variant): string {
          data-testid="${SRC.cloudPicker.testId}"
          aria-label="${escapeHtml(SRC.cloudPicker.ariaLabel)}"
          title="${escapeHtml(cloudChipTitle())}"
-         class="${SRC.cloudPicker.triggerClass} inline-flex items-center"
-       ><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
+         data-size="default" class="${SRC.cloudPicker.triggerClass}"
+       ><span class="truncate">${escapeHtml(cloudChipLabel())}</span><svg aria-hidden="true" class="${SRC.cloudPicker.chevronClass}" viewBox="0 0 24 24" fill="none"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : "";
 
   // The shipped header wraps the picker in a reserved slot. The header as
@@ -213,8 +214,12 @@ function renderScreen(mode: Mode, variant: Variant): string {
 
   const header = `
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
-      <div class="${SRC.header.identityClass}">
-        <div class="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)]"></div>
+      <div data-testid="agent-header-identity" class="${SRC.header.identityClass}">
+        <span class="relative inline-flex shrink-0 overflow-visible align-middle">
+          <button type="button" data-testid="agent-history-control" aria-label="${escapeHtml(SRC.header.historyLabel)}"
+            class="${SRC.header.historyClass}"><span aria-hidden="true">☰</span></button>
+        </span>
+        <div class="${SRC.header.identityMarkClass}"></div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           <p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>
@@ -222,9 +227,13 @@ function renderScreen(mode: Mode, variant: Variant): string {
       </div>
       <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">
         <div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>
+             class="${SRC.toggle.containerClass}">${segments}</div>
         ${slot}
         <span class="${SRC.header.statusClass}" role="status" aria-live="polite">${escapeHtml(statusText)}</span>
+        <span class="relative inline-flex shrink-0 overflow-visible align-middle">
+          <button type="button" data-testid="agent-profile-control" aria-label="${escapeHtml(SRC.header.profileLabel)}"
+            class="${SRC.header.profileClass}"><span class="${SRC.header.profileAvatarClass}">A</span></button>
+        </span>
       </div>
     </div>`;
 
@@ -281,24 +290,8 @@ function renderScreen(mode: Mode, variant: Variant): string {
   return `${header}${puppySurface}${oneTranscript}${oneComposer}`;
 }
 
-const TOKENS = `
-  :root {
-    --agent-chat-header-safe-top: 0px;
-    --app-accent: #087ff5;
-    --app-accent-soft: #e6f1fe;
-    --app-accent-deep: #0a5fb8;
-    --app-success-tint: #e6f6ea;
-    --app-success-deep: #17803d;
-    --background: #ffffff;
-    --foreground: #101014;
-  }
-  body { margin: 0; background: var(--background); color: var(--foreground); }
-  .text-foreground { color: var(--foreground); }
-  .text-muted-foreground { color: #6b6b76; }
-  .bg-background { background: var(--background); }
-  .border-border\\/60, .border-border\\/70 { border-color: rgba(60,60,67,.16); }
-  .bg-muted\\/80 { background: rgba(120,120,128,.12); }
-  .bg-foreground\\/\\[0\\.045\\] { background: rgba(16,16,20,.045); }
+const FIXTURE_LAYOUT = `
+  body { margin: 0; }
   #screen { display: flex; flex-direction: column; height: 100vh; min-height: 0; }
 `;
 
@@ -366,10 +359,11 @@ async function buildFixture(variant: Variant): Promise<string> {
      names would be a fiction. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
-<style>${TOKENS}
+<style>${AGENT_HEADER_GLOBAL_CSS}
+${FIXTURE_LAYOUT}
 ${productFontStyle()}
 </style></head><body>
-<div id="screen"></div>
+<div id="screen" class="agent-chat-workspace"></div>
 <script>
   const SCREENS = ${JSON.stringify(screens)};
   function render(mode) {
@@ -448,6 +442,57 @@ async function box(page: Page, testId: string) {
   const rect = await page.locator(`[data-testid="${testId}"]`).boundingBox();
   if (!rect) throw new Error(`[data-testid="${testId}"] has no layout box`);
   return rect;
+}
+
+/** Measure the real header controls, including the shell buttons previously omitted. */
+async function expectHeaderControlsContained(page: Page) {
+  const header = await box(page, "agent-header");
+  const tokenHeight = await page.evaluate(() => {
+    const shell = document.getElementById("screen");
+    if (!shell) throw new Error("Agent fixture shell is missing");
+    const probe = document.createElement("div");
+    probe.style.height = "var(--agent-chat-header-height)";
+    shell.append(probe);
+    const height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height;
+  });
+  expect(tokenHeight).toBeGreaterThan(0);
+  expect(header.height).toBeCloseTo(tokenHeight, 0);
+  const controlIds = ["agent-history-control", "agent-profile-control"];
+  const controls = await Promise.all(
+    controlIds.map(async (id) => ({ id, rect: await box(page, id) })),
+  );
+  for (const [index, radio] of (await page.getByTestId("agent-toggle").getByRole("radio").all()).entries()) {
+    const rect = await radio.boundingBox();
+    if (!rect) throw new Error(`Agent toggle segment ${index} has no layout box`);
+    controls.push({ id: `agent-toggle-${index}`, rect });
+  }
+  if (await page.getByTestId(SRC.cloudPicker.testId).isVisible()) {
+    controls.push({ id: "agent-model-control", rect: await box(page, SRC.cloudPicker.testId) });
+  }
+
+  for (const { id, rect } of controls) {
+    expect(rect.width, `${id} width`).toBeGreaterThanOrEqual(43.5);
+    expect(rect.height, `${id} height`).toBeGreaterThanOrEqual(43.5);
+    expect(rect.x, `${id} left edge`).toBeGreaterThanOrEqual(header.x - 0.5);
+    expect(rect.x + rect.width, `${id} right edge`).toBeLessThanOrEqual(header.x + header.width + 0.5);
+    expect(rect.y, `${id} top edge`).toBeGreaterThanOrEqual(header.y - 0.5);
+    expect(rect.y + rect.height, `${id} bottom edge`).toBeLessThanOrEqual(header.y + header.height + 0.5);
+  }
+
+  for (let first = 0; first < controls.length; first += 1) {
+    for (let second = first + 1; second < controls.length; second += 1) {
+      const left = controls[first];
+      const right = controls[second];
+      const horizontalOverlap = Math.min(left.rect.x + left.rect.width, right.rect.x + right.rect.width) - Math.max(left.rect.x, right.rect.x);
+      const verticalOverlap = Math.min(left.rect.y + left.rect.height, right.rect.y + right.rect.height) - Math.max(left.rect.y, right.rect.y);
+      expect(
+        Math.min(horizontalOverlap, verticalOverlap),
+        `${left.id} overlaps ${right.id}`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  }
 }
 
 test.describe("Agent Chat: which agent is answering", () => {
@@ -581,8 +626,10 @@ test.describe("Agent Chat: which agent is answering", () => {
         cluster: await box(page, "agent-header-cluster"),
         header: await box(page, "agent-header"),
       };
+      await expectHeaderControlsContained(page);
 
       await switchTo(page, "puppy");
+      await expectHeaderControlsContained(page);
 
       const after = {
         toggle: await box(page, "agent-toggle"),

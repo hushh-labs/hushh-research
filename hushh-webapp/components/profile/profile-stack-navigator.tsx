@@ -189,6 +189,7 @@ export function ProfileStackNavigator({
               )}
               style={{ transform: `translateX(${offset * 100}%)` }}
               aria-hidden={isActive ? undefined : true}
+              inert={!isActive}
               data-profile-stack-screen={entry.key}
               data-profile-stack-active={isActive ? "true" : undefined}
             >

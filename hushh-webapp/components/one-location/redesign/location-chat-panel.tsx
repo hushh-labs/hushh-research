@@ -71,7 +71,7 @@ export function LocationChatPanel(props: {
             type="button"
             onClick={chat.clear}
             aria-label="Clear conversation"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -80,7 +80,7 @@ export function LocationChatPanel(props: {
           type="button"
           onClick={() => setOverlayOpen(true)}
           aria-label="Open focused chat"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <Maximize2 className="h-4 w-4" />
         </button>

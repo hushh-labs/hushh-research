@@ -1253,7 +1253,7 @@ function OwnerConnectorsPanel({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col border-l border-border bg-background text-foreground"
+      className="flex h-full min-h-0 flex-col border-l border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-foreground shadow-[var(--app-card-shadow-feature)]"
       data-connections-panel
     >
       <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">

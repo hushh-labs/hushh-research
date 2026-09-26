@@ -234,10 +234,20 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Open drawer", exact: true })
       .click();
-    await page
-      .getByRole("searchbox", { name: "Search chats" })
-      .fill("History filter");
-    await page.getByLabel("Open Connectors", { exact: true }).click();
+    const openConnectors = page.getByLabel("Open Connectors", { exact: true });
+    // The fixture discovers connector availability asynchronously. Let that
+    // parent update settle before editing the controlled history search; this
+    // mirrors the production state where the Connectors action is ready before
+    // the person can switch views and avoids a WebKit-only stale render race.
+    await expect(openConnectors).toBeVisible();
+    const historySearch = page.getByRole("searchbox", { name: "Search chats" });
+    await historySearch.fill("History filter");
+    // Wait for React's controlled value to commit before switching the
+    // still-mounted drawer view. WebKit can otherwise click the next control
+    // in the same frame as the input event and expose an empty stale value on
+    // the next open even though the component itself stayed mounted.
+    await expect(historySearch).toHaveValue("History filter");
+    await openConnectors.click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
@@ -316,6 +326,18 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await hamburger.click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await expect(connectors).toBeVisible();
+  const backdrop = page.getByTestId("agent-connections-backdrop");
+  await expect(backdrop).toHaveCSS("backdrop-filter", /blur\(/);
+
+  const focusables = connectors.locator(
+    'a[href]:visible, button:not([disabled]):visible, textarea:not([disabled]):visible, input:not([disabled]):visible, select:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible',
+  );
+  await focusables.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(focusables.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(focusables.first()).toBeFocused();
+
   await page.mouse.click(24, 400);
   await expect(connectors).not.toBeVisible();
   await hamburger.click();

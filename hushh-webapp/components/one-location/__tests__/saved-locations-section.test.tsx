@@ -204,10 +204,12 @@ describe("SavedLocationsSection", () => {
       screen.queryByText("Encrypted in your vault."),
     ).not.toBeInTheDocument();
     const homeIcon = screen.getByTestId("saved-location-icon-home");
-    // Home uses the authored category accent; keep its white glyph paired
-    // with a colored background rather than a white foreground surface.
-    expect(homeIcon.className).toContain("bg-[color:var(--app-accent)]");
-    expect(homeIcon.className).toContain("text-white");
+    expect(homeIcon.className).toContain(
+      "bg-[color:var(--app-settings-icon-surface)]",
+    );
+    expect(homeIcon.className).toContain(
+      "text-[color:var(--app-settings-icon-foreground)]",
+    );
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
       userId: "user-123",
@@ -224,9 +226,16 @@ describe("SavedLocationsSection", () => {
 
     render(<SavedLocationsSection />);
 
-    expect(
-      await screen.findByText(/unlock your vault to view saved places/i),
-    ).toBeInTheDocument();
+    const lockedLabel = await screen.findByText(
+      /unlock your vault to view saved places/i,
+    );
+    const lockedIcon = lockedLabel.parentElement?.parentElement?.querySelector(
+      '[data-location-utility-icon=""]',
+    );
+    expect(lockedIcon).toHaveClass(
+      "bg-[color:var(--app-settings-icon-surface)]",
+      "text-[color:var(--app-settings-icon-foreground)]",
+    );
     expect(mocks.loadSavedLocations).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
   });

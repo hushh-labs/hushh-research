@@ -241,7 +241,7 @@ function CircleSummaryRow({
             "flex h-9 w-9 shrink-0 items-center justify-center",
             isSmsCircle
               ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+              : "rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]",
           )}
           data-testid={
             isSmsCircle

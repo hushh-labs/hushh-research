@@ -13,16 +13,16 @@ export const buttonVariants = cva(
         // exactly that a non-destructive action never shares destructive's
         // background).
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
+          "bg-[color:var(--app-accent-action)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-action-hover)]",
         destructive:
-          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-[color:color-mix(in_srgb,var(--app-destructive)_80%,black)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_70%,black)] focus-visible:ring-[color:var(--app-destructive-deep)] dark:focus-visible:ring-[color:var(--app-destructive-bright)]",
         outline:
           "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
           "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
         ghost:
-          "text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]",
-        link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 hover:underline",
+          "text-[color:var(--app-accent-ink)] hover:bg-[color:var(--app-accent-tint)]",
+        link: "min-h-0 rounded-none text-[color:var(--app-accent-ink)] underline-offset-4 hover:underline",
       },
       size: {
         default:

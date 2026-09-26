@@ -462,7 +462,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       expect.objectContaining({ action: "detail_edited", result: "error" }),
     );
     expect((await screen.findAllByText(/latest summary could not refresh/i)).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Risk Profile", hidden: true }),
+    ).toBeTruthy();
   });
 
   it("requires confirmation before forgetting and deletes the exact path", async () => {
@@ -955,7 +957,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
       // The control is right here, and the memory screen is still mounted.
       expect(toggle).toBeTruthy();
-      expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: "Risk Profile", hidden: true }),
+      ).toBeTruthy();
       // No navigation at all — specifically not to the Consent Center.
       expect(push).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalledWith(expect.stringContaining("/consent"));
@@ -1009,7 +1013,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       ).toBeTruthy();
       // No server detail leaked, no crash, no redirect.
       expect(screen.queryByText(/server stack trace/)).toBeNull();
-      expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: "Risk Profile", hidden: true }),
+      ).toBeTruthy();
       expect(push).not.toHaveBeenCalled();
     });
 

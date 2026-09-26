@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { twMerge } from "tailwind-merge";
 
 /**
  * The Agent Chat header, read out of the shipped source rather than retyped.
@@ -99,6 +100,9 @@ const WORKSPACE_PATH = "components/agent/agent-chat-workspace.tsx";
 const PANEL_PATH = "components/agent/hermes-chat-panel.tsx";
 const PUPPY_PICKER_PATH = "components/agent/puppy-model-picker.tsx";
 const SEGMENTED_PATH = "lib/morphy-ux/ui/segmented-control.tsx";
+const SHELL_ACTION_PATH = "components/app-ui/shell-action-surface.tsx";
+const SELECT_PATH = "components/ui/select.tsx";
+const GLOBAL_CSS_PATH = "app/globals.css";
 
 const workspace = read(WORKSPACE_PATH);
 
@@ -114,17 +118,42 @@ if (headerStart < 0 || headerEnd < headerStart) {
 }
 const header = workspace.slice(headerStart, headerEnd);
 
-const headerContainerClass = one(
+const headerContainerMatch = one(
   header,
-  /"(agent-chat-header [^"]+)"/,
-  "header container class",
+  /^"(agent-chat-header [^"]+)",\s*"([^"]+)"\s*,?\s*\)\}/,
+  "both header container class strings",
   WORKSPACE_PATH,
-)[1];
+);
+const headerContainerClass = twMerge(
+  headerContainerMatch[1],
+  headerContainerMatch[2],
+);
 
 const identityClass = one(
   header,
   /<div className="(flex min-w-0 items-center gap-3)">/,
   "identity cluster class",
+  WORKSPACE_PATH,
+)[1];
+
+const historyClass = one(
+  header,
+  /aria-label=\{isHistoryDrawerOpen[\s\S]*?className="([^"]+)"/,
+  "history trigger class",
+  WORKSPACE_PATH,
+)[1];
+
+const historyLabel = one(
+  header,
+  /aria-label=\{isHistoryDrawerOpen\s*\?\s*"[^"]+"\s*:\s*"([^"]+)"\}/,
+  "history trigger label",
+  WORKSPACE_PATH,
+)[1];
+
+const identityMarkClass = one(
+  header,
+  /<div className="(grid h-9 w-9[^\"]+)"\/?>/,
+  "identity mark class",
   WORKSPACE_PATH,
 )[1];
 
@@ -153,8 +182,36 @@ const subtitleExpression = flatten(
 
 const clusterClass = one(
   header,
-  /<div className="(flex shrink-0 items-center gap-2)">/,
+  /<div className="(flex min-w-0 items-center justify-between gap-2 lg:shrink-0)">/,
   "right-hand cluster class",
+  WORKSPACE_PATH,
+)[1];
+
+const toggleOverrideClass = one(
+  header,
+  /<SegmentedControl[\s\S]*?className="([^"]+)"\s*\/>/,
+  "header toggle overrides",
+  WORKSPACE_PATH,
+)[1];
+
+const profileClass = one(
+  header,
+  /data-testid="profile-open-button"[\s\S]*?className="([^"]+)"/,
+  "profile trigger class",
+  WORKSPACE_PATH,
+)[1];
+
+const profileLabel = one(
+  header,
+  /data-testid="profile-open-button"\s+aria-label="([^"]+)"/,
+  "profile trigger label",
+  WORKSPACE_PATH,
+)[1];
+
+const profileAvatarClass = one(
+  header,
+  /<Avatar className="([^"]+)">/,
+  "profile avatar class",
   WORKSPACE_PATH,
 )[1];
 
@@ -278,6 +335,57 @@ const puppyMountedLazily = workspace.includes("{puppyEverOpened ? (");
 const panel = read(PANEL_PATH);
 const puppyPicker = read(PUPPY_PICKER_PATH);
 const segmented = read(SEGMENTED_PATH);
+const shellAction = read(SHELL_ACTION_PATH);
+const select = read(SELECT_PATH);
+const globalCss = read(GLOBAL_CSS_PATH);
+const darkTokenStart = globalCss.indexOf("\n.dark {");
+if (darkTokenStart < 0) fail("light theme token region", GLOBAL_CSS_PATH);
+const lightTokenRegion = globalCss.slice(0, darkTokenStart);
+
+const shellBaseClass = one(
+  shellAction,
+  /"(shell-action-surface group\/shell-action[^"]+)"/,
+  "shared shell action base class",
+  SHELL_ACTION_PATH,
+)[1];
+
+const shellIconClass = one(
+  shellAction,
+  /icon:\s*"([^"]+)"/,
+  "shared shell icon variant class",
+  SHELL_ACTION_PATH,
+)[1];
+
+const selectTriggerBaseClass = one(
+  select,
+  /"(border-input data-\[placeholder\][^"]+)"/,
+  "shared select trigger base class",
+  SELECT_PATH,
+)[1];
+
+const selectChevronClass = one(
+  select,
+  /<SelectPrimitive\.Icon asChild>[\s\S]*?className="([^"]+)"/,
+  "shared select chevron class",
+  SELECT_PATH,
+)[1];
+
+/** Pull the real token and breakpoint rules into the browser fixture. */
+export const AGENT_HEADER_GLOBAL_CSS = [
+  one(lightTokenRegion, /^(:root \{[\s\S]*?^\})/m, "light theme tokens", GLOBAL_CSS_PATH)[1],
+  one(
+    globalCss,
+    /^(\.agent-chat-workspace \{[\s\S]*?^\})/m,
+    "Agent Chat layout tokens",
+    GLOBAL_CSS_PATH,
+  )[1],
+  one(
+    globalCss,
+    /^(@media \(min-width: 1024px\) \{\s*\.agent-chat-workspace \{[\s\S]*?^\})/m,
+    "Agent Chat desktop header breakpoint",
+    GLOBAL_CSS_PATH,
+  )[1],
+].join("\n");
 
 const panelHeaderClass = one(
   panel,
@@ -347,7 +455,13 @@ export const AGENT_SURFACE_SOURCE = {
   header: {
     containerClass: headerContainerClass,
     identityClass,
+    identityMarkClass,
+    historyClass: twMerge(shellBaseClass, shellIconClass, historyClass),
+    historyLabel,
     clusterClass,
+    profileClass: twMerge(shellBaseClass, shellIconClass, profileClass),
+    profileLabel,
+    profileAvatarClass,
     nameClass: nameMatch[1],
     /** `isPuppySurface ? "Puppy One" : "One"`, run by the fixture. */
     nameExpression: flatten(nameMatch[2]),
@@ -358,8 +472,12 @@ export const AGENT_SURFACE_SOURCE = {
   toggle: {
     ariaLabel: toggleAriaLabel,
     options: toggleOptions,
-    containerClass: [...segmentedGroupClasses, segmentedSm.container].join(" "),
-    segmentClass: `${segmentedSegmentBase} ${segmentedSm.segment} flex-1`,
+    containerClass: twMerge(
+      ...segmentedGroupClasses,
+      segmentedSm.container,
+      toggleOverrideClass,
+    ),
+    segmentClass: twMerge(segmentedSegmentBase, segmentedSm.segment, "flex-1"),
   },
   cloudPicker: {
     /** The guard on the reserved slot. Must NOT depend on the surface. */
@@ -371,7 +489,8 @@ export const AGENT_SURFACE_SOURCE = {
     ariaLabel: triggerMatch[2],
     /** `Running ${modelPreference.effective_model}`, binding left in. */
     titleTemplate: triggerMatch[3],
-    triggerClass: triggerMatch[4],
+    triggerClass: twMerge(selectTriggerBaseClass, triggerMatch[4]),
+    chevronClass: selectChevronClass,
     labelStrip: {
       pattern: stripMatch[1],
       flags: stripMatch[2],

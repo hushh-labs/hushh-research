@@ -19,7 +19,10 @@ export function useEffectiveAvatarUrl(): string | null {
   const { user } = useAuth();
   const uid = user?.uid ?? null;
   const firebasePhoto = user?.photoURL ?? null;
-  const [effective, setEffective] = useState<string | null>(null);
+  const [effective, setEffective] = useState<{
+    uid: string;
+    photoUrl: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -30,7 +33,12 @@ export function useEffectiveAvatarUrl(): string | null {
     const read = () => {
       if (!active) return;
       const snap = AccountIdentityService.peekCachedIdentity(uid);
-      setEffective(snap?.data?.photo_url ?? null);
+      const photoUrl = snap?.data?.photo_url ?? null;
+      setEffective((current) =>
+        current?.uid === uid && current.photoUrl === photoUrl
+          ? current
+          : { uid, photoUrl },
+      );
     };
     read();
     if (shouldSkipAmbientIdentityHydrationForAutomation()) {
@@ -50,5 +58,10 @@ export function useEffectiveAvatarUrl(): string | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
-  return effective ?? firebasePhoto;
+  // The top bar persists while Feed and other routes remount. On an account
+  // switch, the old cached photo must not appear in the new account's first
+  // render while this effect is still reading its identity.
+  return effective?.uid === uid
+    ? effective.photoUrl ?? firebasePhoto
+    : firebasePhoto;
 }

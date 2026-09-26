@@ -417,19 +417,17 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
 }
 
 function metricValueClassName(tone: AgentMetricTone): string {
-  if (tone === "positive") return "text-[#34C759]";
-  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#FF9500]";
-  if (tone === "muted") return "text-[#8E8E93]";
-  return "text-[#1D1D1F] dark:text-[#F5F5F7]";
+  if (tone === "positive") return "text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]";
+  if (tone === "accent") return "text-[color:var(--app-accent-ink)]";
+  if (tone === "warning") return "text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]";
+  if (tone === "muted") return "text-muted-foreground";
+  return "text-foreground";
 }
 
 function metricLabelClassName(tone: AgentMetricTone): string {
-  if (tone === "positive") return "text-[#34C759]";
-  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#8E8E93]";
-  if (tone === "muted") return "text-[#8E8E93]";
-  return "text-[#8E8E93]";
+  if (tone === "positive") return metricValueClassName(tone);
+  if (tone === "accent") return "text-[color:var(--app-accent-ink)]";
+  return "text-muted-foreground";
 }
 
 function AgentMetric({
@@ -535,7 +533,7 @@ function AgentGridItem({
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full text-center text-sm font-medium leading-5 tracking-normal text-foreground [overflow-wrap:anywhere]"
           data-ui-role="body-strong"
         >
           {mode.title}
@@ -555,13 +553,13 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
+        "group/agent-row relative grid min-h-16 w-full grid-cols-[40px_minmax(0,1fr)_14px] items-center gap-x-2 gap-y-0.5 sm:grid-cols-[40px_minmax(0,1fr)_minmax(64px,auto)_14px] overflow-hidden px-3.5 py-2 text-left outline-none sm:gap-x-3",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
-      <span className="relative z-10 flex items-center justify-center">
+      <span className="relative z-10 col-start-1 row-span-2 row-start-1 flex items-center justify-center sm:row-span-1">
         <AgentSectionIcon
           id={mode.id}
           icon={mode.icon}
@@ -574,10 +572,10 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           profileStyle={dashboardAgentIconStyle(mode)}
         />
       </span>
-      <span className="relative z-10 flex min-w-0 flex-col justify-center">
+      <span className="relative z-10 col-start-2 row-start-1 flex min-w-0 flex-col justify-center">
         <span
           data-ui-role="row-label"
-          className="ui-text-row-label min-w-0 truncate"
+          className="ui-text-row-label min-w-0 [overflow-wrap:anywhere]"
         >
           {mode.title}
         </span>
@@ -586,16 +584,16 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           stays available as the row's title attribute and in grid view.
         */}
       </span>
-      <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
+      <span className="relative z-10 col-start-2 row-start-2 flex min-w-0 justify-start [&>span]:justify-start [&>span]:text-left sm:col-start-3 sm:row-start-1 sm:max-w-[132px] sm:justify-end sm:[&>span]:justify-end sm:[&>span]:text-right">
         <AgentMetric mode={mode} />
       </span>
       <CaretRightIcon
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC]"
+        className="relative z-10 col-start-3 row-span-2 row-start-1 h-4 w-4 text-muted-foreground sm:col-start-4 sm:row-span-1"
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[color:var(--app-settings-border)] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -613,7 +611,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[color:var(--app-settings-icon-surface)] p-1"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -621,13 +619,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-11 w-11 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "grid"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            ? "bg-[color:var(--app-settings-surface)] text-foreground shadow-sm hover:bg-[color:var(--app-settings-surface)]"
             : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <GridIcon className="h-3.5 w-3.5" aria-hidden />
+        <GridIcon className="h-[18px] w-[18px]" weight="regular" aria-hidden />
       </ShellActionSurface>
       <ShellActionSurface
         aria-label="Show agent list view"
@@ -635,13 +633,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-11 w-11 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "list"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            ? "bg-[color:var(--app-settings-surface)] text-foreground shadow-sm hover:bg-[color:var(--app-settings-surface)]"
             : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <ListIcon className="h-3.5 w-3.5" aria-hidden />
+        <ListIcon className="h-[18px] w-[18px]" weight="regular" aria-hidden />
       </ShellActionSurface>
     </div>
   );
@@ -717,7 +715,7 @@ export function OneAgentRoster({
         <PageTitle
           as="h1"
           id="one-agents-heading"
-          className="min-w-0 whitespace-nowrap"
+          className="min-w-0"
         >
           Agents ({modes.length})
         </PageTitle>
@@ -755,11 +753,11 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 p-3.5 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)] sm:p-[18px]"
+            className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-3.5 sm:p-[18px]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
+              className="grid w-full grid-cols-[repeat(3,minmax(0,1fr))] justify-center gap-x-2 gap-y-5 sm:grid-cols-[repeat(3,128px)] sm:gap-x-6 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
@@ -769,7 +767,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)]"
+            className="group/agent-list overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />

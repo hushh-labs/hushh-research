@@ -318,7 +318,7 @@ describe("OneDashboardPage", () => {
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
-    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(84px,1fr))]");
+    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(0,1fr))]");
     expect(grid?.className).not.toContain("sm:grid-cols-[repeat(4");
   });
 

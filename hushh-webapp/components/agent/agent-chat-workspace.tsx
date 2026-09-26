@@ -46,7 +46,7 @@ import {
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import {
@@ -1238,11 +1238,11 @@ function AgentWelcomePanel({
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
           One workspace
         </div>
-        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
+        <h2 className="ui-text-large-page-title text-foreground [overflow-wrap:anywhere]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
-          Ask One about your markets, portfolio, memories, or consent workflows.
+        <p className="ui-text-page-subtitle mx-auto mt-3 max-w-xl text-center text-balance text-muted-foreground">
+          Ask One about your finances, memories, or who can access your information.
         </p>
         <AgentPromptSuggestions
           prompts={prompts}
@@ -1278,7 +1278,7 @@ function PostSetupWelcomeCard({
   return (
     <section
       data-testid="post-setup-welcome-card"
-      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.42)] sm:p-7"
+      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-5 sm:p-7"
     >
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         One · Your private agent
@@ -1701,9 +1701,9 @@ function AgentBubble({
           aria-live={!isUser && isStreaming ? "polite" : undefined}
           data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
           className={cn(
-            "text-sm leading-6",
+            "text-base leading-6 [overflow-wrap:anywhere]",
             isUser
-              ? "rounded-[22px] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]"
+              ? "rounded-[22px] rounded-br-[7px] bg-[color:var(--app-accent-action)] px-4 py-2.5 text-[color:var(--app-accent-fg)]"
               : showAssistantBubble
                 ? "px-1 py-2 text-foreground"
                 : "px-0 py-1 text-foreground",
@@ -1744,7 +1744,7 @@ function AgentBubble({
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
         <div
           className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
+            "mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground",
             isUser && "justify-end text-right",
           )}
         >
@@ -1756,24 +1756,24 @@ function AgentBubble({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                className={cn(buttonVariants({ variant: "ghost", size: "icon-touch" }), "text-muted-foreground hover:bg-[color:var(--app-settings-icon-surface)] hover:text-foreground")}
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
                 {copied ? (
-                  <Check className="h-3.5 w-3.5" />
+                  <Check weight="regular" className="h-3.5 w-3.5" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" />
+                  <Copy weight="regular" className="h-3.5 w-3.5" />
                 )}
               </button>
               <button
                 type="button"
                 onClick={() => onRate?.(liked ? null : "up")}
                 className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  buttonVariants({ variant: "ghost", size: "icon-touch" }),
                   liked
-                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+                    ? "bg-[color:var(--app-settings-icon-surface)] text-foreground"
+                    : "text-muted-foreground hover:bg-[color:var(--app-settings-icon-surface)] hover:text-foreground",
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
@@ -1785,10 +1785,10 @@ function AgentBubble({
                 type="button"
                 onClick={() => onRate?.(disliked ? null : "down")}
                 className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  buttonVariants({ variant: "ghost", size: "icon-touch" }),
                   disliked
-                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+                    ? "bg-[color:var(--app-settings-icon-surface)] text-foreground"
+                    : "text-muted-foreground hover:bg-[color:var(--app-settings-icon-surface)] hover:text-foreground",
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
@@ -1803,11 +1803,11 @@ function AgentBubble({
                   type="button"
                   onClick={onRetry}
                   disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  className={cn(buttonVariants({ variant: "ghost", size: "compact" }), "min-w-11 px-3 text-muted-foreground hover:bg-[color:var(--app-settings-icon-surface)] hover:text-foreground")}
                   aria-label="Try again"
                   title="Try again"
                 >
-                  <RotateCcw className="h-3.5 w-3.5" />
+                  <RotateCcw weight="regular" className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Try again</span>
                 </button>
               ) : null}
@@ -6104,7 +6104,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           type="button"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
-          className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          className="h-11 w-11 text-muted-foreground hover:text-foreground"
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -6112,12 +6112,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           aria-label="Start voice mode"
           title="Start voice mode"
         >
-          <Mic className="h-4 w-4" />
+          <Mic weight="regular" className="h-4 w-4" />
         </ShellActionSurface>
       ) : null}
       <ShellActionSurface
         type="submit"
-        className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+        className="h-11 w-11 border-transparent bg-[color:var(--app-accent-action)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-action-hover)] disabled:bg-[color:var(--app-neutral-fill)] disabled:text-muted-foreground"
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
@@ -6130,7 +6130,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           void submitComposerText();
         }}
       >
-        <Send className="h-4 w-4" />
+        <Send weight="regular" className="h-4 w-4" />
       </ShellActionSurface>
     </>
   );
@@ -6204,12 +6204,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-settings-canvas)]",
           )}
         >
           <div
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y flex-col items-stretch justify-center gap-1.5 bg-[color:var(--app-settings-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:gap-3",
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
@@ -6220,11 +6220,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
-                className="relative z-[540]"
+                className="relative z-[540] h-11 w-11"
               >
                 <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
               </ShellActionSurface>
-              <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-settings-icon-surface)]">
                 {isPuppySurface ? (
                   <Laptop
                     className="h-5 w-5 text-[color:var(--app-accent-deep)]"
@@ -6267,19 +6267,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              {/*
-                The compact segmented control at header scale. The full-width
-                filter primitive was tried here first and stood ~44px tall
-                against 36px icon buttons, so the header stopped lining up.
-                This one is h-8. It has NO sliding thumb: the active segment is
-                a per-button background that cross-fades, and a comment here
-                used to claim a slide the code never had. `SegmentedPill` is
-                the primitive that ships the translateX indicator, with its own
-                theme hooks and reduced-motion guard; the day this header wants
-                that animation it should move to that component rather than
-                grow a second implementation of it.
-              */}
+            <div className="flex min-w-0 items-center justify-between gap-2 lg:shrink-0">
+              {/* Keep agent switching comfortably touchable in the second phone
+                  header row and aligned with the 44px desktop controls. */}
               <SegmentedControl
                 variant="compact"
                 size="sm"
@@ -6306,7 +6296,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       "Puppy One, on your machine, with its own conversation",
                   },
                 ]}
-                className="w-auto shrink-0"
+                className="h-12 w-auto shrink-0 p-0.5 [&>button]:h-11"
               />
               {/* A fixed slot, present whenever this person HAS a picker,
                   so switching surfaces cannot slide the toggle sideways under
@@ -6353,7 +6343,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-full shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground"
+                    className="!h-11 w-auto max-w-full shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground"
                   >
                     {/* "3.8 Flash", not "Gemini 3.8 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
@@ -6401,9 +6391,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
                 onClick={() => requestProfilePaneOpen("tap")}
-                className="!h-8 !w-8 shrink-0 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
+                className="!h-11 !w-11 shrink-0 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
               >
-                <Avatar className="h-8 w-8">
+                <Avatar className="h-10 w-10">
                   {userAvatarUrl ? (
                     <AvatarImage src={userAvatarUrl} alt="" />
                   ) : null}
@@ -7537,25 +7527,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             type="button"
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7"
+                            className="h-11 w-11"
                             aria-label={`Edit queued message ${index + 1}`}
                             onClick={() => {
                               setEditingQueuedPromptId(prompt.id);
                               setEditingQueuedPromptText(prompt.text);
                             }}
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Pencil weight="regular" className="h-3.5 w-3.5" />
                           </Button>
                         )}
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          className="h-11 w-11 text-muted-foreground hover:text-destructive"
                           aria-label={`Remove queued message ${index + 1}`}
                           onClick={() => removeQueuedPrompt(prompt.id)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 weight="regular" className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ))}
@@ -7595,7 +7585,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           openLongPromptAttachment();
                         }}
                       >
-                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <FileText weight="regular" className="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">
                             {getTextAttachmentTitle(longPromptAttachment.text)}
@@ -7609,11 +7599,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="absolute right-2 top-2 h-8 w-8"
+                        className="absolute right-1 top-1 h-11 w-11"
                         aria-label="Remove text attachment"
                         onClick={removeLongPromptAttachment}
                       >
-                        <X className="h-4 w-4" />
+                        <X weight="regular" className="h-4 w-4" />
                       </Button>
                     </div>
                   ) : null}
@@ -7633,10 +7623,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       composerExpanded
                         ? isCanonicalChatRoute
                           ? "bottom-chrome-surface"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                          : "bg-[color:var(--app-settings-surface)] ring-1 ring-inset ring-[color:var(--app-settings-border)]"
                         : isCanonicalChatRoute
                           ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
+                          : "bg-[color:var(--app-settings-surface)]",
                     )}
                   >
                     <div
@@ -7712,8 +7702,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
                         className={
                             composerExpanded
-                              ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30"
+                              ? "absolute right-1 top-1 h-11 w-11 rounded-full text-muted-foreground"
+                              : "h-11 w-11 shrink-0 rounded-full border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                         }
                         aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
                         title={composerExpanded ? "Collapse" : "Expand"}
@@ -7726,9 +7716,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
                       >
                         {composerExpanded ? (
-                          <Minimize2 className="h-4 w-4" />
+                          <Minimize2 weight="regular" className="h-4 w-4" />
                         ) : (
-                          <Maximize2 className="h-4 w-4" />
+                          <Maximize2 weight="regular" className="h-4 w-4" />
                         )}
                       </Button>
                     </div>
@@ -7739,7 +7729,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "flex shrink-0 items-center gap-1.5"
                           }
                         >
-                          <div className="flex items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] p-1">
+                          <div className="flex items-center gap-1 rounded-full border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] p-1">
                             {composerActionRail}
                           </div>
                         </div>

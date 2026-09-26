@@ -138,7 +138,7 @@ export function SetupNavigationTile({
               isComplete
                 ? "text-[var(--tone-green)]"
                 : statusTone === "required"
-                  ? "rounded-full bg-[var(--app-accent-tint)] px-2 py-0.5 font-semibold text-[var(--app-accent-deep)]"
+                  ? "rounded-full bg-[var(--app-accent-tint)] px-2 py-0.5 font-semibold text-[var(--app-accent-ink)]"
                   : "text-muted-foreground",
             )}
           >

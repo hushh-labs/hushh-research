@@ -192,7 +192,7 @@ export function GmailVerificationOnboarding({
             </p>
           </div>
         </div>
-        <Button type="button" onClick={onRequestVaultUnlock} className="w-full justify-center h-10 font-semibold rounded-full">
+        <Button type="button" size="standard" onClick={onRequestVaultUnlock} className="w-full justify-center font-semibold rounded-full">
           Open private vault
         </Button>
       </SurfaceInset>
@@ -274,18 +274,20 @@ export function GmailVerificationOnboarding({
       <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
         <Button
           type="button"
+          size="standard"
           onClick={save}
           disabled={saving || !details.trim()}
-          className="w-full sm:w-auto h-10 font-semibold rounded-full justify-center px-6"
+          className="w-full sm:w-auto font-semibold rounded-full justify-center px-6"
         >
           {saving ? "Saving…" : "Save KYC profile"}
         </Button>
         <Button
           type="button"
           variant="muted"
+          size="standard"
           onClick={() => onDeferredChange(true)}
           disabled={saving}
-          className="w-full sm:w-auto h-10 font-medium rounded-full justify-center px-6"
+          className="w-full sm:w-auto font-medium rounded-full justify-center px-6"
         >
           Skip
         </Button>

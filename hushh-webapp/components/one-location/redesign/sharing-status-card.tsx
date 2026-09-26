@@ -153,7 +153,7 @@ export function SharingStatusCard({
   const selfAvatarUrl = useEffectiveAvatarUrl();
 
   return (
-    <div className="relative overflow-hidden rounded-[20px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-1 dark:ring-inset dark:ring-[color:var(--app-separator)]">
+    <div className="relative overflow-hidden rounded-[var(--app-card-radius-standard,20px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none">
       <div className="relative h-[280px]">
         {/* Backdrop: the real live map when we have a fix, else a stylised map. */}
         {point ? (
@@ -183,7 +183,7 @@ export function SharingStatusCard({
             >
               <span
                 className={cn(
-                  "flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white text-[13px] font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.15)] dark:border-[color:var(--app-primary-surface)] dark:shadow-none",
+                  "flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-[color:var(--app-card-surface-default-solid)] text-[13px] font-semibold shadow-[var(--app-card-shadow-standard)] dark:shadow-none",
                   MARKER_TINT_CLASS,
                 )}
               >
@@ -191,7 +191,7 @@ export function SharingStatusCard({
               </span>
               {/* Live dot: a real "this person is active" fact, so it takes the
                   success role token rather than a hardcoded green. */}
-              <span className="absolute bottom-0.5 right-0.5 h-[11px] w-[11px] rounded-full border-2 border-white bg-[color:var(--app-success)]" />
+              <span className="absolute bottom-0.5 right-0.5 h-[11px] w-[11px] rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-success)]" />
             </div>
           );
         })}
@@ -210,7 +210,7 @@ export function SharingStatusCard({
                   : "Live location on"
                 : "Turn on live location"
             }
-            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none"
+            className="inline-flex min-h-11 items-center gap-[7px] rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 shadow-[var(--app-card-shadow-standard)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70 enabled:cursor-pointer dark:shadow-none"
           >
             {toggleBusy ? (
               <Loader2 className="h-[11px] w-[11px] animate-spin text-[color:var(--app-secondary-label)]" />
@@ -242,15 +242,15 @@ export function SharingStatusCard({
             </span>
           </button>
 
-          <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e] dark:text-[color:var(--app-label)]">
+          <h2 className="mt-3.5 text-[25px] font-semibold leading-tight tracking-[-0.4px] text-[color:var(--app-label)]">
             {title}
           </h2>
-          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[20px] text-[#8E8E93] dark:text-[color:var(--app-secondary-label)]">
+          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[20px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
 
           {isSharing ? (
-            <div className="mt-[18px] inline-flex items-center gap-[11px] rounded-[14px] bg-white px-3.5 py-[11px] shadow-[0_2px_8px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none">
+            <div className="mt-[18px] inline-flex items-center gap-[11px] rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-[11px] shadow-[var(--app-card-shadow-standard)] dark:shadow-none">
               {/* A countdown, not a state: the LIVE badge above already carries
                   this card's one strong colour. Violet meant nothing here (it
                   is the link/share tile tone), and orange would read as
@@ -260,11 +260,11 @@ export function SharingStatusCard({
                 <Clock className="h-[15px] w-[15px] text-[color:var(--app-secondary-label)]" />
               </span>
               <span className="block">
-                <span className="block text-[15px] font-bold text-[#1c1c2e] dark:text-[color:var(--app-label)]">
+                <span className="block text-[15px] font-semibold text-[color:var(--app-label)]">
                   {endsLabel ?? "Sharing live"}
                 </span>
                 {startedLabel ? (
-                  <span className="mt-px block text-[15px] leading-[20px] text-[#8E8E93] dark:text-[color:var(--app-secondary-label)]">
+                  <span className="mt-px block text-[15px] leading-[20px] text-[color:var(--app-secondary-label)]">
                     {startedLabel}
                   </span>
                 ) : null}
@@ -274,7 +274,7 @@ export function SharingStatusCard({
             <button
               type="button"
               onClick={onTapShare}
-              className="mt-[18px] inline-flex items-center gap-[9px] rounded-full bg-[color:var(--app-accent)] px-5 py-3 text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_rgba(0,122,255,0.32)] dark:shadow-none"
+              className="mt-[18px] inline-flex min-h-11 items-center gap-[9px] rounded-full bg-[color:var(--app-accent)] px-5 py-3 text-[color:var(--app-accent-fg)] shadow-[var(--app-card-shadow-standard)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:shadow-none"
             >
               <Navigation className="h-4 w-4" />
               <span className="text-base font-semibold">Tap to share</span>
@@ -284,9 +284,9 @@ export function SharingStatusCard({
       </div>
 
       {/* Privacy footer. */}
-      <div className="flex items-center gap-[11px] border-t border-black/[0.06] px-[18px] py-3.5 dark:border-[color:var(--app-separator)]">
-        <Lock className="h-[15px] w-[15px] text-black/40 dark:text-[color:var(--app-secondary-label)]" />
-        <span className="text-[15px] leading-[20px] text-[#8E8E93] dark:text-[color:var(--app-secondary-label)]">
+      <div className="flex items-center gap-[11px] border-t border-[color:var(--app-separator)] px-[18px] py-3.5">
+        <Lock className="h-[15px] w-[15px] text-[color:var(--app-secondary-label)]" />
+        <span className="text-[15px] leading-[20px] text-[color:var(--app-secondary-label)]">
           Your location is only visible to your circle.
         </span>
       </div>

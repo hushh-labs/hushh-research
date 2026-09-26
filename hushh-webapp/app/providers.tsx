@@ -853,8 +853,8 @@ export function Providers({ children }: ProvidersProps) {
           }}
           mobileOffset={{
             top: "calc(var(--top-inset, 0px) + 12px)",
-            left: "1rem",
-            right: "1rem",
+            left: "max(1rem, env(safe-area-inset-left, 0px))",
+            right: "max(1rem, env(safe-area-inset-right, 0px))",
           }}
         />
       </StepProgressProvider>

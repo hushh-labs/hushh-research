@@ -133,8 +133,9 @@ export function AgentConnectionsDrawer({
     <>
       <div
         aria-hidden="true"
+        data-testid="agent-connections-backdrop"
         className={cn(
-          "fixed inset-0 bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          "fixed inset-0 touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)] transition-opacity duration-150 motion-reduce:transition-none",
           mode === "connections" ? "z-[550]" : "z-[520]",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}

@@ -163,7 +163,7 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   // brightens for dark the way --app-warning and --app-destructive do.
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
-  gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  gray: "bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]",
   capability: "bg-transparent text-current shadow-none ring-0",
   transparent: "bg-transparent text-current shadow-none ring-0",
 } as const;
@@ -544,6 +544,7 @@ export function SettingsRow({
                   ? 16
                   : 17
             }
+            weight="regular"
           />
         </span>
       ) : null}

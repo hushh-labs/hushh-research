@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -204,16 +205,14 @@ export function writeStoredConnectSearchQuery(query: string): void {
  * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
  * header that is supposed to be covering them.
  *
- * `bg-background`, at full opacity, NOT `bg-background/85`. Fifteen percent of a
- * roster row is still a roster row: names and avatars read straight through the
- * strips at phone width, which is the "list scrolls behind the header" this
- * fixes. The blur went with it -- it has nothing left to blur, and it cost a
- * compositing layer on every scroll frame.
+ * The settings canvas is fully opaque. A translucent background lets names and
+ * avatars read through the strips at phone width. The blur went with it -- it
+ * has nothing left to blur, and it cost a compositing layer on every scroll frame.
  *
  * Held by e2e/connect-sticky-header.layout.spec.ts.
  */
 const CONNECT_STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
+  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-[color:var(--app-settings-canvas)] px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
 
 /**
  * The search row pins UNDER the header, not with it.
@@ -230,7 +229,7 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * this field filters read straight through it as they scroll past.
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-[color:var(--app-settings-canvas)] px-[var(--page-inline-gutter-standard)] py-2";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -2727,6 +2726,47 @@ export default function ConnectPageClient() {
     );
   });
 
+  const handleDirectoryMenuKeyDown = (
+    event: ReactKeyboardEvent<HTMLElement>,
+  ) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]:not([disabled])',
+      ),
+    );
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    let nextIndex: number;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (currentIndex < 0)
+      nextIndex = event.key === "ArrowDown" ? 0 : items.length - 1;
+    else if (event.key === "ArrowDown")
+      nextIndex = (currentIndex + 1) % items.length;
+    else nextIndex = (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+
+  const handleDirectoryMenuTriggerKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    setDirectoryMenuOpen(true);
+    window.requestAnimationFrame(() => {
+      const items = document.querySelectorAll<HTMLButtonElement>(
+        '[data-testid="connect-directory-menu"] [role="menuitemradio"]:not([disabled])',
+      );
+      const target =
+        event.key === "ArrowDown" ? items[0] : items[items.length - 1];
+      target?.focus();
+    });
+  };
+
   const directorySelector = (
     <div
       ref={directoryMenuRef}
@@ -2743,6 +2783,7 @@ export default function ConnectPageClient() {
               aria-expanded={directoryMenuOpen}
               aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
               className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+              onKeyDown={handleDirectoryMenuTriggerKeyDown}
             >
               <SectionLabel
                 as="span"
@@ -2764,6 +2805,7 @@ export default function ConnectPageClient() {
             sideOffset={6}
             collisionPadding={16}
             className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+            onKeyDown={handleDirectoryMenuKeyDown}
           >
             {directoryMenuItems}
           </PopoverContent>
@@ -2778,6 +2820,7 @@ export default function ConnectPageClient() {
             aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
             className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => setDirectoryMenuOpen((current) => !current)}
+            onKeyDown={handleDirectoryMenuTriggerKeyDown}
           >
             <SectionLabel
               as="span"
@@ -2795,6 +2838,7 @@ export default function ConnectPageClient() {
               role="menu"
               data-testid="connect-directory-menu"
               className={CONNECT_DIRECTORY_MENU_CLASSNAME}
+              onKeyDown={handleDirectoryMenuKeyDown}
             >
               {directoryMenuItems}
             </div>
@@ -2810,6 +2854,7 @@ export default function ConnectPageClient() {
       data-connect-page=""
       fitContent
       width="agent"
+      data-one-workspace="connect"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -3288,7 +3333,7 @@ export default function ConnectPageClient() {
                                   )}
                                 >
                                   <div className="relative">
-                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-[color:var(--app-secondary-label)]">
                                       <SearchIcon className="h-4.5 w-4.5" />
                                     </span>
                                     <Input
@@ -3361,7 +3406,7 @@ export default function ConnectPageClient() {
                                           setQuery("");
                                           searchInputRef.current?.focus();
                                         }}
-                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] motion-reduce:transition-none"
                                       >
                                         <X
                                           className="h-5 w-5"
@@ -3386,7 +3431,7 @@ export default function ConnectPageClient() {
                                       ? "Advisors are unavailable"
                                       : "People are unavailable"
                                   }
-                                  description={error}
+                                  description="We couldn't load this directory. Try again."
                                   trailing={
                                     <Button
                                       type="button"
@@ -3402,7 +3447,6 @@ export default function ConnectPageClient() {
                                     </Button>
                                   }
                                   density="compact"
-                                  tone="destructive"
                                 />
                               ) : people.length === 0 ? (
                                 // Tested against the list that is actually rendered below,
@@ -4005,17 +4049,17 @@ export default function ConnectPageClient() {
         />
 
         {showLimitBanner && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
-            <span className="text-xs font-medium text-foreground">
+          <div className="fixed top-[calc(var(--app-safe-area-top-effective,0px)+4.5rem)] left-1/2 z-(--z-transient) flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 flex-col gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-3.5 shadow-[var(--app-card-shadow-feature)] animate-in fade-in slide-in-from-top-3 duration-150 sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0 text-sm font-medium leading-5 text-foreground">
               You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
             </span>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="grid w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
                 size="compact"
-                className="text-muted-foreground hover:bg-muted"
+                className="w-full text-muted-foreground hover:bg-muted sm:w-auto"
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel
@@ -4025,6 +4069,7 @@ export default function ConnectPageClient() {
                 variant="blue"
                 effect="fill"
                 size="compact"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   setShowLimitBanner(false);
                   if (selectedPeople.size === 0) return;

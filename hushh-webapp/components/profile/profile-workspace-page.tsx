@@ -4752,7 +4752,7 @@ function ProfilePageContent({
         open={passphraseDialogOpen}
         onOpenChange={setPassphraseDialogOpen}
       >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
+        <DialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
           <DialogTitle>Change passphrase</DialogTitle>
           <DialogDescription>
             Set a new passphrase for Vault unlock. Your passkey and biometric

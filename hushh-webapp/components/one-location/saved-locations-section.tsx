@@ -15,7 +15,9 @@ import {
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import { LocationUtilityIcon } from "@/components/one-location/location-utility-icon";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { buttonVariants } from "@/components/ui/button";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -53,27 +55,12 @@ import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
-  const config: {
-    Icon: typeof Home;
-    bg: string;
-    fg: string;
-  } = category === "home"
-    ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
-    : category === "work"
-      ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
-      : { Icon: MapPin, bg: "bg-[color:var(--app-icon-tile-background)]", fg: "text-white" };
+  const CategoryGlyph =
+    category === "home" ? Home : category === "work" ? Briefcase : MapPin;
   return (
-    <span
-      className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
-        config.bg,
-        config.fg,
-      )}
-      data-testid={`saved-location-icon-${category}`}
-      aria-hidden="true"
-    >
-      <config.Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
-    </span>
+    <LocationUtilityIcon testId={`saved-location-icon-${category}`}>
+      <CategoryGlyph className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
+    </LocationUtilityIcon>
   );
 }
 
@@ -666,7 +653,7 @@ export function SavedLocationsSection() {
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
+            className={buttonVariants({ variant: "ghost", size: "compact" })}
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -678,9 +665,9 @@ export function SavedLocationsSection() {
         <div className="overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-none">
           {!hasVaultAccess ? (
             <div className="flex min-h-[72px] items-center gap-3 px-4 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white">
+              <LocationUtilityIcon>
                 <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              </span>
+              </LocationUtilityIcon>
               <div className="min-w-0">
                 <p className="text-[17px] font-normal leading-[22px] text-foreground">
                   Unlock your vault to view saved places
@@ -707,7 +694,7 @@ export function SavedLocationsSection() {
               <button
                 type="button"
                 onClick={() => void reload()}
-                className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
+                className={buttonVariants({ variant: "ghost", size: "compact" })}
               >
                 Retry
               </button>
@@ -741,7 +728,7 @@ export function SavedLocationsSection() {
                       )
                     }
                     aria-expanded={expanded}
-                    className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
+                    className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[color:var(--app-settings-icon-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
                   >
                     <CategoryIcon category={location.category} />
                     <div className="min-w-0 flex-1">
@@ -760,13 +747,13 @@ export function SavedLocationsSection() {
                   </button>
 
                   {expanded ? (
-                    <div className="flex items-center gap-2 px-4 pb-3 pl-[60px]">
+                    <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:pl-[60px]">
                       {!location.address ? (
                         <button
                           type="button"
                           onClick={() => void handleRepairAddress(location)}
                           disabled={repairingId !== null}
-                          className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                          className={buttonVariants({ variant: "ghost", size: "compact" })}
                         >
                           <RefreshCw
                             className={cn(
@@ -788,7 +775,7 @@ export function SavedLocationsSection() {
                           capturing ||
                           locationControl.paused
                         }
-                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                        className={buttonVariants({ variant: "secondary", size: "compact" })}
                       >
                         <Pencil
                           className="h-[15px] w-[15px]"
@@ -801,7 +788,7 @@ export function SavedLocationsSection() {
                         type="button"
                         onClick={() => void handleRemove(location.id)}
                         disabled={removingId !== null}
-                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
+                        className={cn(buttonVariants({ variant: "ghost", size: "compact" }), "text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] dark:text-[color:var(--app-destructive-bright)]")}
                       >
                         {removingId === location.id ? (
                           <Loader2

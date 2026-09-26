@@ -16,7 +16,7 @@ type SheetContextValue = {
 const SheetContext = React.createContext<SheetContextValue | null>(null)
 
 function Sheet({
-  modal = false,
+  modal = true,
   open: controlledOpen,
   defaultOpen,
   onOpenChange,

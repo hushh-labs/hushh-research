@@ -56,7 +56,9 @@ describe("FeedActionableRow", () => {
         })}
       />,
     );
-    expect(liveContainer.querySelector(".bg-emerald-500")).not.toBeNull();
+    expect(
+      liveContainer.querySelector('[data-testid="feed-actionable-live-indicator"]'),
+    ).not.toBeNull();
 
     const { container: revokedContainer } = render(
       <FeedActionableRow
@@ -67,7 +69,9 @@ describe("FeedActionableRow", () => {
         })}
       />,
     );
-    expect(revokedContainer.querySelector(".bg-emerald-500")).toBeNull();
+    expect(
+      revokedContainer.querySelector('[data-testid="feed-actionable-live-indicator"]'),
+    ).toBeNull();
   });
 
   it("renders a routine actionable without the emergency frame", () => {
