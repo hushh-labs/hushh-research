@@ -542,3 +542,62 @@ def test_review_mode_non_ascii_configured_passphrase_still_matches(monkeypatch):
 
     assert response.status_code == 200
     assert minted["uid"] == "counterpart_uid_456"
+
+
+def _post_session_for(uid: str, passphrase: str | None):
+    client = TestClient(_build_app())
+    body: dict[str, str] = {"subject": "reviewer", "reviewer_uid": uid}
+    if passphrase is not None:
+        body["smoke_passphrase"] = passphrase
+    return client.post("/api/app-config/review-mode/session", json=body)
+
+
+def _set_shared_passphrase_pair(monkeypatch) -> None:
+    # Two accounts sharing one vault passphrase; the primary has none configured.
+    _clear_reviewer_env(monkeypatch)
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("REVIEWER_UID", "reviewer_uid_123")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_UID", "counterpart_uid_456")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_VAULT_PASSPHRASE", "shared-passphrase")
+
+
+def test_requested_primary_uid_mints_primary_despite_shared_passphrase(monkeypatch):
+    _set_shared_passphrase_pair(monkeypatch)
+    minted = _install_fake_minter(monkeypatch)
+
+    response = _post_session_for("reviewer_uid_123", "shared-passphrase")
+
+    assert response.status_code == 200
+    assert minted["uid"] == "reviewer_uid_123"
+
+
+def test_requested_counterpart_uid_still_mints_counterpart(monkeypatch):
+    _set_shared_passphrase_pair(monkeypatch)
+    minted = _install_fake_minter(monkeypatch)
+
+    response = _post_session_for("counterpart_uid_456", "shared-passphrase")
+
+    assert response.status_code == 200
+    assert minted["uid"] == "counterpart_uid_456"
+
+
+def test_requested_unknown_uid_falls_back_to_passphrase_matching(monkeypatch):
+    _set_shared_passphrase_pair(monkeypatch)
+    minted = _install_fake_minter(monkeypatch)
+
+    response = _post_session_for("someone_else", None)
+
+    assert response.status_code == 200
+    assert minted["uid"] == "reviewer_uid_123"
+
+
+def test_requested_uid_is_ignored_in_production(monkeypatch):
+    _set_shared_passphrase_pair(monkeypatch)
+    monkeypatch.setattr(health, "_is_production_runtime", lambda: True)
+    minted = _install_fake_minter(monkeypatch)
+
+    response = _post_session_for("counterpart_uid_456", None)
+
+    assert response.status_code == 200
+    assert minted["uid"] == "reviewer_uid_123"

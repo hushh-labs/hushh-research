@@ -156,12 +156,17 @@ def _select_review_mode_identity(
     APP_REVIEW_MODE and REVIEWER_UID), and for a passphrase that matches no
     pair. The counterpart pair only adds a second match: a passphrase equal to
     a configured pair's mints that pair's uid. In non-production, a requested_uid
-    matching a configured reviewer pair mints that pair directly. Values are never logged.
+    equal to the primary, or matching a configured reviewer pair, mints that identity directly. Values are never logged.
     """
     primary = (_resolve_reviewer_uid(), "reviewer")
     configured = _configured_reviewer_identities()
     if requested_uid and not _is_production_runtime():
         clean_requested = str(requested_uid).strip()
+        # The primary needs no passphrase (the reviewer button mints it bare),
+        # so asking for it by uid grants nothing a bare request would not. This
+        # keeps a shared passphrase from resolving the owner to the counterpart.
+        if primary[0] and clean_requested == primary[0]:
+            return primary
         for candidate_uid, _, subject in configured:
             if candidate_uid == clean_requested:
                 return candidate_uid, subject
