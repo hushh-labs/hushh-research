@@ -381,7 +381,7 @@ export function PhoneMandatePageContent() {
                 verificationStep === "code"
                   ? "Enter your code"
                   : verificationStep === "phone"
-                    ? "Welcome to One"
+                    ? "Your phone number"
                     : "Verify your phone number"
               }
               className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
@@ -389,7 +389,7 @@ export function PhoneMandatePageContent() {
               {verificationStep === "code"
                 ? "Enter your code"
                 : verificationStep === "phone"
-                  ? "Welcome to One"
+                  ? "Your phone number"
                   : "Verify your phone number"}
             </h1>
           </div>
