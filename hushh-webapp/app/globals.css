@@ -2727,7 +2727,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
  * second body gap that made the first useful module feel pushed down. */
 @media (max-width: 639px) {
   body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
-    height: calc(var(--app-top-content-offset) - 52px);
+    height: var(--top-shell-mask-visible-height);
   }
 }
 
@@ -2735,14 +2735,10 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
  * than the repeated overview hint. Keep the orbit readable without sending
  * either action under the fixed Agent Bar and navigation stack. */
 @media (max-width: 639px) and (max-height: 720px) {
-  body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
-    height: calc(var(--app-top-content-offset) - 64px);
-  }
-
   /* Preserve the title and both actions above fixed mobile chrome on short
    * phones; taller phones can use the more generous orbit below. */
   [data-connect-page] [data-circle-discovery-orbit] {
-    width: min(76vw, 18rem, max(9.5rem, calc(100svh - 32rem)));
+    width: min(76vw, 18rem, max(10rem, calc(100svh - 32rem)));
   }
 
   [data-connect-page] [data-circle-discovery-intro],
@@ -2791,7 +2787,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
 
 @media (max-width: 359px) and (max-height: 720px) {
   [data-connect-page] [data-circle-discovery-orbit] {
-    width: min(76vw, 18rem, max(9.5rem, calc(100svh - 32rem)));
+    width: min(76vw, 18rem, max(10rem, calc(100svh - 32rem)));
   }
 
   [data-connect-page] [data-circle-starter-icon] {
@@ -2808,10 +2804,6 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
 }
 
 @media (min-width: 360px) and (max-width: 399px) and (max-height: 850px) {
-  body:has([data-connect-page]) [data-app-shell-top-spacer="true"] {
-    height: calc(var(--app-top-content-offset) - 72px);
-  }
-
   [data-connect-page] [data-circle-discovery-orbit] {
     width: min(69vw, 18rem, calc(100svh - 26rem));
   }
