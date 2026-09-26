@@ -1115,7 +1115,7 @@ export function AuthStep({
         </div>
       </div>
 
-      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
+      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer, isAndroid() && lightStyles.androidFooter)}>
         <div
           className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
           data-auth-supporting-content

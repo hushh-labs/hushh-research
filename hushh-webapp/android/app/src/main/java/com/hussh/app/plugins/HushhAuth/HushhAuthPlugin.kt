@@ -64,6 +64,9 @@ class HushhAuthPlugin : Plugin() {
     private val DRIVE_AUTH_FALLBACK_GRACE_MS = 750L
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
+    private var googleSignInSettlement: GoogleSignInSettlement? = null
+    private val googleSignInHandler = Handler(Looper.getMainLooper())
+    private var googleSignInTimeout: Runnable? = null
     private var pendingGmailConnectCall: PluginCall? = null
     private var pendingCalendarConnectCall: PluginCall? = null
     private var pendingDriveConnectCall: PluginCall? = null
@@ -181,53 +184,113 @@ class HushhAuthPlugin : Plugin() {
         Log.d(TAG, "🤖 [HushhAuth] signIn() CALLED - Native plugin invoked!")
 
         pendingCall = call
+        val settlement = GoogleSignInSettlement()
+        googleSignInSettlement = settlement
 
-        activity.runOnUiThread {
-            val signInIntent = googleSignInClient.signInIntent
-            signInLauncher.launch(signInIntent)
+        try {
+            signInLauncher.launch(googleSignInClient.signInIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [HushhAuth] Could not open Google Sign-In: ${e.message}")
+            finishGoogleSignIn(call, settlement) {
+                call.reject("Google sign-in could not be opened.", GoogleSignInSettlement.FAILED)
+            }
         }
+    }
+
+    /**
+     * The only way a Google sign-in answers JS. It releases the in-progress
+     * slot and the exchange deadline, so a late or duplicate callback is a
+     * no-op instead of a second settlement.
+     */
+    private fun finishGoogleSignIn(
+        call: PluginCall,
+        settlement: GoogleSignInSettlement,
+        answer: () -> Unit
+    ) {
+        if (!settlement.settle()) return
+        googleSignInTimeout?.let(googleSignInHandler::removeCallbacks)
+        googleSignInTimeout = null
+        if (googleSignInSettlement === settlement) googleSignInSettlement = null
+        if (pendingCall === call) pendingCall = null
+        answer()
     }
 
     private fun handleSignInResult(resultCode: Int, data: Intent?) {
         val call = pendingCall
-        if (call == null) {
-            Log.e(TAG, "❌ [HushhAuth] No pending call!")
+        val settlement = googleSignInSettlement
+        if (call == null || settlement == null || settlement.isSettled) {
+            Log.e(TAG, "❌ [HushhAuth] No pending Google sign-in for result $resultCode")
             return
         }
 
-        try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            val account = task.getResult(ApiException::class.java)
-
-            Log.d(TAG, "✅ [HushhAuth] Got Google account: ${account.email}")
-
-            // Exchange for Firebase credential
-            firebaseAuthWithGoogle(account, call)
-
+        val account = try {
+            GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
         } catch (e: ApiException) {
             Log.e(TAG, "❌ [HushhAuth] Google Sign-In failed: ${e.statusCode} - ${e.message}")
-            when (e.statusCode) {
-                12501 -> call.reject("User cancelled sign-in", "USER_CANCELLED")
-                else -> call.reject("Sign-in failed: ${e.message}")
+            val code = GoogleSignInSettlement.codeForGoogleStatus(e.statusCode)
+            finishGoogleSignIn(call, settlement) {
+                when (code) {
+                    GoogleSignInSettlement.CANCELLED -> call.reject("User cancelled sign-in", code)
+                    GoogleSignInSettlement.NETWORK ->
+                        call.reject("Network error. Check your connection and try again.", code)
+                    else -> call.reject("Google sign-in failed (${e.statusCode}).", code)
+                }
             }
-            pendingCall = null
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [HushhAuth] Google Sign-In result unreadable: ${e.message}")
+            finishGoogleSignIn(call, settlement) {
+                call.reject("Google sign-in failed.", GoogleSignInSettlement.FAILED)
+            }
+            return
         }
+
+        Log.d(TAG, "✅ [HushhAuth] Got Google account")
+
+        // Exchange for Firebase credential
+        firebaseAuthWithGoogle(account, call, settlement)
     }
 
-    private fun firebaseAuthWithGoogle(account: GoogleSignInAccount, call: PluginCall) {
+    private fun firebaseAuthWithGoogle(
+        account: GoogleSignInAccount,
+        call: PluginCall,
+        settlement: GoogleSignInSettlement
+    ) {
         Log.d(TAG, "🔥 [HushhAuth] Exchanging Google credential for Firebase credential...")
 
         val idToken = account.idToken
         if (idToken == null) {
-            call.reject("No ID token received from Google")
-            pendingCall = null
+            finishGoogleSignIn(call, settlement) {
+                call.reject("No ID token received from Google", GoogleSignInSettlement.FAILED)
+            }
             return
         }
 
         val credential = GoogleAuthProvider.getCredential(idToken, null)
 
+        // Firebase's native HTTP client has no IPv4 fallback race. On a network
+        // that advertises IPv6 but drops it, each Firebase request waits out
+        // per-address connect timeouts (observed: 4m12s on a Play build) while
+        // the WebView showed "Signing in with Google..." forever. Always answer
+        // JS within a bound instead.
+        val timeout = Runnable {
+            Log.e(TAG, "❌ [HushhAuth] Firebase exchange did not complete in time")
+            finishGoogleSignIn(call, settlement) {
+                call.reject(
+                    "Google sign-in is taking too long. Check your connection and try again.",
+                    GoogleSignInSettlement.TIMEOUT
+                )
+            }
+        }
+        googleSignInTimeout = timeout
+        googleSignInHandler.postDelayed(timeout, GoogleSignInSettlement.FIREBASE_EXCHANGE_TIMEOUT_MS)
+
+        // Not Activity-scoped: an Activity-scoped Task listener is removed at
+        // onStop, so a slow exchange finishing while the app is backgrounded
+        // would never answer JS.
         firebaseAuth.signInWithCredential(credential)
-            .addOnCompleteListener(activity) { task ->
+            .addOnCompleteListener { task ->
+                if (settlement.isSettled) return@addOnCompleteListener
                 if (task.isSuccessful) {
                     val firebaseUser = firebaseAuth.currentUser
                     if (firebaseUser != null) {
@@ -237,6 +300,7 @@ class HushhAuthPlugin : Plugin() {
                         // Get Firebase ID Token
                         firebaseUser.getIdToken(true)
                             .addOnCompleteListener { tokenTask ->
+                                if (settlement.isSettled) return@addOnCompleteListener
                                 if (tokenTask.isSuccessful) {
                                     val firebaseIdToken = tokenTask.result?.token
                                     Log.d(TAG, "✅ [HushhAuth] Got Firebase ID token: ${firebaseIdToken?.take(20)}...")
@@ -272,23 +336,44 @@ class HushhAuthPlugin : Plugin() {
                                         })
                                     }
 
-                                    call.resolve(response)
+                                    finishGoogleSignIn(call, settlement) { call.resolve(response) }
                                     Log.d(TAG, "✅ [HushhAuth] call.resolve() completed with Firebase UID and Token")
                                 } else {
-                                    call.reject("Failed to get Firebase ID token: ${tokenTask.exception?.message}")
+                                    rejectFirebaseExchange(call, settlement, tokenTask.exception)
                                 }
-                                pendingCall = null
                             }
                     } else {
-                        call.reject("No Firebase user returned")
-                        pendingCall = null
+                        finishGoogleSignIn(call, settlement) {
+                            call.reject("No Firebase user returned", GoogleSignInSettlement.FAILED)
+                        }
                     }
                 } else {
                     Log.e(TAG, "❌ [HushhAuth] Firebase sign-in failed: ${task.exception?.message}")
-                    call.reject("Firebase sign-in failed: ${task.exception?.message}")
-                    pendingCall = null
+                    rejectFirebaseExchange(call, settlement, task.exception)
                 }
             }
+    }
+
+    private fun rejectFirebaseExchange(
+        call: PluginCall,
+        settlement: GoogleSignInSettlement,
+        exception: Exception?
+    ) {
+        val network = exception is FirebaseNetworkException ||
+            exception?.cause is FirebaseNetworkException
+        finishGoogleSignIn(call, settlement) {
+            if (network) {
+                call.reject(
+                    "Network error. Check your connection and try again.",
+                    GoogleSignInSettlement.NETWORK
+                )
+            } else {
+                call.reject(
+                    "Firebase sign-in failed: ${exception?.message ?: "unknown error"}",
+                    GoogleSignInSettlement.FAILED
+                )
+            }
+        }
     }
 
     // ==================== Gmail Connect ====================
@@ -774,6 +859,7 @@ class HushhAuthPlugin : Plugin() {
         driveAuthorization?.let { finishDriveAuthorization(it, "failed", drainProvider = false) }
         identityHandler.removeCallbacksAndMessages(null)
         driveAuthorizationHandler.removeCallbacksAndMessages(null)
+        googleSignInHandler.removeCallbacksAndMessages(null)
         super.handleOnDestroy()
     }
 
@@ -853,7 +939,9 @@ class HushhAuthPlugin : Plugin() {
         if (user != null) {
             // Firebase owns forced-refresh authority. In that mode, a failed
             // refresh must not be hidden by the Keystore's unexpired token.
-            user.getIdToken(forceRefresh).addOnCompleteListener(activity) { task ->
+            // Not Activity-scoped: a token read while the Activity is stopped
+            // must still answer JS rather than be dropped at onStop.
+            user.getIdToken(forceRefresh).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val token = task.result?.token
                     if (!token.isNullOrBlank()) {

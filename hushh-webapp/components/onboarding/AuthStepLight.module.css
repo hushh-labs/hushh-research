@@ -400,3 +400,27 @@
 @media (max-width: 360px) {
   :global(html.dark) .footer { padding-left: 48px; }
 }
+
+/* Android only. The Figma offsets above are tuned for iOS widths and the SF
+   Pro advance; on a 360px Android viewport with Roboto they leave the legal
+   group ~36px left of centre. Center the icon + text as one group and center
+   the text itself. The shell's safe-area bottom padding is unchanged. */
+:global(html:not(.dark)) .footer.androidFooter,
+:global(html.dark) .footer.androidFooter {
+  justify-content: center;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+:global(html:not(.dark)) .androidFooter .legalRow,
+:global(html.dark) .androidFooter .legalRow {
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  align-items: center;
+}
+:global(html:not(.dark)) .androidFooter .legalRow p,
+:global(html.dark) .androidFooter .legalRow p {
+  width: auto;
+  flex: 0 1 auto;
+  text-align: center;
+}

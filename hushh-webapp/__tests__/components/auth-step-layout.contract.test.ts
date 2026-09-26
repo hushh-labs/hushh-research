@@ -70,4 +70,28 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain("data-auth-supporting-content");
     expect(source).toContain("<AuthLegalDialog");
   });
+
+  it("centers the legal group on Android only, leaving the iOS Figma offsets intact", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/AuthStep.tsx"), "utf8");
+    const css = readFileSync(join(process.cwd(), "components/onboarding/AuthStepLight.module.css"), "utf8");
+
+    // Scoped by platform so iOS and web keep the approved layout.
+    expect(source).toContain("isAndroid() && lightStyles.androidFooter");
+    for (const theme of [":global(html:not(.dark))", ":global(html.dark)"]) {
+      expect(css).toContain(`${theme} .footer.androidFooter`);
+      expect(css).toContain(`${theme} .androidFooter .legalRow`);
+      expect(css).toContain(`${theme} .androidFooter .legalRow p`);
+      // The iOS offsets stay exactly as designed.
+      expect(css).toContain(`${theme} .footer {`);
+    }
+    const android = css.slice(css.indexOf(".footer.androidFooter"));
+    expect(android).toContain("justify-content: center;");
+    expect(android).toContain("text-align: center;");
+    expect(android).not.toMatch(/padding-bottom|position:\s*absolute/);
+    expect(css).toContain("padding-left: 90px;");
+
+    // Terms and Privacy stay real, tappable controls.
+    expect(source).toContain('data-voice-control-id="auth_terms"');
+    expect(source).toContain('data-voice-control-id="auth_privacy"');
+  });
 });
