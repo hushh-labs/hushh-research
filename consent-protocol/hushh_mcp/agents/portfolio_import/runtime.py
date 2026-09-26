@@ -19,19 +19,78 @@ from google.genai import types
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
 _MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 
+_TEXT: dict[str, Any] = {"type": "STRING", "nullable": True}
+_NUMBER: dict[str, Any] = {"type": "NUMBER", "nullable": True}
+
+# Gemini structured output can only return keys a schema declares: an OBJECT
+# with no properties decodes to {}. Declared as bare OBJECTs, every holding came
+# back empty and imports found nothing. These are the keys the prompts ask for
+# (kai_import/prompt_v2.py rule 7 and the text-extraction prompt in
+# portfolio_import_service) and the route reads back.
+_HOLDING_ROW_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "symbol": _TEXT,
+        "ticker": _TEXT,
+        "symbol_cusip": _TEXT,
+        "cusip": _TEXT,
+        "security_id": _TEXT,
+        "name": _TEXT,
+        "description": _TEXT,
+        "quantity": _NUMBER,
+        "price": _NUMBER,
+        "market_value": _NUMBER,
+        "cost_basis": _NUMBER,
+        "unrealized_gain_loss": _NUMBER,
+        "unrealized_gain_loss_pct": _NUMBER,
+        "est_annual_income": _NUMBER,
+        "est_yield": _NUMBER,
+        "asset_type": _TEXT,
+        "sector": _TEXT,
+        "industry": _TEXT,
+    },
+}
+
+_STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "institution_name": _TEXT,
+        "account_number": _TEXT,
+        "account_name": _TEXT,
+        "statement_period_start": _TEXT,
+        "statement_period_end": _TEXT,
+        "client_address": _TEXT,
+    },
+}
+
+# prompt_v2 rule 8: always present, numeric or null.
+_PORTFOLIO_SUMMARY_KEYS = (
+    "beginning_value",
+    "ending_value",
+    "change_in_value",
+    "net_deposits_withdrawals",
+    "income",
+    "fees",
+)
+_PORTFOLIO_SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {key: _NUMBER for key in _PORTFOLIO_SUMMARY_KEYS},
+    "required": list(_PORTFOLIO_SUMMARY_KEYS),
+}
+
 _EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
-        "statement_details": {"type": "OBJECT"},
-        "portfolio_summary": {"type": "OBJECT"},
-        "detailed_holdings": {"type": "ARRAY", "items": {"type": "OBJECT"}},
-        "cash_balance": {"type": "NUMBER", "nullable": True},
-        "total_value": {"type": "NUMBER", "nullable": True},
+        "statement_details": _STATEMENT_DETAILS_SCHEMA,
+        "portfolio_summary": _PORTFOLIO_SUMMARY_SCHEMA,
+        "detailed_holdings": {"type": "ARRAY", "items": _HOLDING_ROW_SCHEMA},
+        "cash_balance": _NUMBER,
+        "total_value": _NUMBER,
     },
     "required": [
         "statement_details",
@@ -44,7 +103,7 @@ _EXTRACTION_SCHEMA: dict[str, Any] = {
 
 _HOLDINGS_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
-    "properties": {"holdings": {"type": "ARRAY", "items": {"type": "OBJECT"}}},
+    "properties": {"holdings": {"type": "ARRAY", "items": _HOLDING_ROW_SCHEMA}},
     "required": ["holdings"],
 }
 
@@ -78,8 +137,10 @@ def load_portfolio_gene(gene_id: str) -> Any:
 def _model_name(gene: Any, requested: str | None) -> str:
     if requested and str(requested).strip():
         return resolve_fleet_model_name(str(requested).strip())
-    model = gene.model_config_for_runtime()
-    return resolve_fleet_model_name(str(model.name))
+    # A gene is an AgentSubagentConfig, whose model config is `.model`;
+    # model_config_for_runtime() exists only on the top-level manifest, so
+    # callers that did not pass a model (portfolio_import_service) crashed here.
+    return resolve_fleet_model_name(str(gene.model.name))
 
 
 async def run_portfolio_gene(
@@ -101,14 +162,19 @@ async def run_portfolio_gene(
         raise ValueError("Portfolio Import gene authority is required")
 
     gene = load_portfolio_gene(gene_id)
-    client = build_managed_runtime_client(gene.model.provider)
-    from google.adk.models import Gemini
+    if str(gene.model.provider or "").strip().lower() != "gemini":
+        raise RuntimeError(f"Portfolio Import gene must run on managed Gemini: {gene_id}")
 
     resolved_model = _model_name(gene, model_name)
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
-        model=Gemini(model=resolved_model, client=client),
+        # Not Gemini(client=build_managed_runtime_client(...)): with more than one
+        # configured Vertex location that returns a VertexRegionalClient, which
+        # ADK 2.9's Gemini.client (typed genai.Client) rejects, so every import
+        # failed before its request was sent. The regional model is the seam for
+        # a tool-less single turn, with bounded failover across locations.
+        model=build_managed_regional_gemini_adk_model(resolved_model),
     )
     parts: list[Any] = [types.Part.from_text(text=str(prompt).strip())]
     parts.extend(document_parts)
