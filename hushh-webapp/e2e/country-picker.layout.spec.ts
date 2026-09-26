@@ -97,14 +97,14 @@ for (const width of [320, 393, 1440]) {
       await page.getByRole("button", { name: "Jump to U", exact: true }).click();
       await expect(page.getByRole("button", { name: "United Kingdom (+44)", exact: true })).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath("country-picker.png") });
-      for (const [name, code, flag] of [["United States", "+1", "🇺🇸"], ["United Kingdom", "+44", "🇬🇧"], ["India", "+91", "🇮🇳"], ["Angola", "+244", "🇦🇴"], ["Brazil", "+55", "🇧🇷"]]) {
+      for (const [name, code, iso] of [["United States", "+1", "US"], ["United Kingdom", "+44", "GB"], ["India", "+91", "IN"], ["Angola", "+244", "AO"], ["Brazil", "+55", "BR"]]) {
         await page.getByRole("searchbox", { name: "Search countries" }).fill(name);
         const row = page.getByRole("button", { name: `${name} (${code})`, exact: true });
         expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         await row.click();
         await expect(dialog).toBeHidden();
         await expect(trigger).toHaveAccessibleName(`Country code: ${name} (${code})`);
-        await expect(trigger).toContainText(flag);
+        await expect(trigger).toContainText(iso);
         await trigger.click();
       }
       await page.getByRole("searchbox").fill("no country matches");
