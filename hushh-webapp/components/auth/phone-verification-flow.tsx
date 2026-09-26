@@ -728,6 +728,7 @@ export function PhoneVerificationFlow({
         if (phonePresentation !== "compact") morphyToast.error(validationError);
         return "invalid";
       }
+      rejectedPhoneInputRef.current = false;
       setPhoneNumberError(null);
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {

@@ -121,6 +121,24 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(startVerification).not.toHaveBeenCalled();
   });
 
+  it("can resend after a valid voice replacement of rejected compact input", async () => {
+    const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
+    const input = screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.paste(input, { clipboardData: { getData: () => "650555010199" } });
+    await act(async () => {
+      await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
+        phoneNumber: "+16505550102",
+      });
+    });
+    await screen.findByRole("textbox", { name: "One-time code" });
+    expect(startVerification).toHaveBeenCalledWith("+16505550102", { resendCode: false });
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
+    expect(startVerification).toHaveBeenLastCalledWith("+16505550102", { resendCode: true });
+  });
+
   it("filters country choices from typed names and dial codes", async () => {
     renderPhoneVerificationFlow();
     const countryInput = screen.getByRole("combobox", {
