@@ -20,6 +20,11 @@ import {
 
 type Phase = "idle" | "searching" | "sharing";
 type Result = "shared" | "failed";
+type TimedOperation = { kind: "search" | "share"; outcome: "ready" | "no_match" | "no_recipients" | "shared" | "partial" | "error" | "expired"; durationMs: number };
+
+function elapsedLabel(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
 
 const EXCLUSION_COPY: Record<DriveCircleExclusion, string> = {
   not_connected: "not connected with you",
@@ -103,8 +108,11 @@ function UnlockedDriveCircleShareCard({
   const [unsharedFiles, setUnsharedFiles] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [results, setResults] = useState<Record<string, Result>>({});
+  const [activeElapsedMs, setActiveElapsedMs] = useState(0);
+  const [lastOperation, setLastOperation] = useState<TimedOperation | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
+  const operationStartedAt = useRef<number | null>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -114,6 +122,15 @@ function UnlockedDriveCircleShareCard({
       operations.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (phase === "idle") return;
+    const timer = window.setInterval(() => {
+      if (operationStartedAt.current !== null)
+        setActiveElapsedMs(Math.max(0, performance.now() - operationStartedAt.current));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
 
   const guarded = useCallback(() => {
     const token = getToken();
@@ -139,7 +156,10 @@ function UnlockedDriveCircleShareCard({
       return;
     }
     setPhase("searching");
+    operationStartedAt.current = performance.now();
+    setActiveElapsedMs(0);
     setNotice(null);
+    let outcome: TimedOperation["outcome"] = "error";
     try {
       const result = await DriveSharingService.prepareTrustedShare(
         session.token,
@@ -147,13 +167,18 @@ function UnlockedDriveCircleShareCard({
         session.guard,
       );
       if (!session.current()) return;
+      outcome = result.status;
       setView(result);
       setUnsharedFiles([]);
       setSkipped([]);
     } catch (cause) {
       if (session.current()) setNotice(failureCopy(codeOf(cause)));
     } finally {
-      if (session.current()) setPhase("idle");
+      if (session.current()) {
+        setLastOperation({ kind: "search", outcome, durationMs: Math.max(0, performance.now() - operationStartedAt.current!) });
+        operationStartedAt.current = null;
+        setPhase("idle");
+      }
     }
   };
 
@@ -173,38 +198,49 @@ function UnlockedDriveCircleShareCard({
     }
     const refs = [...selectedFiles];
     setPhase("sharing");
+    operationStartedAt.current = performance.now();
+    setActiveElapsedMs(0);
     setNotice(null);
     const next: Record<string, Result> = {};
     let stale = false;
-    // One person at a time: each is their own Viewer share and outcome.
-    for (const person of chosen) {
-      try {
-        await DriveSharingService.shareOwnerFiles(session.token, person.requestId, refs, session.guard);
-        next[person.requestId] = "shared";
-      } catch (cause) {
-        const code = codeOf(cause);
-        if (code === "session_changed") return;
-        if (code === "owner_share_expired" || code === "request_changed") stale = true;
-        next[person.requestId] = "failed";
+    let outcome: TimedOperation["outcome"] = "error";
+    try {
+      // One person at a time: each is their own Viewer share and outcome.
+      for (const person of chosen) {
+        try {
+          await DriveSharingService.shareOwnerFiles(session.token, person.requestId, refs, session.guard);
+          next[person.requestId] = "shared";
+        } catch (cause) {
+          const code = codeOf(cause);
+          if (code === "session_changed") return;
+          if (code === "owner_share_expired" || code === "request_changed") stale = true;
+          next[person.requestId] = "failed";
+        }
+        if (!session.current()) return;
+        setResults((prior) => ({ ...prior, ...next }));
       }
-      if (!session.current()) return;
-      setResults((prior) => ({ ...prior, ...next }));
+      if (stale) {
+        // The search is gone or changed: find the files again, never re-share it.
+        setView(null);
+        setResults({});
+        setNotice("This search expired. Find the files again.");
+        outcome = "expired";
+        return;
+      }
+      CacheSyncService.onConsentMutated(userId);
+      window.dispatchEvent(
+        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
+      );
+      if (Object.values(next).includes("failed"))
+        setNotice("Some people didn't get the files. Try again for them.");
+      outcome = Object.values(next).includes("failed") ? "partial" : "shared";
+    } finally {
+      if (session.current()) {
+        setLastOperation({ kind: "share", outcome, durationMs: Math.max(0, performance.now() - operationStartedAt.current!) });
+        operationStartedAt.current = null;
+        setPhase("idle");
+      }
     }
-    if (stale) {
-      // The search is gone or changed: find the files again, never re-share it.
-      setView(null);
-      setResults({});
-      setNotice("This search expired. Find the files again.");
-      setPhase("idle");
-      return;
-    }
-    CacheSyncService.onConsentMutated(userId);
-    window.dispatchEvent(
-      new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
-    );
-    if (Object.values(next).includes("failed"))
-      setNotice("Some people didn't get the files. Try again for them.");
-    if (session.current()) setPhase("idle");
   };
 
   const sharedCount =
@@ -232,11 +268,34 @@ function UnlockedDriveCircleShareCard({
       <div role="status" aria-live="polite" className="min-w-0 space-y-1">
         <MediumRowLabel as="p">Share Drive files with your Trusted circle</MediumRowLabel>
         {statusLine ? <BodyText>{statusLine}</BodyText> : null}
+        {phase !== "idle" ? (
+          <HelperText data-operation={phase === "searching" ? "drive_search" : "drive_share"}>
+            {phase === "searching" ? "Search" : "Share"} time: {elapsedLabel(activeElapsedMs)}
+          </HelperText>
+        ) : lastOperation ? (
+          <HelperText data-operation={`drive_${lastOperation.kind}`} data-outcome={lastOperation.outcome}
+            data-duration-ms={Math.round(lastOperation.durationMs)}>
+            {lastOperation.kind === "search" ? "Search" : "Share"} took {elapsedLabel(lastOperation.durationMs)}.
+          </HelperText>
+        ) : null}
       </div>
       <BodyText className="whitespace-pre-wrap break-words">“{filesRequest}”</BodyText>
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {view?.message ? <HelperText className="whitespace-pre-wrap">{view.message}</HelperText> : null}
-      {!view || view.status === "no_match" || view.status === "no_recipients" ? (
+      {view?.status === "no_recipients" ? (
+        <>
+          <HelperText>
+            {view.excluded.length > 0
+              ? "The people listed below cannot receive these files yet. Connect with them by request or ask them to add their Google account, then check again."
+              : "No eligible connections were found in your Trusted circle. Connect with someone by request and make sure they have a Google account on One, then check again."}
+            {" No files were shared."}
+          </HelperText>
+          <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+            {phase === "searching" ? "Checking…" : "Check people again"}
+          </Button>
+        </>
+      ) : null}
+      {!view || view.status === "no_match" ? (
         <>
           <HelperText>
             Your private agent searches your Drive once for these files. Only people in your Trusted

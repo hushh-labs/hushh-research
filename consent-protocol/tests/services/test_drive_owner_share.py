@@ -426,6 +426,63 @@ async def test_no_eligible_person_searches_nothing(circle):
     live.run_live_query.assert_not_awaited()
 
 
+async def test_accepted_connection_missing_from_trusted_projection_can_receive(circle):
+    # The connection commits even if its best-effort Trusted membership write
+    # fails. The owner must still be able to review and share with that person.
+    with circle.db.engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM one_location_circle_memberships WHERE user_id='recipient'")
+        )
+    live = chat()
+    view = await prepare_circle(circle_service(circle, live))
+    assert view["status"] == "ready"
+    assert [person["name"] for person in view["recipients"]] == ["Bo"]
+    live.run_live_query.assert_awaited_once()
+
+
+async def test_explicitly_removed_trusted_member_is_not_readded_by_fallback(circle):
+    with circle.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE one_location_circle_memberships SET status='removed' "
+                "WHERE user_id='recipient'"
+            )
+        )
+    view = await prepare_circle(circle_service(circle, chat()))
+    assert view["status"] == "no_recipients"
+    assert view["recipients"] == []
+
+
+async def test_same_title_files_remain_distinct_owner_selected_refs(circle):
+    second_id = "1SecondGoogleDriveFileId000000000"
+    same_title = "Explain For Product"
+    files = [
+        {
+            "file_id": FILE_ID,
+            "name": same_title,
+            "mime_type": "application/vnd.google-apps.document",
+            "modified_time": "2026-09-11T00:00:00Z",
+        },
+        {
+            "file_id": second_id,
+            "name": same_title,
+            "mime_type": "application/vnd.google-apps.document",
+            "modified_time": "2026-09-25T00:00:00Z",
+        },
+    ]
+    sharing, suggestions = sharing_doubles()
+    queries = circle_service(circle, chat(files=files), sharing=sharing, suggestions=suggestions)
+    view = await prepare_circle(queries)
+    assert [(file["ref"], file["name"]) for file in view["files"]] == [
+        ("f1", same_title),
+        ("f2", same_title),
+    ]
+    await queries.share_owner_files(
+        user_id="owner", request_id=view["recipients"][0]["requestId"], file_refs=["f2"]
+    )
+    assert suggestions.run_one.await_args.kwargs["owner_selected"] == [files[1]]
+
+
 async def test_each_circle_recipient_is_shared_through_their_own_lane(circle):
     sharing, suggestions = sharing_doubles()
     queries = circle_service(circle, chat(), sharing=sharing, suggestions=suggestions)
