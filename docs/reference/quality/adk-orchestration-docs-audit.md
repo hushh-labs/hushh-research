@@ -891,3 +891,51 @@ remain required. Lost queue-delivery responses have explicit idempotent retry;
 an autonomous pending-outbox sweep is not claimed. No source check establishes those
 runtime outcomes. The affected private Wiki pod page was corrected and read back;
 its older dated observations remain historical.
+
+
+### Integrated Files structural review — 2026-09-25
+
+Source checkpoint: `6611385c6dde4685cb2b266ecda0f3f63bf0b58e`, combining
+Research `c850cd53e`, main `b95ace9a0` and frozen local ADK `af5e63e0e`.
+The integration remains isolated until final canonical verification. All 161
+frozen root paths still match their recorded hashes; concurrent PDF edits and the
+ADK/consumer worktrees were preserved. Credential-derived reviewer identity is
+retained; the incoming UID-selected reviewer behavior was deliberately excluded.
+
+The earlier structural failure is resolved by an explicit reviewed baseline at this
+source checkpoint, **not by treating size debt as fixed**. The existing baseline
+records all 1,868 findings and individually identifies the 80 retained size changes:
+20 cloud lifecycle, 16 test scenarios, 13 canonical declarations/generators,
+10 pod authority, 10 ADK/connector, seven frontend and four Files lifecycle findings.
+No dependency-direction, import-initialization or parse finding was newly accepted.
+Budgets and comparison rules are unchanged; subsequent growth fails the ratchet.
+
+The proven extractions keep existing facades: Files transfers, catalog and analysis
+policy; Files presentation rows/settings/history; browser pod access, activation and
+cryptography; consent-event authority; cloud assignment/publication; and bootstrap
+readback. Further splitting a consent enum, route table or ordered erasure scenario
+solely to reduce lines would distribute contracts or obscure the transaction proof.
+Large legacy modules remain measured debt for bounded owner-led extraction.
+
+Verification at this checkpoint:
+
+- Frontend: 10,030 tests pass, three skipped; typecheck, route/surface generators
+  and native static parity pass. Files is explicitly web-only pending native
+  transfer and owner-key continuity acceptance.
+- Backend: 6,645 tests pass, 201 skipped; Ruff, mypy and Bandit pass. The new
+  read-only Files session test refuses writes/device access. Real PostgreSQL
+  checks preserve assigned pods and reject concurrent cloud-assignment changes.
+- Integration: the PKM upgrade gate passes 92 tests. MCP package build/check passes.
+- Docs: links/governance pass; all 179 Mermaid figures render with the pinned
+  renderer. The Files diagram has a conditional disposition tied to its owners.
+- Skills: 234 trigger checks pass with no errors or warnings; skill lint and
+  database release-contract validation pass. These are source checks, not live
+  schema or provider-resource proof.
+
+Canonical CI must still pass on the final combined commit before promotion/push.
+The local managed Vertex synthetic-text probe still returns 403. Real model
+organization, spoken commands, separate-network browser/Puppy access, owner-approved
+pod updates, Cloud Tasks delivery, idle scale-to-zero and resource consumption remain
+unverified. Native Files, per-file permanent deletion and an autonomous delivery
+outbox sweep are not shipped claims. The new Files option applies to explicit setup;
+software updates preserve existing owners' selected configuration.
