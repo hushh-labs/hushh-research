@@ -151,7 +151,7 @@ export function GmailVerificationOnboarding({
         aria-busy="true"
         aria-live="polite"
         aria-label="Checking KYC setup"
-        className="space-y-4 px-4 py-4 text-sm sm:px-5 sm:py-5"
+        className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 min-h-[340px]"
       >
         <div className="space-y-1">
           <p className="font-semibold text-foreground">KYC requests</p>

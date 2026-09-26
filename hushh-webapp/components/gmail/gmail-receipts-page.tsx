@@ -1875,8 +1875,7 @@ export default function GmailReceiptsPage({
           title="Gmail"
           description={pageTitle}
           actions={
-            isConnected &&
-            (journeyVariant === "onboarding" || workspace === "receipts") ? (
+            isConnected && journeyVariant === "onboarding" ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   onClick={() => void handleSyncNow()}
@@ -2124,7 +2123,9 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {isConnected && workspace === "overview" ? (
+          {/* Stable Tab Content Container with Min-Height & Smooth Fade Transition */}
+          <div className="min-h-[340px] w-full space-y-4 transition-all duration-150 animate-in fade-in">
+            {isConnected && workspace === "overview" ? (
             <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
                 <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0 mt-0.5">
@@ -2497,6 +2498,7 @@ export default function GmailReceiptsPage({
               </Button>
             </div>
           ) : null}
+          </div>
         </SurfaceStack>
       </AppPageContentRegion>
 
