@@ -118,11 +118,8 @@ def test_send_passes_opaque_attachment_token_to_owner_service():
 
 
 def test_save_gmail_draft_is_explicit_and_rejects_attachments():
-    service = MagicMock()
-    service.create_reviewed_draft = AsyncMock(
-        return_value={"status": "saved", "draft_id": "draft-1"}
-    )
-    with patch.object(module, "GoogleGmailMcpService", return_value=service):
+    draft = AsyncMock(return_value={"status": "saved", "draft_id": "draft-1"})
+    with patch.object(module, "create_reviewed_gmail_draft", draft):
         client = TestClient(_app())
         response = client.post("/api/one/email/draft/save", json=_envelope())
         rejected = client.post(
@@ -132,14 +129,13 @@ def test_save_gmail_draft_is_explicit_and_rejects_attachments():
     assert response.status_code == 200
     assert response.json() == {"status": "saved", "draft_id": "draft-1"}
     assert rejected.status_code == 422
-    service.create_reviewed_draft.assert_awaited_once()
-    assert service.create_reviewed_draft.await_args.kwargs["user_id"] == "firebase-user"
+    draft.assert_awaited_once()
+    assert draft.await_args.kwargs["user_id"] == "firebase-user"
 
 
 def test_save_gmail_draft_rejects_malformed_service_acknowledgement():
-    service = MagicMock()
-    service.create_reviewed_draft = AsyncMock(return_value={"status": "saved", "draft_id": ""})
-    with patch.object(module, "GoogleGmailMcpService", return_value=service):
+    draft = AsyncMock(return_value={"status": "saved", "draft_id": ""})
+    with patch.object(module, "create_reviewed_gmail_draft", draft):
         response = TestClient(_app()).post("/api/one/email/draft/save", json=_envelope())
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == "GMAIL_SEND_NOT_READY"

@@ -71,21 +71,27 @@ class ResolvedMcpConnection:
     result_policy: ResultPolicy | None = field(default=None, repr=False, compare=False)
 
 
+# Founder decision 2026-09-25: this project is not enrolled in Google's hosted
+# Workspace MCP developer preview. Curated Google connectors run over the GA
+# REST APIs in the Workspace adapter, so no curated row is dialed as hosted MCP.
+HOSTED_WORKSPACE_MCP_ENROLLED = False
+
+
 def native_registration_admitted(connector: Any, owner: str) -> bool:
-    """Registration admission only; credentials and capabilities are checked later."""
+    """Registration admission only; credentials and capabilities are checked later.
+
+    Curated Google rows are admitted to the MCP transport only while hosted
+    Workspace MCP is enrolled; a REST-transport row is never dialed as MCP.
+    """
     if connector is None or not connector.is_active:
         return False
     if connector.owner_user_id == owner:
         return connector.transport_kind == "mcp"
-    return connector.owner_user_id is None and (
-        (
-            connector.connector_id == "google_drive"
-            and connector.transport_kind in {"mcp", "google_drive_rest"}
-        )
-        or (
-            connector.connector_id in {"google_gmail", "google_calendar"}
-            and connector.transport_kind == "mcp"
-        )
+    return (
+        connector.owner_user_id is None
+        and HOSTED_WORKSPACE_MCP_ENROLLED
+        and connector.transport_kind == "mcp"
+        and connector.connector_id in {"google_drive", "google_gmail", "google_calendar"}
     )
 
 

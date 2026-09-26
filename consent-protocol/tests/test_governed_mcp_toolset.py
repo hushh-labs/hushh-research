@@ -21,6 +21,16 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client
 
+
+@pytest.fixture(autouse=True)
+def _hosted_workspace_mcp_enrolled(monkeypatch):
+    """These cases pin the hosted Workspace MCP path, which stays intact behind
+    the enrollment switch (off by default: founder decision 2026-09-25)."""
+    from hushh_mcp.one_adk import governed_mcp_toolset
+
+    monkeypatch.setattr(governed_mcp_toolset, "HOSTED_WORKSPACE_MCP_ENROLLED", True)
+
+
 _NATIVE_RUN = McpTool._run_async_impl
 
 
@@ -126,7 +136,7 @@ async def test_curated_drive_resolver_uses_live_adapter_not_generic_credential(
     definition = h.registry.get_connector.return_value
     definition.owner_user_id = None
     definition.connector_id = "google_drive"
-    definition.transport_kind = "google_drive_rest"
+    definition.transport_kind = "mcp"  # a REST row is never dialed as MCP
     resolved = ResolvedMcpConnection(
         McpConnectionBinding(
             "owner", "google_drive", 3, 4, "https://drivemcp.googleapis.com/mcp/v1"

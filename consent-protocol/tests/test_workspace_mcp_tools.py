@@ -20,6 +20,15 @@ from hushh_mcp.services.google_drive_mcp_service import GOOGLE_DRIVE_READ_TOOLS
 from hushh_mcp.services.google_gmail_mcp_service import GOOGLE_GMAIL_READ_TOOLS
 
 
+@pytest.fixture(autouse=True)
+def _hosted_workspace_mcp_enrolled(monkeypatch):
+    """These cases pin the hosted Workspace MCP path, which stays intact behind
+    the enrollment switch (off by default: founder decision 2026-09-25)."""
+    from hushh_mcp.one_adk import governed_mcp_toolset
+
+    monkeypatch.setattr(governed_mcp_toolset, "HOSTED_WORKSPACE_MCP_ENROLLED", True)
+
+
 def test_trusted_descriptions_match_provider_read_allowlists():
     assert set(tools._TRUSTED_TOOL_DESCRIPTIONS) == {"drive", "gmail", "calendar"}
     assert set(tools._TRUSTED_TOOL_DESCRIPTIONS["drive"]) == GOOGLE_DRIVE_READ_TOOLS
