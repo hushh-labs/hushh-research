@@ -38,7 +38,9 @@ from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
 from hushh_mcp.services.external_mcp_client import (
+    ExternalMcpAuthError,
     ExternalMcpError,
+    _http_status_from_error,
     _list_session_tools,
     _normalize_and_cap,
 )
@@ -426,7 +428,12 @@ class GovernedMcpToolset(McpToolset):
                 await self._current_headers(readonly_context)
         except ExternalMcpError:
             raise
-        except Exception:
+        except Exception as error:
+            # Same classification as the shared client: a refused credential or
+            # a server that needs sign-in is not an unreachable server. Only
+            # the status code is read; no provider text or header is kept.
+            if _http_status_from_error(error) in {401, 403}:
+                raise ExternalMcpAuthError() from None
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None

@@ -1170,3 +1170,25 @@ async def test_credential_is_redacted_before_a_large_result_is_capped(monkeypatc
         assert not any(bearer[:size] in preview for size in range(12, len(bearer) + 1))
     finally:
         await toolset.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (401, "EXTERNAL_MCP_AUTH_FAILED"),
+        (403, "EXTERNAL_MCP_AUTH_FAILED"),
+        (500, "MCP_DISCOVERY_FAILED"),
+    ],
+)
+async def test_discovery_distinguishes_a_refused_credential(harness, status, code):
+    """Settings needs "sign in / token rejected", not "unreachable", for a 401."""
+    h = harness
+    failure = RuntimeError("PRIVATE provider body with Authorization: Bearer synthetic")
+    failure.__cause__ = type("HttpFailure", (Exception,), {})()
+    failure.__cause__.response = SimpleNamespace(status_code=status)
+    h.toolset._mcp_session_manager.create_session = AsyncMock(side_effect=failure)
+    with pytest.raises(ExternalMcpError) as caught:
+        await h.toolset.get_tools(h.context)
+    assert caught.value.code == code
+    assert "PRIVATE" not in str(caught.value) and "synthetic" not in str(caught.value)
+    assert caught.value.__cause__ is None
