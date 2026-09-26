@@ -11,6 +11,7 @@ export const saveCustomConnectorConfiguration = async () => { throw new Error("N
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const projectCustomConnectorTurnConfigurations = () => { throw new Error("Not admitted in layout fixture"); };
+export const isVaultOwnerCredential = () => { throw new Error("No custom credentials in layout fixture"); };
 const user = {
   uid: "fixture-owner",
   getIdToken: async () => "synthetic-firebase",

@@ -1021,3 +1021,12 @@ bucket/queue delivery, scale-to-zero, bounded load and exact-release owner appro
 remain open. The local root servers are assigned ports 3002/8002; the ignored local
 configuration now selects backend 8002 and fleet model 3.7, without changing other
 settings or shared environments.
+
+
+GitHub run `36222708233` on `5f78ff990` exposed a Connections browser-fixture
+export mismatch: the production component imports `isVaultOwnerCredential`, while
+its isolated layout boundary omitted that export. The fixture now supplies a
+refusing stub, consistent with its existing prohibition on custom-credential
+operations. Production authorization is unchanged. The existing 38 mounted-browser
+checks pass in Chromium and WebKit on both confirmation runs. The next pushed head
+must complete remote CI; this fixture repair does not establish live pod acceptance.
