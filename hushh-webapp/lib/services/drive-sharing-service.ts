@@ -129,6 +129,8 @@ export type DriveQueryView = {
     files: DriveQueryFile[];
     // Set once the owner shared files from this answer.
     shareRequestId: string | null;
+    // Owner only: the exact selection reserved by an attempted share.
+    selectedFileRefs?: string[] | null;
   } | null;
   canDecide: boolean;
   lastError: "reconnect_required" | "drive_query_unavailable" | null;
@@ -327,6 +329,15 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
     lastError !== "drive_query_unavailable"
   )
     throw new DriveSharingError("invalid_response");
+  const answerFiles = rawAnswer ? queryFiles(rawAnswer.files, direction) : [];
+  const selectedFileRefs = rawAnswer?.selectedFileRefs;
+  if (selectedFileRefs != null && (
+    direction !== "incoming" || !Array.isArray(selectedFileRefs) ||
+    selectedFileRefs.length < 1 || selectedFileRefs.length > 8 ||
+    new Set(selectedFileRefs).size !== selectedFileRefs.length ||
+    selectedFileRefs.some((ref) => typeof ref !== "string" || !answerFiles.some((file) => file.ref === ref))
+  ))
+    throw new DriveSharingError("invalid_response");
   return {
     requestId: id(result.requestId),
     direction,
@@ -347,7 +358,8 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
             string(title, 1024),
           ),
           truncated: rawAnswer.truncated as boolean,
-          files: queryFiles(rawAnswer.files, direction),
+          files: answerFiles,
+          ...(selectedFileRefs == null ? {} : { selectedFileRefs: selectedFileRefs as string[] }),
           shareRequestId:
             rawAnswer.shareRequestId == null ? null : id(rawAnswer.shareRequestId),
         }

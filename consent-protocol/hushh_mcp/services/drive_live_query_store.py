@@ -193,6 +193,7 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
                     {"ref": item["ref"], "name": item["name"], "modifiedTime": item["modifiedTime"]}
                     for item in sealed.get("ownerFiles", [])
                 ]
+                answer["selectedFileRefs"] = (sealed.get("selection") or {}).get("fileRefs")
         counterpart = row["requester_user_id"] if incoming else row["user_id"]
         return {
             "requestId": request_id,
@@ -457,7 +458,7 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         )
 
     async def owner_selection(self, *, user_id, request_id, refs):
-        """The owner's chosen files from an answered question, for sharing."""
+        """Reserve the owner's exact files before any downstream approval commits."""
         if not isinstance(refs, list) or not refs or len(set(refs)) != len(refs):
             raise DriveSharingError("invalid_argument")
 
@@ -467,6 +468,29 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             files = {item["ref"]: item for item in sealed.get("ownerFiles", [])}
             if any(ref not in files for ref in refs):
                 raise DriveSharingError("request_changed")
+            chosen = [ref for ref in files if ref in refs]
+            selection = sealed.get("selection")
+            if selection and selection["fileRefs"] != chosen:
+                raise DriveSharingError("request_changed")
+            if sealed.get("shareRequestId"):
+                return {"receipt": self._render(connection, row, user_id)}
+            if not selection:
+                # The question id is visible to the requester. Keep the child
+                # key owner-only so they cannot pre-create a different review
+                # under that key before the owner's first Share.
+                selection = {"fileRefs": chosen, "clientRequestId": str(uuid4())}
+                envelope = self.cipher.seal(
+                    {**sealed, "selection": selection},
+                    user_id=user_id,
+                    resource_id=str(row["request_id"]),
+                    purpose="live-answer",
+                )
+                connection.execute(
+                    text("""UPDATE drive_live_query_requests
+                        SET answer_envelope=CAST(:envelope AS jsonb), updated_at=clock_timestamp()
+                        WHERE request_id=:id"""),
+                    {"envelope": json.dumps(envelope), "id": row["request_id"]},
+                )
             query = self.cipher.open(
                 row["query_envelope"],
                 user_id=row["user_id"],
@@ -475,6 +499,10 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             )["query"]
             return {
                 "requesterUserId": row["requester_user_id"],
+                "recipientUserId": row["requester_user_id"],
+                "clientRequestId": selection["clientRequestId"],
+                # The question's expiry bounds Allow, not sharing its completed answer.
+                "expired": False,
                 "query": query,
                 "shareRequestId": sealed.get("shareRequestId"),
                 "files": [
@@ -484,7 +512,7 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
                         "mime_type": files[ref]["mimeType"],
                         "modified_time": files[ref]["modifiedTime"],
                     }
-                    for ref in refs
+                    for ref in chosen
                 ],
             }
 

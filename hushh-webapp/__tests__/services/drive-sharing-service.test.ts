@@ -529,6 +529,40 @@ describe("drive question transport", () => {
     expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
   });
 
+  it("restores an owner's reserved answer selection and accepts older answers without one", () => {
+    const answer = {
+      text: "Found files", titles: [], truncated: false,
+      files: [{ ref: "f1", name: "a.pdf" }, { ref: "f2", name: "b.pdf" }],
+      shareRequestId: null,
+    };
+    expect(parseDriveQueryView(rawView({ direction: "incoming", status: "answered", answer })).answer)
+      .not.toHaveProperty("selectedFileRefs");
+    expect(parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered", answer: { ...answer, selectedFileRefs: ["f2"] },
+    })).answer).toMatchObject({ selectedFileRefs: ["f2"] });
+  });
+
+  it.each([
+    ["empty", []], ["duplicate", ["f1", "f1"]], ["not a list", "f1"],
+    ["not in the answer", ["f2"]], ["invalid reference", ["f9"]],
+    ["not a string", [1]], ["too many", Array(9).fill("f1")],
+  ])("rejects an owner's %s reserved answer selection", (_label, selectedFileRefs) => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered",
+      answer: {
+        text: "Found files", titles: [], truncated: false,
+        files: [{ ref: "f1", name: "a.pdf" }], selectedFileRefs,
+      },
+    }))).toThrow(DriveSharingError);
+  });
+
+  it("rejects owner reservation references in the asker's answer", () => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "outgoing", status: "answered",
+      answer: { text: "Found files", titles: [], truncated: false, selectedFileRefs: ["f1"] },
+    }))).toThrow(DriveSharingError);
+  });
+
   it("searches the owner's own Drive by person reference and shares only found references", async () => {
     const personRef = "33333333-3333-4333-8333-333333333333";
     const clientRequestId = "44444444-4444-4444-8444-444444444444";

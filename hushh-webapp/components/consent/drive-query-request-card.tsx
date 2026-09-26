@@ -156,6 +156,9 @@ function UnlockedDriveQueryCard({
     key: "",
     refs: [],
   });
+  // The component is keyed by owner, question and vault session. A failed read
+  // clears the view, but must not reset the selection of an attempted share.
+  const [attemptedRefs, setAttemptedRefs] = useState<string[] | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
   const busy = useRef<"none" | "load" | "decide">("none");
@@ -319,7 +322,8 @@ function UnlockedDriveQueryCard({
       ? (view.answer?.files ?? [])
       : [];
   const unsharedRefs = unshared.key === shareKey ? unshared.refs : [];
-  const selectedRefs = shareable
+  const reservedRefs = view?.answer?.selectedFileRefs ?? attemptedRefs;
+  const selectedRefs = reservedRefs ?? shareable
     .map((file) => file.ref)
     .filter((ref) => !unsharedRefs.includes(ref));
 
@@ -328,6 +332,7 @@ function UnlockedDriveQueryCard({
     const refs = [...selectedRefs];
     void run(
       async (token, guard) => {
+        setAttemptedRefs(refs);
         try {
           const result = await DriveSharingService.shareQueryFiles(token, requestId, refs, guard);
           guard();
@@ -339,6 +344,7 @@ function UnlockedDriveQueryCard({
           guard();
           const fresh = await DriveSharingService.getQuery(token, requestId, guard);
           guard();
+          if (fresh.answer?.shareRequestId) announceChange();
           return {
             view: fresh,
             notice: fresh.answer?.shareRequestId ? null : shareFailureCopy(code, view.counterpartName),
@@ -466,6 +472,7 @@ function UnlockedDriveQueryCard({
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input
                 type="checkbox"
+                disabled={!!reservedRefs}
                 checked={selectedRefs.length === shareable.length}
                 onChange={(event) =>
                   setUnshared({
@@ -483,6 +490,7 @@ function UnlockedDriveQueryCard({
                 <label className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     type="checkbox"
+                    disabled={!!reservedRefs}
                     checked={selectedRefs.includes(file.ref)}
                     onChange={(event) =>
                       setUnshared({
