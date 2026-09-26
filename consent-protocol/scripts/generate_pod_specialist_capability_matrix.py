@@ -334,11 +334,23 @@ def local_agent_tools() -> set[str]:
         for block in ast.walk(function):
             if not isinstance(block, ast.If) or "pod_mode()" not in ast.unparse(block.test):
                 continue
-            calls = [node for statement in block.body for node in ast.walk(statement) if isinstance(node, ast.Call)]
-            if not any(isinstance(call.func, ast.Name) and call.func.id == "AgentTool" for call in calls):
+            calls = [
+                node
+                for statement in block.body
+                for node in ast.walk(statement)
+                if isinstance(node, ast.Call)
+            ]
+            if not any(
+                isinstance(call.func, ast.Name) and call.func.id == "AgentTool" for call in calls
+            ):
                 continue
             for call in calls:
-                if isinstance(call.func, ast.Name) and call.func.id == "_load_product_agent_manifest" and call.args and isinstance(call.args[0], ast.Constant):
+                if (
+                    isinstance(call.func, ast.Name)
+                    and call.func.id == "_load_product_agent_manifest"
+                    and call.args
+                    and isinstance(call.args[0], ast.Constant)
+                ):
                     result.add(str(call.args[0].value))
     return result
 
@@ -484,7 +496,9 @@ def _check_row(agent_id: str, declared: dict[str, Any], derived: dict[str, Any])
 
     if derived.get("pod_agent_tool"):
         if not executes or source != "owner_bucket":
-            problems.append(f"{agent_id}: local Files AgentTool requires pod execution and owner_bucket custody")
+            problems.append(
+                f"{agent_id}: local Files AgentTool requires pod execution and owner_bucket custody"
+            )
         return problems
 
     if executes != derived["pod_dispatchable"]:

@@ -136,9 +136,14 @@ async def test_explicit_candidate_budget_never_silently_pages(reader, monkeypatc
 @pytest.mark.asyncio
 async def test_release_rechecks_remove_while_owner_reads_ignore_rollout_flag(reader, monkeypatch):
     await reader.search(query="read")
-    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "false")
-    await reader.require_current()
-    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    # Chat reads are owner-available, so the env switch no longer gates them;
+    # release must still re-ask admission and refuse when it says no.
+    from hushh_mcp.services import drive_document_store
+
+    with monkeypatch.context() as denied:
+        denied.setattr(drive_document_store, "connector_feature_enabled", lambda *_: False)
+        with pytest.raises(DriveReadError, match="connector_unavailable"):
+            await reader.require_current()
     with reader.store.db.engine.begin() as connection:
         connection.execute(text("DELETE FROM connected_documents WHERE user_id='owner'"))
     with pytest.raises(DriveReadError, match="source_changed"):

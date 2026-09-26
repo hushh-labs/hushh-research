@@ -14,6 +14,15 @@ from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
+@pytest.fixture(autouse=True)
+def _hosted_workspace_mcp_enrolled(monkeypatch):
+    """These cases pin the hosted Workspace MCP path, which stays intact behind
+    the enrollment switch (off by default: founder decision 2026-09-25)."""
+    from hushh_mcp.one_adk import governed_mcp_toolset
+
+    monkeypatch.setattr(governed_mcp_toolset, "HOSTED_WORKSPACE_MCP_ENROLLED", True)
+
+
 def context(owner="owner"):
     return SimpleNamespace(
         user_id=owner,
@@ -115,7 +124,7 @@ async def test_curated_and_other_owner_entries_do_not_gain_private_authority(reg
 
 async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
     drive = definition("google_drive", owner=None)
-    drive.transport_kind = "google_drive_rest"
+    drive.transport_kind = "mcp"  # a REST row is never dialed as MCP
     registry.list_active_connectors.return_value = [drive]
     async with mcp_turn_scope("thread") as scope:
         tool = SimpleNamespace(name="mcp_drive", description="Read Drive")

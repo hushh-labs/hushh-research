@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
+    create_reviewed_gmail_draft,
     get_gmail_delivery_service,
     normalize_draft,
 )
@@ -23,7 +24,6 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
     get_personal_gmail_information_request_service,
 )
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
-from hushh_mcp.services.google_gmail_mcp_service import GoogleGmailMcpService
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ async def gmail_save_draft(
 ) -> dict[str, str]:
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        result = await GoogleGmailMcpService().create_reviewed_draft(
+        result = await create_reviewed_gmail_draft(
             user_id=owner, draft_payload=payload.model_dump(exclude_none=True)
         )
         status_value = result.get("status")

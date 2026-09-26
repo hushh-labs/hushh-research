@@ -49,8 +49,6 @@ POD_MEMORY = "1Gi"
 POD_CPU = f"{POD_CPU_MILLIS}m"
 
 
-
-
 @dataclass(frozen=True)
 class PodSpec:
     """Backend-neutral request to stand up one user's agent instance (a spaceID).
@@ -300,8 +298,7 @@ def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
         user_gcp: ComputeBackend = UserGcpBackend()
         return user_gcp
     raise NotImplementedError(
-        f"compute backend '{chosen}' is not recognized "
-        "(expected: null | gcp | user_gcp)"
+        f"compute backend '{chosen}' is not recognized (expected: null | gcp | user_gcp)"
     )
 
 

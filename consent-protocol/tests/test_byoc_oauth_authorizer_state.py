@@ -107,7 +107,10 @@ def test_files_choice_is_signed_and_legacy_state_does_not_opt_in(monkeypatch):
     state = mod.make_state("owner", "project", files_enabled=True)
     monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "false")
     assert mod.verify_state_selection(state, "owner") == ("project", True)
-    assert mod.verify_state_selection(mod.make_state("owner", "project"), "owner") == ("project", False)
+    assert mod.verify_state_selection(mod.make_state("owner", "project"), "owner") == (
+        "project",
+        False,
+    )
     exp = str(int(mod.time.time()) + 600)
     payload = base64.urlsafe_b64encode(b"owner|project").decode().rstrip("=")
     mac = hmac.new(mod._signing_key(), f"{exp}.{payload}".encode(), hashlib.sha256).hexdigest()

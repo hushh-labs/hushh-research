@@ -174,7 +174,8 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
 - `APP_REVIEW_MODE`
-- `HUSSH_GEMINI_TEXT_MODEL` (one switch for every text agent; manifests say `gemini-default`; blank = `FLEET_TEXT_MODEL_DEFAULT`; a lane may flip it only after its Vertex allowed-models policy admits the id)
+- `HUSSH_GEMINI_TEXT_MODEL` (one switch for every text agent; manifests say `gemini-default`; blank = `FLEET_TEXT_MODEL_DEFAULT`, currently `gemini-3.7-flash`; the person-selectable alternative is `gemini-3.6-flash`; a lane may flip it only after its Vertex allowed-models policy admits the id)
+- `HUSHH_ONE_CHAT_THINKING_LEVEL` (One's chat head only; unset = `low`, the founder default from 2026-09-25; `default` or `provider` restores the provider's own thinking budget; specialists and One Voice are unaffected)
 - `REVIEWER_UID`
 - `REVIEWER_VAULT_PASSPHRASE`
 

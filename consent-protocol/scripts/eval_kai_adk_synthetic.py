@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 PATHS = ("fundamental", "sentiment", "valuation", "debate", "synthesis", "chat")
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.7-flash"
 PROJECT = "hushh-vertex-personal54"
 OWNER = "kai_synthetic_fixture"
 TOKEN = "fixture-only-not-a-token"  # noqa: S105 - deliberately invalid fixture authority

@@ -48,6 +48,7 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
 logger = logging.getLogger(__name__)
 
 _GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+_GMAIL_DRAFTS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
 _MAX_RECIPIENTS = 50
 _MAX_SUBJECT_CHARS = 256
 _MAX_BODY_CHARS = 50_000
@@ -244,6 +245,42 @@ def _message_for(
             content, maintype=maintype, subtype=subtype, filename=descriptor.filename
         )
     return message
+
+
+async def create_reviewed_gmail_draft(
+    *, user_id: str, draft_payload: dict[str, Any], connections: Any = None
+) -> dict[str, str]:
+    """Save an explicitly reviewed, attachment-free draft through the Gmail REST API.
+
+    Google's hosted Gmail MCP server is a Workspace developer preview that this
+    project is not enrolled in (founder decision 2026-09-25), so drafts use the
+    GA ``users.drafts.create`` method with the same owner-bound compose token.
+    Only the draft id leaves this function; provider-echoed recipients and
+    bodies never reach Chat or history. A missing acknowledgement has an unknown
+    outcome, so callers must not auto-retry.
+    """
+    draft = normalize_draft(draft_payload)
+    service = connections or get_gmail_receipts_service()
+    token = await service.get_compose_access_token(user_id=user_id)
+    raw = base64.urlsafe_b64encode(_message_for(draft).as_bytes()).decode("ascii")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0)) as client:
+        response = await client.post(
+            _GMAIL_DRAFTS_URL,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": {"raw": raw}},
+        )
+    if response.status_code in {401, 403}:
+        raise GmailApiError("Gmail draft permission is required", status_code=403)
+    if response.status_code >= 400:
+        raise GmailApiError("Gmail could not save this draft", status_code=502)
+    try:
+        payload = response.json() if response.content else {}
+    except ValueError:
+        payload = {}
+    draft_id = payload.get("id") if isinstance(payload, dict) else None
+    if not isinstance(draft_id, str) or not 1 <= len(draft_id) <= 256:
+        raise GmailApiError("Gmail draft outcome is unknown", status_code=502)
+    return {"status": "saved", "draft_id": draft_id}
 
 
 def _attachment_ref(value: Any) -> tuple[str, str | None, str | None] | None:

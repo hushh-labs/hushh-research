@@ -124,7 +124,7 @@ class McpOAuthConnection:
                 raise McpOAuthConnectError()
             if self._redirect not in done:
                 raise McpOAuthConnectError()
-            return self._redirect.result()
+            return cast(str, self._redirect.result())
         except BaseException:
             self.close()
             raise

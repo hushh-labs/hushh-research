@@ -54,7 +54,7 @@ export async function reconnectOwnerPod(
   ports: AccessPorts & {
     hosting: () => Promise<{
       hostingMode?: string;
-      state?: string;
+      state?: string | null;
       hushhId?: string | null;
     }>;
   },

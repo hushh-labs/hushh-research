@@ -187,7 +187,7 @@ class McpOAuthCallback:
             result = await self._future
             if not self._is_current():
                 raise McpOAuthConnectError()
-            return result
+            return cast(tuple[str, str], result)
         finally:
             self.close()
 
@@ -216,10 +216,16 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
     that has not yet established the authorization server/token endpoint.
     """
 
+    _admitted_metadata: OAuthMetadata | None
+    _admitted_endpoints: dict[str, str]
+    _advertised_issuer: str | None
+    _registered_issuer: str | None
+
     def create_http_client(self) -> httpx.AsyncClient:
         """Caller closes the client; no environment proxies or automatic redirects."""
         return cast(
-            httpx.AsyncClient, create_public_mcp_http_client(auth=self, max_response_bytes=65_536)
+            httpx.AsyncClient,
+            create_public_mcp_http_client(auth=self, max_response_bytes=65_536),
         )
 
     async def use_registered_client(
@@ -265,8 +271,9 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
 
         async def bound_redirect(url: str) -> None:
             self._check_sdk_metadata()
-            issuer = self._advertised_issuer
+            issuer = getattr(self, "_advertised_issuer", None)
             if issuer is None:
+                # No advertised issuer means metadata discovery never completed.
                 raise McpOAuthConnectError()
             callback.bind_redirect(
                 url,

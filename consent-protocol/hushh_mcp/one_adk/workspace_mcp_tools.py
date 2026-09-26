@@ -234,14 +234,111 @@ async def resolve_native_workspace_connection(
         raise ExternalMcpError("Connection unavailable.", code="MCP_CONNECTION_CHANGED") from None
 
 
+# Google's hosted Workspace MCP servers are a developer preview this project is
+# not enrolled in (founder decision 2026-09-25). Live reads therefore use the GA
+# REST APIs: Drive through GoogleDriveRestTransport (same tool names, arguments,
+# payload shapes and owner/grant/generation checks), Gmail and Calendar through
+# One's existing typed tools. The catalog below is app-authored, so no provider
+# text reaches the model as a tool description or schema.
+_DRIVE_PAGE = {"type": "integer", "minimum": 1, "maximum": 25}
+_DRIVE_REST_CATALOG: tuple[dict[str, Any], ...] = (
+    {
+        "name": "search_files",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1, "maxLength": 1800},
+                "pageSize": _DRIVE_PAGE,
+                "pageToken": {"type": "string", "maxLength": 1024},
+                "orderBy": {"type": "string", "maxLength": 32},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "list_recent_files",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pageSize": _DRIVE_PAGE,
+                "pageToken": {"type": "string", "maxLength": 1024},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "read_file_content",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"fileId": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "required": ["fileId"],
+            "additionalProperties": False,
+        },
+    },
+)
+
+
+class _DriveRestWorkspace:
+    """Live Drive over REST behind the Workspace adapter's service contract."""
+
+    def __init__(self) -> None:
+        from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+
+        self._transport = GoogleDriveRestTransport()
+
+    async def discover_for_owner(self, *, user_id: str) -> list[dict[str, Any]]:
+        # The same verified live-grant checks the transport applies per read,
+        # without a provider round trip: the catalog is app-authored.
+        if not connector_feature_enabled("google_drive_live", user_id):
+            raise DriveOAuthError("connector_unavailable", status_code=403)
+        oauth = get_external_connector_oauth_service().drive()
+        row, _credential = await oauth.current_credential(user_id=user_id, required_profile="live")
+        if (
+            row["status"] != "connected"
+            or row["validation_state"] != "verified"
+            or row["verified_policy_hash"] != LIVE_POLICY_HASH
+        ):
+            raise DriveOAuthError("reconnect_required", status_code=401)
+        return [dict(item) for item in _DRIVE_REST_CATALOG]
+
+    async def read_tool(self, *, user_id: str, tool_name: str, arguments: dict[str, Any]):
+        return await self._transport.read_tool(
+            user_id=user_id, tool_name=tool_name, arguments=arguments
+        )
+
+
+def _hosted_enrolled() -> bool:
+    # Read at call time so the switch has one owner (governed_mcp_toolset).
+    from hushh_mcp.one_adk import governed_mcp_toolset
+
+    return bool(governed_mcp_toolset.HOSTED_WORKSPACE_MCP_ENROLLED)
+
+
 @lru_cache(maxsize=3)
-def _service(provider: WorkspaceProvider) -> Any:
+def _hosted_service(provider: WorkspaceProvider) -> Any:
     if provider == "drive":
         return GoogleDriveMcpService()
     if provider == "gmail":
         return GoogleGmailMcpService()
     if provider == "calendar":
         return GoogleCalendarMcpService()
+    raise ValueError("Unsupported Workspace provider")
+
+
+@lru_cache(maxsize=1)
+def _rest_drive() -> _DriveRestWorkspace:
+    return _DriveRestWorkspace()
+
+
+def _service(provider: WorkspaceProvider) -> Any:
+    if provider not in {"drive", "gmail", "calendar"}:
+        raise ValueError("Unsupported Workspace provider")
+    if _hosted_enrolled():
+        return _hosted_service(provider)
+    if provider == "drive":
+        return _rest_drive()
+    # Gmail and Calendar are served by One's typed REST tools, never here.
     raise ValueError("Unsupported Workspace provider")
 
 
@@ -404,9 +501,31 @@ async def discover_workspace_tools(
             }
         except Exception:
             return {"status": "unavailable", "message": "Drive could not be checked right now."}
+    if provider != "drive" and not _hosted_enrolled():
+        # Gmail and Calendar read through One's typed REST tools; the hosted
+        # Workspace MCP preview is not enrolled, so it is never dialed.
+        try:
+            binding = await _grant_binding(owner, provider)
+        except (GoogleConnectionError, GmailApiError):
+            return {"status": "unavailable", "message": "These capabilities could not be checked."}
+        except Exception:  # noqa: BLE001 - provider details may contain credentials
+            return {"status": "unavailable", "message": "These capabilities could not be checked."}
+        if binding is None:
+            return {
+                "status": "permission_required",
+                "provider": provider,
+                "message": "Connect this service to read it.",
+            }
+        if await _owner(tool_context, provider) != owner:
+            return {"status": "blocked", "message": "The session changed. Try again."}
+        return {
+            "status": "api_available",
+            "provider": provider,
+            "message": "Use the connected service's existing Chat tools.",
+        }
     try:
-        # Live Drive MCP owns its OAuth profile and connection-generation
-        # checks. Do not require a parallel legacy Google service grant.
+        # Live Drive owns its OAuth profile and connection-generation checks.
+        # Do not require a parallel legacy Google service grant.
         binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:
             return {
@@ -480,10 +599,16 @@ async def read_workspace_tool(
     owner = await _owner(tool_context, provider)
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
+    if provider != "drive" and not _hosted_enrolled():
+        return {
+            "status": "api_available",
+            "provider": provider,
+            "message": "Use the connected service's existing Chat tools.",
+        }
     if provider == "drive" and not connector_feature_enabled("google_drive_live", owner):
         return {"status": "unavailable", "message": "Drive reading is not available yet."}
     try:
-        # GoogleDriveMcpService rechecks its verified live OAuth generation
+        # The Drive transport rechecks its verified live OAuth generation
         # before and after the provider call; legacy grants are not authority.
         binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:

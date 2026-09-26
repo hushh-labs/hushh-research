@@ -267,7 +267,6 @@ _PLANE_NOTE = {
         "with --project <their-project> using a consent-gated impersonated token, or "
         "read it from inside their project."
     ),
-
 }
 
 _CLOUD_RUN_STAGES = (

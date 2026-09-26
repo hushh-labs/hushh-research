@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from google.adk.telemetry.tracing import _should_report_mcp_http_exchanges
 from google.adk.tools.mcp_tool.mcp_session_manager import (
@@ -71,24 +71,27 @@ class ResolvedMcpConnection:
     result_policy: ResultPolicy | None = field(default=None, repr=False, compare=False)
 
 
+# Founder decision 2026-09-25: this project is not enrolled in Google's hosted
+# Workspace MCP developer preview. Curated Google connectors run over the GA
+# REST APIs in the Workspace adapter, so no curated row is dialed as hosted MCP.
+HOSTED_WORKSPACE_MCP_ENROLLED = False
+
+
 def native_registration_admitted(connector: Any, owner: str) -> bool:
-    """Registration admission only; credentials and capabilities are checked later."""
+    """Registration admission only; credentials and capabilities are checked later.
+
+    Curated Google rows are admitted to the MCP transport only while hosted
+    Workspace MCP is enrolled; a REST-transport row is never dialed as MCP.
+    """
     if connector is None or not connector.is_active:
         return False
     if connector.owner_user_id == owner:
         return bool(connector.transport_kind == "mcp")
     return bool(
         connector.owner_user_id is None
-        and (
-            (
-                connector.connector_id == "google_drive"
-                and connector.transport_kind in {"mcp", "google_drive_rest"}
-            )
-            or (
-                connector.connector_id in {"google_gmail", "google_calendar"}
-                and connector.transport_kind == "mcp"
-            )
-        )
+        and HOSTED_WORKSPACE_MCP_ENROLLED
+        and connector.transport_kind == "mcp"
+        and connector.connector_id in {"google_drive", "google_gmail", "google_calendar"}
     )
 
 
@@ -130,7 +133,7 @@ async def resolve_registered_connection(
         )
 
         if connector_id == "google_drive":
-            return await resolve_native_drive_connection(context)
+            return cast(ResolvedMcpConnection, await resolve_native_drive_connection(context))
         if connector_id == "google_gmail":
             resolved = await resolve_native_workspace_connection(context, "gmail")
         elif connector_id == "google_calendar":
@@ -139,7 +142,7 @@ async def resolve_registered_connection(
             raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
         if connector.auth_style != "oauth" or connector.mcp_endpoint != resolved.binding.endpoint:
             raise ExternalMcpError("Connector policy changed.", code="MCP_CONNECTION_CHANGED")
-        return resolved
+        return cast(ResolvedMcpConnection, resolved)
     row = await ExternalConnectorLifecycleStore().read(user_id=owner, connector_id=connector_id)
     if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
         raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
@@ -211,7 +214,7 @@ def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
         raise ExternalMcpError(
             "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
         )
-    return arguments
+    return cast(dict[str, Any], arguments)
 
 
 def mcp_tool_name(connector_id: str, wire_name: str) -> str:

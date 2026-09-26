@@ -669,6 +669,7 @@ async def set_puppy_access(
 async def activate_puppy(device_id: str, token_data: dict = Depends(require_vault_owner_token)):
     from hushh_mcp.services.pod_binding_service import PodBindingError
     from hushh_mcp.services.puppy_activation import request_activation
+
     try:
         return await request_activation(token_data["user_id"], device_id)
     except PodBindingError as exc:
@@ -812,6 +813,7 @@ async def trusted_device_status(
         )
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
     from hushh_mcp.services.puppy_activation import current_activation
+
     hint = None
     if status.get("status") == "active":
         try:

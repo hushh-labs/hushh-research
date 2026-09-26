@@ -94,6 +94,11 @@ export function AgentConnectionsDrawer({
       (element) =>
         !element.closest("[hidden], [inert]") && element.offsetParent !== null,
     );
+  // Read at open time only: switching views while open must not move focus.
+  const modeAtOpen = useRef(mode);
+  useLayoutEffect(() => {
+    modeAtOpen.current = mode;
+  }, [mode]);
   useLayoutEffect(() => {
     if (!open) return;
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
@@ -101,8 +106,8 @@ export function AgentConnectionsDrawer({
     returnFocus.current = triggerRef.current;
     // The transcript becomes inert in this commit. Move focus now so an
     // immediate Escape cannot land on the old, inert trigger before a RAF.
-    if (mode === "chats") focused()[0]?.focus({ preventScroll: true });
-  }, [open, mode, triggerRef]);
+    if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
+  }, [open, triggerRef]);
   useEffect(() => {
     if (open) return;
     // Passive closed-state effect runs after sibling inert attributes clear.

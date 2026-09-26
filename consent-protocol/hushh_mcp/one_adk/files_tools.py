@@ -1,4 +1,5 @@
 """Files tools for One's ADK task specialist; no destructive or shell capability."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -31,7 +32,9 @@ async def list_files(parent: str = "root", cursor: str = "") -> dict[str, Any]:
             if parent != "root":
                 await library.analysis_allowed(parent)
             result = await library.list_folder(parent, cursor)
-            result["entries"] = [entry for entry in result["entries"] if entry["id"] not in settings["excluded"]]
+            result["entries"] = [
+                entry for entry in result["entries"] if entry["id"] not in settings["excluded"]
+            ]
             if (await library.settings())["revision"] != settings["revision"]:
                 raise FilesRefused("FILES_CONSENT_CHANGED", 403)
             if parent != "root":
@@ -55,8 +58,12 @@ async def create_folder(name: str, parent: str, request_id: str) -> dict[str, An
             # Background folder creation is consented only for this job's upload.
             if _job_target.get() is not None:
                 await library.analysis_allowed(_job_target.get())
-            return {"status": "ok", "folder": await library.create(
-                name=name, parent=parent, size=0, request_id=request_id, folder=True)}
+            return {
+                "status": "ok",
+                "folder": await library.create(
+                    name=name, parent=parent, size=0, request_id=request_id, folder=True
+                ),
+            }
     except FilesRefused as exc:
         return {"status": "blocked", "code": exc.code}
 
@@ -89,7 +96,9 @@ async def read_file(file_id: str) -> dict[str, Any]:
         return {"status": "blocked", "code": exc.code}
 
 
-async def organize_file(file_id: str, revision: int, operation_name: str, name: str = "", parent: str = "") -> dict[str, Any]:
+async def organize_file(
+    file_id: str, revision: int, operation_name: str, name: str = "", parent: str = ""
+) -> dict[str, Any]:
     """Apply one reversible rename or move chosen by the Files agent."""
     try:
         await require_files_access()
@@ -102,7 +111,11 @@ async def organize_file(file_id: str, revision: int, operation_name: str, name: 
             if operation_name == "move" and parent != "root":
                 await library.analysis_allowed(parent)
             await require_files_access()
-            return {"status": "ok", "file": await library.mutate(file_id, revision=revision,
-                operation=operation_name, name=name, parent=parent)}
+            return {
+                "status": "ok",
+                "file": await library.mutate(
+                    file_id, revision=revision, operation=operation_name, name=name, parent=parent
+                ),
+            }
     except FilesRefused as exc:
         return {"status": "blocked", "code": exc.code}

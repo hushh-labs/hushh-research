@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODELS: tuple[str, ...] = ("gemini-3.8-flash", "gemini-3.7-flash")
+DEFAULT_MODELS: tuple[str, ...] = ("gemini-3.7-flash", "gemini-3.6-flash")
 DEFAULT_LOCATION = "global"
 THINKING_LEVELS: tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "MINIMAL")
 PROBE_TEMPERATURE = 0.2

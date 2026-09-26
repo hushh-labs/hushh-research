@@ -247,6 +247,10 @@ _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
 
 _SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 _ONE_CHAT_THINKING_LEVEL_ENV = "HUSHH_ONE_CHAT_THINKING_LEVEL"
+# Founder decision 2026-09-25: chat runs at LOW thinking. A two-round, same-window
+# matrix on the full agent loop measured LOW as the fastest level that kept every
+# tool choice right on both supported releases (3.7 LOW 12/12, 3.6 LOW 12/12).
+_ONE_CHAT_DEFAULT_THINKING_LEVEL = "low"
 
 
 def _one_chat_thinking_config(
@@ -254,13 +258,16 @@ def _one_chat_thinking_config(
 ) -> genai_types.ThinkingConfig:
     """Keep One's model thinking policy; opt in to summaries only for Chat.
 
-    An unset value preserves the provider's thinking budget. ``low`` remains
-    an explicit latency experiment without changing specialist or native-voice
-    policies. The authenticated Chat head may request provider summaries;
-    the intro and other text heads keep their existing private default.
+    An unset value applies the chat default (LOW). The environment value still
+    names a different level, and ``default`` / ``provider`` restores the
+    provider's own thinking budget. Specialist and native-voice policies are
+    unchanged. The authenticated Chat head may request provider summaries; the
+    intro and other text heads keep their existing private default.
     """
-    configured = os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip()
-    if not configured or configured.lower() in {"default", "provider"}:
+    configured = (
+        os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip() or _ONE_CHAT_DEFAULT_THINKING_LEVEL
+    )
+    if configured.lower() in {"default", "provider"}:
         return genai_types.ThinkingConfig(include_thoughts=include_summaries)
     selected_model = model if isinstance(model, str) else getattr(model, "model", None)
     resolved = thinking_config_for(
@@ -2269,11 +2276,18 @@ def _one_roster_tools(
         )
 
         files_manifest = _load_product_agent_manifest("agent_files")
-        tools.append(AgentTool(agent=LlmAgent(
-            name="files", mode="task", model=text_model, description=files_manifest.description,
-            instruction=files_manifest.system_instruction,
-            tools=[create_folder, list_files, read_file, organize_file],
-        )))
+        tools.append(
+            AgentTool(
+                agent=LlmAgent(
+                    name="files",
+                    mode="task",
+                    model=text_model,
+                    description=files_manifest.description,
+                    instruction=files_manifest.system_instruction,
+                    tools=[create_folder, list_files, read_file, organize_file],
+                )
+            )
+        )
     return tools
 
 

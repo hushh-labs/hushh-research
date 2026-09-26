@@ -21,6 +21,7 @@ import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
@@ -38,6 +39,31 @@ AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - public provider URL, not a token
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 SCOPES = ("openid", "email", DRIVE_FILE_SCOPE)
+_LOCAL_WEB_RETURN_PATH = "/one/profile/connectors/oauth/return"
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
+
+
+def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
+    """The registry's redirect URIs, plus the loopback web return on localhost.
+
+    Founder decision 2026-09-25: localhost runs Drive on the UAT Drive project.
+    The registry row is shared with UAT, so the loopback return is admitted by
+    the runtime rather than written into the shared row, and only when this
+    process is a development runtime whose frontend origin is a loopback host.
+    Google still enforces the OAuth client's own redirect list.
+    """
+    registered = tuple(connector.registered_redirect_uris or ())
+    if os.getenv("ENVIRONMENT", "").strip().lower() != "development":
+        return registered
+    origin = get_app_runtime_settings().app_frontend_origin
+    scheme, _, rest = origin.partition("://")
+    host = rest.split("/", 1)[0].rsplit(":", 1)[0] if rest else ""
+    if scheme != "http" or host not in _LOOPBACK_HOSTS or "@" in rest or "/" in rest:
+        return registered
+    local = f"{origin}{_LOCAL_WEB_RETURN_PATH}"
+    return registered if local in registered else (*registered, local)
+
+
 LIVE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 LIVE_SCOPES = ("openid", "email", LIVE_DRIVE_SCOPE)
 REGISTRY_SCOPES = (*SCOPES, LIVE_DRIVE_SCOPE)
@@ -114,7 +140,7 @@ class ExternalConnectorGoogleOAuth:
             connector, _, _ = await self._configuration()
         except DriveOAuthError:
             return False
-        return bool(connector.registered_redirect_uris)
+        return bool(registered_redirect_uris(connector))
 
     async def start(
         self,
@@ -136,7 +162,7 @@ class ExternalConnectorGoogleOAuth:
             )
         ):
             raise DriveOAuthError("profile_unavailable", status_code=403)
-        if flow not in {"web", "native"} or redirect_uri not in connector.registered_redirect_uris:
+        if flow not in {"web", "native"} or redirect_uri not in registered_redirect_uris(connector):
             raise DriveOAuthError("redirect_not_registered")
         # A native provider callback is backend-only, never an app/universal link.
         if (flow == "native") != redirect_uri.endswith("/api/connectors/oauth/native/callback"):
@@ -290,10 +316,9 @@ class ExternalConnectorGoogleOAuth:
         if not connector_feature_enabled("google_drive_connection", attempt["user_id"]):
             raise DriveOAuthError("connector_unavailable", status_code=403)
         connector, client_id, client_secret = await self._configuration()
-        if (
-            attempt["oauth_client_id"] != client_id
-            or attempt["redirect_uri"] not in connector.registered_redirect_uris
-        ):
+        if attempt["oauth_client_id"] != client_id or attempt[
+            "redirect_uri"
+        ] not in registered_redirect_uris(connector):
             raise DriveOAuthError("attempt_configuration_changed", status_code=409)
         aad = json.dumps(
             ["external-connector-pkce-v2", attempt["user_id"], CONNECTOR_ID, attempt_id],
@@ -377,10 +402,9 @@ class ExternalConnectorGoogleOAuth:
         if attempt["flow"] != "web":
             raise DriveOAuthError("attempt_flow_mismatch", status_code=409)
         connector, client_id, _ = await self._configuration()
-        if (
-            attempt["oauth_client_id"] != client_id
-            or attempt["redirect_uri"] not in connector.registered_redirect_uris
-        ):
+        if attempt["oauth_client_id"] != client_id or attempt[
+            "redirect_uri"
+        ] not in registered_redirect_uris(connector):
             raise DriveOAuthError("attempt_configuration_changed", status_code=409)
         result = await self.lifecycle.finalize(
             attempt_id=attempt["attempt_id"],
@@ -428,10 +452,9 @@ class ExternalConnectorGoogleOAuth:
         def seal(attempt, current):
             if attempt["flow"] != "native" or attempt["connector_id"] != CONNECTOR_ID:
                 raise DriveOAuthError("attempt_flow_mismatch", status_code=409)
-            if (
-                attempt["oauth_client_id"] != client_id
-                or attempt["redirect_uri"] not in connector.registered_redirect_uris
-            ):
+            if attempt["oauth_client_id"] != client_id or attempt[
+                "redirect_uri"
+            ] not in registered_redirect_uris(connector):
                 raise DriveOAuthError("attempt_configuration_changed", status_code=409)
             credential = json.loads(
                 self.credentials.decrypt_secret(

@@ -98,7 +98,12 @@ async def test_selection_is_bound_to_current_job_and_preserves_unrelated_metadat
     db.execute_raw("DELETE FROM personal_agent_registry WHERE user_id='files-owner'")
     cloud.update(job_id="new-job", project="new-project")
     assert await jobs.record_proven_cloud(**cloud) is True
-    parked = db.execute_raw("SELECT project_id,stage,stages FROM byoc_setup_jobs WHERE user_id='files-owner'").data[0]
+    parked = db.execute_raw(
+        "SELECT project_id,stage,stages FROM byoc_setup_jobs WHERE user_id='files-owner'"
+    ).data[0]
     assert parked["project_id"] == "new-project"
     assert parked["stage"] == "awaiting_agent_record"
-    assert any(stage.get("stage") == "files_selection" and stage.get("enabled") for stage in parked["stages"])
+    assert any(
+        stage.get("stage") == "files_selection" and stage.get("enabled")
+        for stage in parked["stages"]
+    )

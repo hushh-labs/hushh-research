@@ -216,8 +216,6 @@ def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dic
     }
 
 
-
-
 class PersonalAgentRegistryRepo:
     """CRUD over the personal-agent registry and deletion tombstones."""
 

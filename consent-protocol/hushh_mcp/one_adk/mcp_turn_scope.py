@@ -264,6 +264,10 @@ class McpTurnResources:
             )
         ):
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        owner = self._owner
+        if owner is None:
+            # Vault configurations are admitted only for an owner-bound turn.
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         if not record["enabled"]:
             raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
         auth = record["authentication"]
@@ -291,7 +295,7 @@ class McpTurnResources:
 
         return ResolvedMcpConnection(
             McpConnectionBinding(
-                self._owner,
+                owner,
                 connector_id,
                 1,
                 1,

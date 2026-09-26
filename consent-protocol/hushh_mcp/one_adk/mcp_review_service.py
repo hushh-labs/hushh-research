@@ -5,7 +5,7 @@ The existing encrypted session, registry and action ledger retain authority.
 """
 
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from google.adk.agents.context import Context
@@ -180,13 +180,16 @@ async def prepare_review(
     configuration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if pending_handle:
-        return await prepare_pending_review(
-            token=token,
-            connector_id=connector_id,
-            conversation_id=conversation_id,
-            tool_name=tool_name,
-            pending_handle=pending_handle,
-            configuration=configuration,
+        return cast(
+            dict[str, Any],
+            await prepare_pending_review(
+                token=token,
+                connector_id=connector_id,
+                conversation_id=conversation_id,
+                tool_name=tool_name,
+                pending_handle=pending_handle,
+                configuration=configuration,
+            ),
         )
     async with review_tool(
         token=token,

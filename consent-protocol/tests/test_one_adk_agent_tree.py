@@ -99,14 +99,25 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
-    def test_chat_thinking_policy_preserves_provider_baseline_without_public_summaries(
+    def test_chat_thinking_policy_defaults_to_low_without_public_summaries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Founder decision 2026-09-25: chat runs at LOW thinking by default.
         monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
 
         config = _one_chat_thinking_config()
 
         assert config.include_thoughts is False
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
+    @pytest.mark.parametrize("value", ["default", "provider", "PROVIDER"])
+    def test_chat_thinking_policy_can_restore_provider_baseline(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", value)
+
+        config = _one_chat_thinking_config()
+
         assert getattr(config, "thinking_level", None) is None
 
     def test_chat_thinking_policy_can_request_low_without_affecting_other_heads(
@@ -119,7 +130,7 @@ class TestAgentTreeShape:
         assert config.include_thoughts is False
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
-    @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+    @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.6-flash"])
     def test_chat_thinking_policy_uses_selected_flash_model(self, monkeypatch, model):
         monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
 

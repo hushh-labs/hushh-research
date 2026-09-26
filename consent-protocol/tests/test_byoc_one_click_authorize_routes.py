@@ -118,7 +118,9 @@ def _fake_job_repo(monkeypatch):
 
 
 def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
-    monkeypatch.setattr(oauth, "verify_state_selection", lambda state, uid: ("hussh-one-fresh1", False))
+    monkeypatch.setattr(
+        oauth, "verify_state_selection", lambda state, uid: ("hussh-one-fresh1", False)
+    )
     monkeypatch.setattr(oauth, "exchange_code", lambda code: "transient-token")
     monkeypatch.setattr(
         oauth,

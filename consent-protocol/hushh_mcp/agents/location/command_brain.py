@@ -195,7 +195,8 @@ class LocationCommandBrain:
                 agent = build_single_turn_agent(
                     gene,
                     output_schema=_TRANSCRIPTION_SCHEMA,
-                    model=self.transcriber_adk_model or Gemini(model=model_name, client=self.client),
+                    model=self.transcriber_adk_model
+                    or Gemini(model=model_name, client=self.client),
                 )
                 result = await run_single_turn(
                     agent,

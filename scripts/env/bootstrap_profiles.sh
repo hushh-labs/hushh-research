@@ -949,6 +949,21 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
 
+  # Founder decision 2026-09-25: localhost runs connectors on the Google project
+  # each belongs to, using the UAT configuration. Drive has its own OAuth client
+  # and Picker key in the UAT Drive project; Gmail and Calendar keep the shared
+  # Google client hydrated above. The backend admits the loopback return only in
+  # development (external_connector_google_oauth.registered_redirect_uris).
+  local drive_key
+  for drive_key in GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET \
+    GOOGLE_DRIVE_PICKER_API_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 \
+    EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$drive_key" "false" "$file"
+  done
+  upsert_env_value "$file" "GOOGLE_DRIVE_LIVE" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_INDEXING" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_SHARING" "true"
+
   local runtime_db_host runtime_db_port runtime_socket instance_name
   local cache_file="$file"
   runtime_db_host="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_HOST' "$cache_file")"

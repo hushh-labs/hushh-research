@@ -1758,7 +1758,9 @@ class ConsentDBService:
             event_id = response.data[0].get("id") if response.data else None
 
         await append_event_receipt(
-            data, issued_at=issued_at, event_id=event_id,
+            data,
+            issued_at=issued_at,
+            event_id=event_id,
             internal=not landed_in_primary_ledger,
         )
 

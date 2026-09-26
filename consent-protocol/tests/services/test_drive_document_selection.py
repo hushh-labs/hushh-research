@@ -321,6 +321,9 @@ async def test_unhealthy_connection_does_not_hide_or_prevent_removal(
 
 
 @pytest.mark.asyncio
+# The picker is an owner-available capability (connector_feature_admission
+# OWNER_AVAILABLE), so no environment flag can revoke it; the registry policy and
+# the row's active state are what commit time must revalidate.
 @pytest.mark.parametrize("change", ["policy", "deactivate"])
 async def test_selection_commit_revalidates_live_policy_and_rolls_back_claim(
     documents, monkeypatch, change

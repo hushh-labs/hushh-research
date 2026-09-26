@@ -18,6 +18,15 @@ from hushh_mcp.services.action_directive_ledger import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
+@pytest.fixture(autouse=True)
+def _hosted_workspace_mcp_enrolled(monkeypatch):
+    """These cases pin the hosted Workspace MCP path, which stays intact behind
+    the enrollment switch (off by default: founder decision 2026-09-25)."""
+    from hushh_mcp.one_adk import governed_mcp_toolset
+
+    monkeypatch.setattr(governed_mcp_toolset, "HOSTED_WORKSPACE_MCP_ENROLLED", True)
+
+
 @pytest.fixture
 def harness(monkeypatch):
     binding = McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp")
@@ -234,7 +243,7 @@ async def test_curated_drive_review_uses_same_scope_and_never_executes(harness):
     definition = h.registry.get_connector.return_value
     definition.owner_user_id = None
     definition.connector_id = "google_drive"
-    definition.transport_kind = "google_drive_rest"
+    definition.transport_kind = "mcp"  # a REST row is never dialed as MCP
     h.request["connector_id"] = "google_drive"
     h.resolver.return_value = replace(
         h.resolver.return_value,

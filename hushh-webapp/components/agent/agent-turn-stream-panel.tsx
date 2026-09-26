@@ -6,6 +6,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -187,9 +188,11 @@ export function AgentTurnStreamPanel({
       response={response}
       thinkingTitle="Thinking summary"
       thinkingContent={thinkingSummary ? (
-        <p className="max-h-44 min-h-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words text-sm text-muted-foreground">
-          {thinkingSummary}
-        </p>
+        <div className="max-h-44 min-h-0 overflow-y-auto overscroll-contain text-sm text-muted-foreground">
+          {/* Provider summaries are markdown ("**Heading**" then a paragraph);
+              render them with the same renderer as the answer. */}
+          <AgentMarkdown text={thinkingSummary} className="[&_strong]:text-foreground" />
+        </div>
       ) : undefined}
       structuredContent={
         experienceItems.length > 0 ? (
