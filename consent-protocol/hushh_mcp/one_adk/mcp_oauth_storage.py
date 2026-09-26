@@ -427,6 +427,15 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
                             raise McpOAuthConnectError()
                     response = yield outgoing
                     storage._check()
+                    if (
+                        outgoing.method == "GET"
+                        and str(outgoing.url) != self.context.server_url
+                        and response.status_code == 200
+                    ):
+                        # A real transport streams: read the bounded metadata
+                        # body (the client caps it) before admitting it. The SDK
+                        # reads it again from the same buffered content.
+                        await response.aread()
                     self._admit_metadata_response(outgoing, response)
                     try:
                         outgoing = await flow.asend(response)
