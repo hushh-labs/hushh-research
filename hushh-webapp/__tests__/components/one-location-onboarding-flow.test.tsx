@@ -105,6 +105,17 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
     expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
   });
 
+  it("keeps the welcome CTA and centre marker legible on the blue surface", () => {
+    renderFlow();
+
+    expect(screen.getByRole("button", { name: "Get started" }).className).toContain(
+      "hover:bg-white/90",
+    );
+    expect(document.querySelector("[data-one-welcome-core] svg")?.className.baseVal).toContain(
+      "stroke-[#087ff5]",
+    );
+  });
+
   it("keeps Back and Skip separate on Welcome", () => {
     const { props } = renderFlow();
 
