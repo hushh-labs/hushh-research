@@ -37,7 +37,9 @@ function codeOf(cause: unknown): string {
 function failureCopy(code: string, name: string): string {
   switch (code) {
     case "recipient_google_identity_required":
-      return `${name} needs to add a Google account to One before you can share files.`;
+      return `${name}'s Google sign-in needs attention in One.`;
+    case "recipient_verified_email_required":
+      return `${name} needs a verified email in One.`;
     case "connection_required":
       return `You're not connected with ${name}.`;
     case "reconnect_required":
@@ -210,7 +212,7 @@ function UnlockedDriveOwnerShareCard({
       : phase === "sharing"
         ? "Sharing…"
         : view?.status === "shared"
-          ? `Shared with ${personName}.`
+          ? `Sharing requested for ${personName}.`
           : view?.status === "no_match"
             ? "No matching files found."
             : view?.status === "ready"
@@ -292,8 +294,7 @@ function UnlockedDriveOwnerShareCard({
             ))}
           </ul>
           <HelperText>
-            {personName} gets Viewer access to the original files in Google Drive. You can remove
-            access anytime.
+            {personName} gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
           <Button size="prominent" disabled={phase !== "idle" || selected.length === 0} onClick={share}>
             {phase === "sharing"

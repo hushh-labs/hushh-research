@@ -20,19 +20,23 @@ def test_action_directive_ledger_is_in_release_and_schema_contracts():
 
 
 def test_replayed_212_cannot_re_narrow_checks_that_231_widened():
-    """Replay runs 212 before 231 on every deploy. Once a 'document_review' row
-    exists, a validating ADD in 212 fails (23514) and blocks every release, as
-    UAT run 36068626533 did; both of 212's ledger checks must skip old rows."""
+    """Every replayed check must still admit later document and ADK channels."""
     migration = (ROOT / "db/migrations/212_location_command_runtime.sql").read_text()
     for name in ("one_action_directive_ledger_channel_check", "one_action_directive_ledger_check"):
         match = re.search(rf"ADD CONSTRAINT {name}\b", migration)
         assert match, name
         statement = migration[match.start() : migration.index(";", match.start())]
         assert statement.rstrip().endswith("NOT VALID"), name
-    assert (
-        "'document_review'"
-        in (ROOT / "db/migrations/231_document_review_authority.sql").read_text()
-    )
+        assert "'document_review'" in statement
+        assert "'adk_chat'" in statement
+    document_migration = (ROOT / "db/migrations/231_document_review_authority.sql").read_text()
+    for name in ("one_action_directive_ledger_channel_check", "one_action_directive_ledger_check"):
+        match = re.search(rf"ADD CONSTRAINT {name}\b", document_migration)
+        assert match, name
+        statement = document_migration[
+            match.start() : document_migration.index(",\n  ADD CONSTRAINT", match.start())
+        ]
+        assert "'adk_chat'" in statement
 
 
 def test_action_directive_ledger_stores_metadata_not_protected_payloads():
