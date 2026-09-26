@@ -209,7 +209,10 @@ describe("CapabilityCinematicIntroGate", () => {
       // location-onboarding-setup-client.tsx: "five taps; it is now three"),
       // so it is not on this list. AI access dropped it for the same reason.
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
-      // Calendar uses its connection screen as the introduction.
+      [
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
+        "calendar",
+      ],
     ] as const;
 
     for (const [relativePath, capabilityId] of surfaces) {
