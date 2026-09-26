@@ -146,7 +146,7 @@ const subtitleClass = one(
 // layout fixture measures the resting labels for the two agent modes.
 const subtitleLabels = one(
   header,
-  /<ChatAgentSubtitle text=\{isPuppySurface\s*\?\s*"([^"]+)"\s*:[\s\S]*?:\s*"([^"]+)"\}\s*\/>/,
+  /<ChatAgentSubtitle text=\{isPuppySurface\s*\?\s*"([^"]+)"\s*:[\s\S]*?:\s*(?:statusText\s*\|\|\s*)?"([^"]+)"\}\s*\/>/,
   "agent subtitle mode labels",
   WORKSPACE_PATH,
 );
@@ -218,12 +218,12 @@ const stripMatch = one(
   WORKSPACE_PATH,
 );
 
-const statusClass = one(
+const profileButton = one(
   header,
-  /<span\s+className="(hidden w-28[^"]+)"\s+role="status"/,
-  "the status slot class",
+  /data-testid="(profile-open-button)"\s+aria-label="([^"]+)"[\s\S]*?className="([^"]+)"/,
+  "the profile button",
   WORKSPACE_PATH,
-)[1];
+);
 
 /**
  * The two `hidden` guards below the header, read from the whole file because
@@ -354,7 +354,11 @@ export const AGENT_SURFACE_SOURCE = {
     nameExpression: flatten(nameMatch[2]),
     subtitleClass,
     subtitleExpression,
-    statusClass,
+    profileButton: {
+      testId: profileButton[1],
+      ariaLabel: profileButton[2],
+      className: profileButton[3],
+    },
   },
   toggle: {
     ariaLabel: toggleAriaLabel,

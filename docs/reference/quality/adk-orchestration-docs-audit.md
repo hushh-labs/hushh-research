@@ -1030,3 +1030,14 @@ refusing stub, consistent with its existing prohibition on custom-credential
 operations. Production authorization is unchanged. The existing 38 mounted-browser
 checks pass in Chromium and WebKit on both confirmation runs. The next pushed head
 must complete remote CI; this fixture repair does not establish live pod acceptance.
+
+
+The agent-header browser fixture also assumed an obsolete trailing status slot.
+It now reads the current resting subtitle and profile button from their production
+owner, preserving the layout assertions and negative control. The focused
+22-case Chromium/WebKit suite passes; the complete existing layout command exits
+zero across 372 Chromium, 304 WebKit and 92 mobile-Chrome cases. One Circle-menu
+case required a retry in each project (three flaky results); its isolated Chromium
+confirmation passed twice without retries. This remains recorded test instability,
+not a reason to change unrelated product behavior or weaken assertions. These
+fixture-only changes require a new exact-head remote CI result.
