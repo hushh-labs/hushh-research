@@ -157,6 +157,8 @@
 .privacy { display: flex; justify-content: center; width: 100%; }
 
 .shell .privacy > div {
+  /* Measure the CTA gap from the text, not the taller decorative icon. */
+  align-items: flex-end;
   width: auto;
   max-width: 100%;
   gap: 10px;

@@ -66,7 +66,7 @@ for (const dark of [false, true]) {
       expect(result.button.x).toBeGreaterThanOrEqual(0);
       expect(result.button.right).toBeLessThanOrEqual(viewport.width);
       if (viewport.height >= 667) expect(result.button.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
-      expect(result.privacy.bottom).toBeLessThan(result.button.y);
+      expect(result.button.y - result.privacy.bottom).toBeCloseTo(12, 0);
       for (const image of result.images) {
         expect(image.loaded).toBe(true);
         // Decorative exports include intentionally oversized transparent/cropped
