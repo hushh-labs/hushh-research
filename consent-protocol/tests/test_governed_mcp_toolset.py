@@ -863,7 +863,21 @@ def test_unknown_review_policy_is_rejected_at_construction():
         )
 
 
-def _policy_toolset(policy, tools, *, headers=None, forced=frozenset(), catalog_policy=None):
+def _first_call(**state):
+    """The one call the boundary admitted before any external read this turn."""
+    from hushh_mcp.one_adk.external_read_boundary import STATE_MCP_UNREVIEWED_CALL
+
+    return SimpleNamespace(
+        user_id="owner",
+        invocation_id="inv",
+        function_call_id="call",
+        state={STATE_MCP_UNREVIEWED_CALL: "inv:call", **state},
+    )
+
+
+def _policy_toolset(
+    policy, tools, *, headers=None, forced=frozenset(), catalog_policy=None, budget=None
+):
     binding = McpConnectionBinding("owner", "custom_one", 1, 1, "https://example.com/mcp")
     connection = ResolvedMcpConnection(
         binding,
@@ -879,6 +893,7 @@ def _policy_toolset(policy, tools, *, headers=None, forced=frozenset(), catalog_
         review_policy=policy,
         forced_review_tool_ids=forced,
         catalog_policy=catalog_policy,
+        admit_unreviewed=budget if budget is not None else (lambda: True),
     )
     session = SimpleNamespace(
         list_tools=AsyncMock(return_value=SimpleNamespace(tools=tools, nextCursor=None))
@@ -909,7 +924,7 @@ async def test_credentialed_read_only_tool_runs_without_review(native_ok):
     try:
         tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
         assert tool.descriptor["annotations"] == READ_ONLY
-        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        result = await tool.run_async(args={}, tool_context=_first_call())
         assert result == {
             "status": "ok",
             "isError": False,
@@ -949,7 +964,7 @@ async def test_credentialless_connector_runs_unannotated_tool_without_review(nat
     toolset, approve, _ = _policy_toolset("credentialless", [_tool("write")], headers={})
     try:
         tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
-        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        result = await tool.run_async(args={}, tool_context=_first_call())
         # Not claimed as a read: an unannotated public tool may change things.
         assert result["status"] == "ok" and result["review"] == "no_credential"
         approve.assert_not_awaited()
@@ -984,13 +999,12 @@ async def test_unreviewed_read_never_touches_the_action_directive_ledger(native_
         [_tool("search", SimpleNamespace(readOnlyHint=True)), _tool("write")],
     )
     toolset.authorize_call = mcp_call_approval.review_or_resume_call
-    context = SimpleNamespace(
-        user_id="owner",
-        state={
+    context = _first_call(
+        **{
             "hussh:user_id": "owner",
             "hussh:conversation_id": "thread",
             "temp:one_execution_surface": "typed_chat",
-        },
+        }
     )
     try:
         tools = {tool.descriptor["name"]: tool for tool in await toolset.get_tools(context)}
@@ -1064,7 +1078,7 @@ async def test_provider_echo_of_the_credential_never_reaches_the_model(monkeypat
     )
     try:
         tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
-        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        result = await tool.run_async(args={}, tool_context=_first_call())
         assert result["status"] == "ok"
         assert bearer not in repr(result)
         assert result["result"]["echo"] == "Authorization: [redacted]"
@@ -1164,7 +1178,7 @@ async def test_credential_is_redacted_before_a_large_result_is_capped(monkeypatc
     )
     try:
         tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
-        result = await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner"))
+        result = await tool.run_async(args={}, tool_context=_first_call())
         assert result["truncated"] is True
         preview = result["result"]["preview"]
         assert not any(bearer[:size] in preview for size in range(12, len(bearer) + 1))
@@ -1192,3 +1206,295 @@ async def test_discovery_distinguishes_a_refused_credential(harness, status, cod
     assert caught.value.code == code
     assert "PRIVATE" not in str(caught.value) and "synthetic" not in str(caught.value)
     assert caught.value.__cause__ is None
+
+
+# --- Security audit 2026-09-26: no unreviewed call once external content is in --
+
+
+@pytest.fixture
+def boundary_toolset(monkeypatch, native_ok):
+    """A credentialless toolset whose approval port is the real boundary identity."""
+    from hushh_mcp.one_adk import governed_mcp_toolset, mcp_call_approval
+
+    approve = AsyncMock(return_value={"status": "review_required"})
+    monkeypatch.setattr(mcp_call_approval, "review_or_resume_call", approve)
+    audit = Mock()
+    monkeypatch.setattr(governed_mcp_toolset, "_unreviewed_audit", audit)
+    toolset, _, _ = _policy_toolset("credentialless", [_tool("search"), _tool("write")], headers={})
+    toolset.authorize_call = approve
+    return SimpleNamespace(toolset=toolset, approve=approve, native=native_ok, audit=audit)
+
+
+def _turn_context(call_id="call-1", events=(), state=None):
+    return SimpleNamespace(
+        user_id="owner",
+        invocation_id="turn-1",
+        function_call_id=call_id,
+        tool_confirmation=None,
+        session=SimpleNamespace(events=list(events)),
+        state=state
+        if state is not None
+        else {"temp:one_execution_surface": "typed_chat", "hussh:conversation_id": "thread"},
+    )
+
+
+def _history_event(name, call_id="earlier"):
+    from google.adk.events import Event
+    from google.genai import types
+
+    return Event(
+        author="one",
+        invocation_id="earlier-turn",
+        content=types.Content(
+            role="model",
+            parts=[types.Part(function_call=types.FunctionCall(id=call_id, name=name, args={}))],
+        ),
+    )
+
+
+async def _call(tool, context, args=None):
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
+
+    blocked = before_external_read_tool(tool, args or {}, context)
+    if blocked is not None:
+        return blocked
+    return await tool.run_async(args=args or {}, tool_context=context)
+
+
+async def test_first_call_before_any_read_may_run_unreviewed(boundary_toolset):
+    h = boundary_toolset
+    try:
+        tool = (await h.toolset.get_tools(_turn_context()))[0]
+        result = await _call(tool, _turn_context())
+        assert result["status"] == "ok" and result["review"] == "no_credential"
+        h.approve.assert_not_awaited()
+        h.native.assert_awaited_once()
+    finally:
+        await h.toolset.close()
+
+
+async def test_crafted_call_after_a_mail_or_drive_read_needs_review(boundary_toolset):
+    """A crafted email must not steer private context to a public server unreviewed."""
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
+
+    h = boundary_toolset
+    context = _turn_context()
+    try:
+        tool = (await h.toolset.get_tools(context))[0]
+        # A Drive/Workspace read runs first in this turn.
+        workspace_read = SimpleNamespace(name="read_workspace_tool")
+        assert before_external_read_tool(workspace_read, {}, context) is None
+        result = await _call(tool, context, {"q": "PRIVATE MAIL CONTENT"})
+        assert result == {"status": "review_required", "connectorId": "custom_one"}
+        h.approve.assert_awaited_once()
+        h.native.assert_not_awaited()
+        h.audit.info.assert_not_called()
+    finally:
+        await h.toolset.close()
+
+
+async def test_second_connector_call_in_a_turn_needs_review(boundary_toolset):
+    """Connector output is external content too; the next call is reviewed."""
+    h = boundary_toolset
+    try:
+        tools = {
+            tool.descriptor["name"]: tool for tool in await h.toolset.get_tools(_turn_context())
+        }
+        first = _turn_context("call-1")
+        assert (await _call(tools["search"], first))["status"] == "ok"
+        second = _turn_context("call-2")
+        second.state = first.state
+        assert (await _call(tools["write"], second))["status"] == "review_required"
+        assert h.native.await_count == 1
+        assert h.approve.await_count == 1
+    finally:
+        await h.toolset.close()
+
+
+async def test_parallel_calls_admit_at_most_one_unreviewed(boundary_toolset):
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
+
+    h = boundary_toolset
+    try:
+        tools = {
+            tool.descriptor["name"]: tool for tool in await h.toolset.get_tools(_turn_context())
+        }
+        first, second = _turn_context("call-1"), _turn_context("call-2")
+        second.state = first.state
+        # Both callbacks run before either dispatch, as in one model response.
+        assert before_external_read_tool(tools["search"], {}, first) is None
+        assert before_external_read_tool(tools["write"], {}, second) is None
+        outcomes = [
+            (await tools["search"].run_async(args={}, tool_context=first))["status"],
+            (await tools["write"].run_async(args={}, tool_context=second))["status"],
+        ]
+        assert outcomes == ["ok", "review_required"]
+    finally:
+        await h.toolset.close()
+
+
+async def test_missing_boundary_or_budget_owner_fails_closed(native_ok):
+    toolset, approve, _ = _policy_toolset("credentialless", [_tool("search")], headers={})
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        # No boundary mark at all (e.g. an agent without the callback).
+        assert (await tool.run_async(args={}, tool_context=SimpleNamespace(user_id="owner")))[
+            "status"
+        ] == "review_required"
+        # Marked, but no turn owns a budget.
+        toolset.admit_unreviewed = None
+        assert (await tool.run_async(args={}, tool_context=_first_call()))[
+            "status"
+        ] == "review_required"
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_exhausted_turn_budget_forces_review(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "credentialless", [_tool("search")], headers={}, budget=lambda: False
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=_first_call())
+        assert result["status"] == "review_required"
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_unreviewed_call_writes_a_metadata_only_audit_record(boundary_toolset):
+    h = boundary_toolset
+    try:
+        tool = (await h.toolset.get_tools(_turn_context()))[0]
+        result = await _call(tool, _turn_context(), {"q": "PRIVATE_ARGUMENT_TEXT"})
+        assert result["status"] == "ok"
+        h.audit.info.assert_called_once()
+        (message,) = h.audit.info.call_args.args
+        extra = h.audit.info.call_args.kwargs["extra"]
+        assert message == "mcp.unreviewed_call"
+        assert extra == {
+            "connector_id": "custom_one",
+            "tool_id": tool.name,
+            "review_outcome": "no_credential",
+            "invocation_id": "turn-1",
+            "session_id": "thread",
+            "owner_ref": extra["owner_ref"],
+        }
+        assert len(extra["owner_ref"]) == 16 and extra["owner_ref"] != "owner"
+        recorded = repr(h.audit.info.call_args)
+        assert "PRIVATE_ARGUMENT_TEXT" not in recorded
+        assert "search" not in recorded.replace(tool.name, "")
+        assert "count" not in recorded  # no result content
+    finally:
+        await h.toolset.close()
+
+
+async def test_audit_failure_means_nothing_is_sent(boundary_toolset):
+    h = boundary_toolset
+    h.audit.info.side_effect = OSError("audit sink unavailable")
+    try:
+        tool = (await h.toolset.get_tools(_turn_context()))[0]
+        result = await _call(tool, _turn_context())
+        assert result["error"] == "MCP_CALL_UNAVAILABLE"
+        h.native.assert_not_awaited()
+    finally:
+        await h.toolset.close()
+
+
+@pytest.mark.parametrize(
+    "earlier_tool", ["ask_email_agent", "calendar_events", "google_search", "mcp_" + "a" * 40]
+)
+async def test_third_party_content_from_an_earlier_turn_forces_review(
+    boundary_toolset, earlier_tool
+):
+    """History outlives temp state: an email read last message still steers."""
+    h = boundary_toolset
+    context = _turn_context(events=[_history_event(earlier_tool)])
+    try:
+        tool = (await h.toolset.get_tools(context))[0]
+        result = await _call(tool, context, {"q": "PRIVATE MAIL CONTENT"})
+        assert result["status"] == "review_required"
+        h.native.assert_not_awaited()
+    finally:
+        await h.toolset.close()
+
+
+async def test_durable_flag_forces_review_after_temp_state_is_gone(boundary_toolset):
+    from hushh_mcp.one_adk.external_read_boundary import (
+        STATE_UNTRUSTED_CONTENT,
+        before_external_read_tool,
+    )
+
+    h = boundary_toolset
+    first = _turn_context()
+    try:
+        tool = (await h.toolset.get_tools(first))[0]
+        # A calendar read (not one of the four mail/drive read tools) marks it.
+        assert before_external_read_tool(SimpleNamespace(name="calendar_events"), {}, first) is None
+        assert first.state[STATE_UNTRUSTED_CONTENT] is True
+        # Next message: a new invocation with only durable state carried over.
+        durable = {k: v for k, v in first.state.items() if not k.startswith("temp:")}
+        later = _turn_context(
+            "call-9", state={**durable, "temp:one_execution_surface": "typed_chat"}
+        )
+        later.invocation_id = "turn-2"
+        assert (await _call(tool, later))["status"] == "review_required"
+        h.native.assert_not_awaited()
+    finally:
+        await h.toolset.close()
+
+
+async def test_local_only_tools_and_the_calls_own_event_do_not_taint(boundary_toolset):
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
+
+    h = boundary_toolset
+    context = _turn_context(
+        "call-1", events=[_history_event("get_current_time"), _history_event("x", "call-1")]
+    )
+    try:
+        tool = (await h.toolset.get_tools(context))[0]
+        assert (
+            before_external_read_tool(SimpleNamespace(name="get_current_time"), {}, context) is None
+        )
+        result = await _call(tool, context)
+        assert result["status"] == "ok" and result["review"] == "no_credential"
+    finally:
+        await h.toolset.close()
+
+
+async def test_unreadable_history_fails_closed(boundary_toolset):
+    h = boundary_toolset
+    context = _turn_context()
+    context.session = None
+    try:
+        tool = (await h.toolset.get_tools(_turn_context()))[0]
+        assert (await _call(tool, context))["status"] == "review_required"
+        h.native.assert_not_awaited()
+    finally:
+        await h.toolset.close()
+
+
+async def test_confirmed_resume_never_takes_the_unreviewed_path(boundary_toolset):
+    """A confirmed resume must consume a ledger receipt, never skip review."""
+    from google.adk.tools.tool_confirmation import ToolConfirmation
+
+    h = boundary_toolset
+    context = _turn_context()
+    context.tool_confirmation = ToolConfirmation(confirmed=True)
+    try:
+        tool = (await h.toolset.get_tools(_turn_context()))[0]
+        result = await _call(tool, context)
+        assert result["status"] == "review_required"  # the approval port decides
+        h.approve.assert_awaited_once()
+        h.native.assert_not_awaited()
+        h.audit.info.assert_not_called()
+        # Even a stale mark from before cannot be reused by a confirmed call.
+        from hushh_mcp.one_adk.external_read_boundary import mcp_call_may_skip_review
+
+        context.state["temp:one_mcp_unreviewed_call"] = "turn-1:call-1"
+        assert mcp_call_may_skip_review(context) is False
+    finally:
+        await h.toolset.close()

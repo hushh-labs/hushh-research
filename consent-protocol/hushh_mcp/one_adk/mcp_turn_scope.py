@@ -41,6 +41,10 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 logger = logging.getLogger(__name__)
+# Most calls one request may send to connectors without exact-call review.
+# A backstop: the external-read boundary already admits at most one unreviewed
+# call per conversation. A code constant, never an environment flag.
+UNREVIEWED_CALL_BUDGET = 6
 _CURRENT: ContextVar[McpTurnResources | None] = ContextVar("one_mcp_turn_resources", default=None)
 STATE_MCP_CONFIGURATION = "temp:hussh:mcp_configuration"
 
@@ -79,6 +83,13 @@ def consume_turn_configurations(state: dict, *, owner_id: str, conversation_id: 
         raise ExternalMcpError(
             "Connector turn expired. Try again.", code="MCP_TURN_UNAVAILABLE"
         ) from None
+
+
+def _vault_owner_token(secret: Any) -> bool:
+    """A vault-owner token, under any auth scheme, never leaves for a server."""
+    return (
+        isinstance(secret, str) and re.match(r"^(?:\S+\s+)?HCT:", secret.strip(), re.I) is not None
+    )
 
 
 def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
@@ -156,13 +167,14 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
                 if auth["header"] not in {"Authorization", "X-API-Key", "Api-Key"}:
                     raise ValueError
                 secret = auth["value"]
-                # A vault-owner token under any scheme never leaves for a server.
-                if isinstance(secret, str) and re.match(r"^(?:\S+\s+)?HCT:", secret.strip(), re.I):
+                if _vault_owner_token(secret):
                     raise ValueError
             elif kind == "oauth" and set(auth) == {"kind", "accessToken", "expiresAt"}:
                 if type(auth["expiresAt"]) is not int or auth["expiresAt"] <= 0:
                     raise ValueError
                 secret = auth["accessToken"]
+                if _vault_owner_token(secret):
+                    raise ValueError
             else:
                 raise ValueError
             if kind != "none" and (
@@ -210,6 +222,7 @@ class McpTurnResources:
             validate_mcp_turn_configurations(configurations) if configurations is not None else {}
         )
         self._closed = False
+        self._unreviewed_calls = 0
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}
         self._catalog_views: list[Any] = []
 
@@ -307,6 +320,13 @@ class McpTurnResources:
             forced_review_tool_ids=frozenset(item["id"] for item in record.get("blockedTools", [])),
         )
 
+    def admit_unreviewed(self) -> bool:
+        """Claim one unreviewed call from this turn's budget; False means review."""
+        if self._closed or self._unreviewed_calls >= UNREVIEWED_CALL_BUDGET:
+            return False
+        self._unreviewed_calls += 1
+        return True
+
     def track_catalog_view(self, view: Any) -> None:
         if self._closed:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
@@ -338,6 +358,7 @@ class McpTurnResources:
             result_policy=resolved.result_policy,
             review_policy=resolved.review_policy,
             forced_review_tool_ids=resolved.forced_review_tool_ids,
+            admit_unreviewed=self.admit_unreviewed,
         )
         self._toolsets[resolved.binding] = toolset
         return toolset

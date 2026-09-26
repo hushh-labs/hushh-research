@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -28,7 +29,10 @@ from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, Tool
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.consent.audit_logger import get_audit_logger
+from hushh_mcp.one_adk.external_read_boundary import mcp_call_may_skip_review
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.external_connector_credentials_service import (
     get_external_connector_credentials_service,
@@ -233,6 +237,40 @@ async def resolve_registered_connection(
 
 
 ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
+# Claims one unit of the owning turn's unreviewed-call budget; False means review.
+AdmitUnreviewed = Callable[[], bool]
+_unreviewed_audit = get_audit_logger("hushh_mcp.audit.mcp_unreviewed_call")
+
+
+def _audit_unreviewed_call(
+    context: Any, binding: McpConnectionBinding, tool_id: str, outcome: str
+) -> None:
+    """Metadata-only record of an outbound call no person reviewed.
+
+    The action ledger cannot hold it: its adk_chat rows require confirmation.
+    This is a structured log line, not a durable or tamper-evident store.
+    Never arguments, results, provider tool names or credentials. `tool_id` is
+    already an opaque digest of the connector and provider tool name.
+    """
+    state = getattr(context, "state", None) or {}
+    _unreviewed_audit.info(
+        "mcp.unreviewed_call",
+        extra={
+            "connector_id": binding.connector_id,
+            "tool_id": tool_id,
+            "review_outcome": outcome,
+            "invocation_id": str(getattr(context, "invocation_id", "") or ""),
+            "session_id": str(state.get("hussh:conversation_id") or ""),
+            # Keyed, so a list of user ids cannot reverse or link it offline.
+            "owner_ref": hmac.new(
+                get_core_security_settings().app_signing_key.encode(),
+                b"mcp-audit-owner:" + binding.owner_id.encode(),
+                hashlib.sha256,
+            ).hexdigest()[:16],
+        },
+    )
+
+
 # None permits this exact call; a dict is a safe pending/blocked app response.
 # The callback must consume existing app authority, never trust MCP annotations;
 # only mcp_call_requires_review decides whether the callback runs at all.
@@ -335,6 +373,7 @@ class GovernedMcpToolset(McpToolset):
         result_policy: ResultPolicy | None = None,
         review_policy: McpReviewPolicy = "always",
         forced_review_tool_ids: frozenset[str] = frozenset(),
+        admit_unreviewed: AdmitUnreviewed | None = None,
     ) -> None:
         validate_mcp_endpoint(binding.endpoint)
         if not binding.owner_id or not binding.connector_id or binding.generation < 1:
@@ -358,6 +397,8 @@ class GovernedMcpToolset(McpToolset):
         self.result_policy = result_policy
         self.review_policy: McpReviewPolicy = review_policy
         self.forced_review_tool_ids = forced_review_tool_ids
+        # No budget owner (no turn scope) means no unreviewed call at all.
+        self.admit_unreviewed = admit_unreviewed
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
@@ -518,6 +559,13 @@ class _GovernedMcpTool(McpTool):
             # a hint change re-keys the catalog and fails the epoch check below.
             # An unreviewed call never touches the action directive ledger.
             outcome = owner.review_outcome(self.name, self.descriptor)
+            if outcome != "required" and not (
+                # Before any external content in this turn, and within budget.
+                mcp_call_may_skip_review(tool_context)
+                and owner.admit_unreviewed is not None
+                and owner.admit_unreviewed()
+            ):
+                outcome = "required"
             reviewed = outcome == "required"
             if reviewed:
                 pending = await owner.authorize_call(
@@ -534,6 +582,9 @@ class _GovernedMcpTool(McpTool):
                 return {"error": "MCP_CATALOG_CHANGED"}
             # Call the native implementation exactly once. Bypass its optional
             # graceful-error wrapper, which can log raw provider exceptions.
+            if not reviewed:
+                # Recorded before dispatch; if it cannot be written, nothing is sent.
+                _audit_unreviewed_call(tool_context, owner.binding, self.name, outcome)
             async with asyncio.timeout(owner.timeout_seconds):
                 dispatched = True
                 result = await super()._run_async_impl(
