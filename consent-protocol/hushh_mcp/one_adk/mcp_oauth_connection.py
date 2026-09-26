@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+from typing import cast
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from pydantic import AnyUrl
 
 from hushh_mcp.one_adk.mcp_oauth_storage import (
     ConnectOnlyMcpOAuthProvider,
@@ -55,7 +57,7 @@ class McpOAuthConnection:
         self._provider = ConnectOnlyMcpOAuthProvider(
             endpoint,
             OAuthClientMetadata(
-                redirect_uris=[redirect_uri],
+                redirect_uris=cast("list[AnyUrl]", [redirect_uri]),
                 client_name="Hussh One",
                 token_endpoint_auth_method="none",  # noqa: S106 - public OAuth client
             ),
@@ -122,7 +124,7 @@ class McpOAuthConnection:
                 raise McpOAuthConnectError()
             if self._redirect not in done:
                 raise McpOAuthConnectError()
-            return self._redirect.result()
+            return cast(str, self._redirect.result())
         except BaseException:
             self.close()
             raise
@@ -214,7 +216,7 @@ class McpOAuthAttempts:
         # Claim before await: concurrent completion cannot exchange twice.
         entry = self._entries.pop(handle)
         try:
-            return await attempt.complete(**kwargs)
+            return cast(OAuthVaultResult, await attempt.complete(**kwargs))
         finally:
             entry[4].cancel()
             attempt.close()
