@@ -4,7 +4,6 @@ from fastapi import APIRouter
 
 from .a2a import router as a2a_router
 from .a2a import well_known_router as a2a_well_known_router
-from .adk_live import router as adk_live_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
@@ -50,7 +49,6 @@ from .webauthn import router as webauthn_router
 router = APIRouter()
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
-router.include_router(adk_live_router)
 router.include_router(retired_voice_router)
 router.include_router(advisors_router)
 router.include_router(agent_chat_router)

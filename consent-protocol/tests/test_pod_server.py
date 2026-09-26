@@ -98,6 +98,21 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/admit",
         "/api/one/pod/session/renew",
         "/api/one/pod/session/revoke",
+        # Each command/Files route enforces its scoped session; worker verifies
+        # its exact queue identity instead. Reachability grants no authority.
+        "/api/one/pod/commands/transcriptions",
+        "/api/one/pod/commands/assess",
+        "/api/one/pod/files/worker",
+        "/api/one/pod/files/jobs",
+        "/api/one/pod/files/repair-index",
+        "/api/one/pod/files/usage",
+        "/api/one/pod/files/settings",
+        "/api/one/pod/files/list",
+        "/api/one/pod/files/entry",
+        "/api/one/pod/files/create",
+        "/api/one/pod/files/chunk",
+        "/api/one/pod/files/complete",
+        "/api/one/pod/files/mutate",
         "/api/one/pod/status",
         "/api/one/pod/config",
         # Upgrade handoff stays on the machine wall; its route also checks the
@@ -374,6 +389,20 @@ OWNER_REACHABLE_PATHS = frozenset(
         # agent can deliver" is a fingerprint of one named individual, and the
         # direct ingress axis turns the owner surface into the public one.
         # Founder decision: some of the health surface world-readable, not all.
+        # Each command/Files route enforces its scoped session; worker verifies
+        # its exact queue identity instead. Reachability grants no authority.
+        "/api/one/pod/commands/transcriptions",
+        "/api/one/pod/commands/assess",
+        "/api/one/pod/files/jobs",
+        "/api/one/pod/files/repair-index",
+        "/api/one/pod/files/usage",
+        "/api/one/pod/files/settings",
+        "/api/one/pod/files/list",
+        "/api/one/pod/files/entry",
+        "/api/one/pod/files/create",
+        "/api/one/pod/files/chunk",
+        "/api/one/pod/files/complete",
+        "/api/one/pod/files/mutate",
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
@@ -395,6 +424,10 @@ OWNER_REACHABLE_PATHS = frozenset(
 )
 
 
+# Queue identity is checked at this exact route, never by an owner session.
+QUEUE_REACHABLE_PATHS = frozenset({"/api/one/pod/files/worker"})
+
+
 def _concrete(path: str) -> str:
     """A template path as a real request would spell it."""
     import re
@@ -406,13 +439,14 @@ def test_the_owner_reachable_surface_is_exactly_these_paths():
     from api.middlewares.pod_ingress import is_app_surface
 
     mounted = _paths()
-    assert OWNER_REACHABLE_PATHS <= mounted, (
-        f"pinned as owner-reachable but not mounted: {sorted(OWNER_REACHABLE_PATHS - mounted)}"
+    expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS
+    assert expected <= mounted, (
+        f"pinned as owner-reachable but not mounted: {sorted(expected - mounted)}"
     )
     reachable = {path for path in mounted if is_app_surface(_concrete(path))}
-    assert reachable == OWNER_REACHABLE_PATHS, (
-        f"newly reachable: {sorted(reachable - OWNER_REACHABLE_PATHS)}; "
-        f"newly walled: {sorted(OWNER_REACHABLE_PATHS - reachable)}"
+    assert reachable == expected, (
+        f"newly reachable: {sorted(reachable - expected)}; "
+        f"newly walled: {sorted(expected - reachable)}"
     )
 
 

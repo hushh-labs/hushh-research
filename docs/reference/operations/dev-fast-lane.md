@@ -174,28 +174,24 @@ UAT and production remain GitHub-Actions-only.
   and redeploy. Never "fix" dev by hand-editing infrastructure.
 - Auditing dev at any time: `python3 scripts/ops/dev_environment_doctor.py`.
 
-### Amber is the normal colour on dev (2026-09-10)
+### Voice verification after the September 2026 route transition
 
-The dev release now reports **degraded** on essentially every run, and that is the
-honest answer rather than a fault. Private voice runs inside the owner's pod, so
-`/api/one/adk/relay-session` refuses a caller with no admitted pod. The shared
-maintainer account the smoke user signs in as has no pod, so it draws that refusal
-every time. Read `Dependency health` in the deployment summary and the
-`dependency_health.degraded_capabilities` block in the classification artifact:
-`voice_relay_session` there is expected, anything else is not.
+Current source retires `/api/one/adk/relay-session` and the old ADK Live paths;
+HTTP 410 there is expected and does not establish pod readiness. The maintained
+`/api/one/voice/*` lane uses the shared hub's provider connection. Its readiness
+is not evidence that a BYOC owner's voice runs in their pod.
 
-For eleven consecutive runs before this, `scripts/ops/verify_uat_release.py` demanded
-a 200 from that route and the lane reported `runtime_behavior_failed` while the build,
-the deploy, the promotion, the provenance and the parity checks were all healthy. Three
-things that cost time during that diagnosis, worth knowing before the next one:
+The separate recorded-command lane uses admitted pod routes
+`/api/one/pod/commands/transcriptions` and `/api/one/pod/commands/assess`, with
+hub-owned checkpoint and effect authority. Verify the selected browser transport
+and the serving revision before claiming private spoken-command acceptance.
+Live voice routing for BYOC remains an acceptance gap until its owner-pod
+selection is implemented and demonstrated.
 
-- **The deployments page says `ref=main` for every dev run.** The workflow definition is
-  checked out from `main`, so `github.ref` is `main`; the content deployed is
-  `inputs.ref`, checked out detached later in the job. Read the run log, not the badge.
-- **A red dev run still ships.** Traffic promotion happens before verification and the
-  rollback is skipped for a verification failure, so the revision is live either way.
-- **Dev is not always serving a governed-lane revision.** Check the revision's
-  `deploy-source` label before treating dev as evidence of what the lane produces.
+The workflow definition runs from `main`; application content comes from its
+selected `ref` and exact SHA. Read back serving revisions and traffic after each
+run. A historical amber result, green build, or workflow label is not proof of
+current voice behavior or successful rollback.
 
 ## Pod fleet
 

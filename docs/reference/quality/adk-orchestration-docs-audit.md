@@ -1379,3 +1379,14 @@ summary without implying automatic PKM persistence. Existing receipt/cache and
 connection assertions are retained. The architecture ratchet records 74 reviewed
 size findings individually: 72 imported findings, one necessary BYOK fixture line,
 and a locally reduced timing module. No budgets or authority checks were relaxed.
+
+The first complete integrated run passed 10,202 frontend tests (three skipped)
+and 522 native/voice contract checks. Backend verification reported 6,948 passed,
+201 skipped and three failures: two obsolete voice-route responses and a shared
+hub fixture inheriting pod mode. The correction retains main's retirement
+responses, removes the obsolete ADK Live router, and explicitly sets shared mode
+in the refusal test. The pod's separately authenticated Files/command routes are
+now pinned in its exact route inventory, included in canonical CI. Reverification
+is required on the corrected revision. Maintained Live voice still selects the
+hub provider; recorded pod commands have a separate authority path. Neither
+source inspection nor route tests establish live private voice acceptance.

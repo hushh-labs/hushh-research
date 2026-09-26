@@ -112,3 +112,13 @@ Nearby stores its encrypted rating visit and exact internal pointer in the prese
 Fresh web production compilation, typechecking and page generation passed. After integrating the current baseline, 310 focused frontend tests, 700 backend tests and the expanded 152-test voice verification passed. Physical English/Hindi/Hinglish speech, OS permission prompts, interruption/tail capture and termination recovery still need proof on web, physical iPhone and Android. The native bundle/build checks must be repeated if subsequent integration changes affect them. No optional-device skip can satisfy this release. Founder Wiki verification/update remains outstanding because its credential was unavailable.
 
 Created-circle result references are projected only from correlated completed-step receipts and a fresh owner-scoped circle read. Stable non-authorizing handles avoid duplicate candidates across result reads. Cancel retries retain the same command identity until terminal acknowledgement or owner-scoped expiry. Choice and semantic reassessment changes install only after encrypted checkpoint acknowledgement; a rejected or lost response requires explicit canonical refresh before further execution. Renewed partial operations retain their original consumed-history fence before semantic reassessment.
+
+### Pod transport qualification — 2026-09-26
+
+The integrated pod branch uses admitted `/api/one/pod/commands/transcriptions`
+and `/api/one/pod/commands/assess` for bounded private commands. Checkpoints and
+exact effect approval remain hub-owned. Maintained `/api/one/voice/*` Live sessions
+still use the hub provider and global readiness; they do not select an owner's
+BYOC pod. Live readiness must not disable the private command path or imply
+private-pod processing without an owner-aware transport change and live proof.
+The obsolete `/api/one/adk/*` Live endpoints return retirement responses.

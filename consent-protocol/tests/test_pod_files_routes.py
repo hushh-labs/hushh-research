@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -62,3 +63,35 @@ async def test_read_only_app_cannot_write_and_device_cannot_read(tmp_path, hub_k
         assert created.status_code == 200
         entries = client.get("/api/one/pod/files/list", headers=headers).json()["entries"]
         assert [entry["name"] for entry in entries] == ["Folder"]
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer wrong-identity"])
+def test_worker_refuses_unverified_queue_identity(monkeypatch, authorization):
+    from hushh_mcp.services.scheduler_identity import SchedulerIdentityError
+
+    monkeypatch.setenv("POD_FILES_WORKER_SERVICE_ACCOUNT", "queue@example.invalid")
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_files.jobs.worker_origin",
+        lambda: "https://pod.example.invalid/api/one/pod/files/worker",
+    )
+    run = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.pod_files.jobs.run_job", run)
+
+    def refuse(**kwargs):
+        assert kwargs["allowed_emails"] == ("queue@example.invalid",)
+        assert kwargs["audience"].endswith("/api/one/pod/files/worker")
+        raise SchedulerIdentityError("unverified")
+
+    monkeypatch.setattr("hushh_mcp.services.scheduler_identity.verify_scheduler_request", refuse)
+    app = FastAPI()
+    app.include_router(pod_files.router)
+    headers = {"Authorization": authorization} if authorization else {}
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/one/pod/files/worker",
+            headers=headers,
+            json={"job_id": "a" * 32, "delivery": "b" * 32},
+        )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "FILES_WORKER_REFUSED"
+    run.assert_not_awaited()

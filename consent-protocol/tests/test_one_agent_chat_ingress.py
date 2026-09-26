@@ -261,6 +261,8 @@ def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
 def test_model_search_ingress_cannot_execute_on_shared_hub(
     monkeypatch, no_secret_storage, authorized, method, path, payload
 ):
+    # pod_server imports set the process default; explicitly exercise the hub.
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
