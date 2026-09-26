@@ -4595,11 +4595,10 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={ConnectedSystemsAgentIcon}
-                iconTone="capability"
+                iconTone="green"
                 title="Connectors"
                 description="Google Workspace and finance connections"
                 chevron
-                density="compact"
                 onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
               <SettingsRow
