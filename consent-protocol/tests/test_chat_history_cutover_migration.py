@@ -1,7 +1,7 @@
-"""Migration 249 (chat-history BYOK cutover) deletes only platform-key chat rows.
+"""Migration 250 (chat-history BYOK cutover) deletes only platform-key chat rows.
 
-It runs on every deploy lane (the deploy that ships the person-key code is the
-cutover), so it must be idempotent and must never touch a person-key row. Static
+The compatibility release parks this destructive migration until BYOK-only writers
+serve and older writers are drained. It must never touch a person-key row. Static
 checks always run. The executable checks run when
 ``CHAT_CUTOVER_TEST_DATABASE_URL`` points at a THROWAWAY Postgres holding the real
 schema (for example a schema-only dump restored locally) plus synthetic rows.
@@ -16,12 +16,13 @@ import re
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db/migrations/249_one_chat_history_legacy_cutover.sql"
-ROLLBACK = ROOT / "db/migrations/rollback/249_one_chat_history_legacy_cutover.rollback.sql"
+MIGRATION = ROOT / "db/migrations/parked/250_one_chat_history_legacy_cutover.sql"
+ROLLBACK = ROOT / "db/migrations/rollback/250_one_chat_history_legacy_cutover.rollback.sql"
 MANIFEST = ROOT / "db/release_migration_manifest.json"
 MARKER = "hussh-chat-v1:"
 
@@ -30,17 +31,17 @@ def _sql() -> str:
     return MIGRATION.read_text()
 
 
-def test_cutover_is_registered_with_a_documented_rollback() -> None:
+def test_compatibility_release_defers_cutover_with_a_documented_recovery_boundary() -> None:
     from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_PREFIX
 
     assert CHAT_CIPHERTEXT_PREFIX == MARKER  # the SQL tests the same marker the code writes
     manifest = json.loads(MANIFEST.read_text())
-    assert MIGRATION.name in manifest["ordered_migrations"]
-    assert manifest["rollback_migrations"][MIGRATION.name] == f"rollback/{ROLLBACK.name}"
+    assert MIGRATION.name not in manifest["ordered_migrations"]
+    assert MIGRATION.name not in manifest["rollback_migrations"]
     assert ROLLBACK.exists() and "DELETE FROM" not in ROLLBACK.read_text().upper()
     for contract in ("prod_core_schema", "uat_integrated_schema", "dev_minimum_schema"):
         data = json.loads((ROOT / f"db/contracts/{contract}.json").read_text())
-        assert data["expected_migration_version"] >= 249
+        assert data["expected_migration_version"] == 249
 
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:
@@ -62,14 +63,17 @@ def test_every_delete_targets_only_unmarked_chat_rows() -> None:
 
 # ── Executable proof against a throwaway database ─────────────────────────────
 
-DATABASE_URL = os.getenv("CHAT_CUTOVER_TEST_DATABASE_URL", "")
-needs_db = pytest.mark.skipif(not DATABASE_URL, reason="CHAT_CUTOVER_TEST_DATABASE_URL not set")
-
 
 @pytest.fixture
 def conn() -> Iterator:
+    database_url = os.getenv("CHAT_CUTOVER_TEST_DATABASE_URL", "")
+    if not database_url:
+        pytest.skip("CHAT_CUTOVER_TEST_DATABASE_URL not set")
+    target = urlparse(database_url)
+    if target.hostname not in {"127.0.0.1", "localhost"} or target.username != "cutover_test":
+        pytest.fail("Cutover tests require a disposable local cutover_test database identity")
     psycopg2 = pytest.importorskip("psycopg2")
-    connection = psycopg2.connect(DATABASE_URL)
+    connection = psycopg2.connect(database_url)
     connection.autocommit = False
     try:
         yield connection
@@ -169,7 +173,6 @@ def _counts(conn, owner: str) -> dict:  # noqa: ANN001
     return dict(zip(keys, row, strict=True))
 
 
-@needs_db
 def test_cutover_deletes_only_platform_key_rows_and_is_idempotent(conn) -> None:  # noqa: ANN001
     ids = _seed(conn)
     assert _counts(conn, ids["owner"]) == {
@@ -194,7 +197,6 @@ def test_cutover_deletes_only_platform_key_rows_and_is_idempotent(conn) -> None:
     assert _counts(conn, ids["owner"]) == after
 
 
-@needs_db
 def test_rows_written_moments_ago_by_old_code_are_still_removed(conn) -> None:  # noqa: ANN001
     ids = _seed(conn, stale_legacy=False)
     _run(conn)
@@ -202,7 +204,6 @@ def test_rows_written_moments_ago_by_old_code_are_still_removed(conn) -> None:  
     assert counts["legacy_sessions"] == 0 and counts["new_sessions"] == 1
 
 
-@needs_db
 def test_a_legacy_conversation_holding_a_person_key_message_is_kept(conn) -> None:  # noqa: ANN001
     ids = _seed(conn)
     with conn.cursor() as cursor:
@@ -220,7 +221,6 @@ def test_a_legacy_conversation_holding_a_person_key_message_is_kept(conn) -> Non
     assert counts["messages"] == 2
 
 
-@needs_db
 def test_self_guard_rolls_back_if_any_person_key_row_would_go(conn) -> None:  # noqa: ANN001
     psycopg2 = pytest.importorskip("psycopg2")
     ids = _seed(conn)

@@ -352,7 +352,8 @@ async def test_agent_turn_is_refused_before_streaming_without_a_key(monkeypatch)
         "require_vault_owner_token",
         AsyncMock(return_value={"user_id": "owner-1", "token": "synthetic"}),
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer HCT:synthetic")]})
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     with pytest.raises(HTTPException) as refused:
         await agent_chat._extract_state(request, _input())
     assert refused.value.status_code == 403

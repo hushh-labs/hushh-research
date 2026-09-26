@@ -13,7 +13,45 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
-from hushh_mcp.services.chat_key import CHAT_KEY_RECOVERY_MESSAGE, CHAT_KEY_REQUIRED_CODE
+from hushh_mcp.services.chat_history_rollout import (
+    CHAT_HISTORY_UPGRADING,
+    CHAT_HISTORY_UPGRADING_MESSAGE,
+    ChatHistoryUpdatingError,
+)
+from hushh_mcp.services.chat_key import (
+    CHAT_KEY_ERROR_MESSAGES,
+    CHAT_KEY_ERRORS,
+    CHAT_KEY_RECOVERY_MESSAGE,
+    CHAT_KEY_REQUIRED_CODE,
+)
+
+CHAT_KEY_RUN_ERROR = RunErrorEvent(message=CHAT_KEY_RECOVERY_MESSAGE, code=CHAT_KEY_REQUIRED_CODE)
+CHAT_HISTORY_UPGRADING_RUN_ERROR = RunErrorEvent(
+    message=CHAT_HISTORY_UPGRADING_MESSAGE,
+    code=CHAT_HISTORY_UPGRADING,
+)
+
+
+def normalize_history_error(event: BaseEvent) -> BaseEvent:
+    """Restore fixed codes after the SDK stringifies a background refusal."""
+    if isinstance(event, RunErrorEvent):
+        if event.message == CHAT_HISTORY_UPGRADING_MESSAGE:
+            return CHAT_HISTORY_UPGRADING_RUN_ERROR
+        if event.message in CHAT_KEY_ERROR_MESSAGES:
+            return CHAT_KEY_RUN_ERROR
+    return event
+
+
+def safe_exception_event(exc: Exception) -> RunErrorEvent:
+    """Only fixed, content-free failure messages may cross the browser boundary."""
+    if isinstance(exc, ChatHistoryUpdatingError):
+        return CHAT_HISTORY_UPGRADING_RUN_ERROR
+    if isinstance(exc, CHAT_KEY_ERRORS):
+        return CHAT_KEY_RUN_ERROR
+    return RunErrorEvent(
+        message="One couldn't finish that request. Please try again.", code="AGENT_ERROR"
+    )
+
 
 _PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
 
@@ -93,7 +131,10 @@ def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> Ba
                 )
         return None
     if isinstance(event, RunErrorEvent):
-        if event.code == CHAT_KEY_REQUIRED_CODE and event.message == CHAT_KEY_RECOVERY_MESSAGE:
+        if (event.code, event.message) in {
+            (CHAT_KEY_REQUIRED_CODE, CHAT_KEY_RECOVERY_MESSAGE),
+            (CHAT_HISTORY_UPGRADING, CHAT_HISTORY_UPGRADING_MESSAGE),
+        }:
             # A fixed, content-free refusal the person can act on.
             return event.model_copy(update={"raw_event": None})
         # The installed bridge builds this event from str(exception). Neither

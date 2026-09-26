@@ -26,7 +26,7 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("data-testid="one-setup-master-ack"");
+    expect(source).toContain('data-testid="one-setup-master-ack"');
     expect(source).toContain('data-testid="one-setup-master-ack"');
     // Cloud, verified phone, and AI choice gate the exit together.
     expect(source).toContain("disabled={!setupPrerequisitesComplete}");
@@ -48,9 +48,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
     );
-    expect(source).toContain("data-testid="one-setup-master-ack"");
+    expect(source).toContain('data-testid="one-setup-master-ack"');
     expect(source).toContain("<div className={styles.flatChecklist}>");
-    expect(source.indexOf("data-testid="one-setup-master-ack"")).toBeGreaterThan(
+    expect(source.indexOf('data-testid="one-setup-master-ack"')).toBeGreaterThan(
       source.indexOf("<div className={styles.flatChecklist}>"),
     );
     expect(source).not.toContain("actions={");
@@ -137,35 +137,10 @@ describe("One setup hub terminal action contract", () => {
     expect(icon).toContain('glyph: "h-[22px] w-[22px]"');
   });
 
-  it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-    const styles = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/one-setup-hub.module.css",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'id: "connections", complete: runtimeChoiceComplete',
-    );
-    expect(source).toContain("const total = progressSteps.length");
-    expect(source).toContain(
-      "const done = progressSteps.filter((step) => step.complete).length",
-    );
-    expect(source).toContain("className={styles.setupProgress}");
-    expect(source).toContain("{done} of {total} complete");
-    expect(source).toContain("className={styles.setupProgressTrack}");
-    expect(source).toContain("className={styles.setupProgressFill}");
-    expect(source).not.toContain("Array.from({ length: total })");
-    expect(styles).toContain(".setupProgressTrack");
-    expect(styles).not.toContain(".segmentedProgress");
-    expect(source).not.toContain("masterSkipped");
-    expect(source).not.toContain("const total = items.length");
+  it("keeps the checklist without a redundant progress bar", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"), "utf8");
+    expect(source).not.toContain('role="progressbar"');
+    expect(source).toContain("setupPrerequisitesComplete");
   });
 
   it("does not publish the master action before the pod prerequisites settle", () => {
@@ -263,7 +238,7 @@ describe("One setup hub terminal action contract", () => {
     expect(hub).toContain("Not even we can read it.");
     // "Add" was the wrong verb for a list of things you SET UP, and the line
     // is the last thing read before "Finish setup".
-    expect(hub).toContain('"Set up the rest later."');
+    expect(hub).not.toContain('"Set up the rest later."');
     expect(hub).not.toContain('"Add the rest any time."');
   });
 
@@ -328,7 +303,7 @@ describe("One setup hub terminal action contract", () => {
     // bottom-safe-area clearance, so mobile does not need a separate header CTA.
     expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
     expect(source).not.toContain('<div className="hidden sm:block">');
-    expect(source).toContain("data-testid="one-setup-master-ack"");
+    expect(source).toContain('data-testid="one-setup-master-ack"');
   });
 
   it("does not reserve header space for a duplicate mobile action", () => {

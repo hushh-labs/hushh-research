@@ -33,6 +33,10 @@ from typing import Any, Protocol
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.services.chat_history_rollout import (
+    ChatHistoryUpdatingError,
+    require_chat_history_writes,
+)
 from hushh_mcp.types import EncryptedPayload
 
 CHAT_KEY_LABEL = "hussh-one-chat-v1"
@@ -65,7 +69,11 @@ class LegacyChatCiphertextError(LookupError):
     """The record was sealed with the platform key before the cutover: treat as absent."""
 
 
-CHAT_KEY_ERRORS: tuple[type[Exception], ...] = (ChatKeyUnavailableError, ChatKeyMismatchError)
+CHAT_KEY_ERRORS: tuple[type[Exception], ...] = (
+    ChatKeyUnavailableError,
+    ChatKeyMismatchError,
+    ChatHistoryUpdatingError,
+)
 
 _KEY_REQUIRED = "Unlock your vault to open chat history."
 _KEY_MISMATCH = "Chat history did not open with this vault."
@@ -271,6 +279,7 @@ class ChatCipher:
         return (self._provider or get_chat_key_provider()).current_key(owner_id)
 
     def seal(self, plaintext: str, *, owner_id: str, aad: str) -> EncryptedPayload:
+        require_chat_history_writes()
         key = self._key(owner_id)
         iv = os.urandom(_IV_BYTES)
         sealed = AESGCM(key).encrypt(iv, str(plaintext).encode("utf-8"), aad.encode("utf-8"))

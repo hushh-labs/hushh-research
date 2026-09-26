@@ -327,3 +327,9 @@ def cleanup_revoked_tokens():
         _revoked_tokens.clear()
     except ImportError:
         pass  # Module not available in all test contexts
+
+
+@pytest.fixture(autouse=True)
+def enabled_chat_history_for_domain_tests(monkeypatch):
+    """Exercise write-enabled domain behavior; rollout tests explicitly assert the hold."""
+    monkeypatch.setattr("hushh_mcp.services.chat_history_rollout.CHAT_HISTORY_WRITES_ENABLED", True)

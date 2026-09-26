@@ -256,18 +256,9 @@ def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
     "method,path,payload",
     [
         ("POST", "/api/one/actions/search", {"query": "synthetic request"}),
-        (
-            "POST",
-            "/api/one/agent-chat/proposals",
-            {"conversation_id": "synthetic", "query": "synthetic request"},
-        ),
-        ("POST", "/api/one/action-proposals/synthetic/admit", {}),
-        ("POST", "/api/one/action-proposals/synthetic/confirm", {}),
-        ("POST", "/api/one/action-proposals/synthetic/settle", {}),
-        ("DELETE", "/api/one/action-proposals/synthetic", None),
     ],
 )
-def test_proposal_ingress_cannot_execute_on_shared_hub(
+def test_model_search_ingress_cannot_execute_on_shared_hub(
     monkeypatch, no_secret_storage, authorized, method, path, payload
 ):
     from fastapi import FastAPI
@@ -310,6 +301,10 @@ def test_proposal_ingress_cannot_execute_on_shared_hub(
 
 
 async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeypatch):
+    monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
+    monkeypatch.setattr(
+        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+    )
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
@@ -332,6 +327,10 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeyp
 
 
 async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monkeypatch):
+    monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
+    monkeypatch.setattr(
+        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+    )
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
     workflow_id = "11111111-1111-1111-1111-111111111111"
@@ -361,6 +360,10 @@ async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monke
 
 
 async def test_selected_gmail_request_requires_owner_token_and_valid_id(monkeypatch):
+    monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
+    monkeypatch.setattr(
+        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+    )
     lookup = AsyncMock()
     monkeypatch.setattr(
         agent_chat,

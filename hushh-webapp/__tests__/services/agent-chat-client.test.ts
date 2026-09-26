@@ -395,7 +395,7 @@ describe("AG-UI Agent One client", () => {
         status, message: "PRIVATE_DIAGNOSTIC",
       }) } });
     };
-    await streamAgentChat({ userId: "u1", message: "Is Drive connected?", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Is Drive connected?", vaultOwnerToken: "fixture",
       handlers: { onToolResult } });
     expect(onToolResult.mock.calls[0][0].message).toBe("Drive status could not be checked.");
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_DIAGNOSTIC");
@@ -602,7 +602,7 @@ describe("AG-UI Agent One client", () => {
       });
     };
 
-    await streamAgentChat({ userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
       handlers: { onDriveBatchProgress } });
 
     expect(onDriveBatchProgress.mock.calls).toEqual([
@@ -620,7 +620,7 @@ describe("AG-UI Agent One client", () => {
         content: { phase: "fetching", completed: 31, total: 30, failed: 0 },
       } });
     };
-    await streamAgentChat({ userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Compile my standups", vaultOwnerToken: "fixture",
       handlers: { onDriveBatchProgress } });
     expect(onDriveBatchProgress).not.toHaveBeenCalled();
   });

@@ -28,7 +28,6 @@ from ag_ui.core import (
     EventType,
     Interrupt,
     RunAgentInput,
-    RunErrorEvent,
     RunFinishedInterruptOutcome,
     ToolMessage,
 )
@@ -43,25 +42,19 @@ from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import (
+    CHAT_KEY_RUN_ERROR,
     ThoughtSummaryReplayFilter,
     drop_empty_history_parts,
+    normalize_history_error,
     public_event,
+    safe_exception_event,
 )
 from hushh_mcp.services.chat_key import (
-    CHAT_KEY_ERROR_MESSAGES,
-    CHAT_KEY_ERRORS,
-    CHAT_KEY_RECOVERY_MESSAGE,
-    CHAT_KEY_REQUIRED_CODE,
     current_chat_key_markers,
     retain_request_chat_key,
 )
 
 logger = logging.getLogger(__name__)
-
-CHAT_KEY_RUN_ERROR = RunErrorEvent(
-    message=CHAT_KEY_RECOVERY_MESSAGE,
-    code=CHAT_KEY_REQUIRED_CODE,
-)
 
 
 def event_carries_chat_key(event: BaseEvent, markers: tuple[str, ...]) -> bool:
@@ -431,13 +424,7 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
-                    if (
-                        getattr(event, "type", None) == EventType.RUN_ERROR
-                        and getattr(event, "message", None) in CHAT_KEY_ERROR_MESSAGES
-                    ):
-                        # ag_ui_adk stringifies a background failure into a generic
-                        # run error; keep a chat-key refusal recognisable.
-                        event = CHAT_KEY_RUN_ERROR
+                    event = normalize_history_error(event)
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
                         if self.head == HEAD_ONE:
@@ -475,14 +462,7 @@ class TimedADKAgent(ADKAgent):
             # Otherwise the installed endpoint catches this exception and
             # serializes str(exception) into a second, unprojected RUN_ERROR.
             # Keep the failure terminal and content-free at this boundary.
-            safe_error = (
-                CHAT_KEY_RUN_ERROR
-                if isinstance(exc, CHAT_KEY_ERRORS)
-                else RunErrorEvent(
-                    message="One couldn't finish that request. Please try again.",
-                    code="AGENT_ERROR",
-                )
-            )
+            safe_error = safe_exception_event(exc)
             timing.observe(safe_error)
             timing.error_class = "escaped_exception"
             yield safe_error

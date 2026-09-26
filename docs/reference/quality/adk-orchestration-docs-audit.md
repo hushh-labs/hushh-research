@@ -1339,3 +1339,34 @@ verification and `git diff --check` passed. Independent read-only review identif
 a stale Online result after a failed keepalive; the correction now invalidates it
 and has a regression case. Complete candidate CI and live status acceptance remain
 required before describing this follow-up as deployed.
+
+
+### 2026-09-26 compatibility candidate: source verification in progress
+
+The isolated candidate combines pod status baseline `c40c46f41`, main
+`32f6bc1ed`, and frozen local ADK `f81eae91f`; merge revision `4c2280f8d`
+is followed by compatibility corrections under verification. Root PDF work and
+the active ADK worktree remain preserved. This is source evidence, not a
+deployment receipt.
+
+The public-profile bridge already owns migration 249. The incoming ADK history
+cleanup is therefore parked as **250**, absent from the release manifest, with
+schema expectations remaining 249. Earlier references to chat cleanup 249 in
+this dated audit identify its original ADK numbering. The accepted deletion
+decision does not prove writer drain or authorize interruption of active effects.
+
+The initial compatibility image temporarily refuses history mutations before
+dispatch with `CHAT_HISTORY_UPGRADING` (503, no-store, Retry-After). Its cipher
+backstop also refuses sealing while retaining owner-key reads. After this image
+serves and old writers drain, a separate verified image enables BYOK writes.
+Only then can cleanup activation proceed. Rollback must remain on a BYOK-capable
+image; the cleanup SQL rollback is not information recovery.
+
+Focused checks: 117 backend tests passed, 124 frontend tests passed (two skipped).
+A later isolated run passed 89 bridge, BYOK, timing and SQL checks without skips.
+SQL checks restored only dev schema definitions into a disposable PostgreSQL 14
+instance with synthetic records; dev is PostgreSQL 15, so version-matched release
+validation remains outstanding. No live records were copied or mutated. Duplicate voice route registrations were
+removed; private action-search refusal and hub-owned command coordination remain
+distinct. Canonical CI, isolated SQL acceptance, live release/readback, existing
+pod maintenance and real-device relay acceptance remain pending.

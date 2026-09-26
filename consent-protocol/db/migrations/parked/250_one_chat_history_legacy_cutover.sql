@@ -1,4 +1,5 @@
--- Migration 249: One chat history BYOK cutover. Delete chat history sealed with
+-- Renumbered from the ADK branch's 249: public-profile migration 249 already owns that ID.
+-- Migration 250: One chat history BYOK cutover. Delete chat history sealed with
 -- the platform key.
 --
 -- Since the chat-history BYOK change, every chat ciphertext is sealed with a key
@@ -10,18 +11,13 @@
 -- already treats them as absent, so deleting them changes nothing a person with
 -- the new code can see.
 --
--- This runs on every deploy lane in replay mode, and the deploy that ships the
--- person-key code IS the cutover. It is therefore idempotent and self-guarded:
---   * it deletes ONLY rows whose ciphertext lacks the marker, tested in SQL on
---     the first 14 characters of the ciphertext column itself (substr reads only
---     the start of a TOASTed value, so the scan stays cheap as history grows);
---   * it never deletes a conversation that still holds a person-key message
---     (that delete would cascade into a row this must keep);
---   * it counts person-key rows before and after and RAISEs, rolling the whole
---     migration back, if any went missing;
---   * a re-run finds nothing to delete. A platform-key row that an old backend
---     instance writes during the rollout window is invisible to the new code and
---     is removed by the next deploy's replay.
+-- Parked during the compatibility bridge and BYOK writer releases. Activate
+-- only after the bridge is a verified rollback target and old writers/active
+-- commands have drained. Deployment of person-key readers alone is not cutover.
+-- Deletes target only unmarked rows; mixed conversations retain their marked
+-- messages. Before/after counts guard marked records and replay is idempotent.
+-- Drain/refusal acceptance remains required before this file enters the release
+-- manifest. The parked file does not authorize live deletion.
 --
 -- Not touched: one_capability_runs. Task slots stay on the platform key because
 -- Location onboarding runs before a vault exists; that is an open founder
@@ -51,7 +47,7 @@ BEGIN
   IF to_regclass('public.one_adk_sessions') IS NULL
      OR to_regclass('public.agent_chat_conversations') IS NULL
      OR to_regclass('public.agent_chat_messages') IS NULL THEN
-    RAISE NOTICE 'migration 249: chat tables absent; nothing to cut over';
+    RAISE NOTICE 'migration 250: chat tables absent; nothing to cut over';
     RETURN;
   END IF;
 
@@ -78,7 +74,7 @@ BEGIN
     AND EXISTS (SELECT 1 FROM agent_chat_messages AS m WHERE m.conversation_id = c.id);
   IF kept_conversations > 0 THEN
     RAISE NOTICE
-      'migration 249: kept % platform-key conversation(s) that hold person-key messages',
+      'migration 250: kept % platform-key conversation(s) that hold person-key messages',
       kept_conversations;
   END IF;
 
@@ -101,7 +97,7 @@ BEGIN
      OR person_conversations_after <> person_conversations_before
      OR person_messages_after <> person_messages_before THEN
     RAISE EXCEPTION
-      'migration 249 refused: person-key rows changed (sessions % -> %, conversations % -> %, messages % -> %)',
+      'migration 250 refused: person-key rows changed (sessions % -> %, conversations % -> %, messages % -> %)',
       person_sessions_before, person_sessions_after,
       person_conversations_before, person_conversations_after,
       person_messages_before, person_messages_after;

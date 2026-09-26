@@ -14,6 +14,12 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.chat_history_rollout import (
+    CHAT_HISTORY_UPGRADING,
+    CHAT_HISTORY_UPGRADING_MESSAGE,
+    ChatHistoryUpdatingError,
+    holds_chat_history_request,
+)
 from hushh_mcp.services.chat_key import (
     CHAT_KEY_HEADER,
     CHAT_KEY_RECOVERY_MESSAGE,
@@ -62,11 +68,25 @@ class ChatKeyMiddleware:
                 ],
             }
         with bind_request_chat_key(holder):
+            if holds_chat_history_request(scope.get("method", ""), scope.get("path", "")):
+                response = _history_upgrading_response()
+                await response(scope, receive, send)
+                return
             await self.app(scope, receive, send)
+
+
+def _history_upgrading_response() -> JSONResponse:
+    return JSONResponse(
+        {"code": CHAT_HISTORY_UPGRADING, "detail": CHAT_HISTORY_UPGRADING_MESSAGE},
+        status_code=503,
+        headers={"Cache-Control": "no-store", "Retry-After": "60"},
+    )
 
 
 async def chat_key_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Refuse, never degrade: no route may answer chat history without the key."""
+    if isinstance(exc, ChatHistoryUpdatingError):
+        return _history_upgrading_response()
     mismatch = isinstance(exc, ChatKeyMismatchError)
     return JSONResponse(
         {

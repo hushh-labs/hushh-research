@@ -326,19 +326,7 @@ export function OneSetupHub() {
   // count it as done. AI access is also a real, mandatory setup step and is
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
-  const progressSteps = [
-    { id: "cloud", complete: cloudComplete },
-    { id: "phone", complete: phoneVerified },
-    { id: "connections", complete: runtimeChoiceComplete },
-    ...items.map((item) => ({
-      id: item.id,
-      complete: isCapabilitySetupComplete(item.status),
-    })),
-  ];
-  const total = progressSteps.length;
-  const done = progressSteps.filter((step) => step.complete).length;
-  const remaining = total - done;
-  const allReady = total > 0 && remaining === 0;
+
   // Capability setup is optional, but the root vault is not. Finish setup is
   // therefore the only exit from the hub and always leads to vault setup when
   // the vault is not already unlocked.
@@ -708,23 +696,16 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  // Phones get the master action as a bare header link with no supporting line
-  // under it, so the one mandatory step has to be named somewhere they can read
-  // it before they tap. The header description is the only copy both layouts
-  // share, so the blocker rides there rather than only in the desktop footer.
-  //
-  // It carries ONLY that. The segmented progress bar below already renders
-  // "done of total"; repeating the count in words was two facts competing for
-  // the one line people actually read.
+  // Name the first mandatory prerequisite in the shared header.
   const summary = hubStateLoading
     ? "One moment…"
-    : allReady
+    : setupPrerequisitesComplete
       ? "Add more any time."
       : !cloudComplete
         ? "Choose where your agent lives first."
         : !runtimeChoiceComplete
           ? "Choose your AI first."
-          : `${remaining} left.`;
+          : "Finish setting up One.";
   const localFirstSequenceActive =
     localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
   // A centered story-screen takeover (the local-first sequence) is a full screen
@@ -757,7 +738,7 @@ export function OneSetupHub() {
         <AppPageHeaderRegion>
           <PageHeader
             title={
-              !hubStateLoading && allReady ? "You're all set" : "Set up One"
+              !hubStateLoading && setupPrerequisitesComplete ? "You're all set" : "Set up One"
             }
             description={summary}
             accent="neutral"
@@ -796,31 +777,6 @@ export function OneSetupHub() {
         ) : (
           <>
             {phoneVerified ? <PublicProfileDiscoveryCard userId={user?.uid} onboarding /> : null}
-            {total > 0 ? (
-              <div
-                className={styles.setupProgress}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={total}
-                aria-valuenow={done}
-                aria-label={`${done} of ${total} set up`}
-              >
-                <div className={styles.setupProgressLabel}>
-                  {done} of {total} complete
-                </div>
-                <div className={styles.setupProgressTrack} aria-hidden>
-                  <span
-                    className={styles.setupProgressFill}
-                    style={{
-                      width:
-                        total > 0
-                          ? `${Math.round((done / total) * 100)}%`
-                          : "0%",
-                    }}
-                  />
-                </div>
-              </div>
-            ) : null}
             <div className={styles.flatChecklist}>
               {/* The hosting choice comes first and stays first. It determines
                   whether the agent uses Shared or a pod, so keep this group

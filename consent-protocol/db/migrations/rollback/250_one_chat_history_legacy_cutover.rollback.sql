@@ -1,6 +1,7 @@
--- Rollback for migration 249: intentionally a no-op.
+-- Renumbered from the ADK branch's 249: public-profile migration 249 already owns that ID.
+-- Rollback for migration 250: intentionally a no-op.
 --
--- 249 deletes chat history sealed with the platform key. That deletion is the
+-- 250 deletes chat history sealed with the platform key. That deletion is the
 -- founder-approved cutover to person-key chat history and cannot be undone by
 -- SQL: the rows are gone. Restoring them means restoring the database from
 -- backup (production: Cloud SQL backups and PITR), and even then the person-key
