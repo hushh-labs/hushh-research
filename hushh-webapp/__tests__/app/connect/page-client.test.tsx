@@ -1275,8 +1275,10 @@ describe("Connect — People", () => {
     const field = screen.getByLabelText("Search people");
     const searchRow = field.closest('[data-testid="connect-search-row"]');
 
-    expect(searchRow).toHaveClass("pt-0.5", "pb-2");
-    expect(searchRow).not.toHaveClass("py-2");
+    expect(searchRow).toHaveClass(
+      "bg-[color:var(--app-settings-canvas)]",
+      "py-2",
+    );
 
     // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
     expect(
