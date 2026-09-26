@@ -201,13 +201,7 @@ export function WalletWorkspace() {
                   : "loaded"
         }
       />
-      {view.kind === "list" ? (
-        <div className="flex justify-end">
-          <Button onClick={() => setView({ kind: "add" })} data-testid="one-wallet-add">
-            Add card
-          </Button>
-        </div>
-      ) : null}
+
 
       {view.kind === "disabled" ? (
         <p className="text-sm text-muted-foreground">
@@ -235,7 +229,7 @@ export function WalletWorkspace() {
       ) : null}
 
       {view.kind === "list" && cards.length === 0 ? (
-        <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border p-6">
+        <div className="flex flex-col items-center justify-center text-center gap-3 rounded-xl border border-dashed border-border p-6">
           <p className="text-sm text-muted-foreground">No cards yet.</p>
           <Button onClick={() => setView({ kind: "add" })}>Add a card</Button>
         </div>
