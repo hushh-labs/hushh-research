@@ -347,7 +347,7 @@ The current Drive worker [release script](../../../deploy/drive/deploy_worker_se
 invokes [`setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
 once per fixed UAT stage with its stage-specific job name, schedule, worker origin,
 and matching OIDC audience. A direct helper run defaults to the documents stage
-only. The jobs run documents every four minutes, suggestions every four minutes
+only. Each sharing invocation attempts up to 20 permission jobs and a combined 20 notifications, under the existing stage deadlines; documents and suggestions remain one job per invocation. The jobs run documents every four minutes, suggestions every four minutes
 at a two-minute offset, and sharing every minute. Each posts to the fixed drain
 route and verifies its OIDC target. If Cloud Run ingress requires IAM invocation,
 grant only that scheduler account `roles/run.invoker` through the approved infrastructure path before

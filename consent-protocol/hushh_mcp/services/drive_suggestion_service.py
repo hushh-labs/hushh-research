@@ -591,6 +591,8 @@ class DriveSuggestionService:
                                 timezone="UTC",
                                 user_id=user_id,
                             )
+                            if selection.get("over_limit"):
+                                found = {**found, "truncated": True}
                             if not matches:
                                 logger.info(
                                     "drive_suggestion.no_relevant_files candidates=%d",

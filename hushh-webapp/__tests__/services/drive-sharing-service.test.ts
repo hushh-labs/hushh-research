@@ -574,6 +574,27 @@ describe("drive question transport", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("restores only valid reserved selections and their terminal expiry", async () => {
+    const raw = {
+      requestId, status: "ready", recipientName: "Bo", shareRequestId: null,
+      files: [{ ref: "f1", name: "Notes", modifiedTime: null }],
+      selectedFileRefs: ["f1"], selectionExpired: true,
+    };
+    fetcher.mockResolvedValueOnce(reply(raw));
+    const draft = { recipientPersonRef: requestId, clientRequestId: documentId, query: "Notes" };
+    await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+      .resolves.toMatchObject({ selectedFileRefs: ["f1"], selectionExpired: true });
+    for (const invalid of [
+      { selectedFileRefs: [] }, { selectedFileRefs: ["f2"] },
+      { selectedFileRefs: ["f1", "f1"] }, { selectedFileRefs: null },
+      { selectionExpired: "true" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...raw, ...invalid }));
+      await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
   it("keeps a no-match search empty and refuses a found file carrying a Drive id", async () => {
     fetcher.mockResolvedValueOnce(
       reply({ requestId: null, status: "no_match", files: [], message: "Which file do you mean?" }),
@@ -621,7 +642,7 @@ describe("drive question transport", () => {
       guard,
     );
     expect(view.recipients).toEqual([
-      { requestId, name: "Bo", status: "ready", shareRequestId: null },
+      { requestId, name: "Bo", status: "ready", shareRequestId: null, selectedFileRefs: null, selectionExpired: false },
     ]);
     expect(view.excluded.map((item) => item.reason)).toEqual(["contacts", "not_connected"]);
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({

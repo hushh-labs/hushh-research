@@ -964,9 +964,9 @@
       "lifecycle_status": "customer0",
       "exact_tables": ["drive_owner_shares"],
       "primary_access_path": "The owner stages a share from chat with one connected person, or with the Trusted circle members the owner accepted by request or invite (contact-sync, circle-only and imported connections never receive). Only the owner's own tap runs one live Drive search under the owner's authority; the found files (at most eight, no folders) are sealed so a share binds exactly what the owner saw, by reference. The owner's explicit selection then goes through the existing exact-file lane (owner-initiated request, owner-selected review, ledger approval, permission worker). The recipient never reads this table.",
-      "retention_policy": "A search stays shareable for one hour. One row per owner search and recipient; the shared row keeps the link to its document share request.",
+      "retention_policy": "A search stays shareable for one hour. One row per owner search and recipient; the shared row keeps the link to its document share request. Expired unreserved searches can be replaced; reserved selections remain for durable approval recovery and never extend the authority lifetime. Scheduled cleanup of terminal unapproved reservations remains a prerequisite for broader rollout.",
       "deletion_behavior": "Owner or recipient account deletion removes the row.",
-      "trust_boundary": "DRIVE_SHARING_KEY_V1 AES-256-GCM envelope bound to owner, row id and purpose holds the owner's words and the found files (names, dates, Drive file ids). Plaintext holds opaque participant ids, a keyed request digest, status, the document share request id and timestamps.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 AES-256-GCM envelope bound to owner, row id and purpose holds the owner's words, the found files (names, dates, Drive file ids), and the canonical reserved file references/downstream idempotency key after a Share attempt. Plaintext holds opaque participant ids, a keyed request digest, status, the document share request id and timestamps.",
       "plaintext_posture": "encrypted_search_and_files_with_workflow_metadata",
       "expected_row_growth": "one_row_per_owner_share_search_and_recipient"
     },
