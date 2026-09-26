@@ -431,3 +431,7 @@ tests/test_mcp_review_wire_contract.py
 tests/test_mcp_turn_scope.py
 tests/test_drive_result_privacy.py
 tests/test_registered_mcp_toolset.py
+# A review ledger outage reads as "review unavailable", never a declined approval;
+# OAuth sign-in admits metadata a real (streaming) transport has not yet read.
+tests/test_mcp_resume_receipt.py
+tests/one_adk/test_mcp_oauth_connection.py
