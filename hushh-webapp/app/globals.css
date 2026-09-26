@@ -2813,7 +2813,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   }
 
   [data-connect-page] [data-circle-discovery-orbit] {
-    width: min(72vw, 18rem, calc(100svh - 26rem));
+    width: min(69vw, 18rem, calc(100svh - 26rem));
   }
 }
 
