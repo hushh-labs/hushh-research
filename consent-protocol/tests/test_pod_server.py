@@ -1,15 +1,9 @@
-"""Route-allowlist tests for the slim pod entrypoint (`pod_server:app`).
-
-The security-relevant property of the pod image is its **surface**: it must expose
-the agent + storage/enforcement + health routes and must NOT expose Hushh's consent
-control plane or any unrelated fleet surface. These tests assert exactly that by
-introspecting the mounted routes — a regression that accidentally mounts the full
-`one_router` (or the consent/admin routers) here fails loudly.
-"""
+"""Pin pod routes and authority; forbid control-plane and unrelated surfaces."""
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import pytest
 
@@ -17,7 +11,15 @@ import pytest
 os.environ.setdefault("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
 os.environ.setdefault("VAULT_DATA_KEY", "0" * 64)
 
-pod_server = pytest.importorskip("pod_server")
+pod_server: Any
+
+
+@pytest.fixture(autouse=True)
+def pod_runtime(monkeypatch):
+    # Import in test scope: pod_server must not change shared collection mode.
+    global pod_server
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    pod_server = pytest.importorskip("pod_server")
 
 
 def _paths() -> set[str]:
@@ -192,9 +194,7 @@ def test_the_mount_list_is_derived_from_the_app():
 
 
 def test_a_router_that_fails_to_mount_disappears_from_the_answer(monkeypatch):
-    """The property the literal could not have. If the turn router stops mounting,
-    /pod/info must stop claiming it -- otherwise the next false proof of life reads
-    exactly like the last one."""
+    """Reported capabilities must track the mounted routes."""
     import pod_server
 
     # app.routes is a read-only property over app.router.routes, so the swap goes
