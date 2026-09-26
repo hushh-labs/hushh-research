@@ -167,7 +167,7 @@ describe("private-agent chat shell contract", () => {
     // the "Puppy" chip does not slide out from under the thumb that pressed
     // it. This is the same jump the status slot beside it was widened to stop.
     expect(workspace).toContain(
-      'className="flex min-w-0 flex-1 justify-end sm:w-[9.5rem] sm:flex-none"',
+      'className="flex w-[7.5rem] shrink-0 justify-end sm:w-[9.5rem]"',
     );
     // And the control names the agent it configures, not just "Model".
     expect(workspace).toContain('aria-label="One\'s model"');

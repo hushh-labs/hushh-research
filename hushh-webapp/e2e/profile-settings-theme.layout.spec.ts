@@ -64,7 +64,7 @@ body { margin: 0; }
       <div><h2 data-slot="settings-group-heading" class="test-heading">Profile settings</h2></div>
       <div data-slot="settings-group-shell">
         <div data-testid="settings-row" class="test-row">
-          <span data-slot="settings-row-icon" data-icon-tone="blue">✦</span>
+          <span data-slot="settings-row-icon" data-icon-tone="blue"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18" fill="none" stroke="currentColor"/></svg></span>
           <span data-slot="settings-row-title" class="test-row-title">Privacy and connections for a very long profile name</span>
           <button class="test-action">View</button>
         </div>
@@ -77,7 +77,7 @@ body { margin: 0; }
     <div><h2 data-slot="settings-group-heading" class="test-heading">Security</h2></div>
     <div data-slot="settings-group-shell">
       <div data-testid="settings-row" data-tone="default" class="test-row">
-        <span data-slot="settings-row-icon" data-icon-tone="blue">✦</span>
+        <span data-slot="settings-row-icon" data-icon-tone="blue"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18" fill="none" stroke="currentColor"/></svg></span>
         <span data-slot="settings-row-title" class="test-row-title">Connected devices and security preferences for a very long account name</span>
         <button class="test-action">View</button>
       </div>
@@ -130,11 +130,13 @@ for (const theme of ["light", "dark"] as const) {
         const profile = document.querySelector<HTMLElement>(".profile-home-screen")!;
         const profileCard = profile.querySelector<HTMLElement>("[data-slot='settings-group-shell']")!;
         const profileTitle = profile.querySelector<HTMLElement>("[data-slot='settings-row-title']")!;
-        const profileIcon = profile.querySelector<HTMLElement>("[data-slot='settings-row-icon']")!;
+        const profileIconWell = profile.querySelector<HTMLElement>("[data-slot='settings-row-icon']")!;
+        const profileIcon = profileIconWell.querySelector<SVGElement>("svg")!;
         const nested = document.querySelector<HTMLElement>("[data-profile-stack-content='true']")!;
         const nestedCard = nested.querySelector<HTMLElement>("[data-slot='settings-group-shell']")!;
         const nestedTitle = nested.querySelector<HTMLElement>("[data-slot='settings-row-title']")!;
-        const nestedIcon = nested.querySelector<HTMLElement>("[data-slot='settings-row-icon']")!;
+        const nestedIconWell = nested.querySelector<HTMLElement>("[data-slot='settings-row-icon']")!;
+        const nestedIcon = nestedIconWell.querySelector<SVGElement>("svg")!;
         const accountIcon = document.querySelector<HTMLElement>(
           ".profile-account-content [data-slot='settings-row-icon']",
         )!;
@@ -149,11 +151,11 @@ for (const theme of ["light", "dark"] as const) {
           profileCard: getComputedStyle(profileCard).backgroundColor,
           profileTitle: getComputedStyle(profileTitle).color,
           profileIcon: getComputedStyle(profileIcon).color,
-          profileIconBackground: getComputedStyle(profileIcon).backgroundColor,
+          profileIconBackground: getComputedStyle(profileIconWell).backgroundColor,
           nestedCard: getComputedStyle(nestedCard).backgroundColor,
           nestedTitle: getComputedStyle(nestedTitle).color,
           nestedIcon: getComputedStyle(nestedIcon).color,
-          nestedIconBackground: getComputedStyle(nestedIcon).backgroundColor,
+          nestedIconBackground: getComputedStyle(nestedIconWell).backgroundColor,
           accountIcon: getComputedStyle(accountIcon).color,
           accountIconBackground: getComputedStyle(accountIcon).backgroundColor,
           connectorBackground: getComputedStyle(connectors).backgroundColor,
@@ -178,7 +180,7 @@ for (const theme of ["light", "dark"] as const) {
       expect(state.bodyBackground).toBe(state.profileBackground);
       expect(state.profileCard).not.toBe(state.profileBackground);
       expect(state.profileIconBackground).not.toBe(state.profileCard);
-      expect(state.nestedIconBackground).toBe(state.profileIconBackground);
+      expect(state.nestedIconBackground).not.toBe(state.profileIconBackground);
       expect(state.nestedIconBackground).not.toBe(state.nestedCard);
       const accountIconLight = Math.max(
         luminance(state.accountIcon), luminance(state.accountIconBackground),
@@ -190,15 +192,27 @@ for (const theme of ["light", "dark"] as const) {
       expect(state.actionHeights.every((height) => height >= 44)).toBe(true);
       for (const [foreground, background] of [
         [state.profileTitle, state.profileCard],
-        [state.profileIcon, state.profileIconBackground],
         [state.nestedTitle, state.nestedCard],
-        [state.nestedIcon, state.nestedIconBackground],
         [state.connectorTitle, state.connectorBackground],
         ...state.actionColors.map(({ foreground, background }) => [foreground, background]),
       ]) {
         const light = Math.max(luminance(foreground), luminance(background));
         const dark = Math.min(luminance(foreground), luminance(background));
-        expect((light + 0.05) / (dark + 0.05)).toBeGreaterThanOrEqual(4.5);
+        expect(
+          (light + 0.05) / (dark + 0.05),
+          `${foreground} on ${background}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      for (const [foreground, background] of [
+        [state.profileIcon, state.profileIconBackground],
+        [state.nestedIcon, state.nestedIconBackground],
+      ]) {
+        const light = Math.max(luminance(foreground), luminance(background));
+        const dark = Math.min(luminance(foreground), luminance(background));
+        expect(
+          (light + 0.05) / (dark + 0.05),
+          `${foreground} on ${background}`,
+        ).toBeGreaterThanOrEqual(3);
       }
       if (process.env.PROFILE_THEME_EVIDENCE_DIR) {
         fs.mkdirSync(process.env.PROFILE_THEME_EVIDENCE_DIR, { recursive: true });

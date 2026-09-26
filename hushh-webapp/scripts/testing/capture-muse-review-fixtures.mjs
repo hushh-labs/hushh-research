@@ -7,10 +7,10 @@ import path from "node:path";
 const root = process.cwd();
 const sources = [
   "components/dashboard/one-dashboard-page.tsx", "components/dashboard/one-agent-roster.tsx",
-  "components/dashboard/one-setup-progress-tile.tsx", "components/app-ui/settings-ui.tsx",
+  "components/app-ui/settings-ui.tsx",
   "components/app-ui/app-page-shell.tsx", "components/app-ui/flow-actions.tsx",
   "components/app-ui/agent-section-icon.tsx", "components/app-ui/typography.tsx",
-  "components/onboarding/setup/capability-list-row.tsx", "components/onboarding/setup/capability-cinematic-intro.tsx",
+  "components/onboarding/setup/capability-setup-tile.tsx", "components/onboarding/setup/capability-cinematic-intro.tsx",
   "components/onboarding/setup/setup-completion-footer.tsx", "components/agent/specialist-directive-card.tsx",
   "lib/ui/button-variants.ts", "lib/morphy-ux/button.tsx", "lib/morphy-ux/utils.ts",
   "scripts/testing/capture-muse-review-fixtures.mjs",
@@ -28,13 +28,14 @@ import { writeFileSync } from "node:fs";
 import { it, expect, vi } from "vitest";
 vi.mock("next/navigation", () => ({useRouter: () => ({push:vi.fn(),prefetch:vi.fn(),back:vi.fn()}),usePathname:()=>"/one",useSearchParams:()=>new URLSearchParams()}));
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
-import { CapabilityListRow } from "@/components/onboarding/setup/capability-list-row";
+import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { SpecialistDirectiveCard } from "@/components/agent/specialist-directive-card";
+import { PlugZap } from "@/components/icons";
 import { ONE_SETUP_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
-import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 it("captures production Home, setup and action card markup", () => {
  window.localStorage.clear(); window.sessionStorage.clear();
  const fixtures: Record<string, string> = {};
@@ -47,10 +48,12 @@ it("captures production Home, setup and action card markup", () => {
  fixtures.homeGrid = home.container.innerHTML; cleanup();
  const setup = render(<main className="mx-auto w-full max-w-[600px] p-4">
  <h1 className="ui-text-page-title mb-6">Set up One</h1>
- <div data-muse-setup-list="true"><SettingsGroup title="Not set up">{ONE_SETUP_CAPABILITIES.map(capability => {
- const copy=getCapabilitySetupCopy(capability.id); if(!copy) return null;
- return <CapabilityListRow key={capability.id} capability={capability} copy={copy} status={statuses[capability.id] as any} isDismissed={false} onRequestDismiss={()=>{}} onUndoDismiss={()=>{}}/>;
- })}</SettingsGroup></div>
+ <div data-muse-setup-list="true"><SettingsGroup title="Required"><SetupNavigationTile
+ id="connections" title="Choose your AI" description="Use ours, or bring your own."
+ href="/one/setup/connections" voiceControlId="one_setup_tile_connections"
+ icon={lucideCapabilityIcon(PlugZap)} tone="connected" statusLabel="Required"
+ statusTone="required" isCurrent
+ /></SettingsGroup></div>
  <SetupCompletionFooter label="Finish setting up One" controlId="fixture-finish" purpose="Finish" onComplete={()=>{}} insetBottom={false}/>
  </main>);
  fixtures.setup = setup.container.innerHTML; cleanup();
