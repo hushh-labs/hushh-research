@@ -2124,7 +2124,7 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {/* Stable Tab Content Container with Min-Height & Smooth Fade Transition */}
-          <div className="min-h-[340px] w-full space-y-4 transition-all duration-150 animate-in fade-in">
+          <div className="min-h-[340px] w-full space-y-4 transition-opacity duration-150 animate-in fade-in">
             {isConnected && workspace === "overview" ? (
             <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
