@@ -40,7 +40,11 @@ from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connector_result
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
+from hushh_mcp.one_adk.external_read_boundary import (
+    READ_TOOLS,
+    STATE_EXECUTION_SURFACE,
+    STATE_UNTRUSTED_CONTENT,
+)
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
@@ -190,6 +194,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_GMAIL_INFORMATION_REQUEST_CONTEXT: store_request_secret(
             gmail_information_request_context
         ),
+        # A selected email enters the instructions without any tool call, so
+        # no tool marks it. Mark the conversation here. Only ever set True: a
+        # request must never clear a durable mark left by an earlier turn.
+        **({STATE_UNTRUSTED_CONTENT: True} if gmail_information_request_context else {}),
     }
 
 
