@@ -14,12 +14,18 @@ from hushh_mcp.one_adk.encrypted_session_service import (
     EncryptedAdkSessionService,
     EncryptedAdkSessionUnavailableError,
 )
+from tests.helpers.chat_keys import static_chat_cipher
+
+
+def _decode_as(service, session, row):
+    return service._decode(
+        row, app_name=session.app_name, user_id=session.user_id, session_id=session.id
+    )
 
 
 def test_session_document_encrypts_state_and_messages(monkeypatch) -> None:
     monkeypatch.setenv("APP_SIGNING_KEY", "a" * 32)
-    monkeypatch.setenv("VAULT_DATA_KEY", "01" * 32)
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     session = Session(
         id="thread-1",
         app_name="hussh_one",
@@ -29,19 +35,21 @@ def test_session_document_encrypts_state_and_messages(monkeypatch) -> None:
     )
     encoded = service._encode(session)
     assert "sensitive profile value" not in encoded["ciphertext"]
-    decoded = service._decode(
+    decoded = _decode_as(
+        service,
+        session,
         {
             "payload_ciphertext": encoded["ciphertext"],
             "payload_iv": encoded["iv"],
             "payload_tag": encoded["tag"],
             "payload_algorithm": encoded["algorithm"],
-        }
+        },
     )
     assert decoded.state == session.state
 
 
 def test_database_failure_never_exposes_sql_or_bound_values(monkeypatch) -> None:
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     private_value = "owner-secret-ciphertext"
 
     def fail_execute(*_args, **_kwargs):
@@ -93,10 +101,12 @@ def test_deferred_genai_models_roundtrip_without_mutating_live_objects(placement
     with pytest.raises(PydanticSerializationError, match="MockValSer"):
         session.model_dump_json(by_alias=True)
 
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(session)
     assert "fixture" not in encoded["ciphertext"]
-    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    decoded = _decode_as(
+        service, session, {f"payload_{key}": value for key, value in encoded.items()}
+    )
     if placement == "output":
         restored = decoded.events[0].output
         assert event.output is response
@@ -116,9 +126,11 @@ def test_session_serializer_preserves_sdk_bytes_and_event_types():
     session = Session(
         id="thread", app_name="one", user_id="owner", events=[Event(author="one", content=content)]
     )
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(session)
-    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    decoded = _decode_as(
+        service, session, {f"payload_{key}": value for key, value in encoded.items()}
+    )
     assert isinstance(decoded.events[0], Event)
     assert decoded.events[0].content.parts[0].thought_signature == b"\xff\x00\x81"
 
@@ -135,9 +147,11 @@ def test_drive_result_is_available_live_but_not_retained_in_session():
         content=types.Content(role="tool", parts=[types.Part(function_response=response)]),
     )
     session = Session(id="thread", app_name="one", user_id="owner", events=[event])
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(session)
-    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    decoded = _decode_as(
+        service, session, {f"payload_{key}": value for key, value in encoded.items()}
+    )
 
     assert event.content.parts[0].function_response.response["result"] == private_value
     assert private_value not in decoded.model_dump_json(by_alias=True)
@@ -161,9 +175,11 @@ def test_drive_call_arguments_remain_live_but_not_retained():
         user_id="owner",
         events=[Event(author="one", content=types.Content(parts=[types.Part(function_call=call)]))],
     )
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(session)
-    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    decoded = _decode_as(
+        service, session, {f"payload_{key}": value for key, value in encoded.items()}
+    )
     assert call.args == {"query": private_value}
     assert private_value not in decoded.model_dump_json(by_alias=True)
     restored = decoded.events[0].content.parts[0].function_call
@@ -182,12 +198,12 @@ def test_unrelated_serialization_failure_is_not_repaired(monkeypatch):
     )
     session = Session(id="thread", app_name="one", user_id="owner", state={"invalid": object()})
     with pytest.raises(PydanticSerializationError, match="unknown type"):
-        EncryptedAdkSessionService()._encode(session)
+        EncryptedAdkSessionService(static_chat_cipher())._encode(session)
 
 
 @pytest.mark.asyncio
 async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch):
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     row = None
 
     def encode(session):
@@ -200,7 +216,9 @@ async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch)
 
     monkeypatch.setattr(service, "_encode", encode)
     monkeypatch.setattr(
-        service, "_decode", lambda stored: Session.model_validate_json(stored["payload_ciphertext"])
+        service,
+        "_decode",
+        lambda stored, **_identity: Session.model_validate_json(stored["payload_ciphertext"]),
     )
 
     async def execute(sql, params):

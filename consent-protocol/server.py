@@ -132,6 +132,7 @@ def _parse_cors_allowed_origins() -> list[str]:
 # Import rate limiting
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
+from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler  # noqa: E402
 from api.middlewares.observability import (  # noqa: E402
     configure_opentelemetry,
     get_request_id,
@@ -160,6 +161,7 @@ from api.routes import (  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.consent.errors import PolicyViolationError, ZKPVerificationError  # noqa: E402
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS  # noqa: E402
 
 # Dynamic root_path for Swagger docs in production
 # Set ROOT_PATH env var to your production URL to fix Swagger showing localhost
@@ -177,6 +179,10 @@ app.middleware("http")(observability_middleware)
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+# A route that reaches chat history without the owner's chat key refuses; it never
+# answers from a platform key or with placeholder history.
+for _chat_key_error in CHAT_KEY_ERRORS:
+    app.add_exception_handler(_chat_key_error, chat_key_error_handler)
 
 
 def _database_error_payload(
@@ -292,6 +298,11 @@ async def normalize_mcp_root(request: Request, call_next):
 
 
 app.mount("/mcp", remote_mcp_app)
+
+# Registered last so it is the outermost application middleware: it strips the
+# chat key header before any other layer can read it and releases the key when the
+# whole (streamed) exchange ends.
+app.add_middleware(ChatKeyMiddleware)
 
 
 # ============================================================================

@@ -108,6 +108,7 @@ export function useLocationChat(params: {
       try {
         const result = await OneLocationService.chat({
           vaultOwnerToken,
+          vaultKey,
           message,
           conversationId: conversationIdRef.current,
         });
@@ -126,7 +127,7 @@ export function useLocationChat(params: {
         setBusy(false);
       }
     },
-    [vaultOwnerToken, applyResult, nextId],
+    [vaultOwnerToken, vaultKey, applyResult, nextId],
   );
 
   const retry = useCallback(async () => {
@@ -149,6 +150,7 @@ export function useLocationChat(params: {
       try {
         const result = await OneLocationService.chat({
           vaultOwnerToken,
+          vaultKey,
           conversationId: conversationIdRef.current,
           actionResult,
         });
@@ -162,7 +164,7 @@ export function useLocationChat(params: {
         setBusy(false);
       }
     },
-    [vaultOwnerToken, applyResult, nextId],
+    [vaultOwnerToken, vaultKey, applyResult, nextId],
   );
 
   const reportSelection = useCallback(
@@ -172,6 +174,7 @@ export function useLocationChat(params: {
       try {
         const result = await OneLocationService.chat({
           vaultOwnerToken,
+          vaultKey,
           conversationId: conversationIdRef.current,
           selectionResult,
         });
@@ -185,7 +188,7 @@ export function useLocationChat(params: {
         setBusy(false);
       }
     },
-    [vaultOwnerToken, applyResult, nextId],
+    [vaultOwnerToken, vaultKey, applyResult, nextId],
   );
 
   const send = useCallback(

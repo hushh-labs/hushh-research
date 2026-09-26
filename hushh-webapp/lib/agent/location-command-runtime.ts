@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import {
   LocationReferenceSession,
   isLocationObservation,
@@ -263,6 +264,7 @@ export class LocationCommandRuntime {
           ...init,
           headers: {
             ...init.headers,
+            ...(await oneChatKeyHeaders(authority.vaultKey)),
             Authorization: `Bearer ${authority.token}`,
           },
         });

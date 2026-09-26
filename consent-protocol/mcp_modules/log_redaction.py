@@ -17,6 +17,8 @@ _UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
 # without a hub token and must never reach a retained log any more than an HCT.
 _TOKEN_PREFIXES = ("HCT:", "Bearer ", "pst1.")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
+# Per-request owner chat key.
+_CHAT_KEY_VALUE_RE = re.compile(r"hck1\.[0-9A-Fa-f]{64}")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
     r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|pageToken|"
@@ -83,6 +85,7 @@ _SENSITIVE_KEY_TERMS = (
     "api_key",
     "auth_header",
     "bearer",
+    "chat_key",
     "ciphertext",
     "connector_key",
     "credential",
@@ -151,6 +154,7 @@ def _redact_sql_bound_parameters(value: str) -> str:
 
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
+    redacted = _CHAT_KEY_VALUE_RE.sub(REDACTED, redacted)
     redacted = _DRIVE_PERMISSION_PATH_RE.sub(
         lambda match: f"{match.group(1)}{REDACTED}{match.group(2)}{REDACTED}", redacted
     )

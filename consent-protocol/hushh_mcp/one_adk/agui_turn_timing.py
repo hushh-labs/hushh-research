@@ -47,8 +47,32 @@ from hushh_mcp.one_adk.output_privacy import (
     drop_empty_history_parts,
     public_event,
 )
+from hushh_mcp.services.chat_key import (
+    CHAT_KEY_ERROR_MESSAGES,
+    CHAT_KEY_ERRORS,
+    CHAT_KEY_RECOVERY_MESSAGE,
+    CHAT_KEY_REQUIRED_CODE,
+    current_chat_key_markers,
+    retain_request_chat_key,
+)
 
 logger = logging.getLogger(__name__)
+
+CHAT_KEY_RUN_ERROR = RunErrorEvent(
+    message=CHAT_KEY_RECOVERY_MESSAGE,
+    code=CHAT_KEY_REQUIRED_CODE,
+)
+
+
+def event_carries_chat_key(event: BaseEvent, markers: tuple[str, ...]) -> bool:
+    """True when a wire event would carry the request's chat key in any form."""
+    if not markers:
+        return False
+    try:
+        serialized = event.model_dump_json()
+    except Exception:  # noqa: BLE001 - an unserializable event is refused, not sent
+        return True
+    return any(marker in serialized for marker in markers)
 
 
 def _bridge_failure_kind(exc_info: Any) -> str:
@@ -407,6 +431,13 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
+                    if (
+                        getattr(event, "type", None) == EventType.RUN_ERROR
+                        and getattr(event, "message", None) in CHAT_KEY_ERROR_MESSAGES
+                    ):
+                        # ag_ui_adk stringifies a background failure into a generic
+                        # run error; keep a chat-key refusal recognisable.
+                        event = CHAT_KEY_RUN_ERROR
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
                         if self.head == HEAD_ONE:
@@ -421,6 +452,15 @@ class TimedADKAgent(ADKAgent):
                             else event
                         )
                         if projected is not None and summary_replays.admit(projected):
+                            if event_carries_chat_key(projected, current_chat_key_markers()):
+                                # The key is never placed in state, prompts or tool
+                                # results. If one ever reaches the wire, end the run
+                                # rather than send it or silently drop an event.
+                                logger.error("one.chat_key_stream_leak_blocked")
+                                timing.outcome = OUTCOME_ERROR
+                                timing.observe(CHAT_KEY_RUN_ERROR)
+                                yield CHAT_KEY_RUN_ERROR
+                                return
                             yield projected
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
@@ -430,14 +470,18 @@ class TimedADKAgent(ADKAgent):
             if not timing.terminal_observed:
                 timing.outcome = OUTCOME_CLIENT_DISCONNECT
             raise
-        except Exception:
+        except Exception as exc:
             timing.outcome = OUTCOME_ERROR
             # Otherwise the installed endpoint catches this exception and
             # serializes str(exception) into a second, unprojected RUN_ERROR.
             # Keep the failure terminal and content-free at this boundary.
-            safe_error = RunErrorEvent(
-                message="One couldn't finish that request. Please try again.",
-                code="AGENT_ERROR",
+            safe_error = (
+                CHAT_KEY_RUN_ERROR
+                if isinstance(exc, CHAT_KEY_ERRORS)
+                else RunErrorEvent(
+                    message="One couldn't finish that request. Please try again.",
+                    code="AGENT_ERROR",
+                )
             )
             timing.observe(safe_error)
             timing.error_class = "escaped_exception"
@@ -447,6 +491,17 @@ class TimedADKAgent(ADKAgent):
                 await self._release_execution(input)
             timing.log()
             _CURRENT_TURN.reset(timing_context)
+
+    async def _run_adk_in_background(self, *args: Any, **kwargs: Any) -> Any:
+        """Keep the request's chat key alive until this background run settles.
+
+        The bridge signals end-of-stream and then still closes the runner and
+        writes the session (LRO id remap) in its ``finally``. Without a reference
+        of its own the request could release the key between the two and the
+        write would fail. The binding still has a hard ceiling in ``chat_key``.
+        """
+        with retain_request_chat_key():
+            return await super()._run_adk_in_background(*args, **kwargs)
 
     async def _release_execution(self, input: RunAgentInput) -> None:
         """Drop the bridge's execution entry for a run that ended in error or disconnect.

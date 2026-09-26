@@ -34,7 +34,7 @@ let baselineConversationIds = new Set();
 async function conversationIds(token) {
   const response = await fetch(
     `${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "X-Hussh-Chat-Key": await session.capture.chatKey() } },
   );
   if (!response.ok) return new Set();
   const payload = await response.json();

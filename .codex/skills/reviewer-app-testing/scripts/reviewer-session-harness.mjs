@@ -237,10 +237,15 @@ export async function createReviewerSessionHarness({
     let vaultState = null;
     let ownerToken = "";
     let identityToken = "";
+    // The app's own derived chat key (X-Hussh-Chat-Key), kept in memory only so
+    // a rehearsal can read the history it just wrote. Never printed.
+    let chatKey = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
     page.on("request", (request) => {
       const pathname = endpointPath(request.url());
+      const sentChatKey = request.headers()["x-hussh-chat-key"] || "";
+      if (sentChatKey) chatKey = sentChatKey;
       const authorization = request.headers().authorization || "";
       if (!authorization.startsWith("Bearer ")) return;
       if (pathname.startsWith("/api/pkm/")) ownerToken = authorization.slice(7);
@@ -283,6 +288,9 @@ export async function createReviewerSessionHarness({
       },
       async identityToken() {
         return waitForValue(() => identityToken, "reviewer identity token", timeoutMs);
+      },
+      async chatKey() {
+        return waitForValue(() => chatKey, "chat key", timeoutMs);
       },
       async vaultState() {
         const state = await waitForValue(() => vaultState, "encrypted vault state", timeoutMs);

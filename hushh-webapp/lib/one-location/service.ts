@@ -9,6 +9,7 @@ import type { AutoApproveScope } from "@/lib/one-location/location-control-state
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { trackNearbyCheckOutCompleted } from "@/lib/observability/location-events";
 import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
@@ -1252,6 +1253,8 @@ export class OneLocationService {
 
   static async chat(params: {
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent (history is sealed with it). */
+    vaultKey: string | null | undefined;
     message?: string;
     conversationId?: string | null;
     actionResult?: ActionResult;
@@ -1259,7 +1262,10 @@ export class OneLocationService {
   }): Promise<LocationChatResponse> {
     return apiJson<LocationChatResponse>("/api/one/location/chat", {
       method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      headers: {
+        ...jsonAuthHeaders(params.vaultOwnerToken),
+        ...(await oneChatKeyHeaders(params.vaultKey)),
+      },
       body: JSON.stringify({
         message: params.message ?? null,
         conversationId: params.conversationId ?? null,

@@ -29,8 +29,10 @@ const ERROR_TEXT = "Sorry — that couldn't be processed. Try rephrasing.";
  */
 export default function GmailChatPanel({
   vaultOwnerToken,
+  vaultKey = null,
 }: {
   vaultOwnerToken: string | null;
+  vaultKey?: string | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -49,6 +51,7 @@ export default function GmailChatPanel({
       try {
         const result = await EmailChatService.chat({
           vaultOwnerToken,
+          vaultKey,
           message,
           conversationId: conversationIdRef.current,
         });
@@ -66,7 +69,7 @@ export default function GmailChatPanel({
         setBusy(false);
       }
     },
-    [busy, vaultOwnerToken, nextId],
+    [busy, vaultOwnerToken, vaultKey, nextId],
   );
 
   const clear = useCallback(() => {

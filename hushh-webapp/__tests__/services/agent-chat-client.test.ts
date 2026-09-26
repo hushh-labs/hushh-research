@@ -79,6 +79,52 @@ import { ApiService } from "@/lib/services/api-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
+const TEST_VAULT_KEY = "0f".repeat(32);
+const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
+describe("One chat key transport", () => {
+  it("sends only the derived chat key, in a header, never in the turn body", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.runAgent.mockClear();
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token" });
+    const [request, config] = mockTransport.runAgent.mock.calls[0];
+    expect((config as { headers: Record<string, string> }).headers).toEqual({
+      Authorization: "Bearer owner-token",
+      "X-Hussh-Chat-Key": TEST_CHAT_KEY,
+    });
+    const body = JSON.stringify(request);
+    expect(body).not.toContain(TEST_VAULT_KEY);
+    expect(body).not.toContain(TEST_CHAT_KEY.slice(5));
+    expect(JSON.stringify(config)).not.toContain(TEST_VAULT_KEY);
+  });
+
+  it("refuses a chat turn locally when the vault is locked", async () => {
+    mockTransport.runAgent.mockClear();
+    await expect(streamAgentChat({ vaultKey: "", userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token" }))
+      .rejects.toThrow("Unlock your vault");
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("turns a chat-key refusal into recoverable copy, never raw server text", () => {
+    expect(formatAgentChatErrorMessage("anything", "CHAT_KEY_REQUIRED")).toMatch(/^Unlock your vault, then try again/);
+    expect(formatAgentChatErrorMessage('HTTP 403: {"detail":{"code":"CHAT_KEY_REQUIRED"}}'))
+      .toMatch(/update or refresh the app/);
+    expect(formatAgentChatErrorMessage("x", "CHAT_KEY_MISMATCH")).toMatch(/did not open with this vault/);
+    expect(formatAgentChatErrorMessage("x", "CHAT_CONVERSATION_RETIRED")).toMatch(/Start a new chat/);
+  });
+
+  it("sends the chat key when recording a submitted request into history", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
+      conversationId: "thread-1", sourceActivityId: "a", bundleId: "b",
+      idempotencyKey: "c", vaultOwnerToken: "owner-token",
+    }).catch(() => undefined);
+    const init = vi.mocked(ApiService.apiFetch).mock.calls.at(-1)?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("X-Hussh-Chat-Key")).toBe(TEST_CHAT_KEY);
+    expect(String(init.body)).not.toContain(TEST_CHAT_KEY);
+  });
+});
+
 describe("AG-UI Agent One client", () => {
   it("loads a transient connector catalog without forwarding refresh credentials", async () => {
     publishValidatedAuthSessionOwner("user-1");
@@ -88,7 +134,7 @@ describe("AG-UI Agent One client", () => {
       endpoint: "https://example.com/mcp", enabled: true,
       authentication: { kind: "oauth" as const, accessToken: "synthetic-access", expiresAt: 4070908800, refreshToken: "synthetic-refresh" },
     }]);
-    await streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token", loadConnectorConfigurations });
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token", loadConnectorConfigurations });
     expect(loadConnectorConfigurations).toHaveBeenCalledOnce();
     const request = mockTransport.runAgent.mock.calls[0][0];
     expect(request.forwardedProps.mcpConfigurations[0].authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 4070908800 });
@@ -97,7 +143,7 @@ describe("AG-UI Agent One client", () => {
 
   it("does not dispatch after vault lock during connector loading", async () => {
     publishValidatedAuthSessionOwner("user-1");
-    await expect(streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
       loadConnectorConfigurations: async () => { advanceVaultSessionEpoch(); return []; },
     })).rejects.toThrow("vault session changed");
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
@@ -105,7 +151,7 @@ describe("AG-UI Agent One client", () => {
 
   it("does not treat failed connector loading as an empty catalog", async () => {
     publishValidatedAuthSessionOwner("user-1");
-    await expect(streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
       loadConnectorConfigurations: async () => { throw new Error("Synthetic unavailable"); },
     })).rejects.toThrow("Synthetic unavailable");
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
@@ -124,7 +170,7 @@ describe("AG-UI Agent One client", () => {
     const onToolResult = vi.fn();
     const onToolWaiting = vi.fn();
     const onToolStart = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Read my connector", conversationId: "thread-1",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Read my connector", conversationId: "thread-1",
       vaultOwnerToken: "owner-token", handlers: { onToolStart, onToolResult, onToolWaiting } });
     expect(onToolStart.mock.calls[0][0]).toMatchObject({ label: "Connected tool", message: "Using a connected tool." });
     expect(`${onToolStart.mock.calls[0][0].label} ${onToolStart.mock.calls[0][0].message}`)
@@ -147,7 +193,7 @@ describe("AG-UI Agent One client", () => {
       } });
     };
     const onToolResult = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Search docs", conversationId: "thread-1",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Search docs", conversationId: "thread-1",
       vaultOwnerToken: "owner-token", handlers: { onToolResult } });
     expect(onToolResult.mock.calls[0][0]).toMatchObject({ label: "Connected tool", execution, message });
   });
@@ -171,7 +217,7 @@ describe("AG-UI Agent One client", () => {
       } });
     };
     const onToolResult = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Search docs", conversationId: "thread-1",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Search docs", conversationId: "thread-1",
       vaultOwnerToken: "owner-token", handlers: { onToolResult },
       loadConnectorConfigurations: async () => [{
         version: 1 as const, connectorId, revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
@@ -193,7 +239,7 @@ describe("AG-UI Agent One client", () => {
       } });
     };
     const onToolResult = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Search docs", conversationId: "thread-1",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Search docs", conversationId: "thread-1",
       vaultOwnerToken: "owner-token", handlers: { onToolResult } });
     expect(onToolResult.mock.calls[0][0]).toMatchObject({ label: "Connected tool", execution: "blocked" });
     expect(onToolResult.mock.calls[0][0].tag).toBeUndefined();
@@ -208,7 +254,7 @@ describe("AG-UI Agent One client", () => {
         domain: "Information", sensitivity: "standard", status: "pending" }],
     } };
     vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
-    const result = await recordAgentChatInformationRequest({
+    const result = await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "discover-call",
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     });
@@ -223,7 +269,7 @@ describe("AG-UI Agent One client", () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
       descriptor: { ...descriptor, content: { ...descriptor.content, bundleId: "other-bundle" } },
     }), { status: 200 }));
-    await expect(recordAgentChatInformationRequest({
+    await expect(recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "discover-call",
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     })).rejects.toThrow();
@@ -240,7 +286,7 @@ describe("AG-UI Agent One client", () => {
       });
     };
 
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "u1",
       message: "Find my file",
       vaultOwnerToken: "fixture",
@@ -273,7 +319,7 @@ describe("AG-UI Agent One client", () => {
         status: "ok", source: "google_drive_selected_status", matches: [{ name: "PRIVATE_FILENAME.pdf" }],
       }) } });
     };
-    await streamAgentChat({ userId: "u1", message: "Do I have the file?", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Do I have the file?", vaultOwnerToken: "fixture",
       handlers: { onToolResult, onToolWaiting } });
     expect(JSON.stringify(onToolWaiting.mock.calls)).not.toContain("PRIVATE_FILENAME");
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_FILENAME");
@@ -296,7 +342,7 @@ describe("AG-UI Agent One client", () => {
       }) } });
     };
 
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "u1",
       message: "Find a file",
       vaultOwnerToken: "fixture",
@@ -332,7 +378,7 @@ describe("AG-UI Agent One client", () => {
           saved: [{ name: "PRIVATE CONNECTOR NAME", status: "saved" }] }),
       } });
     };
-    await streamAgentChat({ userId: "u1", message: "Connect my app", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Connect my app", vaultOwnerToken: "fixture",
       handlers: { onStructuredExperience, onToolResult, onToolWaiting } });
     expect(onStructuredExperience).toHaveBeenCalledWith({
       type: "one.workspace_connector_setup.v1", provider: "custom", status: "manage_available",
@@ -368,7 +414,7 @@ describe("AG-UI Agent One client", () => {
           sources: [], truncated: false, metadata_only: metadataOnly },
       }) } });
     };
-    await streamAgentChat({ userId: "u1", message: "Find my file", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Find my file", vaultOwnerToken: "fixture",
       handlers: { onToolResult } });
     expect(onToolResult.mock.calls[0][0].message).toBe(expected);
   });
@@ -391,7 +437,7 @@ describe("AG-UI Agent One client", () => {
         }, directive: { action_id: "route.profile", slots: {}, execution: "frontend" },
       }) } });
     };
-    await streamAgentChat({ userId: "u1", message: "Read mail", vaultOwnerToken: "fixture",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Read mail", vaultOwnerToken: "fixture",
       handlers: { onStructuredExperience, onToolResult, onToolWaiting, onSpecialistDirective } });
     expect(onStructuredExperience).toHaveBeenCalledWith(expect.objectContaining({
       type: "one.connector_read.v1", sourceRefs: [sourceRef],
@@ -408,7 +454,7 @@ describe("AG-UI Agent One client", () => {
       messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer",
         metadata: { specialist_read, provider_subject: "PRIVATE" } })),
     })));
-    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "fixture" });
+    const messages = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "fixture" });
     expect(messages[0].metadata?.connectorRead).toMatchObject({ type: "one.connector_read.v1", status: "ok" });
     expect(messages[1].metadata?.connectorRead).toBeNull();
     expect(JSON.stringify(messages)).not.toContain("PRIVATE");
@@ -420,7 +466,7 @@ describe("AG-UI Agent One client", () => {
     vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
       messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer", metadata: { turnActivity } })),
     })));
-    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "fixture" });
+    const messages = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "fixture" });
     expect(messages[0].metadata?.turnActivity).toEqual(turnActivity);
     expect(messages[1].metadata?.turnActivity).toBeUndefined();
   });
@@ -436,7 +482,7 @@ describe("AG-UI Agent One client", () => {
     const tokens: string[] = [];
     const experiences: string[] = [];
     const experienceIds: Array<string | undefined> = [];
-    const result = await streamAgentChat({
+    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Hello",
       conversationId: "thread-1",
@@ -477,7 +523,7 @@ describe("AG-UI Agent One client", () => {
       }
     };
     const ids: Array<string | undefined> = [];
-    await streamAgentChat({userId: "user-1", message: "Show available information", conversationId: "thread-1",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,userId: "user-1", message: "Show available information", conversationId: "thread-1",
       vaultOwnerToken: "owner-token", handlers: {onStructuredExperience: (_, id) => ids.push(id)}});
     expect(ids.slice(0, 2)).toEqual(toolCallId.trim() ? ["invocation-1", "invocation-1"] : ["transport-1", "transport-2"]);
   });
@@ -523,7 +569,7 @@ describe("AG-UI Agent One client", () => {
     };
 
     const labels: string[] = [];
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "List what Alex can share",
       conversationId: "thread-activity-delta",
@@ -582,7 +628,7 @@ describe("AG-UI Agent One client", () => {
   it("forwards the versioned agent-safe PKM packet on every chat turn", async () => {
     const pkmContext = "Private-agent PKM context (agent-safe-pkm/v1):\n- Preferences > Tone: concise";
 
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "What tone do I prefer?",
       conversationId: "thread-1",
@@ -627,7 +673,7 @@ describe("AG-UI Agent One client", () => {
     };
     const result = tier === "intro"
       ? await streamAgentIntro({ message: "Hello" })
-      : await streamAgentChat({ userId: "u1", message: "Hello", vaultOwnerToken: "owner-token" });
+      : await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Hello", vaultOwnerToken: "owner-token" });
     expect(result.text).toBe("Hello");
     expect(privateMessage.content).toBe("Private reasoning");
   });
@@ -646,7 +692,7 @@ describe("AG-UI Agent One client", () => {
         type: "REASONING_ENCRYPTED_VALUE", value: "private-signature",
       } })).toEqual({ stopPropagation: true });
     };
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1", message: "Find a file", vaultOwnerToken: "owner-token",
       handlers: { onThinkingSummary },
     });
@@ -663,7 +709,7 @@ describe("AG-UI Agent One client", () => {
           metadata: { kind: "answer", thought: "Private reasoning" } },
       ],
     })));
-    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "owner-token" });
+    const messages = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "owner-token" });
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe("Public answer");
     expect(JSON.stringify(messages)).not.toContain("Private reasoning");
@@ -703,7 +749,7 @@ describe("AG-UI Agent One client", () => {
     const onComplete = vi.fn();
     const onInterrupt = vi.fn(() => controller.abort());
 
-    const result = await streamAgentChat({
+    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Request access",
       conversationId: "thread-hitl",
@@ -732,7 +778,7 @@ describe("AG-UI Agent One client", () => {
     });
     const onMcpReview = vi.fn<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>();
     const onToolWaiting = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
       vaultOwnerToken: "owner-token", handlers: { onMcpReview, onToolWaiting } });
     expect(onMcpReview).toHaveBeenCalledTimes(1);
     expect(onToolWaiting).not.toHaveBeenCalled();
@@ -780,7 +826,7 @@ describe("AG-UI Agent One client", () => {
     };
     const onMcpReview = vi.fn<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>();
     const onToolWaiting = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
       vaultOwnerToken: "owner-token", handlers: { onMcpReview, onToolWaiting } });
     expect(onMcpReview).toHaveBeenCalledTimes(1);
     expect(onMcpReview.mock.calls[0][0].reference).toEqual(reference);
@@ -797,7 +843,7 @@ describe("AG-UI Agent One client", () => {
         toolConfirmation: { confirmed: false, payload: { kind: "mcp_call_review" } } },
     });
     const onToolWaiting = vi.fn(), onError = vi.fn(), onMcpReview = vi.fn();
-    await streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
       handlers: { onToolWaiting, onError, onMcpReview } });
     expect(onToolWaiting).not.toHaveBeenCalled();
     expect(onMcpReview).not.toHaveBeenCalled();
@@ -830,7 +876,7 @@ describe("AG-UI Agent One client", () => {
     };
 
     const directives: SpecialistDirectiveEvent[] = [];
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Schedule a study session",
       conversationId: "thread-directive",
@@ -889,7 +935,7 @@ describe("AG-UI Agent One client", () => {
     };
 
     const waiting: Array<Record<string, unknown>> = [];
-    await streamAgentChat({
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Ask Alex for employment status",
       conversationId: "thread-consent",
@@ -932,7 +978,7 @@ describe("AG-UI Agent One client", () => {
     const waiting = vi.fn();
     const onInterrupt = vi.fn();
     const onComplete = vi.fn();
-    const result = await streamAgentChat({
+    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Cancel that request I just sent",
       conversationId: "thread-confirm",

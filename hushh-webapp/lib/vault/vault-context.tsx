@@ -619,6 +619,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         void warmAgentChatHistoryCache({
           userId,
           vaultOwnerToken: token,
+          vaultKey: key,
         }).catch((error) => {
           console.warn("[VaultContext] Agent chat history warm-up failed:", error);
         });

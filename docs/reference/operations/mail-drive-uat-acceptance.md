@@ -1,11 +1,14 @@
 # Mail + Drive UAT acceptance
 
-Status as of 2026-09-23: the later UAT delivery record below verifies the deployed
-source revision, fixed Drive registry, and enabled work-drain scheduler. Connector
-feature flags and the internal-owner cohort remain off; document processing and
-two-account acceptance are unverified. Earlier checkpoints and preflight observations
-below are historical evidence, not current runtime status.
-Runtime remains in `hushh-pda-uat`; the isolated Drive OAuth project is `hushh-drive-uat`.
+Status: historical post-merge UAT deployment verified; verify the current live rollout and two-account acceptance separately. Mail/Drive acceptance remains incomplete.
+Runtime remains in `hushh-pda-uat`. Founder decision 2026-09-26: Drive moves off the isolated
+`hushh-drive-uat` project onto the Hussh PDA Google projects. Localhost and dev use the
+dev/localhost OAuth client (project `hushh-pda-uat`) with its Picker key (secret
+`GOOGLE_DRIVE_PICKER_API_KEY` in `hushh-pda-dev`); UAT and production will use the same
+`hushh-pda` client as Gmail and Calendar once its connector return
+(`/one/profile/connectors/oauth/return`) is registered for the UAT and production origins.
+Until then UAT stays on `hushh-drive-uat`. Switching a lane's client requires existing Drive
+connections in that lane to reconnect once.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
 ## Visual Map

@@ -54,7 +54,7 @@ let phase = "bootstrap";
 async function conversationIds(token) {
   const response = await fetch(
     `${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "X-Hussh-Chat-Key": await session.capture.chatKey() } },
   );
   if (!response.ok) throw new Error(`Conversation inventory failed with HTTP ${response.status}.`);
   const payload = await response.json();

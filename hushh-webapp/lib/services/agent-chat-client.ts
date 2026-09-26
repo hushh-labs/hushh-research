@@ -13,6 +13,7 @@ import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary"
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -92,6 +93,8 @@ export type AgentChatStreamHandlers = {
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
     conversationId: string;
+    /** Derived chat key header value; the review reads this owner's sealed conversation. */
+    chatKey: string;
     isCurrent: () => boolean;
     loadConfiguration?: () => Promise<CustomConnectorConfiguration | undefined>;
     resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
@@ -454,7 +457,21 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
   });
 }
 
+const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
+  CHAT_KEY_REQUIRED: "Unlock your vault, then try again. If this keeps happening, update or refresh the app.",
+  CHAT_KEY_INVALID: "Unlock your vault, then try again. If this keeps happening, update or refresh the app.",
+  CHAT_KEY_MISMATCH: "Your chat history did not open with this vault. Unlock your vault again, then try again.",
+  CHAT_CONVERSATION_RETIRED: "This conversation is no longer available. Start a new chat.",
+};
+
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  // Chat history is sealed with a key derived from the vault. These refusals are
+  // recoverable, so say how; the raw server text is never shown.
+  const chatKeyCode = code && code in CHAT_KEY_REFUSAL_MESSAGES
+    ? code
+    : Object.keys(CHAT_KEY_REFUSAL_MESSAGES).find((candidate) => message.includes(candidate));
+  const chatKeyRefusal = chatKeyCode ? CHAT_KEY_REFUSAL_MESSAGES[chatKeyCode] : undefined;
+  if (chatKeyRefusal) return chatKeyRefusal;
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
     return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
   }
@@ -522,6 +539,8 @@ export async function streamAgentChat(input: {
   message: string;
   conversationId?: string | null;
   vaultOwnerToken: string;
+  /** Unlocked vault key. Only the chat key derived from it is sent. */
+  vaultKey: string;
   loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
   personSelectionHandle?: string;
@@ -589,10 +608,14 @@ export async function streamAgentChat(input: {
       metadata: { actionId },
     }];
   });
+  // Chat history is sealed with a key derived from the vault key; the server
+  // refuses the turn without it and holds it for this request only.
+  const chatKeyHeaders = await oneChatKeyHeaders(input.vaultKey);
+  const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
-    headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+    headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
     fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
   });
@@ -1025,6 +1048,7 @@ export async function streamAgentChat(input: {
           handlers.onMcpReview?.({
             reference,
             conversationId: threadId,
+            chatKey,
             isCurrent: mcpSessionCurrent,
             loadConfiguration: input.loadConnectorConfigurations ? async () => {
               const projection = await connectorProjection();
@@ -1093,7 +1117,7 @@ export async function streamAgentChat(input: {
         finishTerminalRun();
         return;
       }
-      failure = new Error(formatAgentChatErrorMessage(event.message || ""));
+      failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -1171,7 +1195,7 @@ export async function streamAgentIntro(input: {
     },
     onRunFinishedEvent: () => handlers.onComplete?.({ conversationId: threadId }),
     onRunErrorEvent: ({ event }) => {
-      failure = new Error(formatAgentChatErrorMessage(event.message || ""));
+      failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
@@ -1197,6 +1221,7 @@ export async function streamAgentIntro(input: {
 export async function listAgentChatConversations(input: {
   userId: string;
   vaultOwnerToken: string;
+  vaultKey: string;
   limit?: number;
 }): Promise<AgentChatConversation[]> {
   const response = await ApiService.listAgentChatConversations(input);
@@ -1210,6 +1235,7 @@ export async function listAgentChatConversations(input: {
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
+  vaultKey: string;
   limit?: number;
 }): Promise<AgentChatMessage[]> {
   const response = await ApiService.getAgentChatHistory(input);
@@ -1269,12 +1295,16 @@ export async function recordAgentChatInformationRequest(input: {
   bundleId: string;
   idempotencyKey: string;
   vaultOwnerToken: string;
+  vaultKey: string;
 }): Promise<AgentStructuredExperience> {
   const response = await ApiService.apiFetch(
     `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
     {
       method: "POST",
-      headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+      headers: {
+        Authorization: `Bearer ${input.vaultOwnerToken}`,
+        ...(await oneChatKeyHeaders(input.vaultKey)),
+      },
       body: JSON.stringify({
         source_activity_id: input.sourceActivityId,
         bundle_id: input.bundleId,
@@ -1350,6 +1380,7 @@ export async function renameAgentChatConversation(input: {
   conversationId: string;
   title: string;
   vaultOwnerToken: string;
+  vaultKey: string;
 }): Promise<AgentChatConversation> {
   const response = await ApiService.renameAgentChatConversation(input);
   if (!response.ok) {

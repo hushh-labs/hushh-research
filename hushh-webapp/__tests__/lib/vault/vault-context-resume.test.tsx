@@ -392,6 +392,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(mocks.warmAgentChatHistoryCache).toHaveBeenCalledWith({
       userId: "vault-owner",
       vaultOwnerToken: "vault-token",
+      vaultKey: "vault-key",
     });
     expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
 

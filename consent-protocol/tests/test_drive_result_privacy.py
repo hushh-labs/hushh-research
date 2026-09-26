@@ -255,6 +255,7 @@ async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(
         restore_pending_call,
     )
     from hushh_mcp.one_adk.request_secrets import store_request_secret
+    from tests.helpers.chat_keys import static_chat_cipher
 
     name = "mcp_" + "a" * 40
     private = "PRIVATE_REVIEW_ARGUMENT"
@@ -364,7 +365,7 @@ async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(
     assert recovered["call"].args == {"recipient": private}
     assert restored.events[1].get_function_calls()[0].args == {}
     assert private not in redact_drive_session_json(live.model_dump_json(by_alias=True))
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(restored)
     row = {f"payload_{key}": value for key, value in encoded.items()}
     row["revision"] = 1

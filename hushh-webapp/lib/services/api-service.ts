@@ -77,6 +77,7 @@ import {
 } from "@/lib/auth/session-owner";
 import { ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS } from "@/lib/auth/account-session-policy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
@@ -3502,6 +3503,8 @@ export class ApiService {
   static async listAgentChatConversations(data: {
     userId: string;
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent. */
+    vaultKey: string;
     limit?: number;
   }): Promise<Response> {
     const query = new URLSearchParams();
@@ -3513,6 +3516,7 @@ export class ApiService {
         method: "GET",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
+          ...(await oneChatKeyHeaders(data.vaultKey)),
         },
       },
     );
@@ -3521,6 +3525,8 @@ export class ApiService {
   static async getAgentChatHistory(data: {
     conversationId: string;
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent. */
+    vaultKey: string;
     limit?: number;
   }): Promise<Response> {
     const query = new URLSearchParams();
@@ -3532,6 +3538,7 @@ export class ApiService {
         method: "GET",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
+          ...(await oneChatKeyHeaders(data.vaultKey)),
         },
       },
     );
@@ -3541,6 +3548,8 @@ export class ApiService {
     conversationId: string;
     title: string;
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent. */
+    vaultKey: string;
   }): Promise<Response> {
     return apiFetch(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
@@ -3548,6 +3557,7 @@ export class ApiService {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
+          ...(await oneChatKeyHeaders(data.vaultKey)),
         },
         body: JSON.stringify({ title: data.title }),
       },

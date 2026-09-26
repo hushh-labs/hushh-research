@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.information_chat_service import InformationChatService
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ async def information_chat(
             conversation_id=request.conversation_id,
         )
         return result
+    except CHAT_KEY_ERRORS:
+        # Refuse with the recoverable chat-key message (app handler), not a 500.
+        raise
     except Exception:
         logger.exception("Information chat turn failed")
         raise HTTPException(status_code=500, detail="Information chat could not be processed")

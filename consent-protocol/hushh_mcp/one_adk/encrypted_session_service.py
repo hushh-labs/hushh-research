@@ -1,4 +1,9 @@
-"""Postgres-backed ADK sessions with no plaintext state or event payloads."""
+"""Postgres-backed ADK sessions with no plaintext state or event payloads.
+
+Each session document is sealed with its owner's chat key (``chat_key.ChatCipher``),
+never with a platform key. A row sealed before that cutover is treated as absent:
+it is not listed, not opened, and not overwritten at runtime.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +27,12 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXTERNAL_READ,
 )
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
-from hushh_mcp.services.agent_chat_service import AgentChatService
+from hushh_mcp.services.chat_key import (
+    CHAT_CIPHERTEXT_LIKE,
+    ChatCipher,
+    ChatKeyMismatchError,
+    chat_aad,
+)
 
 logger = logging.getLogger(__name__)
 _SERIALIZER_BUILD_LOCK = threading.Lock()
@@ -66,11 +76,20 @@ class EncryptedAdkSessionUnavailableError(RuntimeError):
     """Stable value-free failure for the public AG-UI boundary."""
 
 
+class LegacyAdkSessionError(EncryptedAdkSessionUnavailableError):
+    """The id belongs to a conversation sealed before person-key chat history."""
+
+
+def session_payload_aad(app_name: str, session_id: str) -> str:
+    binding: str = chat_aad("one_adk_sessions", "payload", f"{app_name}/{session_id}")
+    return binding
+
+
 class EncryptedAdkSessionService(BaseSessionService):
     """Persist one encrypted Session document with optimistic concurrency."""
 
-    def __init__(self) -> None:
-        self._cipher = AgentChatService()
+    def __init__(self, cipher: ChatCipher | None = None) -> None:
+        self._cipher = cipher or ChatCipher()
 
     @staticmethod
     def _set_revision(session: Session, revision: int) -> None:
@@ -115,7 +134,11 @@ class EncryptedAdkSessionService(BaseSessionService):
             # failures rather than silently dropping or stringifying information.
             _prepare_deferred_model_serializers(session)
             plain = session.model_dump_json(by_alias=True)
-        payload = self._cipher._encrypt_text(redact_drive_session_json(plain))
+        payload = self._cipher.seal(
+            redact_drive_session_json(plain),
+            owner_id=session.user_id,
+            aad=session_payload_aad(session.app_name, session.id),
+        )
         return {
             "ciphertext": payload.ciphertext,
             "iv": payload.iv,
@@ -123,9 +146,19 @@ class EncryptedAdkSessionService(BaseSessionService):
             "algorithm": payload.algorithm,
         }
 
-    def _decode(self, row: dict[str, Any]) -> Session:
-        plain = self._cipher._decrypt_text(row, "payload")
-        return Session.model_validate_json(plain)
+    def _decode(
+        self, row: dict[str, Any], *, app_name: str, user_id: str, session_id: str
+    ) -> Session:
+        plain = self._cipher.open(
+            row,
+            "payload",
+            owner_id=user_id,
+            aad=session_payload_aad(app_name, session_id),
+        )
+        session = Session.model_validate_json(plain)
+        if (session.app_name, session.user_id, session.id) != (app_name, user_id, session_id):
+            raise ChatKeyMismatchError("Chat history did not open with this vault.")
+        return session
 
     async def create_session(
         self,
@@ -158,7 +191,11 @@ class EncryptedAdkSessionService(BaseSessionService):
                 app_name=app_name, user_id=user_id, session_id=session.id
             )
             if existing is None:
-                raise RuntimeError("Encrypted ADK session reservation failed.")
+                # The id is taken by a conversation sealed before person-key
+                # history. It is never overwritten here; the cutover removes it.
+                raise LegacyAdkSessionError(
+                    "This conversation is no longer available. Start a new chat."
+                )
             return existing
         self._set_revision(session, int(result.data[0]["revision"]))
         return session
@@ -174,13 +211,19 @@ class EncryptedAdkSessionService(BaseSessionService):
         result = await self._execute(
             """SELECT payload_ciphertext, payload_iv, payload_tag, payload_algorithm, revision
                FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session LIMIT 1""",
-            {"app": app_name, "user": user_id, "session": session_id},
+               WHERE app_name = :app AND user_id = :user AND session_id = :session
+                 AND payload_ciphertext LIKE :chat_marker LIMIT 1""",
+            {
+                "app": app_name,
+                "user": user_id,
+                "session": session_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
+            },
         )
         if not result.data:
             return None
         row = dict(result.data[0])
-        session = self._decode(row)
+        session = self._decode(row, app_name=app_name, user_id=user_id, session_id=session_id)
         from hushh_mcp.one_adk.mcp_pending_call import restore_current_pending_call
 
         session = restore_current_pending_call(session)
@@ -210,24 +253,70 @@ class EncryptedAdkSessionService(BaseSessionService):
         if not user_id:
             return ListSessionsResponse(sessions=[])
         result = await self._execute(
-            """SELECT payload_ciphertext, payload_iv, payload_tag, payload_algorithm, revision
+            """SELECT session_id, payload_ciphertext, payload_iv, payload_tag,
+                      payload_algorithm, revision
                FROM one_adk_sessions WHERE app_name = :app AND user_id = :user
+                 AND payload_ciphertext LIKE :chat_marker
                ORDER BY updated_at DESC LIMIT 100""",
-            {"app": app_name, "user": user_id},
+            {"app": app_name, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE},
         )
         sessions = []
+        unreadable = 0
         for result_row in result.data or []:
             row = dict(result_row)
-            session = self._decode(row)
+            try:
+                session = self._decode(
+                    row,
+                    app_name=app_name,
+                    user_id=user_id,
+                    session_id=str(row.get("session_id") or ""),
+                )
+            except ChatKeyMismatchError:
+                # One record that will not open must not lock a person out of
+                # the rest of their history, and is never shown as a placeholder.
+                unreadable += 1
+                continue
             self._set_revision(session, int(row["revision"]))
             sessions.append(session)
+        if unreadable and not sessions:
+            raise ChatKeyMismatchError("Chat history did not open with this vault.")
+        if unreadable:
+            logger.warning("one_adk_session.unreadable_records count=%s", unreadable)
         return ListSessionsResponse(sessions=sessions)
 
     async def delete_session(self, *, app_name: str, user_id: str, session_id: str) -> None:
-        await self._execute(
-            "DELETE FROM one_adk_sessions WHERE app_name = :app AND user_id = :user AND session_id = :session",
-            {"app": app_name, "user": user_id, "session": session_id},
+        await self.delete_owned_session(app_name=app_name, user_id=user_id, session_id=session_id)
+
+    async def delete_owned_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
+        """Delete one current conversation without opening it; no chat key needed."""
+        result = await self._execute(
+            """DELETE FROM one_adk_sessions
+               WHERE app_name = :app AND user_id = :user AND session_id = :session
+                 AND payload_ciphertext LIKE :chat_marker
+               RETURNING session_id""",
+            {
+                "app": app_name,
+                "user": user_id,
+                "session": session_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
+            },
         )
+        return bool(result.data)
+
+    async def is_legacy_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
+        """True when the id is held by a conversation sealed with the platform key."""
+        result = await self._execute(
+            """SELECT 1 AS legacy FROM one_adk_sessions
+               WHERE app_name = :app AND user_id = :user AND session_id = :session
+                 AND payload_ciphertext NOT LIKE :chat_marker LIMIT 1""",
+            {
+                "app": app_name,
+                "user": user_id,
+                "session": session_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
+            },
+        )
+        return bool(result.data)
 
     async def set_title(
         self, *, app_name: str, user_id: str, session_id: str, title: str
@@ -245,12 +334,14 @@ class EncryptedAdkSessionService(BaseSessionService):
                       payload_algorithm = :algorithm, revision = revision + 1,
                       updated_at = NOW()
                WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND revision = :revision RETURNING revision""",
+                 AND revision = :revision AND payload_ciphertext LIKE :chat_marker
+               RETURNING revision""",
             {
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "revision": revision,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
                 **encoded,
             },
         )
@@ -287,12 +378,14 @@ class EncryptedAdkSessionService(BaseSessionService):
                           payload_algorithm = :algorithm, revision = revision + 1,
                           updated_at = NOW()
                    WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision RETURNING revision""",
+                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
+               RETURNING revision""",
                 {
                     "app": session.app_name,
                     "user": session.user_id,
                     "session": session.id,
                     "revision": revision,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
                     **encoded,
                 },
             )
@@ -345,12 +438,14 @@ class EncryptedAdkSessionService(BaseSessionService):
                           payload_algorithm = :algorithm, revision = revision + 1,
                           updated_at = NOW()
                    WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision RETURNING revision""",
+                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
+               RETURNING revision""",
                 {
                     "app": app_name,
                     "user": user_id,
                     "session": session_id,
                     "revision": revision,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
                     **encoded,
                 },
             )
@@ -359,4 +454,9 @@ class EncryptedAdkSessionService(BaseSessionService):
         raise RuntimeError("Encrypted ADK session changed concurrently; retry the receipt.")
 
 
-__all__ = ["EncryptedAdkSessionService", "EncryptedAdkSessionUnavailableError"]
+__all__ = [
+    "EncryptedAdkSessionService",
+    "EncryptedAdkSessionUnavailableError",
+    "LegacyAdkSessionError",
+    "session_payload_aad",
+]

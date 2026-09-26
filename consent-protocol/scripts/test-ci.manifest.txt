@@ -488,3 +488,13 @@ tests/one_adk/test_mcp_oauth_connection.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.
 tests/routes/test_agent_chat_turn_restore.py
+# One chat history is sealed with the person's chat key (derived in the browser
+# from the unlocked vault key, held for one request): refusal without it, owner
+# binding, legacy platform-key rows invisible, every reader, and no key in logs
+# or on the AG-UI stream. Includes the negative control against the platform key.
+tests/test_chat_history_byok.py
+# Migration 249 (chat-history BYOK cutover) deletes only rows without the
+# person-key marker, keeps every person-key row (self-guarded), and is a no-op on
+# replay. CI runs the static checks; the behaviour checks run only when
+# CHAT_CUTOVER_TEST_DATABASE_URL points at a throwaway real-schema Postgres.
+tests/test_chat_history_cutover_migration.py

@@ -10,6 +10,8 @@ from typing import Any
 
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from ag_ui_adk.request_state_service import RequestStateSessionService
+from ag_ui_adk.session_manager import SessionManager
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.events import Event
@@ -18,6 +20,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
+from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, require_vault_owner_chat_key
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_private_runtime
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -64,6 +67,7 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_requ
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.chat_key import request_has_chat_key
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
@@ -147,6 +151,24 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
     user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    if token and user_id:
+        # Durable history is sealed with the owner's chat key. Refuse before any
+        # stream starts rather than failing mid-turn or reading without it.
+        if not request_has_chat_key(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail={"message": CHAT_KEY_REQUIRED_DETAIL, "code": "CHAT_KEY_REQUIRED"},
+            )
+        if input_data.thread_id and await _session_service.is_legacy_session(
+            app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This conversation is no longer available. Start a new chat.",
+                    "code": "CHAT_CONVERSATION_RETIRED",
+                },
+            )
     try:
         mcp_approval = admit_resume_receipt(
             forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
@@ -247,6 +269,28 @@ _intro_app = App(
 )
 _session_service = EncryptedAdkSessionService()
 _intro_session_service = InMemorySessionService()
+
+
+class _DurableSessionManager(SessionManager):
+    """ag_ui_adk session manager without its idle-session sweeper.
+
+    The library default re-reads every tracked session every five minutes from a
+    background task, copies idle ones into an in-memory memory service, and then
+    deletes them from storage twenty minutes after their last turn. For durable,
+    person-key history that is both a background reader with no person present and
+    a silent deletion of the person's history, so it never starts here.
+    """
+
+    def _start_cleanup_task(self) -> None:
+        return None
+
+
+_durable_session_manager = _DurableSessionManager(
+    session_service=RequestStateSessionService(_session_service),
+    delete_session_on_cleanup=False,
+    save_session_to_memory_on_cleanup=False,
+    use_thread_id_as_session_id=True,
+)
 _authenticated_capabilities = {
     "identity": {
         "name": "Agent One",
@@ -292,7 +336,7 @@ _agent = TimedADKAgent.from_app(
     user_id_extractor=_user_id,
     max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
     execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
-    session_service=_session_service,
+    session_manager=_durable_session_manager,
     use_in_memory_services=True,
     use_thread_id_as_session_id=True,
     emit_messages_snapshot=True,
@@ -922,7 +966,7 @@ def _submitted_source_id(event: Any) -> str | None:
 async def record_information_request_submission(
     conversation_id: str,
     payload: RecordInformationRequestSubmission,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(require_vault_owner_chat_key),
 ):
     """Record one confirmed browser request in the existing encrypted ADK history.
 
@@ -1008,7 +1052,7 @@ async def record_information_request_submission(
 async def list_conversations(
     user_id: str,
     limit: int = Query(default=5, ge=1, le=20),
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(require_vault_owner_chat_key),
 ):
     if str(token["user_id"]) != user_id:
         raise HTTPException(status_code=403, detail="Conversation owner mismatch.")
@@ -1038,7 +1082,7 @@ async def list_conversations(
 async def conversation_history(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(require_vault_owner_chat_key),
 ):
     user_id = str(token["user_id"])
     session = await _session_service.get_session(
@@ -1065,7 +1109,7 @@ async def conversation_history(
 async def rename_conversation(
     conversation_id: str,
     payload: RenameConversation,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(require_vault_owner_chat_key),
 ):
     session = await _session_service.set_title(
         app_name=ONE_APP_NAME,
@@ -1088,15 +1132,13 @@ async def delete_conversation(
     conversation_id: str,
     token: dict = Depends(require_vault_owner_token),
 ):
-    user_id = str(token["user_id"])
-    session = await _session_service.get_session(
-        app_name=ONE_APP_NAME, user_id=user_id, session_id=conversation_id
+    # Deleting needs no plaintext, so it needs no chat key: only the owner's
+    # current conversation row, matched by id, is removed.
+    deleted = await _session_service.delete_owned_session(
+        app_name=ONE_APP_NAME, user_id=str(token["user_id"]), session_id=conversation_id
     )
-    if session is None:
+    if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    await _session_service.delete_session(
-        app_name=ONE_APP_NAME, user_id=user_id, session_id=conversation_id
-    )
     return {"conversation_id": conversation_id, "deleted": True}
 
 

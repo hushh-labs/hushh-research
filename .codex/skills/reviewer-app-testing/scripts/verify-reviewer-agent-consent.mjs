@@ -35,7 +35,7 @@ try {
   const conversationIds = async () => {
     const response = await fetch(
       `${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`,
-      { headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" } },
+      { headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json", "X-Hussh-Chat-Key": await session.capture.chatKey() } },
     );
     if (!response.ok) return new Set();
     const payload = await response.json();
@@ -197,7 +197,7 @@ try {
   if (ownerToken) {
     const response = await fetch(
       `${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`,
-      { headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" } },
+      { headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json", "X-Hussh-Chat-Key": await session.capture.chatKey() } },
     ).catch(() => null);
     if (response?.ok) {
       const payload = await response.json().catch(() => ({ conversations: [] }));

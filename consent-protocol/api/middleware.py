@@ -16,6 +16,7 @@ from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.chat_key import bind_request_chat_key_owner
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +349,8 @@ async def require_vault_owner_token(
             )
         raise _auth_error("Token validation failed.")
 
+    # A chat key sent with this request belongs to this owner and no one else.
+    bind_request_chat_key_owner(str(token_obj.user_id))
     return _token_data_dict(token, token_obj)
 
 

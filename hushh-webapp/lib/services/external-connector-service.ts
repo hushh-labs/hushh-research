@@ -8,6 +8,7 @@ import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
 } from "@/lib/agent/mcp-call-review";
+import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
 
 export type ExternalConnectorAuthStyle = "api_key" | "oauth";
 
@@ -257,6 +258,8 @@ export class ExternalConnectorService {
   /** Fetch exact arguments into the active review only; never cache or log them. */
   static async reviewMcpCall(input: {
     vaultOwnerToken: string;
+    /** Derived chat key header value: the review reads the sealed conversation. */
+    chatKey: string;
     conversationId: string;
     reference: McpCallReviewReference;
     configuration?: CustomConnectorConfiguration;
@@ -272,6 +275,7 @@ export class ExternalConnectorService {
   /** Explicit tap only. A failed acknowledgement never triggers an automatic retry. */
   static async confirmMcpCall(input: {
     vaultOwnerToken: string;
+    chatKey: string;
     conversationId: string;
     reference: McpCallPreview;
     configuration?: CustomConnectorConfiguration;
@@ -286,6 +290,7 @@ export class ExternalConnectorService {
 
   private static async mcpReviewRequest(input: {
     vaultOwnerToken: string;
+    chatKey: string;
     conversationId: string;
     reference: McpCallReviewReference;
     configuration?: CustomConnectorConfiguration;
@@ -305,7 +310,11 @@ export class ExternalConnectorService {
       {
         method: "POST", cache: "no-store", signal: input.signal,
         isEffectCurrent: current,
-        headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+        headers: {
+          ...authHeaders(input.vaultOwnerToken),
+          [ONE_CHAT_KEY_HEADER]: input.chatKey,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           conversationId: input.conversationId,
           toolName: input.reference.toolName,

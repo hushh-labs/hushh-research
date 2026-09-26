@@ -29,6 +29,7 @@ from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
 from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.connector_feature_admission import connector_features
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
@@ -329,6 +330,10 @@ async def cancel_private_mcp_oauth(
 async def _mcp_review_response(operation, **kwargs):
     try:
         return await operation(**kwargs)
+    except CHAT_KEY_ERRORS:
+        # The review reads the owner's person-key conversation. Without that key
+        # it refuses (403 via the app handler); it is never a retryable outage.
+        raise
     except ActionDirectiveAuthorityError:
         raise HTTPException(
             status_code=409, detail="This review changed or expired. Review the call again."

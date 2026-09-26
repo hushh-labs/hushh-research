@@ -15,6 +15,8 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from hushh_mcp.services.chat_key import CHAT_KEY_HEADER
+
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "x-request-id"
@@ -342,7 +344,13 @@ def configure_opentelemetry(app: FastAPI) -> None:
         )
 
         trace.set_tracer_provider(provider)
-        FastAPIInstrumentor.instrument_app(app, excluded_urls=_PRIVATE_CALLBACK_TRACE_URLS)
+        FastAPIInstrumentor.instrument_app(
+            app,
+            excluded_urls=_PRIVATE_CALLBACK_TRACE_URLS,
+            # Header capture is off; if it is ever enabled, the chat key must
+            # never become a span attribute.
+            http_capture_headers_sanitize_fields=[CHAT_KEY_HEADER],
+        )
         HTTPXClientInstrumentor().instrument()
         logger.info("observability.otel_enabled")
     except Exception:

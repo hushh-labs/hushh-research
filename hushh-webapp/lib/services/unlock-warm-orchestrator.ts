@@ -551,6 +551,7 @@ export class UnlockWarmOrchestrator {
           : warmAgentChatHistoryCache({
               userId: params.userId,
               vaultOwnerToken: params.vaultOwnerToken,
+              vaultKey: params.vaultKey,
             }).catch((error) => {
               console.warn(
                 "[UnlockWarmOrchestrator] Agent history warm-up failed:",

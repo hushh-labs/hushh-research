@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
 import {
   createUpstreamHeaders,
   resolveRequestId,
@@ -103,11 +104,15 @@ export async function proxyExternalConnectorRequest(
   const targetUrl = `${getPythonApiUrl()}${connectorPath(path)}${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
   const consentHeader = request.headers.get("x-hushh-consent");
+  // The owner's chat key (derived in the browser): connector reviews read the
+  // sealed conversation. Forwarded as-is and never logged.
+  const chatKeyHeader = request.headers.get(ONE_CHAT_KEY_HEADER);
   const contentType = request.headers.get("content-type") || "";
   const headers = createUpstreamHeaders(requestId);
 
   if (authHeader) headers.set("Authorization", authHeader);
   if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
+  if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
   const joinedPath = path.join("/");
   const isPrepareStream =
     request.method === "POST" && DRIVE_PREPARE_STREAM.test(joinedPath);

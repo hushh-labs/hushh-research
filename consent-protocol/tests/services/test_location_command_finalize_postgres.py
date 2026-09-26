@@ -20,8 +20,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore
-from hushh_mcp.services.agent_chat_service import AgentChatService
-from hushh_mcp.services.capability_run_service import CapabilityRunStore
+from hushh_mcp.services.capability_run_service import CapabilityRunStore, PlatformTaskCipher
 from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from hushh_mcp.services.location_onboarding_runtime import (
     LOCATION_APPROVED_SURFACE_CONTRACTS,
@@ -29,6 +28,7 @@ from hushh_mcp.services.location_onboarding_runtime import (
     LocationOnboardingLedgerStore,
     derive_location_pre_vault_pkm_commit_id,
 )
+from tests.helpers.chat_keys import static_chat_cipher
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db/migrations"
 
@@ -156,9 +156,7 @@ def prepared(isolated_db):
         params,
     )
     ledger = ActionDirectiveStore(db=db, hmac_key="test-only-signing-key")
-    checkpoints = CommandCheckpointStore(
-        db=db, cipher=AgentChatService(db=db, vault_key_hex="12" * 32)
-    )
+    checkpoints = CommandCheckpointStore(db=db, cipher=static_chat_cipher("12" * 32))
     command = str(uuid4())
 
     async def bind():
@@ -462,7 +460,7 @@ def test_repeated_completed_commands_close_views_and_retain_historical_proof(
     )
 
     db = isolated_db
-    cipher = AgentChatService(db=db, vault_key_hex="12" * 32)
+    cipher = PlatformTaskCipher("12" * 32)
     runs = CapabilityRunStore(db=db, cipher=cipher, hmac_key="test-only-signing-key")
     receipts = LocationOnboardingLedgerStore(db=db, hmac_key="test-only-signing-key")
     runtime = LocationOnboardingRuntimeService(run_store=runs, ledger_store=receipts)

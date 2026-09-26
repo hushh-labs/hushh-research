@@ -424,6 +424,7 @@
     ]
   },
   "rollback_migrations": {
+    "249_one_chat_history_legacy_cutover.sql": "rollback/249_one_chat_history_legacy_cutover.rollback.sql",
     "238_gmail_personal_information_request_classifier_policy_version.sql": "rollback/238_gmail_personal_information_request_classifier_policy_version.rollback.sql",
     "237_gmail_personal_information_request_incremental_backfill.sql": "rollback/237_gmail_personal_information_request_incremental_backfill.rollback.sql",
     "236_drive_native_picker_attempts.sql": "rollback/236_drive_native_picker_attempts.rollback.sql",

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const VAULT_KEY = "0f".repeat(32);
+const CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
 const { mockApiJson } = vi.hoisted(() => ({
   mockApiJson: vi.fn(),
 }));
@@ -40,7 +43,7 @@ describe("OneLocationService.chat", () => {
       stateChanged: true,
     });
 
-    const result = await OneLocationService.chat({
+    const result = await OneLocationService.chat({ vaultKey: VAULT_KEY,
       vaultOwnerToken: "vault-token",
       message: "stop sharing with Mom",
       conversationId: "conv-1",
@@ -51,6 +54,7 @@ describe("OneLocationService.chat", () => {
       headers: {
         Authorization: "Bearer vault-token",
         "Content-Type": "application/json",
+        "X-Hussh-Chat-Key": CHAT_KEY,
       },
       body: JSON.stringify({
         message: "stop sharing with Mom",
@@ -70,7 +74,7 @@ describe("OneLocationService.chat", () => {
       stateChanged: true,
     });
 
-    await OneLocationService.chat({ vaultOwnerToken: "t", message: "hi" });
+    await OneLocationService.chat({ vaultKey: VAULT_KEY, vaultOwnerToken: "t", message: "hi" });
 
     const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
     expect(body).toEqual({ message: "hi", conversationId: null, actionResult: null, selectionResult: null });
@@ -88,7 +92,7 @@ describe("OneLocationService.chat actionResult", () => {
       stateChanged: true,
     });
 
-    await OneLocationService.chat({
+    await OneLocationService.chat({ vaultKey: VAULT_KEY,
       vaultOwnerToken: "tok",
       conversationId: "c1",
       actionResult: { id: "a1", type: "publish_share", status: "completed" },
@@ -105,7 +109,7 @@ describe("OneLocationService.chat selectionResult", () => {
 
   it("sends selectionResult and omits message", async () => {
     mockApiJson.mockResolvedValue({ conversationId: "c1", response: "ok", isComplete: true, stateChanged: true });
-    await OneLocationService.chat({
+    await OneLocationService.chat({ vaultKey: VAULT_KEY,
       vaultOwnerToken: "tok",
       conversationId: "c1",
       selectionResult: { id: "prm-1", kind: "select", selected: [{ grantId: "g1" }], status: "answered" },

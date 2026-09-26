@@ -25,6 +25,9 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.chat_key import is_person_key_ciphertext
+from hushh_mcp.types import EncryptedPayload
+from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 
 CapabilityRunStatus = Literal[
     "proposed",
@@ -239,6 +242,47 @@ def _clean_slots(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     return clean
 
 
+class PlatformTaskCipher:
+    """Platform-key envelope for capability-run slots. Deliberately not chat history.
+
+    Location onboarding runs start before the person's vault exists (Firebase
+    sign-in only), so their slots cannot be sealed with the person's chat key.
+    They stay on the platform key, exactly as before, under this explicit name
+    rather than by borrowing the chat cipher. Whether task slots should move to a
+    person key is an open founder decision; see the chat-history BYOK notes.
+    This cipher refuses person-key ciphertext, and the chat cipher refuses
+    platform-key ciphertext, so the two can never be swapped.
+    """
+
+    def __init__(self, key_hex: str | None = None) -> None:
+        self._key_hex = key_hex
+
+    def _key(self) -> str:
+        return self._key_hex or get_core_security_settings().vault_data_key
+
+    def seal(self, plaintext: str) -> EncryptedPayload:
+        return encrypt_data(str(plaintext or ""), self._key())
+
+    def open(self, row: Mapping[str, Any], prefix: str) -> str:
+        ciphertext = str(row.get(f"{prefix}_ciphertext") or "")
+        iv = str(row.get(f"{prefix}_iv") or "")
+        tag = str(row.get(f"{prefix}_tag") or "")
+        if not ciphertext or not iv or not tag:
+            return ""
+        if is_person_key_ciphertext(ciphertext):
+            raise ValueError("Capability run slots are not a chat-history envelope.")
+        return decrypt_data(
+            EncryptedPayload(
+                ciphertext=ciphertext,
+                iv=iv,
+                tag=tag,
+                encoding="base64",
+                algorithm="aes-256-gcm",
+            ),
+            self._key(),
+        )
+
+
 class CapabilityRunStore:
     """Postgres compare-and-set store for shared capability tasks."""
 
@@ -252,11 +296,6 @@ class CapabilityRunStore:
     ) -> None:
         self._connection = connection
         self._db = db
-        # AgentChatService imports the text agent tree.  Loading it while the
-        # Live action tools are importing would create a cycle, even though a
-        # run only needs its existing encrypted-envelope helper at first use.
-        # Keep the import lazy so the task authority remains usable from every
-        # entrypoint.
         self._cipher = cipher
         self._hmac_key = hmac_key
 
@@ -271,11 +310,9 @@ class CapabilityRunStore:
         return (self._hmac_key or get_core_security_settings().app_signing_key).encode("utf-8")
 
     @property
-    def cipher(self) -> Any:
+    def cipher(self) -> PlatformTaskCipher:
         if self._cipher is None:
-            from hushh_mcp.services.agent_chat_service import AgentChatService
-
-            self._cipher = AgentChatService()
+            self._cipher = PlatformTaskCipher()
         return self._cipher
 
     async def _execute(self, sql: str, params: dict[str, Any]) -> Any:
@@ -299,7 +336,7 @@ class CapabilityRunStore:
                 "slots_tag": None,
                 "slots_algorithm": None,
             }
-        encrypted = self.cipher._encrypt_text(_canonical_json(dict(slots)))
+        encrypted = self.cipher.seal(_canonical_json(dict(slots)))
         return {
             "slots_ciphertext": str(encrypted.ciphertext),
             "slots_iv": str(encrypted.iv),
@@ -310,7 +347,7 @@ class CapabilityRunStore:
     def _decode_slots(self, row: Mapping[str, Any]) -> dict[str, Any]:
         if not row.get("slots_ciphertext"):
             return {}
-        raw = self.cipher._decrypt_text(dict(row), "slots")
+        raw = self.cipher.open(dict(row), "slots")
         decoded = json.loads(raw)
         return _clean_slots(decoded if isinstance(decoded, Mapping) else {})
 
@@ -1219,6 +1256,7 @@ def get_capability_run_store() -> CapabilityRunStore:
 __all__ = [
     "CapabilityRunAuthorityError",
     "CapabilityRunConflictError",
+    "PlatformTaskCipher",
     "CapabilityRunResumeSummaryV1",
     "CapabilityRunStore",
     "CapabilityRunV1",

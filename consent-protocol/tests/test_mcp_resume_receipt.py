@@ -6,6 +6,19 @@ import pytest
 from hushh_mcp.one_adk import mcp_call_approval as approval
 from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_name
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from tests.helpers.chat_keys import bound_request_chat_key
+
+
+@pytest.fixture
+def owner_chat_key(monkeypatch):
+    """The unlocked browser's chat key for ``owner``, as the middleware binds it."""
+    from api.routes.one import agent_chat
+
+    monkeypatch.setattr(
+        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+    )
+    with bound_request_chat_key("owner"):
+        yield
 
 
 def payload():
@@ -111,7 +124,9 @@ async def test_matching_resume_still_requires_exact_ledger_authority(monkeypatch
 
 
 @pytest.mark.parametrize("unlocked", [True, False])
-async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(monkeypatch, unlocked):
+async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(
+    monkeypatch, unlocked, owner_chat_key
+):
     from fastapi import HTTPException
     from starlette.requests import Request
 
@@ -146,7 +161,9 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(monkey
 
 
 @pytest.mark.parametrize("unlocked", [True, False])
-async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(monkeypatch, unlocked):
+async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(
+    monkeypatch, unlocked, owner_chat_key
+):
     from fastapi import HTTPException
     from starlette.requests import Request
 
@@ -317,7 +334,9 @@ async def test_review_ledger_outage_is_reported_as_review_unavailable(monkeypatc
 
 
 @pytest.mark.parametrize("selected_email", [True, False])
-async def test_selected_email_marks_the_conversation_untrusted(monkeypatch, selected_email):
+async def test_selected_email_marks_the_conversation_untrusted(
+    monkeypatch, selected_email, owner_chat_key
+):
     """An email injected into instructions must force review of connector calls."""
     from starlette.requests import Request
 

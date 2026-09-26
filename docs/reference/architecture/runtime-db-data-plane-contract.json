@@ -220,7 +220,7 @@
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly",
       "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
-      "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
+      "trust_boundary": "Session documents, command checkpoints, titles and messages persist as AES-GCM ciphertext sealed with the owner's chat key (HKDF-SHA256 of the vault key, label hussh-one-chat-v1), marked by the plaintext prefix hussh-chat-v1: and bound to their row. The browser sends only the derived key (X-Hussh-Chat-Key) and the backend holds it for that request alone; without it every read and write refuses. Platform-key rows from before the cutover are invisible to the code and deleted by migration 249. Frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
     },

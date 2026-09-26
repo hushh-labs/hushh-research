@@ -1,4 +1,5 @@
 import { apiJson } from "@/lib/services/api-client";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 import { type MarketplaceEncryptedEnvelope } from "@/lib/one-marketplace/encryption";
 
@@ -126,12 +127,17 @@ export class OneMarketplaceService {
 
   static async chat(params: {
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent (history is sealed with it). */
+    vaultKey: string | null | undefined;
     message: string;
     conversationId?: string | null;
   }): Promise<InformationChatResponse> {
     return apiJson<InformationChatResponse>("/api/one/information/chat", {
       method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      headers: {
+        ...jsonAuthHeaders(params.vaultOwnerToken),
+        ...(await oneChatKeyHeaders(params.vaultKey)),
+      },
       body: JSON.stringify({
         message: params.message,
         conversationId: params.conversationId ?? null,

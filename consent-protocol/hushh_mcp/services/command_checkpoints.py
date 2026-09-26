@@ -1,7 +1,9 @@
 """Owner-bound command checkpoints in the existing ADK session store.
 
 Only metadata and an opaque owner-vault capsule are persisted. The outer
-platform cipher protects metadata; it is never a substitute for the owner key.
+envelope is sealed with the owner's chat key (``chat_key.ChatCipher``), so the
+metadata is unreadable without the owner's vault too. A checkpoint sealed before
+that cutover is treated as absent.
 Postgres CAS is the shared plane; a future Redis adapter must preserve this API.
 """
 
@@ -15,7 +17,8 @@ from typing import Any
 from sqlalchemy import text
 
 from db.db_client import DatabaseExecutionError, get_db
-from hushh_mcp.services.agent_chat_service import AgentChatService
+from hushh_mcp.one_adk.encrypted_session_service import session_payload_aad
+from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE, ChatCipher
 
 COMMAND_NAMESPACE = "one.location.commands.v1"
 
@@ -37,9 +40,9 @@ class CommandCheckpointStore:
         return self._db
 
     @property
-    def cipher(self):
+    def cipher(self) -> ChatCipher:
         if self._cipher is None:
-            self._cipher = AgentChatService()
+            self._cipher = ChatCipher()
         return self._cipher
 
     async def _execute(self, sql: str, params: dict[str, Any]):
@@ -54,13 +57,25 @@ class CommandCheckpointStore:
             # Database errors may contain bound values. Never propagate them.
             raise RuntimeError("Command storage is temporarily unavailable.") from None
 
-    def _encode(self, state: dict[str, Any]) -> dict[str, str]:
-        payload = self.cipher._encrypt_text(json.dumps(state, separators=(",", ":")))
+    def _encode(self, user_id: str, command_id: str, state: dict[str, Any]) -> dict[str, str]:
+        payload = self.cipher.seal(
+            json.dumps(state, separators=(",", ":")),
+            owner_id=user_id,
+            aad=session_payload_aad(COMMAND_NAMESPACE, command_id),
+        )
         return {key: getattr(payload, key) for key in ("ciphertext", "iv", "tag", "algorithm")}
 
-    def _decode(self, row: dict[str, Any]) -> dict[str, Any]:
-        state = json.loads(self.cipher._decrypt_text(row, "payload"))
-        return {**state, "revision": int(row["revision"]), "command_id": row["session_id"]}
+    def _decode(self, user_id: str, row: dict[str, Any]) -> dict[str, Any]:
+        command_id = str(row["session_id"])
+        state = json.loads(
+            self.cipher.open(
+                row,
+                "payload",
+                owner_id=user_id,
+                aad=session_payload_aad(COMMAND_NAMESPACE, command_id),
+            )
+        )
+        return {**state, "revision": int(row["revision"]), "command_id": command_id}
 
     async def purge_expired(self) -> None:
         await self._execute(
@@ -82,7 +97,7 @@ class CommandCheckpointStore:
                 "id": command_id,
                 "status": state["status"],
                 "plan_hmac": state["plan_digest"],
-                **self._encode(state),
+                **self._encode(user_id, command_id, state),
             },
         )
         if not result.data:
@@ -94,20 +109,27 @@ class CommandCheckpointStore:
         result = await self._execute(
             """SELECT session_id,payload_ciphertext,payload_iv,payload_tag,payload_algorithm,revision
                FROM one_adk_sessions WHERE app_name=:app AND user_id=:user AND session_id=:id
-               AND created_at > NOW() - INTERVAL '24 hours'""",
-            {"app": COMMAND_NAMESPACE, "user": user_id, "id": command_id},
+               AND created_at > NOW() - INTERVAL '24 hours'
+               AND payload_ciphertext LIKE :chat_marker""",
+            {
+                "app": COMMAND_NAMESPACE,
+                "user": user_id,
+                "id": command_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
+            },
         )
-        return self._decode(dict(result.data[0])) if result.data else None
+        return self._decode(user_id, dict(result.data[0])) if result.data else None
 
     async def list(self, user_id: str) -> list[dict[str, Any]]:
         await self.purge_expired()
         result = await self._execute(
             """SELECT session_id,payload_ciphertext,payload_iv,payload_tag,payload_algorithm,revision
                FROM one_adk_sessions WHERE app_name=:app AND user_id=:user
+               AND payload_ciphertext LIKE :chat_marker
                ORDER BY updated_at DESC LIMIT 50""",
-            {"app": COMMAND_NAMESPACE, "user": user_id},
+            {"app": COMMAND_NAMESPACE, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE},
         )
-        return [self._decode(dict(row)) for row in (result.data or [])]
+        return [self._decode(user_id, dict(row)) for row in (result.data or [])]
 
     async def update(
         self,
@@ -130,6 +152,7 @@ class CommandCheckpointStore:
                command_status=CASE WHEN :preserve_admission AND command_status='admitted' THEN 'admitted' ELSE :status END,command_plan_hmac=:plan_hmac
                WHERE app_name=:app AND user_id=:user AND session_id=:id AND revision=:expected
                AND created_at > NOW() - INTERVAL '24 hours'
+               AND payload_ciphertext LIKE :chat_marker
                AND (CAST(:replan_from AS INTEGER) IS NULL OR command_status='ready')
                RETURNING revision""",
             {
@@ -141,7 +164,8 @@ class CommandCheckpointStore:
                 "plan_hmac": clean["plan_digest"],
                 "replan_from": replan_from,
                 "preserve_admission": preserve_admission,
-                **self._encode(clean),
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                **self._encode(user_id, command_id, clean),
             },
         )
         if not result.data:
@@ -153,7 +177,7 @@ class CommandCheckpointStore:
     async def _replan(
         self, user: str, command: str, expected: int, state: dict[str, Any], index: int
     ) -> dict[str, Any]:
-        encoded = self._encode(state)
+        encoded = self._encode(user, command, state)
 
         def transaction() -> int:
             with self.db.engine.begin() as connection:
@@ -168,8 +192,9 @@ class CommandCheckpointStore:
                     text("""SELECT revision FROM one_adk_sessions
                     WHERE app_name=:app AND user_id=:user AND session_id=:command
                     AND revision=:expected AND command_status IN ('ready','admitted')
-                    AND created_at > NOW()-INTERVAL '24 hours' FOR UPDATE"""),
-                    params,
+                    AND created_at > NOW()-INTERVAL '24 hours'
+                    AND payload_ciphertext LIKE :chat_marker FOR UPDATE"""),
+                    {**params, "chat_marker": CHAT_CIPHERTEXT_LIKE},
                 ).first()
                 if not locked:
                     raise CommandCheckpointConflict(

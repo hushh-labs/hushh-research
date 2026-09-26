@@ -91,6 +91,8 @@ export function clearAgentChatHistoryCache(userId?: string): void {
 export function warmAgentChatHistoryCache(input: {
   userId: string;
   vaultOwnerToken: string;
+  /** Unlocked vault key; only its derived chat key is sent. */
+  vaultKey: string;
   force?: boolean;
 }): Promise<AgentChatHistorySnapshot> {
   const cached = entriesByUser.get(input.userId);
@@ -113,6 +115,7 @@ export function warmAgentChatHistoryCache(input: {
   const warmup = listAgentChatConversations({
     userId: input.userId,
     vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
     limit: CONVERSATION_LIMIT,
   })
     .then((conversations) => {
@@ -145,6 +148,7 @@ export function warmAgentChatHistoryCache(input: {
           userId: input.userId,
           conversationId: latestConversationId,
           vaultOwnerToken: input.vaultOwnerToken,
+          vaultKey: input.vaultKey,
           force: input.force,
         }).catch(() => undefined);
       }
@@ -175,6 +179,8 @@ export async function loadAgentChatConversationHistory(input: {
   userId: string;
   conversationId: string;
   vaultOwnerToken: string;
+  /** Unlocked vault key; only its derived chat key is sent. */
+  vaultKey: string;
   force?: boolean;
 }): Promise<AgentChatMessage[]> {
   const entry = entriesByUser.get(input.userId);
@@ -189,6 +195,7 @@ export async function loadAgentChatConversationHistory(input: {
   const request = getAgentChatHistory({
     conversationId: input.conversationId,
     vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
     limit: MESSAGE_LIMIT,
   })
     .then((messages) => {

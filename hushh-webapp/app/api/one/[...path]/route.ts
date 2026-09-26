@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
 import {
   createUpstreamHeaders,
   resolveRequestId,
@@ -166,6 +167,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const url = `${getPythonApiUrl()}/api/one/${path}${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
   const hushhConsentHeader = request.headers.get("x-hushh-consent");
+  // The owner's chat key (derived in the browser from the vault key). Chat
+  // history is sealed with it; forwarded as-is and never logged or cached.
+  const chatKeyHeader = request.headers.get(ONE_CHAT_KEY_HEADER);
   const voiceTurnIdHeader =
     request.headers.get("x-voice-turn-id") ||
     request.headers.get("X-Voice-Turn-Id");
@@ -176,6 +180,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     const headers = createUpstreamHeaders(requestId);
     if (authHeader) headers.set("Authorization", authHeader);
     if (hushhConsentHeader) headers.set("X-Hushh-Consent", hushhConsentHeader);
+    if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
     if (acceptHeader) headers.set("Accept", acceptHeader);
     if (voiceTurnIdHeader) headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
 

@@ -45,8 +45,8 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
     const timeout = setTimeout(expire, Math.min(remaining, 2_147_483_647));
     void (async () => ExternalConnectorService.reviewMcpCall({
       configuration: await review.loadConfiguration?.(),
-      vaultOwnerToken, conversationId: review.conversationId, reference: review.reference,
-      signal: controller.signal, isEffectCurrent: review.isCurrent,
+      vaultOwnerToken, chatKey: review.chatKey, conversationId: review.conversationId,
+      reference: review.reference, signal: controller.signal, isEffectCurrent: review.isCurrent,
     }))().then((value) => {
       if (controller.signal.aborted || !review.isCurrent()) return;
       setPreview(value);
@@ -68,7 +68,8 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
     const operation = (async () => {
       const approval = confirmed ? await ExternalConnectorService.confirmMcpCall({
         configuration: await review.loadConfiguration?.(),
-        vaultOwnerToken, conversationId: review.conversationId, reference: preview,
+        vaultOwnerToken, chatKey: review.chatKey, conversationId: review.conversationId,
+        reference: preview,
         signal: controller.signal, isEffectCurrent: review.isCurrent,
       }) : null;
       if (controller.signal.aborted || !review.isCurrent()) throw new Error("Review no longer active.");

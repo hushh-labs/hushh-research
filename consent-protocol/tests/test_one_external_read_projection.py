@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.external_read_projection import (
     durable_external_read_projection,
     redacted_read_receipt,
 )
+from tests.helpers.chat_keys import static_chat_cipher
 
 
 def _event(parts, *, author="one", invocation="read-turn"):
@@ -81,9 +82,14 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
         ],
     )
     session.events[2].actions = EventActions(state_delta={STATE_EXTERNAL_READ: "read-turn"})
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     encoded = service._encode(session)
-    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    decoded = service._decode(
+        {f"payload_{key}": value for key, value in encoded.items()},
+        app_name=session.app_name,
+        user_id=session.user_id,
+        session_id=session.id,
+    )
     durable = decoded.model_dump_json()
     assert "PRIVATE_" not in durable
     assert "USER REQUEST" in durable and "NORMAL ASSISTANT ANSWER" in durable
@@ -178,7 +184,7 @@ def test_selected_gmail_reply_context_and_draft_body_are_not_durable():
 
 
 async def test_compare_and_swap_retry_preserves_live_guard_without_persisting_it(monkeypatch):
-    service = EncryptedAdkSessionService()
+    service = EncryptedAdkSessionService(static_chat_cipher())
     session = Session(
         id="thread",
         app_name="one",
@@ -215,7 +221,10 @@ async def test_compare_and_swap_retry_preserves_live_guard_without_persisting_it
     for call in service._execute.call_args_list:
         encoded = call.args[1]
         decoded = service._decode(
-            {f"payload_{key}": encoded[key] for key in ("ciphertext", "iv", "tag", "algorithm")}
+            {f"payload_{key}": encoded[key] for key in ("ciphertext", "iv", "tag", "algorithm")},
+            app_name="one",
+            user_id="owner",
+            session_id="thread",
         )
         assert STATE_EXTERNAL_READ not in decoded.state
         assert "PRIVATE_RESULT" not in decoded.model_dump_json()

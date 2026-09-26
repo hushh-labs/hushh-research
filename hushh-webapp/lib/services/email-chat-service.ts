@@ -1,4 +1,5 @@
 import { apiJson } from "@/lib/services/api-client";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 
 /** One conversational turn with the Gmail inbox agent. */
 export interface EmailChatResponse {
@@ -24,12 +25,17 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
 export class EmailChatService {
   static async chat(params: {
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent (history is sealed with it). */
+    vaultKey: string | null | undefined;
     message: string;
     conversationId?: string | null;
   }): Promise<EmailChatResponse> {
     return apiJson<EmailChatResponse>("/api/one/email/chat", {
       method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      headers: {
+        ...jsonAuthHeaders(params.vaultOwnerToken),
+        ...(await oneChatKeyHeaders(params.vaultKey)),
+      },
       body: JSON.stringify({
         message: params.message,
         conversationId: params.conversationId ?? null,

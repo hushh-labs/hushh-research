@@ -13,6 +13,8 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
+from hushh_mcp.services.chat_key import CHAT_KEY_RECOVERY_MESSAGE, CHAT_KEY_REQUIRED_CODE
+
 _PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
 
 
@@ -91,6 +93,9 @@ def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> Ba
                 )
         return None
     if isinstance(event, RunErrorEvent):
+        if event.code == CHAT_KEY_REQUIRED_CODE and event.message == CHAT_KEY_RECOVERY_MESSAGE:
+            # A fixed, content-free refusal the person can act on.
+            return event.model_copy(update={"raw_event": None})
         # The installed bridge builds this event from str(exception). Neither
         # its message nor its code is safe to forward to browser diagnostics.
         return event.model_copy(

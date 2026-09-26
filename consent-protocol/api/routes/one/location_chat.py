@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.location_chat_service import LocationChatService
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,9 @@ async def location_chat(
             ),
         )
         return result
+    except CHAT_KEY_ERRORS:
+        # Refuse with the recoverable chat-key message (app handler), not a 500.
+        raise
     except Exception:
         logger.exception("Location chat turn failed")
         raise HTTPException(status_code=500, detail="Location chat could not be processed")
