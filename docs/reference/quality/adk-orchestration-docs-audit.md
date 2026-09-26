@@ -1204,3 +1204,42 @@ Affected private Wiki reconciliation was attempted after deployment. The connect
 reported `No refresh token is set` during durable persistence; readback did not
 contain the deployment update. Wiki synchronization remains blocked on connector
 reauthentication. The repository audit is the verified record for this pass.
+
+
+### Device enrollment prerequisites and refreshed ADK review — 2026-09-26
+
+Follow-up changes start from `be1e14112`; the serving deployment remains the
+`4b7e86bb7` release above until a subsequent workflow and serving readback prove
+otherwise. The device authorization URL was incorrectly consumed by the legacy
+profile redirect. Its exact route now remains intact, and the authorization page
+owns sign-in/setup readiness before offering approval. Signed-out and explicitly
+incomplete accounts return a state-bound, loopback-only failure to Puppy One with
+login/setup/retry guidance. Authentication restoration waits; unavailable evidence
+and sessions requiring verification never enable approval. Legacy accounts retain
+the existing explicit-incomplete admission contract. Server approval authority is
+unchanged.
+
+The companion Hermes client maps these errors to fixed guidance without claiming
+approval was received, and rejects an error alongside an approval code. Its changes
+are local to the existing companion checkout pending separate publication; browser
+and device updates must both be present for the complete experience. Focused real
+loopback and identity tests pass. The broader companion test file also encounters
+an unrelated missing `mcp.server.fastmcp` dependency; this is not a full-suite pass.
+
+Trusted Devices now writes its confirmed list, including an empty list, through a
+service-owned memory cache. Owner/session changes and revocation fence stale
+responses; account invalidation clears this metadata. The warm-navigation assertion
+remains intact. Focused web routing, admission, readiness and cache checks pass;
+canonical CI and live readback are still required for this follow-up candidate.
+
+Freshness review found newer main `3219483cb` and committed local ADK `15635d4b6`.
+Those revisions are not represented by the deployment evidence above. The newer
+ADK migration 249 deletes legacy history, checkpoints and cascading records; its
+rollback does not restore them. The dev workflow applies migrations before backend
+promotion, and image rollback cannot recover deleted records. Integration/deployment
+of that delta requires verified deletion authority, affected-row inventory,
+restore-tested recovery and old-writer/drain evidence. Executable migration tests
+need their isolated database fixture; ordinary green CI does not establish that
+cutover's safety. Preserve the canonical reviewer and the four active ADK UI edits.
+This blocker belongs to `repo-operations` and the database release gate, while the
+bounded enrollment/cache correction can ship independently.

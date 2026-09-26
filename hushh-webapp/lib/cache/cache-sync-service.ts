@@ -1,3 +1,4 @@
+import { feedIdAtOrBefore } from "@/lib/cache/feed-read-watermark";
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import {
   CacheService,
@@ -46,15 +47,6 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function feedIdAtOrBefore(id: string, watermark: string): boolean {
-  try {
-    return BigInt(id) <= BigInt(watermark);
-  } catch {
-    // Feed IDs are numeric today. Exact matching is the only safe fallback if
-    // that contract ever changes; lexical ordering would mark unrelated rows.
-    return id === watermark;
-  }
-}
 
 function deriveAttributeCount(
   domainSummary: DomainSummaryPatch | undefined,
@@ -594,6 +586,10 @@ export class CacheSyncService {
     // The device copy holds the same projection and would reopen stale.
     this.invalidateKaiFinancialResource(userId, { includeDevice: true });
     this.onKaiMarketContextChanged(userId);
+  }
+
+  static onTrustedDevicesMutated(userId: string): void {
+    CacheService.getInstance().invalidate(CACHE_KEYS.TRUSTED_DEVICES(userId));
   }
 
   static onGoogleConnectionMutated(userId: string): void {

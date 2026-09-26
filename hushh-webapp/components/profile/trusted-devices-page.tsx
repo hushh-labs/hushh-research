@@ -31,27 +31,11 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ApiService } from "@/lib/services/api-service";
+import { TrustedDevicesResourceService, type TrustedDevice } from "@/lib/services/trusted-devices-resource-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 import { useVault } from "@/lib/vault/vault-context";
 
-interface TrustedDevice {
-  device_id: string;
-  device_name: string;
-  platform: string;
-  status: "active" | "revoked";
-  created_at: number;
-  last_used_at: number | null;
-  // Added by migration 176; optional so an older payload still type-checks and
-  // falls through to the honest "unavailable" / "not yet synced" states.
-  revoked_at?: number | null;
-  last_synced_at?: number | null;
-  sealed_at?: number | null;
-  // Added by migration 189; a fresh value is the only evidence the agent is
-  // actually running, which last_synced_at can never establish.
-  last_heartbeat_at?: number | null;
-  heartbeat?: { current_model?: string; busy?: boolean } | null;
-}
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage() {
@@ -75,14 +59,7 @@ export default function TrustedDevicesPage() {
     cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
     enabled: Boolean(user),
     resourceLabel: "trusted-devices",
-    load: async () => {
-      const response = await ApiService.listTrustedDevices();
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.detail?.message || "Devices unavailable.");
-      }
-      return Array.isArray(payload.devices) ? payload.devices : [];
-    },
+    load: () => TrustedDevicesResourceService.load(user!.uid),
   });
 
   const devices = devicesResource.data ?? [];
@@ -148,7 +125,7 @@ export default function TrustedDevicesPage() {
     if (!user) return;
     setRevoking(true);
     try {
-      const response = await ApiService.revokeTrustedDevice(deviceId);
+      const response = await TrustedDevicesResourceService.revoke(user.uid, deviceId);
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         setError(

@@ -1,5 +1,7 @@
 "use client";
 
+import { hasExplicitIncompleteSetup } from "@/lib/onboarding/onboarding-journey-phase";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
@@ -81,15 +83,6 @@ function withAdmissionTimeout<T>(work: Promise<T>): Promise<T> {
   });
 }
 
-function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
-  if (PreVaultUserStateService.isSetupResolved(state)) return false;
-  if (state.setupCompleted === false) return true;
-  return (
-    state.onboardingJourneyVersion === 1 &&
-    state.onboardingPhase !== null &&
-    state.onboardingPhase !== "root_completion"
-  );
-}
 
 function admissionAllowsCurrentRoute(params: {
   state: PreVaultUserState;

@@ -51,7 +51,7 @@ describe("OneAuthGate", () => {
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 
-  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra"])("retains hard authority for %s", pathname => {
+  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra", "/one/profile/security/devices/authorize/extra", "/one/profile/security/devices"])("retains hard authority for %s", pathname => {
     mocks.pathname=pathname;
     render(<OneAuthGate><div>protected connection management</div></OneAuthGate>);
     expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
@@ -147,7 +147,7 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("calendar connection")).toBeTruthy();
   });
 
-  it("lets a signed-in user approve a trusted device without unlocking the browser vault", () => {
+  it("lets the exact device approval shell own sign-in and setup readiness", () => {
     mocks.pathname = "/one/profile/security/devices/authorize";
 
     render(
@@ -157,7 +157,7 @@ describe("OneAuthGate", () => {
     );
 
     expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
-    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
     expect(screen.getByText("trusted device approval")).toBeTruthy();
   });
 

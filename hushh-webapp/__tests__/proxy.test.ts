@@ -51,6 +51,8 @@ describe("Next proxy root-entry contract", () => {
     "/one/profile/discovery/",
     "/one/profile/hosting",
     "/one/profile/software-updates",
+    "/one/profile/security/devices/authorize",
+    "/one/profile/security/devices/authorize/",
   ])("keeps the canonical %s page out of the legacy profile redirect", (route) => {
     const response = proxy(request(route));
 

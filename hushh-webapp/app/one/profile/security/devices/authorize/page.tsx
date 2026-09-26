@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Laptop, Loader2, ShieldCheck } from "@/components/icons";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import {
+  DEVICE_SETUP_MESSAGE,
+  devicePrerequisiteCallback,
+  useDeviceAuthorizationReadiness,
+} from "@/lib/trusted-device/authorization-readiness";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
@@ -19,7 +25,9 @@ function requiredParam(
   return (params.get(name) || "").trim();
 }
 
-function trustedDeviceEnvironment(hostname: string): "dev" | "uat" | "production" {
+function trustedDeviceEnvironment(
+  hostname: string,
+): "dev" | "uat" | "production" {
   const normalized = hostname.trim().toLowerCase();
   if (normalized === "one.hushh.ai") return "production";
   if (normalized === "dev.one.hushh.ai") return "dev";
@@ -39,7 +47,14 @@ function authorizationErrorMessage(payload: unknown): string {
 
 export default function TrustedDeviceAuthorizePage() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, loading, sessionVerificationRequired } = useAuth();
+  const readiness = useDeviceAuthorizationReadiness(
+    user?.uid ?? null,
+    loading,
+    sessionVerificationRequired,
+  );
+  const returnedAttempt = useRef<string | null>(null);
+  useSessionChromeSuppression(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const request = useMemo(
@@ -69,8 +84,57 @@ export default function TrustedDeviceAuthorizePage() {
     request.state,
   ].every(Boolean);
 
+  useEffect(() => {
+    if (
+      !complete ||
+      (readiness !== "login_required" && readiness !== "account_setup_required")
+    )
+      return;
+    const callback = devicePrerequisiteCallback(
+      request.redirect_uri,
+      request.state,
+      readiness,
+    );
+    if (!callback || returnedAttempt.current === callback) return;
+    returnedAttempt.current = callback;
+    assignWindowLocation(callback);
+  }, [complete, readiness, request.redirect_uri, request.state]);
+
+  if (readiness !== "ready") {
+    const prerequisite =
+      readiness === "login_required" || readiness === "account_setup_required";
+    return (
+      <main className="mx-auto flex min-h-[70vh] max-w-xl items-center px-6 py-12">
+        <section
+          className="w-full rounded-3xl border bg-card p-8 shadow-sm"
+          role="status"
+        >
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {prerequisite
+              ? "Set up One before connecting"
+              : readiness === "checking"
+                ? "Checking your account…"
+                : "Couldn’t verify your account"}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {prerequisite
+              ? DEVICE_SETUP_MESSAGE
+              : readiness === "checking"
+                ? "Checking sign-in and account setup."
+                : "No device was approved. Return to Puppy One and try again."}
+          </p>
+          {prerequisite ? (
+            <a className="mt-6 inline-block underline" href={ROUTES.LOGIN}>
+              Sign in to One
+            </a>
+          ) : null}
+        </section>
+      </main>
+    );
+  }
+
   async function approve() {
-    if (!user || !complete || submitting) return;
+    if (!user || readiness !== "ready" || !complete || submitting) return;
     setSubmitting(true);
     setError("");
     try {
@@ -171,9 +235,7 @@ export default function TrustedDeviceAuthorizePage() {
             className="mt-0.5 size-4 shrink-0 text-emerald-600"
             aria-hidden
           />
-          <p>
-            You can revoke it anytime in Profile → Security → Devices.
-          </p>
+          <p>You can revoke it anytime in Profile → Security → Devices.</p>
         </div>
 
         {error ? (
