@@ -114,7 +114,17 @@ for (const width of [320, 393, 768, 1440]) {
       await expect(upcoming.getByRole("heading")).toHaveCSS("font-weight","500");
       await expect(upcoming.locator("ul")).toHaveCSS("row-gap","12px");
       await expect(upcoming.locator("ul")).toHaveCSS("margin-top","12px");
+      const providerBoxes = await upcoming.locator("li").evaluateAll((items) => items.map((item) => {
+        const { x, y, width, height } = item.getBoundingClientRect();
+        return { x, y, width, height };
+      }));
+      for (let index = 1; index < providerBoxes.length; index++) {
+        expect(providerBoxes[index].x).toBeCloseTo(providerBoxes[0].x, 0);
+        expect(providerBoxes[index].width).toBeCloseTo(providerBoxes[0].width, 0);
+        expect(providerBoxes[index].y - providerBoxes[index - 1].y - providerBoxes[index - 1].height).toBeCloseTo(12, 0);
+      }
       for (const item of await upcoming.locator("li").all()) {
+        await expect(item).toHaveClass(/text-muted-foreground/);
         await expect(item).toHaveCSS("font-size","14px");
         await expect(item).toHaveCSS("column-gap","8px");
         await expect(item.getByRole("img")).toHaveCSS("width","20px");

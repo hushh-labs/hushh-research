@@ -736,9 +736,9 @@ export function GeminiRuntimeSettingsCard({
           } as CSSProperties}>
             Coming soon
           </h2>
-          <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+          <ul className="mt-3 grid grid-cols-1 gap-y-3">
             {COMING_SOON_PROVIDERS.map((provider) => (
-              <li key={provider.id} className="flex min-w-0 items-start gap-2 text-[14px] font-normal leading-5 text-foreground">
+              <li key={provider.id} className="flex min-w-0 items-start gap-2 text-[14px] font-normal leading-5 text-muted-foreground">
                 <RuntimeProviderMark provider={provider} className="!h-5 !w-5" />
                 <span>{provider.name}</span>
               </li>
