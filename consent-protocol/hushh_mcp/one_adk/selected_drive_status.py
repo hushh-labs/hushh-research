@@ -64,7 +64,7 @@ async def inspect_selected_drive_files(
 ) -> dict[str, Any]:
     """Check the owner's current Drive connection and selected-file status.
 
-    For general Drive access or selection questions, omit file_name or pass "". That
+    For general Drive access or selection questions, omit file_name or pass file_name="". That
     returns only connection state and selected count, without any filenames.
     For a named file, pass only its name, not a recipient or action. Resolve
     "it" or "that file" only from an unambiguous name in this conversation;
