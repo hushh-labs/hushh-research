@@ -703,6 +703,39 @@ describe("AG-UI Agent One client", () => {
     expect(review.isCurrent()).toBe(false);
   });
 
+  it("publishes a review whose confirmation also arrived in a messages snapshot", async () => {
+    // Live 2026-09-26: MESSAGES_SNAPSHOT already held the confirmation call, so
+    // the AG-UI client appended the streamed args onto the snapshot copy and
+    // handed onToolCallEndEvent unparseable args ({}). No card was ever shown.
+    publishValidatedAuthSessionOwner("user-1");
+    const reference = { kind: "mcp_call_review", version: 1,
+      connectorId: "custom_test", toolName: `mcp_${"a".repeat(40)}`,
+      directiveId: `dir_${"b".repeat(32)}`, pendingHandle: `one_secret_ref:${"c".repeat(32)}`,
+      expiresAt: "2099-01-01T00:00:00Z" };
+    const streamed = JSON.stringify({ originalFunctionCall: { id: "original", name: reference.toolName, args: {} },
+      toolConfirmation: { confirmed: false, payload: reference } });
+    mockTransport.outcome = "interrupt";
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent?.({ event: { toolCallId: "tool-1", toolCallName: "adk_request_confirmation" } });
+      subscriber.onToolCallArgsEvent?.({ event: { toolCallId: "tool-1", delta: streamed.slice(0, 40) } });
+      subscriber.onToolCallArgsEvent?.({ event: { toolCallId: "tool-1", delta: streamed.slice(40) } });
+      subscriber.onToolCallEndEvent?.({
+        event: { type: "TOOL_CALL_END", toolCallId: "tool-1" },
+        toolCallName: "adk_request_confirmation",
+        toolCallArgs: {}, // what the client yields after the snapshot concatenation
+      });
+    };
+    const onMcpReview = vi.fn<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>();
+    const onToolWaiting = vi.fn();
+    await streamAgentChat({ userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
+      vaultOwnerToken: "owner-token", handlers: { onMcpReview, onToolWaiting } });
+    expect(onMcpReview).toHaveBeenCalledTimes(1);
+    expect(onMcpReview.mock.calls[0][0].reference).toEqual(reference);
+    expect(onToolWaiting).not.toHaveBeenCalled();
+    mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
+  });
+
   it("does not forward a malformed MCP confirmation to generic diagnostic events", async () => {
     mockTransport.emitEvents = (subscriber) => subscriber.onToolCallEndEvent?.({
       event: { type: "TOOL_CALL_END", toolCallId: "tool-1" },

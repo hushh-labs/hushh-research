@@ -617,6 +617,11 @@ export async function streamAgentChat(input: {
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const mcpReviews = new Map<string, McpCallReviewReference>();
+  // The server streams each native confirmation's projected arguments. A
+  // MESSAGES_SNAPSHOT can already hold the same call, and the AG-UI client then
+  // appends the streamed delta onto the snapshot's copy, which no longer parses.
+  // Parse the confirmation from its own streamed deltas instead.
+  const confirmationArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -705,19 +710,34 @@ export async function streamAgentChat(input: {
     },
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
+      if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
+    },
+    onToolCallArgsEvent: ({ event }) => {
+      const buffered = confirmationArgs.get(event.toolCallId);
+      if (buffered === undefined) return;
+      // Bounded like the server projection; an oversized review fails closed.
+      const next = buffered + (event.delta ?? "");
+      if (next.length > 64_000) confirmationArgs.delete(event.toolCallId);
+      else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
       if (toolCallName === "adk_request_confirmation") {
-        const review = parseMcpCallReview(toolCallArgs);
+        const streamed = confirmationArgs.get(event.toolCallId);
+        confirmationArgs.delete(event.toolCallId);
+        let nativeArgs: Record<string, unknown> = toolCallArgs;
+        if (streamed) {
+          try { nativeArgs = asRecord(JSON.parse(streamed)) ?? toolCallArgs; } catch { /* keep client args */ }
+        }
+        const review = parseMcpCallReview(nativeArgs);
         if (review) {
           mcpReviews.set(event.toolCallId, review);
           // Publish only after RUN_FINISHED supplies the native interrupt id.
           // Neither pending handles nor private review details enter generic diagnostics.
           return;
         }
-        const original = asRecord(toolCallArgs.originalFunctionCall);
-        const confirmation = asRecord(toolCallArgs.toolConfirmation);
+        const original = asRecord(nativeArgs.originalFunctionCall);
+        const confirmation = asRecord(nativeArgs.toolConfirmation);
         if ((typeof original?.name === "string" && original.name.startsWith("mcp_")) ||
             asRecord(confirmation?.payload)?.kind === "mcp_call_review") {
           handlers.onError?.("The connector review could not be verified. Please ask again.");
