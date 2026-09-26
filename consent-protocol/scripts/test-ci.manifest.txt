@@ -365,6 +365,9 @@ tests/test_health_review_mode.py
 tests/services/test_person_profile_service.py
 tests/services/test_information_request_service.py
 tests/services/test_consent_export_read_dedupe.py
+# Person-to-person export readback binds on the status owner: both owner-scoped
+# status reads must select user_id; the agent-scoped lookup must never return it.
+tests/services/test_consent_db_request_statuses.py
 tests/test_consent_handshake.py
 tests/test_consent_db_revocation_worker.py
 tests/scripts/test_eval_specialist_turns.py
