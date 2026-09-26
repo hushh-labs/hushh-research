@@ -105,7 +105,7 @@ describe("DriveOwnerShareCard", () => {
     // Every found file starts selected; the owner unticks the second.
     fireEvent.click(screen.getByRole("checkbox", { name: /Chris onboarding 2\.mp4/ }));
     fireEvent.click(screen.getByRole("button", { name: "Share 1 file" }));
-    await screen.findByText("Shared with Rahul.");
+    await screen.findByText("Sharing requested for Rahul.");
     expect(state.service.shareOwnerFiles).toHaveBeenCalledWith(
       "owner-token",
       requestId,
@@ -144,7 +144,7 @@ describe("DriveOwnerShareCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Share 2 files" }));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe(
-        "Rahul needs to add a Google account to One before you can share files.",
+        "Rahul's Google sign-in needs attention in One.",
       ),
     );
     expect(screen.queryByTestId("share-review")).toBeNull();

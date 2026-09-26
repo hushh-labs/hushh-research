@@ -1872,7 +1872,7 @@ export default function GmailReceiptsPage({
           // Named for the source, not the artefact: the breadcrumb on both
           // routes that render this page says "Gmail", and the setup checklist
           // row that leads here says "Connect Gmail".
-          title="Gmail"
+          title="Mail"
           description={pageTitle}
           actions={
             isConnected && journeyVariant === "onboarding" ? (
@@ -1923,7 +1923,7 @@ export default function GmailReceiptsPage({
 
           {journeyVariant === "onboarding" ||
           !isConnected ||
-          journeyVariant === "workspace" ? (
+          workspace === "overview" ? (
             <SurfaceInset
               className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
             >
@@ -2070,6 +2070,7 @@ export default function GmailReceiptsPage({
               ) : null}
               {isConnected &&
               journeyVariant === "workspace" &&
+              workspace === "overview" &&
               !loadingStatus ? (
                 <div className="flex w-full flex-row items-center gap-2 flex-nowrap pt-2">
                   <Button

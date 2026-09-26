@@ -1120,9 +1120,6 @@ export function AuthStep({
           className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
           data-auth-supporting-content
         >
-          <span className={lightStyles.existingPrivacyIcon}><HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" /></span>
-          <Image src="/onboarding/figma/privacy-light-auth.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.privacyIcon} />
-          <Image src="/onboarding/figma/privacy-dark.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.darkPrivacyIcon} />
           <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
             <br />
@@ -1193,18 +1190,5 @@ function AppleIcon() {
       <title>Apple</title>
       <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
     </svg>
-  );
-}
-
-function HandshakePrivacyIcon({ className = "h-[26px] w-[32px] shrink-0" }: { className?: string }) {
-  return (
-    <Image
-      src="/privacy-handshake.png"
-      alt="Privacy Handshake"
-      width={65}
-      height={52}
-      className={cn("object-contain", className)}
-      unoptimized
-    />
   );
 }

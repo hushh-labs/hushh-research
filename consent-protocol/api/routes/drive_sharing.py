@@ -275,7 +275,11 @@ def _error(error):
         "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
         "recipient_google_identity_required": (
             409,
-            "They need to add a Google account to One before files can be shared with them.",
+            "Their Google sign-in needs attention in One before files can be shared.",
+        ),
+        "recipient_verified_email_required": (
+            409,
+            "They need a verified email in One before files can be shared with them.",
         ),
         "recipient_verification_unavailable": (
             503,

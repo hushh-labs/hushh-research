@@ -103,7 +103,7 @@ export function AgentStructuredExperienceView({
       return experience.audience === "trusted_circle" || !experience.personRef || !experience.personName
         ? <ExperienceShell experienceType={experience.type} label="Drive sharing"
             title="Share Drive files with your Trusted circle"
-            summary="Find the files, check who gets them, then share." icon={<FileCheck2 className="size-5" />}>
+            summary="" icon={<FileCheck2 className="size-5" />}>
             <DriveCircleShareCard clientRequestId={experience.clientRequestId}
               filesRequest={experience.filesRequest} />
           </ExperienceShell>
@@ -155,7 +155,7 @@ function ExperienceShell({
         <div className="min-w-0 flex-1">
           <p className="ui-text-section-label text-accent-strong">{label}</p>
           <h3 className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p>
+          {summary ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
         </div>
       </header>
       <div className="bg-background/72 px-4 py-4 backdrop-blur-xl sm:px-5">{children}</div>

@@ -15,6 +15,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     ShareRequestPurpose,
     SharingApproval,
     recipient_from_verified_firebase_claims,
+    recipient_from_verified_firebase_email,
 )
 
 NOW = datetime(2026, 9, 23, tzinfo=UTC)
@@ -47,6 +48,40 @@ def test_google_identity_does_not_require_a_drive_connection(cipher):
     assert recipient.email == "recipient@example.invalid"
     assert len(cipher.recipient_binding(recipient)) == 64
     assert "recipient" not in repr(recipient)
+
+
+def test_verified_one_email_can_bind_an_owner_share_without_google_sign_in(cipher):
+    user = SimpleNamespace(
+        uid="recipient", disabled=False, email="personal@example.invalid", email_verified=True
+    )
+    recipient = recipient_from_verified_firebase_email("recipient", user, now=NOW)
+    assert recipient.kind == "verified_email"
+    assert recipient.email == "personal@example.invalid"
+    assert len(cipher.recipient_binding(recipient)) == 64
+    assert "personal@example.invalid" not in repr(recipient)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"uid": "another-user"},
+        {"disabled": True},
+        {"email_verified": False},
+        {"email": "invalid\n@example.invalid"},
+    ],
+)
+def test_unverified_or_changed_one_email_cannot_receive_a_grant(change):
+    user = SimpleNamespace(
+        **{
+            "uid": "recipient",
+            "disabled": False,
+            "email": "personal@example.invalid",
+            "email_verified": True,
+            **change,
+        }
+    )
+    with pytest.raises(DriveSharingError, match="recipient_verified_email_required"):
+        recipient_from_verified_firebase_email("recipient", user, now=NOW)
 
 
 @pytest.mark.parametrize(
