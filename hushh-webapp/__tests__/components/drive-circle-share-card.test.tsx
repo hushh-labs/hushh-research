@@ -57,6 +57,7 @@ describe("DriveCircleShareCard", () => {
     expect(state.service.prepareTrustedShare).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
     await screen.findByText("Chris onboarding.mp4");
+    expect(screen.getByText(/Search took \d+\.\ds\./).getAttribute("data-operation")).toBe("drive_search");
     expect(screen.getByText("Cy — connected through contacts, not a request")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Share 1 file with 2 people" }));
     await waitFor(() => expect(state.service.shareOwnerFiles).toHaveBeenCalledTimes(2));
@@ -64,6 +65,7 @@ describe("DriveCircleShareCard", () => {
     expect(state.service.shareOwnerFiles.mock.calls[0][2]).toEqual(["f1"]);
     await screen.findByText("Some people didn't get the files. Try again for them.");
     expect(screen.getByText(/· not shared/)).toBeTruthy();
+    expect(screen.getByText(/Share took \d+\.\ds\./).getAttribute("data-outcome")).toBe("partial");
   });
 
   it("shares nothing with a person the owner unticks", async () => {
@@ -98,6 +100,24 @@ describe("DriveCircleShareCard", () => {
     render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Chris recordings" />);
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
     await screen.findByText("No one in your Trusted circle can receive files yet.");
+    expect(screen.getByText(/The people listed below cannot receive these files yet/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Search again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Check people again" })).toBeTruthy();
+    expect(screen.getByText(/Search took \d+\.\ds\./).getAttribute("data-outcome")).toBe("no_recipients");
     expect(state.service.shareOwnerFiles).not.toHaveBeenCalled();
+  });
+
+  it("guides setup without pointing to a missing exclusion list", async () => {
+    state.service.prepareTrustedShare.mockResolvedValueOnce({
+      ...ready, status: "no_recipients", files: [], recipients: [], excluded: [],
+    }).mockResolvedValueOnce(ready);
+    render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Explain For Product" />);
+    fireEvent.click(screen.getByRole("button", { name: "Find files" }));
+    await screen.findByText(/No eligible connections were found in your Trusted circle/);
+    expect(screen.queryByText("Not included:")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Search again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check people again" }));
+    await screen.findByText("Chris onboarding.mp4");
+    expect(state.service.prepareTrustedShare).toHaveBeenCalledTimes(2);
   });
 });

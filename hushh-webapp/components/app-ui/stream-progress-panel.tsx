@@ -29,6 +29,7 @@ export type AppStreamProgressItem = {
   message: string;
   status?: AppStreamProgressStatus;
   badge?: string;
+  durationMs?: number;
 };
 
 type AppStreamEventListProps = {
@@ -82,7 +83,13 @@ export const AppStreamEventList = memo(function AppStreamEventList({
               </span>
             )}
             <div className="min-w-0">
-              {item.label ? <p className="font-medium text-foreground">{item.label}</p> : null}
+              {item.label ? <p className="font-medium text-foreground">{item.label}
+                {typeof item.durationMs === "number" && Number.isFinite(item.durationMs) && status !== "running" ? (
+                  <span className="ml-2 font-normal tabular-nums text-muted-foreground" data-operation-timing={status}>
+                    {(Math.max(0, item.durationMs) / 1000).toFixed(1)}s
+                  </span>
+                ) : null}
+              </p> : null}
               <p className="break-words text-muted-foreground">{item.message}</p>
             </div>
           </li>

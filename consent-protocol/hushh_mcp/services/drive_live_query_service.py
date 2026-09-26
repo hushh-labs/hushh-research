@@ -18,6 +18,8 @@ and release the found titles worded as found, not judged.
 """
 
 import asyncio
+import logging
+import time
 from uuid import uuid4
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -34,6 +36,42 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRe
 NO_CLEAR_MATCH = (
     "Their Drive didn't have a clear match for this question. Try asking more specifically."
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _timing(stage: str, started: float, outcome: str, *, count: int | None = None) -> None:
+    """Log only fixed stage/outcome labels and a count; never a Drive query or identity."""
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if count is None:
+        logger.info(
+            "drive_share.timing stage=%s outcome=%s duration_ms=%.2f",
+            stage,
+            outcome,
+            elapsed_ms,
+        )
+    else:
+        logger.info(
+            "drive_share.timing stage=%s outcome=%s duration_ms=%.2f count=%d",
+            stage,
+            outcome,
+            elapsed_ms,
+            count,
+        )
+
+
+def _safe_outcome(value: object) -> str:
+    allowed = {
+        "ready",
+        "shared",
+        "no_match",
+        "no_recipients",
+        "ok",
+        "input_required",
+        "connect_required",
+        "reconnect_required",
+    }
+    return value if isinstance(value, str) and value in allowed else "unavailable"
 
 
 def requester_answer(outcome: dict) -> dict:
@@ -237,6 +275,24 @@ class DriveLiveQueryService:
     async def prepare_trusted_share(
         self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
     ):
+        started = time.perf_counter()
+        outcome = "error"
+        try:
+            result = await self._prepare_trusted_share(
+                user_id=user_id,
+                client_request_id=client_request_id,
+                query=query,
+                consent_token=consent_token,
+                timezone=timezone,
+            )
+            outcome = _safe_outcome(result.get("status"))
+            return result
+        finally:
+            _timing("trusted_prepare_total", started, outcome)
+
+    async def _prepare_trusted_share(
+        self, *, user_id, client_request_id, query, consent_token, timezone="UTC"
+    ):
         """A searches A's own Drive to share with A's Trusted circle, from chat.
 
         Only Trusted members A accepted by request or invite are recipients;
@@ -249,10 +305,19 @@ class DriveLiveQueryService:
         await self._require_owner()
         if not connector_feature_enabled("google_drive_chat_reads", user_id):
             raise DriveSharingError("sharing_unavailable")
+        started = time.perf_counter()
         circle = await self.owner_shares.trusted_recipients(user_id=user_id)
+        _timing(
+            "trusted_members",
+            started,
+            "ok",
+            count=len(circle["eligible"]) + len(circle["excluded"]),
+        )
+        started = time.perf_counter()
         reasons = await asyncio.gather(
             *(self._identity_reason(member["userId"]) for member in circle["eligible"])
         )
+        _timing("recipient_identity", started, "ok", count=len(reasons))
         excluded = list(circle["excluded"])
         eligible = []
         for member, reason in zip(circle["eligible"], reasons, strict=True):
@@ -260,9 +325,11 @@ class DriveLiveQueryService:
                 excluded.append({**member, "reason": reason})
             else:
                 eligible.append(member)
+        started = time.perf_counter()
         rows = await self.owner_shares.existing_group(
             user_id=user_id, client_request_id=client_request_id
         )
+        _timing("existing_group", started, "ok", count=len(rows))
         if rows:
             have = {row["_recipientUserId"] for row in rows}
             for member in eligible:
@@ -287,6 +354,7 @@ class DriveLiveQueryService:
         )
         if no_match is not None:
             return {**no_match, "recipients": [], "excluded": self._excluded_view(excluded)}
+        started = time.perf_counter()
         for member in eligible:
             try:
                 await self._require_owner()
@@ -304,6 +372,7 @@ class DriveLiveQueryService:
                 if str(error) == "request_changed":
                     raise
                 excluded.append({**member, "reason": "unavailable"})
+        _timing("persist_group", started, "ok", count=len(rows))
         if not rows:
             return self._no_recipients(excluded)
         return self._group_view(rows, excluded)
@@ -357,13 +426,25 @@ class DriveLiveQueryService:
             if not connector_feature_enabled("google_drive_chat_reads", user_id):
                 raise PermissionError("Document reads are unavailable")
 
-        outcome = await self.chat.run_live_query(
-            user_id=user_id,
-            consent_token=consent_token,
-            query=query,
-            require_access=require_access,
-            timezone=timezone,
-            require_live=True,
+        started = time.perf_counter()
+        try:
+            outcome = await self.chat.run_live_query(
+                user_id=user_id,
+                consent_token=consent_token,
+                query=query,
+                require_access=require_access,
+                timezone=timezone,
+                require_live=True,
+            )
+        except BaseException:
+            _timing("live_drive_query", started, "error")
+            raise
+        found_files = outcome.get("share_files")
+        _timing(
+            "live_drive_query",
+            started,
+            _safe_outcome(outcome.get("status")),
+            count=len(found_files) if isinstance(found_files, list) else 0,
         )
         if outcome["status"] in {"connect_required", "reconnect_required"}:
             raise DriveSharingError("reconnect_required")
