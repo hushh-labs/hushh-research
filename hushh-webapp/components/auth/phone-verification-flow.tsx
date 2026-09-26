@@ -26,6 +26,7 @@ import { usePathname } from "next/navigation";
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   FieldSet,
@@ -331,6 +332,13 @@ export function getPhoneNumberValidationError(
   return null;
 }
 
+function getPhoneEntryError(localNumber: string, country: string): string | null {
+  if (!localNumber) return "Enter your phone number.";
+  return getPhoneNumberValidationError(
+    composePhoneNumber(getCountryOption(country).dialCode, localNumber), country,
+  ) ? "Enter a valid phone number." : null;
+}
+
 export function maskPhoneNumberForOtp(
   phoneNumber?: string | null,
 ): string {
@@ -379,6 +387,7 @@ export function PhoneVerificationFlow({
   const [countryComboboxOpen, setCountryComboboxOpen] = useState(false);
   const suppressNextCountryFocusOpenRef = useRef(false);
   const [localPhoneNumber, setLocalPhoneNumber] = useState("");
+  const rejectedPhoneInputRef = useRef(false);
   const [phoneNumberError, setPhoneNumberError] = useState<string | null>(null);
   const [submittedPhoneNumber, setSubmittedPhoneNumber] = useState(
     currentPhoneNumber || "",
@@ -418,6 +427,7 @@ export function PhoneVerificationFlow({
       return;
     }
     const nextFields = derivePhoneFields(currentPhoneNumber);
+    rejectedPhoneInputRef.current = false;
     setSelectedCountry(nextFields.countryValue);
     setLocalPhoneNumber(nextFields.localPhoneNumber);
     setPhoneNumberError(null);
@@ -524,14 +534,16 @@ export function PhoneVerificationFlow({
 
     setSelectedCountry(nextOption.value);
     const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
-    setPhoneNumberError(
-      localPhoneNumber.length > maximum
+    rejectedPhoneInputRef.current = localPhoneNumber.length > maximum;
+    setPhoneNumberError((previous) => phonePresentation === "compact"
+      ? (previous ? getPhoneEntryError(localPhoneNumber, nextOption.value) : null)
+      : localPhoneNumber.length > maximum
         ? `Enter no more than ${maximum} digits for ${nextOption.label}.`
-        : null,
-    );
+        : null);
+
     setCountryQuery("");
     setCountryComboboxOpen(false);
-  }, [localPhoneNumber.length]);
+  }, [localPhoneNumber, phonePresentation]);
 
   useLocalOnboardingActionHandler("phone_mandate.select_country", (slots) => {
     const requested = String(
@@ -652,18 +664,22 @@ export function PhoneVerificationFlow({
     const maximum = getMobileNumberLengthRange(nextCountry).maximum;
     if (nextInput.localPhoneNumber.length > maximum) {
       // Reject instead of truncating into a different recipient.
-      setPhoneNumberError(
-        `Enter no more than ${maximum} digits for ${nextOption.label}.`,
-      );
+      rejectedPhoneInputRef.current = true;
+      setPhoneNumberError((previous) => phonePresentation === "compact"
+        ? (previous ? "Enter a valid phone number." : null)
+        : `Enter no more than ${maximum} digits for ${nextOption.label}.`);
+
       return;
     }
     if (nextInput.countryValue) {
       setSelectedCountry(nextOption.value);
       setCountryQuery("");
     }
+    rejectedPhoneInputRef.current = false;
     setLocalPhoneNumber(nextInput.localPhoneNumber);
-    setPhoneNumberError(null);
-  }, [selectedCountry]);
+    setPhoneNumberError((previous) => phonePresentation === "compact" && previous
+      ? getPhoneEntryError(nextInput.localPhoneNumber, nextCountry) : null);
+  }, [selectedCountry, phonePresentation]);
 
   const handlePhoneNumberPaste = useCallback(
     (event: React.ClipboardEvent<HTMLInputElement>) => {
@@ -693,19 +709,26 @@ export function PhoneVerificationFlow({
       const validationCountry = phoneNumberOverride
         ? derivePhoneFields(normalizedPhone).countryValue
         : selectedCountry;
-      if (!phoneNumberOverride && phoneNumberError) {
+      if (phonePresentation !== "compact" && !phoneNumberOverride && phoneNumberError) {
         morphyToast.error(phoneNumberError);
         return "invalid";
       }
-      const validationError = getPhoneNumberValidationError(
-        normalizedPhone,
-        validationCountry,
-      );
+      let validationError = getPhoneNumberValidationError(normalizedPhone, validationCountry);
+      if (phonePresentation === "compact") {
+        validationError = validationError ? "Enter a valid phone number." : null;
+        if (!phoneNumberOverride && !localPhoneNumber) {
+          validationError = "Enter your phone number.";
+        }
+        if (!phoneNumberOverride && rejectedPhoneInputRef.current) {
+          validationError = "Enter a valid phone number.";
+        }
+      }
       if (validationError) {
         setPhoneNumberError(validationError);
-        morphyToast.error(validationError);
+        if (phonePresentation !== "compact") morphyToast.error(validationError);
         return "invalid";
       }
+      rejectedPhoneInputRef.current = false;
       setPhoneNumberError(null);
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
@@ -788,6 +811,8 @@ export function PhoneVerificationFlow({
       normalizedPhoneInput,
       onCompleted,
       phoneNumberError,
+      phonePresentation,
+      localPhoneNumber,
       selectedCountry,
       startVerification,
       busy,
@@ -1183,7 +1208,7 @@ export function PhoneVerificationFlow({
               )}
             </Field>
 
-            <Field className="gap-2" data-figma-phone-field="number">
+            <Field className="gap-2" data-figma-phone-field="number" data-invalid={Boolean(phoneNumberError)}>
               <FieldLabel
                 className="text-[13px] font-semibold text-[#8a8a91] dark:text-white/50"
                 htmlFor="phone-flow-number"
@@ -1212,13 +1237,9 @@ export function PhoneVerificationFlow({
                 />
               </InputGroup>
               {phoneNumberError ? (
-                <FieldDescription
-                  id="phone-flow-number-error"
-                  role="alert"
-                  className="text-sm font-semibold text-destructive"
-                >
+                <FieldError id="phone-flow-number-error">
                   {phoneNumberError}
-                </FieldDescription>
+                </FieldError>
               ) : null}
             </Field>
           </FieldGroup>
@@ -1235,11 +1256,11 @@ export function PhoneVerificationFlow({
               type="submit"
               data-figma-phone-primary="true"
               loading={busy}
-              variant="none"
+              variant={phonePresentation === "compact" ? "blue" : "none"}
               effect="fill"
-              size="default"
+              size={phonePresentation === "compact" ? "prominent" : "default"}
               fullWidth
-              className={cn(
+              className={phonePresentation === "compact" ? undefined : cn(
                 "type-headline",
                 FLOW_CTA_CLASS_NAME,
                 primaryActionClassName,
