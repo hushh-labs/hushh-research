@@ -211,6 +211,7 @@ const STREAM_ERROR_CODES = new Set<string>([
   "owner_share_expired",
   "drive_query_unavailable",
   "recipient_google_identity_required",
+  "recipient_verified_email_required",
   "recipient_verification_unavailable",
   "drive_share_unavailable",
   "invalid_argument",
@@ -406,6 +407,7 @@ export type DriveCircleExclusion =
   | "imported"
   | "unavailable"
   | "no_google_account"
+  | "no_verified_email"
   | "limit";
 const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
   "not_connected",
@@ -414,6 +416,7 @@ const CIRCLE_EXCLUSIONS = new Set<DriveCircleExclusion>([
   "imported",
   "unavailable",
   "no_google_account",
+  "no_verified_email",
   "limit",
 ]);
 

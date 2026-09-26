@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -8,6 +9,7 @@ import {
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText, MediumRowLabel } from "@/components/app-ui/typography";
@@ -19,7 +21,7 @@ import {
 } from "@/lib/services/drive-sharing-service";
 
 type Phase = "idle" | "searching" | "sharing";
-type Result = "shared" | "failed";
+type Result = { state: "queued" | "failed"; code?: string; shareRequestId?: string | null };
 type TimedOperation = { kind: "search" | "share"; outcome: "ready" | "no_match" | "no_recipients" | "shared" | "partial" | "error" | "expired"; durationMs: number };
 
 function elapsedLabel(durationMs: number): string {
@@ -31,8 +33,9 @@ const EXCLUSION_COPY: Record<DriveCircleExclusion, string> = {
   contacts: "connected through contacts, not a request",
   circle: "connected through a circle, not a request",
   imported: "an imported connection, not a request",
-  unavailable: "Drive sharing isn't available for them yet",
-  no_google_account: "no Google account on One",
+  unavailable: "can't receive Drive files yet",
+  no_google_account: "can't verify their Google sign-in",
+  no_verified_email: "needs a verified email in One",
   limit: "more than 10 people; share with them by name",
 };
 
@@ -49,6 +52,12 @@ function failureCopy(code: string): string {
       return "Drive didn't answer. Try again.";
     case "sharing_unavailable":
       return "Sharing Drive files isn't available right now.";
+    case "connection_required":
+      return "Connect with this person, then try again.";
+    case "recipient_google_identity_required":
+      return "Their Google sign-in needs attention in One.";
+    case "recipient_verified_email_required":
+      return "They need a verified email in One.";
     default:
       return "Couldn't finish that. Try again.";
   }
@@ -185,7 +194,7 @@ function UnlockedDriveCircleShareCard({
   const files = view && (view.status === "ready" || view.status === "shared") ? view.files : [];
   const selectedFiles = files.map((file) => file.ref).filter((ref) => !unsharedFiles.includes(ref));
   const open = (view?.recipients ?? []).filter(
-    (item) => item.status === "ready" && results[item.requestId] !== "shared",
+    (item) => item.status === "ready" && results[item.requestId]?.state !== "queued",
   );
   const chosen = open.filter((item) => !skipped.includes(item.requestId));
 
@@ -208,13 +217,17 @@ function UnlockedDriveCircleShareCard({
       // One person at a time: each is their own Viewer share and outcome.
       for (const person of chosen) {
         try {
-          await DriveSharingService.shareOwnerFiles(session.token, person.requestId, refs, session.guard);
-          next[person.requestId] = "shared";
+          const shared = await DriveSharingService.shareOwnerFiles(
+            session.token, person.requestId, refs, session.guard,
+          );
+          next[person.requestId] = {
+            state: "queued", shareRequestId: shared.shareRequestId,
+          };
         } catch (cause) {
           const code = codeOf(cause);
           if (code === "session_changed") return;
           if (code === "owner_share_expired" || code === "request_changed") stale = true;
-          next[person.requestId] = "failed";
+          next[person.requestId] = { state: "failed", code };
         }
         if (!session.current()) return;
         setResults((prior) => ({ ...prior, ...next }));
@@ -231,9 +244,9 @@ function UnlockedDriveCircleShareCard({
       window.dispatchEvent(
         new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
       );
-      if (Object.values(next).includes("failed"))
-        setNotice("Some people didn't get the files. Try again for them.");
-      outcome = Object.values(next).includes("failed") ? "partial" : "shared";
+      if (Object.values(next).some((result) => result.state === "failed"))
+        setNotice("Couldn't start sharing with everyone. Retry the people marked below.");
+      outcome = Object.values(next).some((result) => result.state === "failed") ? "partial" : "shared";
     } finally {
       if (session.current()) {
         setLastOperation({ kind: "share", outcome, durationMs: Math.max(0, performance.now() - operationStartedAt.current!) });
@@ -243,9 +256,9 @@ function UnlockedDriveCircleShareCard({
     }
   };
 
-  const sharedCount =
+  const requestedCount =
     (view?.recipients ?? []).filter(
-      (item) => item.status === "shared" || results[item.requestId] === "shared",
+      (item) => item.status === "shared" || results[item.requestId]?.state === "queued",
     ).length;
   const statusLine =
     phase === "searching"
@@ -255,9 +268,9 @@ function UnlockedDriveCircleShareCard({
         : view?.status === "no_match"
           ? "No matching files found."
           : view?.status === "no_recipients"
-            ? "No one in your Trusted circle can receive files yet."
-            : sharedCount > 0 && open.length === 0
-              ? `Shared with ${sharedCount} ${sharedCount === 1 ? "person" : "people"}.`
+            ? "No eligible people yet."
+            : requestedCount > 0 && open.length === 0
+              ? `Sharing requested for ${requestedCount} ${requestedCount === 1 ? "person" : "people"}.`
               : view
                 ? "Choose the files and people."
                 : null;
@@ -266,19 +279,18 @@ function UnlockedDriveCircleShareCard({
     <section aria-label="Share Drive files with your Trusted circle" className="min-w-0 space-y-4 break-words"
       data-testid="drive-circle-share" aria-busy={phase !== "idle"}>
       <div role="status" aria-live="polite" className="min-w-0 space-y-1">
-        <MediumRowLabel as="p">Share Drive files with your Trusted circle</MediumRowLabel>
         {statusLine ? <BodyText>{statusLine}</BodyText> : null}
-        {phase !== "idle" ? (
-          <HelperText data-operation={phase === "searching" ? "drive_search" : "drive_share"}>
-            {phase === "searching" ? "Search" : "Share"} time: {elapsedLabel(activeElapsedMs)}
-          </HelperText>
-        ) : lastOperation ? (
-          <HelperText data-operation={`drive_${lastOperation.kind}`} data-outcome={lastOperation.outcome}
-            data-duration-ms={Math.round(lastOperation.durationMs)}>
-            {lastOperation.kind === "search" ? "Search" : "Share"} took {elapsedLabel(lastOperation.durationMs)}.
-          </HelperText>
-        ) : null}
       </div>
+      {phase !== "idle" ? (
+        <HelperText data-operation={phase === "searching" ? "drive_search" : "drive_share"}>
+          {phase === "searching" ? "Search" : "Share"} time: {elapsedLabel(activeElapsedMs)}
+        </HelperText>
+      ) : lastOperation ? (
+        <HelperText data-operation={`drive_${lastOperation.kind}`} data-outcome={lastOperation.outcome}
+          data-duration-ms={Math.round(lastOperation.durationMs)}>
+          {lastOperation.outcome === "no_recipients" ? "People check" : lastOperation.kind === "search" ? "Search" : "Share"} took {elapsedLabel(lastOperation.durationMs)}.
+        </HelperText>
+      ) : null}
       <BodyText className="whitespace-pre-wrap break-words">“{filesRequest}”</BodyText>
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {view?.message ? <HelperText className="whitespace-pre-wrap">{view.message}</HelperText> : null}
@@ -286,9 +298,8 @@ function UnlockedDriveCircleShareCard({
         <>
           <HelperText>
             {view.excluded.length > 0
-              ? "The people listed below cannot receive these files yet. Connect with them by request or ask them to add their Google account, then check again."
-              : "No eligible connections were found in your Trusted circle. Connect with someone by request and make sure they have a Google account on One, then check again."}
-            {" No files were shared."}
+              ? "See why below. Connect by request or ask them to verify their email."
+              : "Connect with someone by request, then check again."}
           </HelperText>
           <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
             {phase === "searching" ? "Checking…" : "Check people again"}
@@ -298,9 +309,7 @@ function UnlockedDriveCircleShareCard({
       {!view || view.status === "no_match" ? (
         <>
           <HelperText>
-            Your private agent searches your Drive once for these files. Only people in your Trusted
-            circle you connected with by request can receive them. Nothing is shared until you
-            choose and tap Share.
+            Review the matches and recipients. Nothing is shared until you tap Share.
           </HelperText>
           <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
             {phase === "searching" ? "Searching…" : view ? "Search again" : "Find files"}
@@ -334,7 +343,9 @@ function UnlockedDriveCircleShareCard({
           </legend>
           <ul aria-label="People who can receive" className="min-w-0 space-y-1">
             {view.recipients.map((person) => {
-              const done = person.status === "shared" || results[person.requestId] === "shared";
+              const result = results[person.requestId];
+              const done = person.status === "shared" || result?.state === "queued";
+              const shareRequestId = result?.shareRequestId ?? person.shareRequestId;
               return (
                 <li key={person.requestId}>
                   <label className="flex min-h-11 min-w-0 items-center gap-3">
@@ -345,10 +356,21 @@ function UnlockedDriveCircleShareCard({
                         : [...skipped, person.requestId])} />
                     <span className="min-w-0 break-all">
                       {person.name ?? "A connection"}
-                      {done ? <HelperText as="span"> · shared</HelperText> : null}
-                      {results[person.requestId] === "failed" ? <HelperText as="span"> · not shared</HelperText> : null}
+                      {done ? <HelperText as="span"> · sharing requested</HelperText> : null}
+                      {result?.state === "failed" ? (
+                        <HelperText as="span"> · {failureCopy(result.code ?? "request_failed")}</HelperText>
+                      ) : null}
                     </span>
                   </label>
+                  {shareRequestId ? (
+                    <Link className="ml-8 text-sm text-primary underline"
+                      aria-label={`Sharing status and links for ${person.name ?? "this person"}`}
+                      href={buildConsentCenterHref(
+                      "pending", { requestId: `document_share_request:${shareRequestId}` },
+                    )}>
+                      View sharing status and links
+                    </Link>
+                  ) : null}
                 </li>
               );
             })}
@@ -370,8 +392,7 @@ function UnlockedDriveCircleShareCard({
       {files.length > 0 && open.length > 0 ? (
         <>
           <HelperText>
-            Each person gets Viewer access to the original files in Google Drive. You can remove
-            access anytime.
+            Each person gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
           <Button size="prominent" disabled={phase !== "idle" || !selectedFiles.length || !chosen.length}
             onClick={() => void share()}>

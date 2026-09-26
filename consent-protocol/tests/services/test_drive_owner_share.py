@@ -407,6 +407,23 @@ async def test_only_people_the_owner_accepted_can_receive_a_circle_share(circle)
     assert FILE_ID not in json.dumps(view)
 
 
+async def test_a_member_without_a_verified_email_is_excluded_without_searching_their_drive(circle):
+    live = chat()
+    queries = circle_service(circle, live)
+
+    async def identity(user_id):
+        if user_id == "nogoogle":
+            raise DriveSharingError("recipient_verified_email_required")
+        return SimpleNamespace(user_id=user_id)
+
+    queries.recipient_identity = AsyncMock(side_effect=identity)
+    view = await prepare_circle(queries)
+    assert view["status"] == "ready"
+    assert {item["reason"] for item in view["excluded"]} >= {"no_verified_email"}
+    assert view["recipients"][0]["name"] == "Bo"
+    live.run_live_query.assert_awaited_once()
+
+
 async def test_a_retried_circle_tap_returns_the_first_search(circle):
     live = chat()
     queries = circle_service(circle, live)

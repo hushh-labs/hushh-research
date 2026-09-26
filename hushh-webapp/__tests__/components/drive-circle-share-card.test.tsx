@@ -29,6 +29,7 @@ import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 const clientRequestId = "22222222-2222-4222-8222-222222222222";
 const bo = "33333333-3333-4333-8333-333333333333";
 const di = "44444444-4444-4444-8444-444444444444";
+const shareRequestId = "55555555-5555-4555-8555-555555555555";
 const ready = {
   status: "ready" as const,
   files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }],
@@ -50,7 +51,7 @@ describe("DriveCircleShareCard", () => {
 
   it("shows who can receive and who cannot, then shares one person at a time", async () => {
     state.service.prepareTrustedShare.mockResolvedValue(ready);
-    state.service.shareOwnerFiles.mockResolvedValueOnce({}).mockRejectedValueOnce(
+    state.service.shareOwnerFiles.mockResolvedValueOnce({ shareRequestId }).mockRejectedValueOnce(
       new DriveSharingError("recipient_google_identity_required", 409),
     );
     render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Chris recordings" />);
@@ -63,8 +64,12 @@ describe("DriveCircleShareCard", () => {
     await waitFor(() => expect(state.service.shareOwnerFiles).toHaveBeenCalledTimes(2));
     expect(state.service.shareOwnerFiles.mock.calls.map((call) => call[1])).toEqual([bo, di]);
     expect(state.service.shareOwnerFiles.mock.calls[0][2]).toEqual(["f1"]);
-    await screen.findByText("Some people didn't get the files. Try again for them.");
-    expect(screen.getByText(/· not shared/)).toBeTruthy();
+    await screen.findByText("Couldn't start sharing with everyone. Retry the people marked below.");
+    expect(screen.getByText(/sharing requested/)).toBeTruthy();
+    expect(screen.getByText(/Their Google sign-in needs attention in One/)).toBeTruthy();
+    expect(screen.queryByText(/· shared/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Sharing status and links for Bo" }).getAttribute("href"))
+      .toContain(`document_share_request%3A${shareRequestId}`);
     expect(screen.getByText(/Share took \d+\.\ds\./).getAttribute("data-outcome")).toBe("partial");
   });
 
@@ -99,11 +104,11 @@ describe("DriveCircleShareCard", () => {
     });
     render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Chris recordings" />);
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
-    await screen.findByText("No one in your Trusted circle can receive files yet.");
-    expect(screen.getByText(/The people listed below cannot receive these files yet/)).toBeTruthy();
+    await screen.findByText("No eligible people yet.");
+    expect(screen.getByText(/See why below/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Search again" })).toBeNull();
     expect(screen.getByRole("button", { name: "Check people again" })).toBeTruthy();
-    expect(screen.getByText(/Search took \d+\.\ds\./).getAttribute("data-outcome")).toBe("no_recipients");
+    expect(screen.getByText(/People check took \d+\.\ds\./).getAttribute("data-outcome")).toBe("no_recipients");
     expect(state.service.shareOwnerFiles).not.toHaveBeenCalled();
   });
 
@@ -113,7 +118,7 @@ describe("DriveCircleShareCard", () => {
     }).mockResolvedValueOnce(ready);
     render(<DriveCircleShareCard clientRequestId={clientRequestId} filesRequest="Explain For Product" />);
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
-    await screen.findByText(/No eligible connections were found in your Trusted circle/);
+    await screen.findByText("Connect with someone by request, then check again.");
     expect(screen.queryByText("Not included:")).toBeNull();
     expect(screen.queryByRole("button", { name: "Search again" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Check people again" }));

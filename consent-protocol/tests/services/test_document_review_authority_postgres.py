@@ -36,7 +36,9 @@ def ledger_db(connector_postgres_url):  # noqa: F811 - imported shared pytest fi
             # Only dependencies of the real ledger migration; no production data.
             connection.exec_driver_sql("CREATE TABLE agent_chat_conversations(id UUID PRIMARY KEY)")
             connection.exec_driver_sql(
-                "CREATE TABLE one_adk_sessions(app_name TEXT,created_at TIMESTAMPTZ)"
+                """CREATE TABLE one_adk_sessions(
+                    app_name TEXT,user_id TEXT,session_id TEXT,created_at TIMESTAMPTZ,
+                    UNIQUE(app_name,user_id,session_id))"""
             )
             connection.exec_driver_sql(
                 "CREATE TABLE pending_test_effects(id TEXT PRIMARY KEY,directive_id TEXT)"
@@ -271,17 +273,35 @@ def test_same_revision_cannot_be_reissued_with_different_terms(ledger_db):
 
 
 def test_release_replay_of_the_ledger_migrations_keeps_document_review_rows(ledger_db):
-    """UAT deploys replay every ordered migration. With a real document_review
-    directive present, re-running 212 failed with CheckViolationError
-    (one_action_directive_ledger_channel_check) and blocked every deploy."""
+    """Replaying 212 and 231 must preserve both later channels and new writes."""
     issue(ledger_db, authority())
     with ledger_db.connect() as connection:
-        for name in ("212_location_command_runtime.sql", "231_document_review_authority.sql"):
+        connection.exec_driver_sql((MIGRATIONS / "248_adk_chat_action_authority.sql").read_text())
+        connection.exec_driver_sql(
+            """INSERT INTO one_adk_sessions(app_name,user_id,session_id,created_at)
+               VALUES ('hussh_one','owner','test_session',clock_timestamp())"""
+        )
+        connection.exec_driver_sql(
+            """INSERT INTO one_action_directive_ledger(
+                 directive_id,user_id,channel,session_id,adk_app_name,action_id,
+                 context_revision,action_contract_digest,slots_hmac,resource_binding_hmac,
+                 requires_confirmation,trusted_activation_required,expires_at)
+               VALUES ('adk_test','owner','adk_chat','test_session','hussh_one','test',
+                 '0',repeat('a',64),repeat('b',64),repeat('c',64),TRUE,TRUE,
+                 clock_timestamp()+INTERVAL '5 minutes')"""
+        )
+        for name in (
+            "212_location_command_runtime.sql",
+            "231_document_review_authority.sql",
+            "248_adk_chat_action_authority.sql",
+        ):
             connection.exec_driver_sql((MIGRATIONS / name).read_text())
         connection.commit()
+    issue(ledger_db, authority())
+    with ledger_db.connect() as connection:
         channels = (
             connection.exec_driver_sql("SELECT channel FROM one_action_directive_ledger")
             .scalars()
             .all()
         )
-    assert channels == ["document_review"]
+    assert sorted(channels) == ["adk_chat", "document_review", "document_review"]

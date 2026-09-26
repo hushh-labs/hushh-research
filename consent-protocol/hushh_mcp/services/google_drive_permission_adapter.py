@@ -235,7 +235,9 @@ class GoogleDrivePermissionAdapter:
         elif operation == "create" and permission_id is page_token is None:
             method, path = "POST", path + "/permissions"
             body = {"type": "user", "role": "reader", "emailAddress": _email(email)}
-            params.update({"fields": PERMISSION_FIELDS, "sendNotificationEmail": "false"})
+            # The owner approved this recipient. Google's email carries the
+            # file link and, where enabled, the visitor verification flow.
+            params.update({"fields": PERMISSION_FIELDS, "sendNotificationEmail": "true"})
         elif operation == "remove" and email is page_token is None:
             method = "DELETE"
             path += f"/permissions/{_identifier(permission_id)}"
