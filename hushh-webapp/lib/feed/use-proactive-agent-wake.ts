@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { isAgentNotAnswering, shouldWakePod } from "@/lib/feed/agent-presence-policy";
+import {
+  isAgentNotAnswering,
+  shouldWakePod,
+} from "@/lib/feed/agent-presence-policy";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -36,6 +39,7 @@ import { ApiService } from "@/lib/services/api-service";
  */
 
 export type WakeState = "awake" | "waking" | "gone";
+type WakeObservation = WakeState | "unknown";
 
 /** How often to re-touch the pod while the person is actually looking at the app.
  *
@@ -55,18 +59,29 @@ const WAKE_COOLDOWN_MS = 45_000;
 // Module-scoped so every surface and every trigger share ONE cooldown and ONE
 // in-flight wake. Not React state: these coordinate network side effects across
 // unrelated component trees, not any single component's render.
+let wakeOwner: string | null = null;
 let lastWakeAtMs = 0;
-let wakeInFlight: Promise<{ state: WakeState; etaMs: number; needsFreshSetup?: boolean }> | null =
-  null;
+let wakeInFlight: Promise<{
+  state: WakeState;
+  etaMs: number;
+  needsFreshSetup?: boolean;
+}> | null = null;
 
 /**
  * Issue at most one wake per cooldown, coalescing concurrent callers onto the same
  * request. Returns `null` when the cooldown suppressed the wake (nothing was sent),
  * or the wake result when one was issued (or is already in flight).
  */
-async function issueWakeDeduped(): Promise<
-  { state: WakeState; etaMs: number; needsFreshSetup?: boolean } | null
-> {
+async function issueWakeDeduped(userId: string): Promise<{
+  state: WakeState;
+  etaMs: number;
+  needsFreshSetup?: boolean;
+} | null> {
+  if (wakeOwner !== userId) {
+    wakeOwner = userId;
+    lastWakeAtMs = 0;
+    wakeInFlight = null;
+  }
   if (wakeInFlight) return wakeInFlight;
   if (Date.now() - lastWakeAtMs < WAKE_COOLDOWN_MS) return null;
   lastWakeAtMs = Date.now();
@@ -79,6 +94,7 @@ async function issueWakeDeduped(): Promise<
 
 /** Test-only: reset the module cooldown/in-flight between cases. */
 export function __resetProactiveWakeForTests(): void {
+  wakeOwner = null;
   lastWakeAtMs = 0;
   wakeInFlight = null;
 }
@@ -97,6 +113,7 @@ export function __resetProactiveWakeForTests(): void {
  * failed-turn path.
  */
 export function useProactiveAgentWake(input: {
+  userId: string;
   state: string | null;
   health: string | null;
   enabled?: boolean;
@@ -111,30 +128,54 @@ export function useProactiveAgentWake(input: {
    * woken kept reporting "Asleep" for the rest of the session. The wake route answers
    * with the pod's live state on every touch, so this is the fresher of the two and
    * the chip prefers it. `null` means nothing has answered yet. */
-  livePresence: WakeState | null;
+  livePresence: WakeObservation | null;
 } {
   const enabled = input.enabled ?? true;
+  const generation = useRef(0);
   const [isWaking, setIsWaking] = useState(false);
   const [etaMs, setEtaMs] = useState(0);
-  const [livePresence, setLivePresence] = useState<WakeState | null>(null);
+  const [livePresence, setLivePresence] = useState<WakeObservation | null>(
+    null,
+  );
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    generation.current += 1;
+    setLivePresence(null);
+    setIsWaking(false);
+    return () => {
+      generation.current += 1;
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    };
+  }, [input.userId]);
   // The latest gating inputs, read by the STABLE wakeNow closure so it never goes
   // stale without making wakeNow itself change identity on every poll. Written in an
   // effect, never during render (React forbids a render-time ref write); every wakeNow
   // call site -- focus handler, mount effect, lifecycle listener -- runs after commit,
   // so it always sees the latest committed value, and useRef seeds it correctly for the
   // mount wake before any effect runs.
-  const gateRef = useRef({ state: input.state, health: input.health, enabled });
+  const gateRef = useRef({
+    state: input.state,
+    health: input.health,
+    enabled,
+    userId: input.userId,
+  });
   useEffect(() => {
-    gateRef.current = { state: input.state, health: input.health, enabled };
-  }, [input.state, input.health, enabled]);
+    gateRef.current = {
+      state: input.state,
+      health: input.health,
+      enabled,
+      userId: input.userId,
+    };
+  }, [input.state, input.health, enabled, input.userId]);
 
   const wakeNow = useCallback((_reason: string) => {
-    const { state, health, enabled: on } = gateRef.current;
+    const { state, health, enabled: on, userId } = gateRef.current;
     if (!on || !shouldWakePod(state, health)) return;
+    const requestGeneration = generation.current;
     void (async () => {
       try {
-        const result = await issueWakeDeduped();
+        const result = await issueWakeDeduped(userId);
+        if (generation.current !== requestGeneration) return;
         if (!result) return; // cooldown suppressed it; the pod is already warm enough
         setLivePresence(result.state);
         if (result.state === "waking") {
@@ -145,7 +186,12 @@ export function useProactiveAgentWake(input: {
           // the follow hook's health; this only bounds the transient affordance so it
           // cannot get stuck on if a later poll never contradicts it.
           clearTimerRef.current = setTimeout(
-            () => setIsWaking(false),
+            () => {
+              setIsWaking(false);
+              setLivePresence((presence) =>
+                presence === "waking" ? "unknown" : presence,
+              );
+            },
             Math.max(result.etaMs || 0, 1_000),
           );
         } else {
@@ -155,7 +201,10 @@ export function useProactiveAgentWake(input: {
       } catch {
         // Best-effort by construction: a wake that fails must never break the surface
         // it is trying to help. The real turn will surface any genuine fault.
-        setIsWaking(false);
+        if (generation.current === requestGeneration) {
+          setIsWaking(false);
+          setLivePresence("unknown");
+        }
       }
     })();
   }, []);
@@ -173,9 +222,8 @@ export function useProactiveAgentWake(input: {
     });
     return () => {
       unsubscribe();
-      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     };
-  }, [enabled, input.state, input.health, wakeNow]);
+  }, [enabled, input.userId, input.state, input.health, wakeNow]);
 
   // The keep-alive. Deliberately NOT routed through `wakeNow`: that path asks
   // `shouldWakePod`, which declines once health reads `healthy` -- correct for a
@@ -190,13 +238,32 @@ export function useProactiveAgentWake(input: {
     if (typeof document === "undefined") return;
 
     let timer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
     const touch = () => {
       void (async () => {
         try {
-          const result = await issueWakeDeduped();
-          if (result) setLivePresence(result.state);
+          const result = await issueWakeDeduped(input.userId);
+          if (result && !cancelled) {
+            setLivePresence(result.state);
+            setIsWaking(result.state === "waking");
+            if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+            if (result.state === "waking") {
+              setEtaMs(result.etaMs || 0);
+              clearTimerRef.current = setTimeout(
+                () => {
+                  setIsWaking(false);
+                  setLivePresence("unknown");
+                },
+                Math.max(result.etaMs || 0, 1_000),
+              );
+            }
+          }
         } catch {
-          // Best effort: a missed tick costs a cold start, never a broken surface.
+          if (!cancelled) {
+            if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+            setIsWaking(false);
+            setLivePresence("unknown");
+          }
         }
       })();
     };
@@ -218,10 +285,11 @@ export function useProactiveAgentWake(input: {
     onVisibility();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
-  }, [enabled, input.state, input.health]);
+  }, [enabled, input.userId, input.state, input.health]);
 
   return { wakeNow, isWaking, etaMs, livePresence };
 }

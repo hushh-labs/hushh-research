@@ -7,7 +7,7 @@ import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 // the Next.js router, and best-effort pod-status polling. This suite asserts nothing
 // about the chip, so stub it out rather than standing up all three dependencies.
 vi.mock("@/components/dashboard/one-agent-presence", () => ({
-  OneAgentPresence: () => null,
+  OneAgentPresence: () => <div data-testid="dashboard-pod-presence" />,
 }));
 // Discovery has its own auth and service tests; these assertions cover the roster.
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({
@@ -58,6 +58,12 @@ function countRosterMetrics(
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("retains pod presence alongside the agent roster", () => {
+    render(<OneDashboardPage userId="owner" />);
+    expect(screen.getByTestId("dashboard-pod-presence")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-section")).toBeTruthy();
   });
 
   it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {

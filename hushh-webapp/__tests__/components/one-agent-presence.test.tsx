@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
+import { __resetProactiveWakeForTests } from "@/lib/feed/use-proactive-agent-wake";
 import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 
 // The status read moved from a bare `apiJson` to a service method, because
@@ -25,11 +26,19 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "vault-owner-token" }),
 }));
+vi.mock("@/lib/firebase/auth-context", () => ({
+  useAuth: () => ({ user: { uid: "presence-owner" } }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
 const mockStatus = vi.mocked(ApiService.getPersonalAgentStatus);
+
+beforeEach(() => {
+  __resetProactiveWakeForTests();
+  vi.mocked(ApiService.wakePod).mockResolvedValue({ state: "awake", etaMs: 0 });
+});
 
 afterEach(() => {
   mockStatus.mockReset();
@@ -120,8 +129,9 @@ describe("OneAgentPresence", () => {
     // Absent means absent. Treating a missing verdict as unhealthy would invent
     // the same claim in the opposite direction.
     mockStatus.mockResolvedValue({ state: "active" });
+    vi.mocked(ApiService.wakePod).mockRejectedValue(new Error("offline"));
     render(<OneAgentPresence />);
-    expect(await screen.findByText("Online")).toBeTruthy();
+    expect(await screen.findByText("Active")).toBeTruthy();
     expect(screen.queryByText("Not responding")).toBeNull();
   });
 
@@ -142,6 +152,14 @@ describe("OneAgentPresence", () => {
     expect(screen.queryByLabelText("Your Agent One")).toBeNull();
     expect(screen.queryByText("Reserved")).toBeNull();
   });
+  it("does not show Online when the wake endpoint reports gone", async () => {
+    mockStatus.mockResolvedValue({ state: "active", health: "healthy" });
+    vi.mocked(ApiService.wakePod).mockResolvedValue({ state: "gone", etaMs: 0 });
+    render(<OneAgentPresence />);
+    expect(await screen.findByText("Not responding")).toBeTruthy();
+    expect(screen.queryByText("Online")).toBeNull();
+  });
+
   // ---- where the agent lives ------------------------------------------------
   //
   // Where it lives is the product, not an implementation detail -- but it is not

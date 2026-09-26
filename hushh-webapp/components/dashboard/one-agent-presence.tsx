@@ -1,10 +1,14 @@
 "use client";
 
-import { isAgentAsleep, isAgentNotAnswering } from "@/lib/feed/agent-presence-policy";
+import {
+  isAgentAsleep,
+  isAgentNotAnswering,
+} from "@/lib/feed/agent-presence-policy";
 import { classifyAgentRecovery } from "@/lib/feed/agent-recovery";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useState } from "react";
+import { useAuth } from "@/lib/firebase/auth-context";
 
 import { ApiService } from "@/lib/services/api-service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -57,7 +61,7 @@ const COPY: Record<AgentState, { badge: string; dotClass: string }> = {
   connecting: { badge: "Connecting", dotClass: "bg-amber-500" },
   // NOT "always on". The default tier is economy: the pod sleeps between sessions
   // and wakes on demand (`gcp_backend.py`, minScale 0 by founder directive).
-  active: { badge: "Online", dotClass: "bg-emerald-500" },
+  active: { badge: "Active", dotClass: "bg-muted-foreground" },
   failed: { badge: "Not ready", dotClass: "bg-amber-500" },
 };
 
@@ -87,6 +91,11 @@ function toAgentState(value: unknown): AgentState | null {
 }
 
 export function OneAgentPresence() {
+  const { user } = useAuth();
+  return user ? <OwnerAgentPresence key={user.uid} userId={user.uid} /> : null;
+}
+
+function OwnerAgentPresence({ userId }: { userId: string }) {
   const [rebuilding, setRebuilding] = useState(false);
   const { vaultOwnerToken } = useVault();
   // Follows the deployment while it is in flight and stops once it settles.
@@ -120,6 +129,7 @@ export function OneAgentPresence() {
   const { isWaking, livePresence } = useProactiveAgentWake({
     state: followed as string | null,
     health,
+    userId,
   });
   const router = useRouter();
 
@@ -137,18 +147,25 @@ export function OneAgentPresence() {
   // swept up `sleeping`, which is the steady state of an economy pod and explicitly
   // not a fault, so every idle agent was reported as broken.
   const notAnswering =
-    state === "active" && livePresence !== "awake" && isAgentNotAnswering(health);
+    state === "active" &&
+    (livePresence === "gone" ||
+      (livePresence !== "awake" && isAgentNotAnswering(health)));
   // Asleep is worth SAYING rather than hiding: it is the honest reason a first turn
   // takes a moment, and a person who knows their agent sleeps reads that pause as
   // normal instead of as a stall.
   // Live answer wins over the frozen poll, in both directions: "awake" clears a
   // stale sleeping read, and nothing invents sleep the pod did not report.
   const asleep =
-    state === "active" && livePresence !== "awake" && isAgentAsleep(health);
+    state === "active" &&
+    (livePresence === null || livePresence === "waking") &&
+    isAgentAsleep(health);
   const waking = state === "active" && (isWaking || livePresence === "waking");
   // A software update in flight. The previous build keeps serving throughout, so
   // this is "still yours, being refreshed", not a warning.
   const updating = state === "active" && update.inProgress && !update.failed;
+  const online =
+    state === "active" &&
+    (livePresence === "awake" || (!livePresence && health === "healthy"));
   const label = notAnswering
     ? "Not responding"
     : updating
@@ -157,7 +174,9 @@ export function OneAgentPresence() {
         ? "Waking"
         : asleep
           ? "Asleep"
-          : copy.badge;
+          : online
+            ? "Online"
+            : copy.badge;
   const dotClass = notAnswering
     ? "bg-amber-500"
     : updating
@@ -166,7 +185,9 @@ export function OneAgentPresence() {
         ? "bg-amber-400 animate-pulse"
         : asleep
           ? "bg-emerald-500/50"
-          : copy.dotClass;
+          : online
+            ? "bg-emerald-500"
+            : copy.dotClass;
   const updateNote = updating
     ? "Your current work is finishing before the update is installed."
     : update.failed
@@ -203,7 +224,9 @@ export function OneAgentPresence() {
         return;
       }
       if (outcome.kind === "error") {
-        toast.error("Could not reach your agent just now. Try again in a moment.");
+        toast.error(
+          "Could not reach your agent just now. Try again in a moment.",
+        );
         return;
       }
       // rebuildable: confirmed gone, cloud reachable -> a new identity is warranted.
@@ -222,15 +245,25 @@ export function OneAgentPresence() {
   return (
     <section
       aria-label="Your Agent One"
-      title={updateNote ? [whereItLives, updateNote].filter(Boolean).join(" · ") : whereItLives}
+      title={
+        updateNote
+          ? [whereItLives, updateNote].filter(Boolean).join(" · ")
+          : whereItLives
+      }
       data-testid="one-agent-presence"
       className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"
     >
-      <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`}
+        aria-hidden
+      />
       <span className="text-[12px] font-medium text-muted-foreground">
         Agent One
       </span>
-      <span className="text-[12px] text-foreground" data-testid="one-agent-status">
+      <span
+        className="text-[12px] text-foreground"
+        data-testid="one-agent-status"
+      >
         {label}
       </span>
       {canRebuild ? (

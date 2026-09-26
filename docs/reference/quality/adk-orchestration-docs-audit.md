@@ -1289,3 +1289,53 @@ Newer ADK/main content is not silently included in this bounded frontend release
 Unrelated root PDF edits remain hash-identical, and the active ADK worktree remains
 untouched. The application branch remains `claude/hushh-infrastructure-analysis-7o991c`;
 no application merge to main or UAT/production deployment occurred.
+
+### Pod presence and completion sequence — 2026-09-26
+
+Evidence baseline: infrastructure `c07d9de94`; the correction below is a local
+follow-up, not a new serving revision. The dashboard merge removed the mount of
+`OneAgentPresence`, while retaining its implementation. Restore that existing
+indicator alongside the roster. Distinguish registered lifecycle **Active** from
+observed **Online**, **Waking**, **Asleep**, and **Not responding**. An expired or
+failed wake observation must not imply Online. Scope wake deduplication and pending
+results to the owner; unmount the observation when authentication changes.
+
+Read-only identity checks distinguish trusted-device registration from encrypted
+replica synchronization and Puppy relay admission. Saved profiles can target
+different environments while displaying the same account. Existing registration
+is not a reason to re-enroll, and a local custody message does not establish a
+working pod relay. Personal-device checks and canonical-reviewer acceptance must
+remain separate evidence lanes.
+
+The affected private Founder Wiki page accepted the frontend deployment correction
+and readback contained the exact deployed source revision. The earlier durable-write
+failure is resolved for this edit; this does not certify the freshness of every page.
+
+#### Ordered completion gates
+
+| Stage | Action | Exit evidence |
+|---|---|---|
+| 1. Restore presence | Verify this bounded correction, then deploy its exact CI-green branch SHA through governed dev CI | Dashboard shows authoritative state; account switch and late/failed wake results cannot show false Online; serving SHA readback |
+| 2. Connect the existing device | Run the existing dev profile; match its remote device record, approved grant and pod incarnation; diagnose encrypted-sync failure separately | Current heartbeat, owner-approved Puppy binding, signed endpoint verification and real request reaching the same pod as the browser |
+| 3. Legacy handoff | Follow the existing first-light runbook's named-pod maintenance procedure after preservation and recovery checks | Preserved service/storage identity, authenticated handoff routes, encrypted recovery and installed image observation; bootstrap recorded separately from normal update |
+| 4. Prove normal updates | Offer a dev-only compatible release; use the exact-release owner approval in Settings | One durable operation, authenticated drain, restart, information continuity and verified installed digest; refresh/reconnect does not duplicate installation |
+| 5. Prove device access | Use browser and existing trusted device on separate networks | Same owner/pod, grant withdrawal, reconnect, cancellation and expiry; no substitute synthetic test for real-device acceptance |
+| 6. Resolve migration 249 | Freeze the newer ADK delta; verify the deletion decision's exact scope, restore-tested backup, cascades, command checkpoints and writer cutover | Executable SQL tests on an isolated database, preserved person-key rows, explicit history disposition and a compatible recovery/roll-forward plan before backend deployment |
+| 7. Final readiness | Complete canonical CI for the combined candidate; deploy the exact branch SHA and repeat affected reviewer journeys | Source/serving receipts, private Wiki readback and explicit unverified rows; main, UAT and production remain separate decisions |
+
+Migration 249 currently runs in replay mode and deliberately deletes legacy chat
+and command-session history with dependent records. Its rollback is a no-op; an
+application image rollback alone cannot restore history. The SQL's dated decision
+comment is not by itself proof of the affected owners' cutover scope or a working
+recovery procedure. Do not execute it merely to unblock the release. Preserve
+existing owner resources, assignments, devices and history while establishing that
+evidence. The authoritative maintenance procedure remains the
+[first-light runbook](../operations/dev-pod-first-light-runbook.md#one-time-legacy-bootstrap-exception);
+this sequence adds no parallel upgrade mechanism.
+
+Local follow-up verification: 41 focused presence/dashboard/wake tests passed with
+two existing dashboard skips; frontend typecheck, affected-file ESLint, docs
+verification and `git diff --check` passed. Independent read-only review identified
+a stale Online result after a failed keepalive; the correction now invalidates it
+and has a regression case. Complete candidate CI and live status acceptance remain
+required before describing this follow-up as deployed.

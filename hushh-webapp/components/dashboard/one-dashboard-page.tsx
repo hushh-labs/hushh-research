@@ -2,6 +2,7 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { OneAgentRoster } from "@/components/dashboard/one-agent-roster";
 import { PublicProfileDiscoveryCard } from "@/components/profile/public-profile-discovery-card";
 import { type CapabilityStatus } from "@/lib/services/capability-setup-state-service";
@@ -30,6 +31,7 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
+        <OneAgentPresence />
         <PublicProfileDiscoveryCard userId={userId} />
         <OneAgentRoster
           capabilityStatusById={capabilityStatusById}
