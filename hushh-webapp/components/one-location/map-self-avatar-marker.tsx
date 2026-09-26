@@ -46,8 +46,8 @@ import {
  *   avatar is rendered by the WebView from a URL the app already holds for the
  *   top bar and the profile screen.
  *
- * The semantic button stays mounted while the map owns a self location. When
- * the camera is moving, unsafe to project, or the coordinate is off-screen,
+ * The semantic button stays mounted while the map owns a self location. In the
+ * native/legacy fallback, when the camera is unsafe or the point is off-screen,
  * only its visual avatar is hidden. This preserves keyboard focus across the
  * handoff to the renderer-owned geographic fallback without clamping the owner
  * somewhere they are not.
@@ -189,8 +189,9 @@ function MapSelfAvatarMarkerImpl({
       // where the owner intentionally chose to appear.
       aria-label={accessibleLabel}
       onClick={onSelect}
-      // z-10 puts the visible avatar in the same band as the name pills and
-      // under the people tray/top controls. During the renderer handoff this
+      // Web labels reserve this avatar's footprint in their collision layout.
+      // The fallback z-10 shares the pills' band, below tray/top controls.
+      // During the native/legacy renderer handoff this
       // exact button becomes a keyboard-focus-revealed chip, so focus is never
       // discarded by unmounting and remounting two different controls. Pointer
       // focus stays visually hidden while the renderer owns camera motion.

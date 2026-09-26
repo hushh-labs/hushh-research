@@ -46,6 +46,7 @@ import { MapNameLabels } from "@/components/one-location/map-name-labels";
 import {
   MapSelfAvatarLegend,
   MapSelfAvatarMarker,
+  SELF_AVATAR_MARKER_SIZE_PX,
 } from "@/components/one-location/map-self-avatar-marker";
 import {
   NearbyCheckInSheet,
@@ -2238,8 +2239,8 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, mapSelfMarker, markers, nearbyPlaceMarker]);
 
   /**
-   * Both Your Map and Check-in use the same HTML avatar while the camera is
-   * settled and safe to project. A separately managed renderer circle remains
+   * Web uses a renderer-owned overlay throughout gestures. The legacy/native
+   * HTML avatar is visible only while the camera is safe to project. Its circle remains
    * geographically anchored underneath it and takes over whenever the camera
    * moves or rotates. Keeping that fallback alive removes the asynchronous
    * remove/add handoff that could blink or redraw every private pin during a
@@ -2330,6 +2331,13 @@ export function LocationImmersiveMap({
       })),
       camera: mapCamera,
       viewport: mapBox,
+      reservedMarker:
+        webAvatarOverlay && mapSelfMarker
+          ? {
+              point: mapSelfMarker.point,
+              radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
+            }
+          : undefined,
       minAnchorDistancePx: clusteringActive
         ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
         : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
@@ -2340,11 +2348,13 @@ export function LocationImmersiveMap({
     freshnessSeconds,
     mapBox,
     mapCamera,
+    mapSelfMarker,
     rendererReady,
     selfPinDrawnAsAvatar,
     staleClockMs,
     status,
     visibleMarkers,
+    webAvatarOverlay,
   ]);
 
   useEffect(() => {
@@ -3780,9 +3790,9 @@ export function LocationImmersiveMap({
       {/*
         You, as yourself.
 
-        Rendered after the pills so it paints over a name that lands on the same
-        pixels, and only once the renderer has reported a camera to project
-        with. Once renderer consent exists, the same semantic button stays
+        Web name labels reserve the renderer-owned avatar's footprint. The
+        legacy/native avatar paints after the pills once a safe camera exists.
+        Once renderer consent exists, the same semantic button stays
         mounted through motion; when its photo cannot be projected it becomes a
         keyboard-only control while the separately managed renderer circle
         stays tied to the coordinate.
