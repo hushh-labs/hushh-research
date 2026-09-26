@@ -857,10 +857,14 @@ async def pod_turn_route(
             from hushh_mcp.services.pod_files.runtime import files_access
 
             async def files_authority() -> None:
-                verified_session(authorization, role=ROLE_APP, scope="files.manage")
+                verified_session(authorization, role=ROLE_APP, scope="files.read")
                 await authority.require_held()
 
-            with files_access(files_authority):
+            async def files_management() -> None:
+                verified_session(authorization, role=ROLE_APP, scope="files.manage")
+                await files_authority()
+
+            with files_access(files_authority, manage=files_management):
                 return await _bounded_turn(
                     run_pod_turn(
                         payload=payload,

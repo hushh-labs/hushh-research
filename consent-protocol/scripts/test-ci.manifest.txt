@@ -421,6 +421,7 @@ tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
 tests/test_pod_session_authority.py
 tests/test_pod_files_library.py
+tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
 tests/test_pod_files_provisioning.py
 tests/test_pod_files_selection_postgres.py
@@ -465,3 +466,6 @@ tests/test_pod_release.py
 tests/services/test_consent_db_request_statuses.py
 tests/test_one_output_privacy.py
 tests/test_mcp_review_wire_contract.py
+
+# Placement compare-and-swap preserves assigned pods during setup.
+tests/test_personal_agent_cloud_assignment.py

@@ -711,7 +711,7 @@ def test_wrapper_delegates_to_run_eval_with_consent_family(monkeypatch):
     assert captured["reps"] == 3
 
 
-def test_native_toolset_resolves_without_owner_context_and_closes(monkeypatch):
+def test_offline_roster_does_not_resolve_owner_bound_connector_toolsets(monkeypatch):
     from google.adk.tools.base_toolset import BaseToolset
 
     seen = []
@@ -731,8 +731,10 @@ def test_native_toolset_resolves_without_owner_context_and_closes(monkeypatch):
         harness,
         "_agent_tree",
         lambda: SimpleNamespace(
-            build_one_text_agent=lambda **kwargs: SimpleNamespace(tools=[NativeTools()])
+            build_one_text_agent=lambda **kwargs: SimpleNamespace(
+                tools=[NativeTools(), FunctionTool(func=local_probe)]
+            )
         ),
     )
     assert harness.roster_tool_names() == ["local_probe"]
-    assert seen == [None, "closed"]
+    assert seen == []

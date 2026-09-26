@@ -884,21 +884,26 @@ async def _save_byoc_project(
     repo = PersonalAgentRegistryRepo()
 
     async def _attach_cloud() -> bool:
-        return bool(
-            await repo.set_user_cloud(
-                user_id=firebase_uid,
-                project=project,
-                region=body.region,
-                bootstrap_sa=bootstrap_sa,
-                authorized=authorized,
-                # Named here, not in the registry: the common layer must not be able to
-                # name a provider (test_deployment_boundary_holds). This route is the
-                # layer that knows a person chose their own cloud, so it is the layer
-                # allowed to say so.
-                deployment_target="user_gcp",
-                model_credential_mode="user_adc",
+        from hushh_mcp.services.personal_agent_cloud_assignment import PodAssignmentPreserved
+
+        try:
+            return bool(
+                await repo.set_user_cloud(
+                    user_id=firebase_uid,
+                    project=project,
+                    region=body.region,
+                    bootstrap_sa=bootstrap_sa,
+                    authorized=authorized,
+                    # Named here, not in the registry: the common layer must not be able to
+                    # name a provider (test_deployment_boundary_holds). This route is the
+                    # layer that knows a person chose their own cloud, so it is the layer
+                    # allowed to say so.
+                    deployment_target="user_gcp",
+                    model_credential_mode="user_adc",
+                )
             )
-        )
+        except PodAssignmentPreserved:
+            raise HTTPException(409, detail={"code": "POD_ASSIGNMENT_PRESERVED"}) from None
 
     if setup_job_id is not None:
         from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo

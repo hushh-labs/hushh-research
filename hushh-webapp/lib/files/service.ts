@@ -78,7 +78,12 @@ export const FilesService = {
       signal,
     ),
   organize: (fileId: string, cancel = false, signal?: AbortSignal) =>
-    json<OrganizationJob>("jobs", { file_id: fileId, cancel }, "POST", signal),
+    json<OrganizationJob>(
+      "jobs",
+      { file_id: fileId, cancel, request_id: crypto.randomUUID() },
+      "POST",
+      signal,
+    ),
   usagePage: (cursor = "", signal?: AbortSignal) =>
     json<{ bytes: number; files: number; cursor: string }>(
       `usage?${new URLSearchParams({ cursor })}`,
@@ -241,7 +246,7 @@ export const FilesService = {
     const chunks: BlobPart[] = [];
     try {
       if (writer && offset) await writer.seek(offset);
-      for (; offset < entry.size; ) {
+      for (; offset < entry.size;) {
         signal.throwIfAborted();
         const response = await ApiService.ownerPodRequest(
           `files/chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / CHUNK_BYTES) })}`,

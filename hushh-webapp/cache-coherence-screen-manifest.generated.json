@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 144,
-    "physical_page_count": 143,
-    "route_contract_count": 144,
-    "surface_map_count": 144,
+    "total_screens": 145,
+    "physical_page_count": 144,
+    "route_contract_count": 145,
+    "surface_map_count": 145,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 47,
-      "vault-backed": 58,
+      "vault-backed": 59,
       "hidden flow": 18,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -1818,6 +1818,51 @@
         "native_beacon": true
       },
       "findings": []
+    },
+    {
+      "route": "/one/files",
+      "page_file": "app/one/files/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/files",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/gmail",
@@ -6465,5 +6510,5 @@
       ]
     }
   ],
-  "content_sha256": "caeecc53cd7b3c02c8aeb83df35213518cd38c6c89e8f5e27dfc0c9821907395"
+  "content_sha256": "13a8b9191a23040deee8108e1860142a97a0f96b3ee07ad6c2c660a7d6066295"
 }

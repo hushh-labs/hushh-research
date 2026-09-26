@@ -314,7 +314,12 @@ def render_text(report: dict, limit: int) -> str:
         f"class={report['budgets']['class_lines']}, "
         f"function={report['budgets']['function_lines']}",
     ]
-    selected = _representative_findings(report["findings"], limit)
+    # A blocking run must identify its regressions, rather than printing the
+    # largest unchanged legacy files and obscuring the actual reason CI stopped.
+    findings = report.get("regressions", report["findings"])
+    if "regressions" in report:
+        lines.append(f"New or worsened findings: {len(findings)}")
+    selected = _representative_findings(findings, limit)
     for finding in selected:
         symbol = f"::{finding['symbol']}" if finding["symbol"] else ""
         metric = (
@@ -325,8 +330,8 @@ def render_text(report: dict, limit: int) -> str:
         lines.append(
             f"- {finding['kind']}: {finding['path']}{symbol}{metric} — {finding['detail']}"
         )
-    if report["finding_count"] > len(selected):
-        lines.append(f"- … {report['finding_count'] - len(selected)} more advisory findings")
+    if len(findings) > len(selected):
+        lines.append(f"- … {len(findings) - len(selected)} more findings")
     return "\n".join(lines)
 
 
@@ -375,6 +380,14 @@ def oversized():
     duplicate_current = {"findings": [{"key": "duplicate", "value": 10}, {"key": "duplicate", "value": 20}]}
     if ratchet_regressions(duplicate_current, duplicate_baseline):
         print("architecture fitness self-test failed: duplicate comparison", file=sys.stderr)
+        return 1
+    clean = {
+        "status": "ratchet-pass", "inspected_files": 1, "finding_count": 1,
+        "budgets": {"module_lines": 500, "class_lines": 250, "function_lines": 80},
+        "findings": [{"path": "unchanged.py"}], "regressions": [],
+    }
+    if "unchanged.py" in render_text(clean, 20) or "New or worsened findings: 0" not in render_text(clean, 20):
+        print("architecture fitness self-test failed: regression reporting", file=sys.stderr)
         return 1
     print("Architecture fitness self-test passed")
     return 0

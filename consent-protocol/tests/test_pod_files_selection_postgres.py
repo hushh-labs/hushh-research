@@ -107,3 +107,31 @@ async def test_selection_is_bound_to_current_job_and_preserves_unrelated_metadat
         stage.get("stage") == "files_selection" and stage.get("enabled")
         for stage in parked["stages"]
     )
+
+
+async def test_manual_cloud_setup_preserves_the_serving_assignment(pg, engine):  # noqa: F811
+    from db.db_client import DatabaseClient
+    from hushh_mcp.services.personal_agent_cloud_assignment import PodAssignmentPreserved
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    client = DatabaseClient(engine=engine)
+    client.execute_raw("""INSERT INTO personal_agent_registry (user_id,hushh_id,status)
+        VALUES ('manual-cloud-owner','ha1_manual','unprovisioned')""")
+    repo = PersonalAgentRegistryRepo(client=client)
+    args = dict(
+        user_id="manual-cloud-owner",
+        project="owner-project",
+        region="us-central1",
+        bootstrap_sa="bootstrap",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    assert await repo.set_user_cloud(**args)
+    client.execute_raw("""UPDATE personal_agent_registry SET status='provisioning'
+        WHERE user_id='manual-cloud-owner'""")
+    before = await repo.get("manual-cloud-owner")
+    with pytest.raises(PodAssignmentPreserved):
+        await repo.set_user_cloud(**{**args, "project": "another-project"})
+    assert await repo.get("manual-cloud-owner") == before
+    assert await repo.set_user_cloud(**args)

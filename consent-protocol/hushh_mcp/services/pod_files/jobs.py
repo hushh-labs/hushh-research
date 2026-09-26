@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from hushh_mcp.services.pod_files.contracts import decode_metadata
 from hushh_mcp.services.pod_files.library import FilesRefused, identifier
 from hushh_mcp.services.pod_files.runtime import files_access, operation
 
@@ -39,7 +40,7 @@ def worker_origin() -> str:
 
 
 async def prepare_delivery(
-    library: Any, *, file_id: str, automatic: bool = False
+    library: Any, *, file_id: str, automatic: bool = False, request_id: str = ""
 ) -> dict[str, Any]:
     settings = await library.analysis_allowed(file_id)
     entry = await library.stat(file_id)
@@ -61,7 +62,9 @@ async def prepare_delivery(
     job = None
     try:
         job, generation = await library._read(path)
-        if job["state"] in {"queued", "running", "completed"}:
+        if job["state"] in {"queued", "running"} or (
+            job["state"] == "completed" and (not request_id or job.get("requestId") == request_id)
+        ):
             return {"id": job_id, "state": job["state"]}
         if automatic and job["state"] != "pending_delivery":
             return {"id": job_id, "state": job["state"]}
@@ -86,6 +89,7 @@ async def prepare_delivery(
         )[-20:]
         job = {
             "history": history,
+            "requestId": request_id,
             "id": job_id,
             "file": file_id,
             "revision": entry["revision"],
@@ -245,9 +249,11 @@ async def run_job(job_id: str, delivery: str) -> dict[str, str]:
             await authority.require_held()
             # Read directly to avoid recursive authorization through library._read.
             raw = await library.store.get(path)
-            current = json.loads(library._open(path, raw)) if raw else {}
+            current = decode_metadata(library._open(path, raw)) if raw else {}
             settings_raw = await library.store.get("settings.bin")
-            config = json.loads(library._open("settings.bin", settings_raw)) if settings_raw else {}
+            config = (
+                decode_metadata(library._open("settings.bin", settings_raw)) if settings_raw else {}
+            )
             if (
                 current.get("state") != "running"
                 or current.get("delivery") != job["delivery"]

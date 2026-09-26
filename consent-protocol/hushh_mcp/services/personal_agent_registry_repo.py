@@ -1346,71 +1346,19 @@ class PersonalAgentRegistryRepo:
         bootstrap_sa: Optional[str] = None,
         authorized: bool = False,
     ) -> bool:
-        """Record WHERE this person's pod belongs. Returns False if they have no row.
+        """Record proven cloud coordinates without replacing an existing pod."""
+        from hushh_mcp.services.personal_agent_cloud_assignment import record_cloud
 
-        `deployment_target` and `model_credential_mode` are REQUIRED and are never
-        defaulted here. The registry is the common layer: it orchestrates a fleet it must
-        not be able to name, and a default like "the target is user_gcp" would be this
-        file deciding a provider policy on the caller's behalf. Defaulting them was
-        caught by `test_deployment_boundary_holds` on the first run, which is the guard
-        doing precisely its job. The route that knows a person chose their own cloud is
-        the layer allowed to say so.
-
-        An UPDATE rather than an upsert, deliberately. This is called while someone is
-        onboarding, long before a pod exists, and it must never be the thing that brings
-        a registry row into being -- a row created here would carry no HusshID and no
-        phone hash, and every reader downstream assumes both. `register_pending` owns
-        row creation; this only ever adds coordinates to a row that already exists.
-
-        `authorized` is the whole point of the separation. It is set only when hushh has
-        just PROVEN it can act in the project by minting a token and reading the bindings
-        back -- never because a form said so. A project recorded without it is a person
-        who named a cloud and has not yet run the grant, and provisioning must refuse
-        that rather than fall back to hushh's own cloud (which would silently put their
-        agent, and their bill, somewhere they did not choose).
-
-        Not cleared on a failed re-check OF THE SAME PROJECT: losing a previously proven
-        authorization on one transient API error would strand a working pod. Re-proving
-        updates the timestamp; only an explicit revocation path should ever clear it.
-
-        Cleared on a PROJECT SWITCH, structurally: a proof is a statement about one
-        project, and carrying it onto a different, never-proven project would let
-        provisioning proceed where hushh holds no grant -- exactly the fallback this
-        column exists to refuse (audit finding, 2026-08-21). Switching and proving in
-        the same call (the one-click chain) keeps its fresh proof.
-        """
-        normalized_project = str(project or "").strip()
-        if not normalized_project:
-            raise ValueError("a user cloud needs a project id -- it is never inferred")
-
-        data: dict[str, Any] = {
-            "user_cloud_project": normalized_project,
-            "deployment_target": deployment_target,
-            "model_credential_mode": model_credential_mode,
-        }
-        if region:
-            data["user_cloud_region"] = str(region).strip()
-        if bootstrap_sa:
-            data["user_cloud_bootstrap_sa"] = str(bootstrap_sa).strip()
-        if authorized:
-            data["user_cloud_authorized_at"] = datetime.now(timezone.utc).isoformat()
-        else:
-            current = (
-                self._db()
-                .table(_REGISTRY)
-                .select("user_cloud_project")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            rows = current.data or []
-            previous_project = str((rows[0] if rows else {}).get("user_cloud_project") or "")
-            if previous_project and previous_project != normalized_project:
-                data["user_cloud_authorized_at"] = None
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-        response = self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
-        return bool(response.data or [])
+        return record_cloud(
+            self._db(),
+            user_id=user_id,
+            project=project,
+            deployment_target=deployment_target,
+            model_credential_mode=model_credential_mode,
+            region=region,
+            bootstrap_sa=bootstrap_sa,
+            authorized=authorized,
+        )
 
     async def set_hosted_cloud(
         self,

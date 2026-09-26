@@ -873,34 +873,16 @@ class UserGcpBootstrap:
             )
             code = getattr(response, "status_code", 0)
             ok = code in (200, 201) or code in call.get("tolerate", [])
-            if call["step"] == "files_queue" and code in (200, 201, 409):
-                from hushh_mcp.services.pod_files.provisioning import queue_matches
+            from hushh_mcp.services.pod_files.bootstrap_observation import verify_files_step
 
-                observed_queue = self._session.get(
-                    f"https://cloudtasks.googleapis.com/v2/{call['body']['name']}",
-                    headers=headers,
-                    timeout=30,
-                    allow_redirects=False,
-                )
-                ok = observed_queue.status_code == 200 and queue_matches(
-                    _json_or_empty(observed_queue), call["body"]
-                )
-
-            if ok and call["step"] == "cmek_bucket" and plan.get("filesLibrary"):
-                from hushh_mcp.services.pod_files.provisioning import bucket_matches
-
-                bucket_name = call["body"]["name"]
-                observed_bucket = self._session.get(
-                    f"https://storage.googleapis.com/storage/v1/b/{bucket_name}",
-                    headers=headers,
-                    timeout=30,
-                    allow_redirects=False,
-                )
-                ok = observed_bucket.status_code == 200 and bucket_matches(
-                    _json_or_empty(observed_bucket),
-                    bucket=bucket_name,
-                    kms_key=call["body"]["encryption"]["defaultKmsKeyName"],
-                )
+            ok, files_observation = verify_files_step(
+                self._session,
+                call,
+                headers,
+                code=code,
+                ok=ok,
+                enabled=bool(plan.get("filesLibrary")),
+            )
 
             # A 409 on the bucket is NOT success. GCS bucket names are globally unique,
             # so "already exists" can mean the name belongs to a completely different
@@ -956,18 +938,8 @@ class UserGcpBootstrap:
             }
             if ok and waited.get("resourceObservation"):
                 result["resourceObservation"] = waited["resourceObservation"]
-            if ok and code in (200, 201) and call["step"] == "files_queue":
-                from hushh_mcp.services.pod_files.provisioning import queue_creation_observation
-
-                name = call["body"]["name"]
-                identity = queue_creation_observation(_json_or_empty(observed_queue), name)
-                if identity:
-                    result["resourceObservation"] = {
-                        "type": "cloud_tasks_queue",
-                        "id": name.rsplit("/", 1)[-1],
-                        "disposition": "created",
-                        "identity": identity,
-                    }
+            if ok and files_observation:
+                result["resourceObservation"] = files_observation
             if ok and code in (200, 201) and call["step"] == "cmek_bucket":
                 from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
 

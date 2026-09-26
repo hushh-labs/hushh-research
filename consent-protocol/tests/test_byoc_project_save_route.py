@@ -241,3 +241,20 @@ async def test_an_unparkable_cloud_is_still_a_refusal(monkeypatch):
 
     assert excinfo.value.status_code == 409
     assert excinfo.value.detail["code"] == "NO_AGENT_RECORD"
+
+
+async def test_existing_assignment_is_not_parked_as_a_new_setup(wiring, monkeypatch):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.personal_agent_cloud_assignment import PodAssignmentPreserved
+
+    _grant_present(monkeypatch)
+
+    async def refuse(**kwargs):
+        raise PodAssignmentPreserved("existing pod")
+
+    monkeypatch.setattr(wiring, "set_user_cloud", refuse)
+    with pytest.raises(HTTPException) as exc:
+        await _save()
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": "POD_ASSIGNMENT_PRESERVED"}

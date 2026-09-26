@@ -315,14 +315,14 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Wallet is reached from the One home roster tile; the way out is One.
-  if (pathname === ROUTES.ONE_WALLET) {
+  if (pathname === ROUTES.ONE_WALLET || pathname === ROUTES.ONE_FILES) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Wallet" },
+        { label: pathname === ROUTES.ONE_FILES ? "Files" : "Wallet" },
       ],
     };
   }

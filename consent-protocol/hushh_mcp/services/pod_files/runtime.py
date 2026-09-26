@@ -67,6 +67,7 @@ async def operation(*, mutation: bool = False):
         await library.store.verify_bucket(os.getenv("HUSSH_POD_KMS_KEY", ""))
         if mutation:
             async with _mutation:
+                await require_files_access(manage=True)
                 yield library
         else:
             yield library
@@ -93,19 +94,28 @@ async def fence_files() -> None:
 _files_access: ContextVar[Callable[[], Awaitable[None]] | None] = ContextVar(
     "files_access", default=None
 )
+_files_manage: ContextVar[Callable[[], Awaitable[None]] | None] = ContextVar(
+    "files_manage", default=None
+)
 
 
 @contextmanager
-def files_access(check: Callable[[], Awaitable[None]]):
+def files_access(
+    check: Callable[[], Awaitable[None]],
+    *,
+    manage: Callable[[], Awaitable[None]] | None = None,
+):
     token = _files_access.set(check)
+    manager = _files_manage.set(manage or check)
     try:
         yield
     finally:
+        _files_manage.reset(manager)
         _files_access.reset(token)
 
 
-async def require_files_access() -> None:
-    check = _files_access.get()
+async def require_files_access(*, manage: bool = False) -> None:
+    check = (_files_manage if manage else _files_access).get()
     if check is None:
         raise FilesRefused("FILES_AUTHORITY_REQUIRED", 403)
     await check()

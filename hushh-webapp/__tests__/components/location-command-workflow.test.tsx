@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   api: vi.fn(),
+  pod: vi.fn(),
   permission: vi.fn(),
   requestPermission: vi.fn(),
   capture: vi.fn(),
@@ -27,6 +28,9 @@ const h = vi.hoisted(() => ({
   },
   router: { push: vi.fn(), replace: vi.fn() },
   pageAction: vi.fn(),
+}));
+vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
+  resolveGeminiRuntimeConnection: async () => ({ mode: "managed" }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
@@ -64,7 +68,7 @@ vi.mock("@capacitor/core", async (load) => ({
 }));
 vi.mock("@capacitor/app", () => ({ App: {} }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: h.api },
+  ApiService: { apiFetch: h.api, ownerPodRequest: h.pod },
 }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdTokenWithRetry: async () => "synthetic-id-token" },
@@ -376,11 +380,20 @@ beforeEach(() => {
     if (!next) throw new Error("Unexpected synthetic transition");
     return projection(next[0], next[1]);
   });
+  h.pod.mockImplementation(async (path) => {
+    expect(path).toBe("commands/assess");
+    return new Response(JSON.stringify({
+      assessment: { steps: [], unsupported: false },
+      capability_revision: "cap", observations: [],
+    }));
+  });
   h.api.mockImplementation(async (path, init) => {
     const body = init.body ? JSON.parse(init.body) : undefined;
     calls.push({ path, body });
     let response: unknown;
-    if (path.endsWith(`/workflows/location/onboarding/runs/${runId}`)) {
+    if (path.endsWith("/proposals/prepare")) {
+      response = { scopeToken: "synthetic-command-read-grant" };
+    } else if (path.endsWith(`/workflows/location/onboarding/runs/${runId}`)) {
       // Workflow receipts require Firebase identity; a vault-owner capability
       // is only accepted by the private PKM operation, not this endpoint.
       if (new Headers(init.headers).get("Authorization") !== "Bearer synthetic-id-token") {
@@ -575,7 +588,8 @@ it.each(["renewed", "no_proof", "checkpoint_failed"] as const)(
       if (mode === "no_proof") {
         await waitFor(() => expect(h.get).toHaveBeenCalled());
       } else {
-        await waitFor(() => expect(screen.getByText("The command could not continue. Refresh its checkpoint.")).toBeVisible());
+        await waitFor(() => expect(screen.getAllByText("The command service is temporarily unavailable. Try again shortly.")[0]).toBeVisible());
+        expect(screen.getByRole("button", { name: "Refresh / Resume", exact: true })).toBeVisible();
       }
       expect(h.save).toHaveBeenCalledTimes(1);
       expect(checkpoint.capsule).not.toBeNull();

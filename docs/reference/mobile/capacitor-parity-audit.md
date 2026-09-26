@@ -64,6 +64,10 @@ OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
 explicit exclusions rather than presenting a native Google authorization flow
 that cannot complete.
 
+Files is also initially web-only: `/one/files` requires native acceptance for
+streaming transfers, file-picker behavior, owner key continuity, and direct-pod
+admission. Its web surface is not evidence of iOS or Android parity.
+
 Current inventory policy:
 
 - 104 routes are native-required and must pass on iOS and Android: 99

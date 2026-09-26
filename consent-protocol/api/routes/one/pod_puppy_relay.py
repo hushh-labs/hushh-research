@@ -117,6 +117,34 @@ def valid_capabilities(value: Any) -> Optional[tuple[str, ...]]:
     return tuple(out)
 
 
+async def _next_frame(
+    websocket: WebSocket, link: Any, idle_grace: int | None
+) -> dict[str, Any] | None:
+    """Close idle or silent sockets without treating heartbeats as active work."""
+    remaining = (
+        idle_grace - (time.monotonic() - link.last_work_monotonic)
+        if idle_grace and not link.pending
+        else _DEVICE_SILENCE_SECONDS
+    )
+    if remaining <= 0:
+        await websocket.close(code=1000, reason="Puppy relay idle")
+        return None
+    try:
+        async with asyncio.timeout(min(_DEVICE_SILENCE_SECONDS, remaining)):
+            return await _frame(websocket)
+    except asyncio.TimeoutError:
+        if (
+            idle_grace
+            and not link.pending
+            and time.monotonic() - link.last_work_monotonic >= idle_grace
+        ):
+            await websocket.close(code=1000, reason="Puppy relay idle")
+        else:
+            logger.info("pod_puppy_relay.device_silent seconds=%s", int(_DEVICE_SILENCE_SECONDS))
+            await websocket.close(code=1001, reason="Puppy relay went silent")
+        return None
+
+
 @router.websocket("/relay")
 async def pod_puppy_relay(websocket: WebSocket) -> None:
     authority = active_session_authority()
@@ -200,36 +228,8 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
         )
         idle_grace = 600 if os.getenv("POD_IDLE_GRACE_SECONDS") == "600" else None
         while True:
-            if (
-                idle_grace
-                and not link.pending
-                and time.monotonic() - link.last_work_monotonic >= idle_grace
-            ):
-                await websocket.close(code=1000, reason="Puppy relay idle")
-                return
-            try:
-                remaining = (
-                    max(0.1, idle_grace - (time.monotonic() - link.last_work_monotonic))
-                    if idle_grace and not link.pending
-                    else _DEVICE_SILENCE_SECONDS
-                )
-                async with asyncio.timeout(min(_DEVICE_SILENCE_SECONDS, remaining)):
-                    raw = await _frame(websocket)
-            except asyncio.TimeoutError:
-                if (
-                    idle_grace
-                    and not link.pending
-                    and time.monotonic() - link.last_work_monotonic >= idle_grace
-                ):
-                    await websocket.close(code=1000, reason="Puppy relay idle")
-                    return
-                # Gone, not merely quiet. Say so and let `finally` evict the link,
-                # so the next turn is refused honestly instead of waiting out the
-                # dispatch deadline against a device that is not there.
-                logger.info(
-                    "pod_puppy_relay.device_silent seconds=%s", int(_DEVICE_SILENCE_SECONDS)
-                )
-                await websocket.close(code=1001, reason="Puppy relay went silent")
+            raw = await _next_frame(websocket, link, idle_grace)
+            if raw is None:
                 return
             inner = envelope.open(
                 raw, expected_direction=DIR_DEVICE_TO_POD, expected_seq=inbound_expected

@@ -48,6 +48,7 @@ export const ROUTE_ID_VALUES = [
   "founder_profile_manish",
   "profile_google_oauth_return",
   "one_calendar",
+  "one_files",
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
@@ -263,6 +264,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
+  if (pathname === ROUTES.ONE_FILES) return "one_files";
   // `public_person_ref` is intentionally opaque.  Never let the dynamic
   // segment fall through to `unknown`, where callers may retain raw paths.
   if (/^\/people\/[^/]+$/.test(pathname)) return "person_profile";

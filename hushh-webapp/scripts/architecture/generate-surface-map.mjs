@@ -157,6 +157,17 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/files": {
+    api_dependencies: [{
+      service_file: "lib/files/service.ts",
+      service_methods: ["list", "upload", "download", "organize", "settings"],
+      nextjs_api_route: null,
+      nextjs_proxy_file: null,
+      backend_endpoint_family: "/api/one/pod/files/*",
+      native_transport: "Not accepted on native; browser uses signed owner-pod admission and direct HTTPS via ApiService.ownerPodRequest",
+    }],
+    native_plugin_dependencies: [],
+  },
   "/": {
     api_dependencies: [{
       service_file: "lib/services/agent-chat-client.ts",

@@ -17,16 +17,20 @@ router = APIRouter(prefix="/api/one/pod/files", tags=["personal-agent"])
 
 
 async def access(authorization: str | None = Header(default=None)):
-    authority, claims = verified_session(authorization, role=ROLE_APP, scope="files.manage")
+    authority, claims = verified_session(authorization, role=ROLE_APP, scope="files.read")
 
     async def check() -> None:
-        verified_session(authorization, role=ROLE_APP, scope="files.manage")
+        verified_session(authorization, role=ROLE_APP, scope="files.read")
         try:
             await authority.require_held()
         except PodSessionRefused as exc:
             raise FilesRefused(exc.code, exc.status) from None
 
-    with files_access(check):
+    async def manage() -> None:
+        verified_session(authorization, role=ROLE_APP, scope="files.manage")
+        await check()
+
+    with files_access(check, manage=manage):
         yield claims
 
 
@@ -204,6 +208,7 @@ async def read_usage(owner: Owner, cursor: str = ""):
 
 
 class OrganizationRequest(EntryRequest):
+    request_id: str = Field(default="", max_length=128)
     cancel: bool = False
 
 
@@ -242,7 +247,9 @@ async def organize(body: OrganizationRequest, owner: Owner):
             async with operation(mutation=True):
                 if body.cancel:
                     return await status(library, body.file_id, cancel=True)
-                prepared = await prepare_delivery(library, file_id=body.file_id)
+                prepared = await prepare_delivery(
+                    library, file_id=body.file_id, request_id=body.request_id
+                )
             return await deliver(library, prepared)
     except FilesRefused as exc:
         raise refusal(exc) from exc

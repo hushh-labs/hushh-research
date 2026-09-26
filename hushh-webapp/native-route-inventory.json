@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 125,
+  "total_routes": 126,
   "native_required_routes": 106,
-  "excluded_routes": 19,
+  "excluded_routes": 20,
   "routes": [
     {
       "route": "/",
@@ -397,6 +397,11 @@
         "loaded",
         "empty-valid"
       ]
+    },
+    {
+      "route": "/one/files",
+      "classification": "excluded-web-only",
+      "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
     },
     {
       "route": "/one/gmail",

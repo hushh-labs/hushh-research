@@ -203,10 +203,6 @@ class McpOAuthCallback:
 
 
 class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
-    _admitted_metadata: OAuthMetadata | None
-    _admitted_endpoints: dict[str, str]
-    _advertised_issuer: str | None
-    _registered_issuer: str | None
     """SDK OAuth restricted to setup, never an authorization retry around a write.
 
     The owning connection workflow binds issuer/callback continuity and uses

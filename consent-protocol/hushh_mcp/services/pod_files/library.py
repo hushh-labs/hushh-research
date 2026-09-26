@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from . import analysis_policy, catalog, transfers
 from .contracts import CHUNK_BYTES as CHUNK_BYTES
-from .contracts import MAX_FILE_BYTES, display_name
+from .contracts import MAX_FILE_BYTES, decode_metadata, display_name
 from .contracts import FilesRefused as FilesRefused
 from .contracts import identifier as identifier
 
@@ -59,12 +59,13 @@ class FilesLibrary:
         if data is None:
             raise FilesRefused("FILES_NOT_FOUND", 404)
         await self.check()
-        return json.loads(self._open(path, data)), generation
+        return decode_metadata(self._open(path, data)), generation
 
     async def _write(self, path: str, value: dict[str, Any], generation: int) -> None:
         await self.check()
         blob = self._seal(
-            path, json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
+            path,
+            json.dumps({"format": 1, **value}, separators=(",", ":"), ensure_ascii=False).encode(),
         )
         if await self.store.put_if_generation(path, blob, generation) is None:
             raise FilesRefused("FILES_REVISION_CONFLICT")

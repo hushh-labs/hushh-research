@@ -347,8 +347,8 @@ async def test_mark_needs_reinit_flips_status_and_clears_the_authorization():
     reachability gate exists to end). Broken on purpose: drop the None write and the proof
     survives into the reinit -- this fails.
     """
-    repo, _ = _repo_and_db()
-    await _upsert(repo, status="provisioned")
+    repo, db = _repo_and_db()
+    await _upsert(repo, status="pending")
     await repo.set_user_cloud(
         user_id=_UID,
         project="their-own-project",
@@ -358,6 +358,9 @@ async def test_mark_needs_reinit_flips_status_and_clears_the_authorization():
         deployment_target="user_gcp",
         model_credential_mode="user_adc",
     )
+    db.table("personal_agent_registry").update({"status": "provisioned"}).eq(
+        "user_id", _UID
+    ).execute()
     assert (await repo.get(_UID))["user_cloud_authorized_at"]  # precondition: proven
 
     wrote = await repo.mark_needs_reinit(_UID, observed=deepcopy(await repo.get(_UID)))

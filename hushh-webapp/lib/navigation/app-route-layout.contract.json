@@ -996,6 +996,42 @@
     }
   },
   {
+    "route": "/one/files",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.files",
+      "purpose": "Manage the owner\u2019s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "File changes complete only after the owner-bound pod confirms the matching operation; destructive changes require explicit confirmation.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
     "route": "/one/puppy",
     "mode": "standard",
     "shellVerification": {

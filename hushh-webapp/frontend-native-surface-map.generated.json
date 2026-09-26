@@ -2899,6 +2899,80 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/files",
+      "page_file": "app/one/files/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.files",
+          "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "File changes complete only after the owner-bound pod confirms the matching operation; destructive changes require explicit confirmation.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/files",
+        "classification": "excluded-web-only",
+        "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/files/service.ts",
+          "service_methods": [
+            "list",
+            "upload",
+            "download",
+            "organize",
+            "settings"
+          ],
+          "nextjs_api_route": null,
+          "nextjs_proxy_file": null,
+          "backend_endpoint_family": "/api/one/pod/files/*",
+          "native_transport": "Not accepted on native; browser uses signed owner-pod admission and direct HTTPS via ApiService.ownerPodRequest"
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "physical_page_exists": true,
@@ -9790,5 +9864,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8f26b99b03040014b83bc60723d8da12ee6dca57b2f6571c1370e57f6c1b9c22"
+  "content_sha256": "ce86a4da05b2d33502910931bd98f9c6633474e8164c6661920deca73d553d67"
 }

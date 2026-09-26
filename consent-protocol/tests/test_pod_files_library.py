@@ -10,6 +10,17 @@ async def allowed():
     return None
 
 
+@pytest.mark.parametrize("format_version", [2, True, "1"])
+async def test_unknown_metadata_version_does_not_get_interpreted(library, format_version):
+    entry = await library.create(name="file", parent="root", size=0, request_id="version-test")
+    path = library._path(entry["id"])
+    value, generation = await library._read(path)
+    value["format"] = format_version
+    await library._write(path, value, generation)
+    with pytest.raises(FilesRefused, match="FILES_METADATA_"):
+        await library.stat(entry["id"])
+
+
 @pytest.fixture
 def library(tmp_path):
     return FilesLibrary(
