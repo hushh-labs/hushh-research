@@ -16,11 +16,18 @@ from typing import Any
 
 from google.adk.events import Event
 from google.adk.sessions import BaseSessionService, Session
-from google.adk.sessions.base_session_service import GetSessionConfig, ListSessionsResponse
+from google.adk.sessions.base_session_service import (
+    GetSessionConfig,
+    ListSessionsResponse,
+)
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.one_adk.adk_session_repository import (
+    AdkSessionRepository,
+    PostgresAdkSessionRepository,
+)
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -88,8 +95,20 @@ def session_payload_aad(app_name: str, session_id: str) -> str:
 class EncryptedAdkSessionService(BaseSessionService):
     """Persist one encrypted Session document with optimistic concurrency."""
 
-    def __init__(self, cipher: ChatCipher | None = None) -> None:
+    def __init__(
+        self,
+        cipher: ChatCipher | None = None,
+        *,
+        repository: AdkSessionRepository | None = None,
+    ) -> None:
         self._cipher = cipher or ChatCipher()
+        # An explicit runtime may supply its repository. Shared defaults retain the
+        # existing SQL adapter and value-free database error boundary.
+        self._repository = (
+            repository
+            if repository is not None
+            else PostgresAdkSessionRepository(lambda sql, params: self._execute(sql, params))
+        )
 
     @staticmethod
     def _set_revision(session: Session, revision: int) -> None:
@@ -156,7 +175,11 @@ class EncryptedAdkSessionService(BaseSessionService):
             aad=session_payload_aad(app_name, session_id),
         )
         session = Session.model_validate_json(plain)
-        if (session.app_name, session.user_id, session.id) != (app_name, user_id, session_id):
+        if (session.app_name, session.user_id, session.id) != (
+            app_name,
+            user_id,
+            session_id,
+        ):
             raise ChatKeyMismatchError("Chat history did not open with this vault.")
         return session
 
@@ -177,14 +200,8 @@ class EncryptedAdkSessionService(BaseSessionService):
             last_update_time=time.time(),
         )
         encoded = self._encode(session)
-        result = await self._execute(
-            """INSERT INTO one_adk_sessions
-               (app_name, user_id, session_id, payload_ciphertext, payload_iv,
-                payload_tag, payload_algorithm)
-               VALUES (:app, :user, :session, :ciphertext, :iv, :tag, :algorithm)
-               ON CONFLICT (app_name, user_id, session_id) DO NOTHING
-               RETURNING revision""",
-            {"app": app_name, "user": user_id, "session": session.id, **encoded},
+        result = await self._repository.create(
+            **{"app": app_name, "user": user_id, "session": session.id, **encoded}
         )
         if not result.data:
             existing = await self.get_session(
@@ -208,17 +225,13 @@ class EncryptedAdkSessionService(BaseSessionService):
         session_id: str,
         config: GetSessionConfig | None = None,
     ) -> Session | None:
-        result = await self._execute(
-            """SELECT payload_ciphertext, payload_iv, payload_tag, payload_algorithm, revision
-               FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext LIKE :chat_marker LIMIT 1""",
-            {
+        result = await self._repository.get(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
+            }
         )
         if not result.data:
             return None
@@ -252,13 +265,8 @@ class EncryptedAdkSessionService(BaseSessionService):
     ) -> ListSessionsResponse:
         if not user_id:
             return ListSessionsResponse(sessions=[])
-        result = await self._execute(
-            """SELECT session_id, payload_ciphertext, payload_iv, payload_tag,
-                      payload_algorithm, revision
-               FROM one_adk_sessions WHERE app_name = :app AND user_id = :user
-                 AND payload_ciphertext LIKE :chat_marker
-               ORDER BY updated_at DESC LIMIT 100""",
-            {"app": app_name, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE},
+        result = await self._repository.list(
+            **{"app": app_name, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE}
         )
         sessions = []
         unreadable = 0
@@ -289,32 +297,25 @@ class EncryptedAdkSessionService(BaseSessionService):
 
     async def delete_owned_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
         """Delete one current conversation without opening it; no chat key needed."""
-        result = await self._execute(
-            """DELETE FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext LIKE :chat_marker
-               RETURNING session_id""",
-            {
+        result = await self._repository.delete(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
+            }
         )
         return bool(result.data)
 
     async def is_legacy_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
         """True when the id is held by a conversation sealed with the platform key."""
-        result = await self._execute(
-            """SELECT 1 AS legacy FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext NOT LIKE :chat_marker LIMIT 1""",
-            {
+        result = await self._repository.legacy(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
+            }
         )
         return bool(result.data)
 
@@ -328,22 +329,15 @@ class EncryptedAdkSessionService(BaseSessionService):
         session.state["hussh:thread_title"] = title.strip()[:160]
         session.last_update_time = time.time()
         encoded = self._encode(session)
-        result = await self._execute(
-            """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                      payload_iv = :iv, payload_tag = :tag,
-                      payload_algorithm = :algorithm, revision = revision + 1,
-                      updated_at = NOW()
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-            {
+        result = await self._repository.replace(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "revision": revision,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
                 **encoded,
-            },
+            }
         )
         if not result.data:
             raise RuntimeError("Conversation changed while its title was being updated.")
@@ -357,7 +351,9 @@ class EncryptedAdkSessionService(BaseSessionService):
             return event
         if getattr(session, "_hushh_partial_history", False):
             latest = await self.get_session(
-                app_name=session.app_name, user_id=session.user_id, session_id=session.id
+                app_name=session.app_name,
+                user_id=session.user_id,
+                session_id=session.id,
             )
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
@@ -372,28 +368,23 @@ class EncryptedAdkSessionService(BaseSessionService):
         for _attempt in range(3):
             revision = self._revision(session)
             encoded = self._encode(session)
-            result = await self._execute(
-                """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                          payload_iv = :iv, payload_tag = :tag,
-                          payload_algorithm = :algorithm, revision = revision + 1,
-                          updated_at = NOW()
-                   WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-                {
+            result = await self._repository.replace(
+                **{
                     "app": session.app_name,
                     "user": session.user_id,
                     "session": session.id,
                     "revision": revision,
                     "chat_marker": CHAT_CIPHERTEXT_LIKE,
                     **encoded,
-                },
+                }
             )
             if result.data:
                 self._set_revision(session, int(result.data[0]["revision"]))
                 return persisted_event
             latest = await self.get_session(
-                app_name=session.app_name, user_id=session.user_id, session_id=session.id
+                app_name=session.app_name,
+                user_id=session.user_id,
+                session_id=session.id,
             )
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
@@ -432,22 +423,15 @@ class EncryptedAdkSessionService(BaseSessionService):
             session.last_update_time = time.time()
             revision = self._revision(session)
             encoded = self._encode(session)
-            result = await self._execute(
-                """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                          payload_iv = :iv, payload_tag = :tag,
-                          payload_algorithm = :algorithm, revision = revision + 1,
-                          updated_at = NOW()
-                   WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-                {
+            result = await self._repository.replace(
+                **{
                     "app": app_name,
                     "user": user_id,
                     "session": session_id,
                     "revision": revision,
                     "chat_marker": CHAT_CIPHERTEXT_LIKE,
                     **encoded,
-                },
+                }
             )
             if result.data:
                 return event

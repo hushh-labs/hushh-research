@@ -1568,3 +1568,30 @@ Its direct-readiness publication, owner Puppy grant and separate-network
 inference remain pending. Registration and heartbeat are not relay acceptance.
 Normal Settings-approved upgrade continuity and destructive-history cutover
 remain open gates, with no application merge or UAT/production deployment.
+
+
+### Existing-device admission and verified security candidate — 2026-09-26
+
+Revision `c00c43047` passed complete local CI: 10,215 frontend tests, 522 voice
+contract tests, 6,995 backend tests, 101 frontend integration tests and 92 PKM
+checks. It is pushed to the existing infrastructure branch; GitHub validation
+`36290652934` is running. This is not a serving-revision claim. Main advanced
+concurrently and the application PR has conflicts; no application merge occurred.
+
+The approved dev personal-pod maintenance replaced the old image on the same
+service with the immutable, previously CI-verified writer image from `3d2e95e86`.
+The old binding parser omitted the newer signed deployment field and rejected
+valid hub signatures. Installed digest, unchanged environment and resource shape,
+durable key continuity, encrypted-log recovery, authenticated handoff and protected
+machine routes passed. An existing Hermes device then passed signed zero-scope
+admission without re-enrollment. Signed endpoint publication passed readback.
+This does not grant Puppy inference or prove separate-network browser/device
+acceptance, and it is separate from a normal Settings-approved software update.
+
+Reviewer Files access remains blocked by `FILES_NOT_ENABLED`: existing-owner
+capability activation must use the governed setup/update contract with verified
+storage and queue prerequisites. No flag-only activation was performed. Rich chat
+still targets the shared endpoint and receives `AGENT_PRIVATE_RUNTIME_REQUIRED`.
+The next source stage introduces a storage port behind the existing encrypted ADK
+session service; it does not yet establish pod chat or MCP review parity. Cleanup
+250 remains parked. Private operational receipts remain outside maintained docs.

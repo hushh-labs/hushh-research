@@ -91,7 +91,7 @@ pending-delivery record with an explicit retry; no autonomous outbox sweep is cl
 ## Provisioning and on-demand operation
 
 New owner-selected Files setup requires the dev Files erasure contract (migration
-938, composed with 937), the rollout gate, signed setup selection and a current
+941, composed with 940), the rollout gate, signed setup selection and a current
 project/bootstrap-bound setup job. The fleet flag alone cannot enable an owner's
 library. Queue and worker resources join the existing recovery and teardown inventory.
 

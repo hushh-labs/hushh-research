@@ -315,3 +315,48 @@ async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch)
     after_retry = await service.get_session(app_name="one", user_id="owner", session_id="thread")
     assert after_retry is not None
     assert [event.id for event in after_retry.events].count("request_submission_source_1") == 1
+
+
+async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_database(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.chat_key import ChatKeyMismatchError
+
+    class EmptyRepository:
+        def __bool__(self):
+            return False
+
+    repository = EmptyRepository()
+    repository.create = AsyncMock(return_value=SimpleNamespace(data=[{"revision": 1}]))
+    repository.get = AsyncMock()
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.encrypted_session_service.get_db",
+        lambda: pytest.fail("explicit runtime repository reached hub database"),
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher(), repository=repository)
+    session = await service.create_session(
+        app_name="one",
+        user_id="owner",
+        session_id="thread",
+        state={"note": "synthetic private note"},
+    )
+    sealed = repository.create.call_args.kwargs
+    assert sealed["user"] == "owner"
+    assert "synthetic private note" not in str(sealed)
+    repository.get.return_value = SimpleNamespace(
+        data=[
+            {
+                "session_id": "thread",
+                "revision": 1,
+                **{
+                    "payload_" + key: sealed[key]
+                    for key in ("ciphertext", "iv", "tag", "algorithm")
+                },
+            }
+        ]
+    )
+    restored = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert restored.state == session.state
+    foreign = EncryptedAdkSessionService(static_chat_cipher("ab" * 32), repository=repository)
+    with pytest.raises(ChatKeyMismatchError):
+        await foreign.get_session(app_name="one", user_id="owner", session_id="thread")
