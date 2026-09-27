@@ -82,7 +82,11 @@ export function SetupCompletionFooter({
             effect={effect}
             size="prominent"
             fullWidth
-            className={isQuietSetupAction ? "!border-0 !bg-transparent !text-[var(--app-accent)]" : undefined}
+            className={
+              isQuietSetupAction
+                ? "!border-0 !bg-transparent !text-[var(--app-accent-ink)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent-ink)]"
+                : undefined
+            }
             data-testid={testId}
             data-voice-control-id={controlId}
             data-voice-action-id={actionId}

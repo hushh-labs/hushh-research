@@ -60,10 +60,10 @@ export const getVariantStyles = (
     case "blue":
     case "blue-gradient":
       if (effect === "fill") {
-        return "bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)] transition-colors duration-100";
+        return "bg-[var(--app-accent-action)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-action-hover)] transition-colors duration-100";
       } else if (effect === "fade") {
         // button-secondary-pill: transparent fill, accent border + text ("ghost pill").
-        return "bg-transparent border border-[var(--app-accent)] text-[var(--app-accent)] hover:bg-[var(--app-accent-tint)] transition-colors duration-100";
+        return "bg-transparent border border-[var(--app-accent)] text-[var(--app-accent-ink)] hover:bg-[var(--app-accent-tint)] transition-colors duration-100";
       } else {
         return "bg-white/50 dark:bg-black/50 shadow-sm border border-white/20 dark:border-white/10 backdrop-blur-md hover:bg-white/60 dark:hover:bg-black/60 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       }
@@ -197,7 +197,7 @@ export const getVariantStyles = (
 
     case "destructive":
       if (effect === "fill") {
-        return "bg-destructive text-white hover:bg-destructive/90 shadow-md transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100 border border-transparent";
+        return "bg-[color:color-mix(in_srgb,var(--app-destructive)_80%,black)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_70%,black)] shadow-none transition-colors duration-100 border border-transparent";
       } else if (effect === "fade") {
         return "bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       } else {

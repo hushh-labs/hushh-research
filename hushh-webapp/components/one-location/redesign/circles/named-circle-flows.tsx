@@ -118,10 +118,10 @@ import {
 } from "@/lib/one-location/circle-invite-contract";
 
 const CIRCLES_GROUP_SURFACE =
-  "[--settings-group-radius:17px] !rounded-[17px] !bg-[color:var(--app-primary-surface)] !shadow-none";
+  "[--settings-group-radius:var(--app-card-radius-compact)] !rounded-[var(--app-card-radius-compact)] !border !border-[color:var(--app-settings-border)] !bg-[color:var(--app-settings-surface)] !shadow-none";
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
-  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none";
+  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-card-radius-compact)] [&>[data-ui-role=grouped-card]]:!border [&>[data-ui-role=grouped-card]]:!border-[color:var(--app-settings-border)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-settings-surface)] [&>[data-ui-role=grouped-card]]:shadow-none";
 
 /**
  * Leave / Delete circle.
@@ -133,7 +133,7 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
  * which is what this does.
  */
 const CIRCLE_DESTRUCTIVE_ACTION =
-  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";
+  "ui-text-button-label h-11 min-h-11 w-full rounded-[12px] text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] dark:text-[color:var(--app-destructive-bright)]";
 
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
@@ -241,7 +241,7 @@ function CircleSummaryRow({
             "flex h-9 w-9 shrink-0 items-center justify-center",
             isSmsCircle
               ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+              : "rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]",
           )}
           data-testid={
             isSmsCircle
@@ -765,8 +765,8 @@ export function CreateCircleFlow({
                 className={cn(
                   "flex h-12 items-center justify-center rounded-[14px] border px-4 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                   selected
-                    ? "border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+                    ? "border-[color:var(--app-label)] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-label)]"
+                    : "border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-settings-icon-surface)] hover:text-[color:var(--app-label)]",
                 )}
               >
                 {option.label}

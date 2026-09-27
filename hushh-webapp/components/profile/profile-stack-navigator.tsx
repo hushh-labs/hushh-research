@@ -48,10 +48,13 @@ export function ProfileStackNavigator({
   rootContent,
   entries,
   resetScroll = true,
+  showScreenTitle = false,
 }: {
   rootContent: ReactNode;
   entries: ProfileStackEntry[];
   resetScroll?: boolean;
+  /** Route pages need their own heading; the profile sheet already has one. */
+  showScreenTitle?: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
@@ -189,6 +192,7 @@ export function ProfileStackNavigator({
               )}
               style={{ transform: `translateX(${offset * 100}%)` }}
               aria-hidden={isActive ? undefined : true}
+              inert={!isActive}
               data-profile-stack-screen={entry.key}
               data-profile-stack-active={isActive ? "true" : undefined}
             >
@@ -207,10 +211,7 @@ export function ProfileStackNavigator({
                   <PageHeader
                     title={entry.title}
                     description={entry.description}
-                    // The sheet header (pane) or the bar's crumb (route)
-                    // already names this screen; drawn again it read
-                    // "Your account" then "Account" one line apart.
-                    titleVisuallyHidden
+                    titleVisuallyHidden={!showScreenTitle}
                     testId="profile-stack-page-header"
                   />
                   <SettingsPresentationProvider

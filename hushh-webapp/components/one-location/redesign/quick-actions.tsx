@@ -102,7 +102,7 @@ export function QuickActionCard({
           "bg-[color:var(--app-destructive)]/7 dark:bg-[color:var(--app-destructive)]/12",
         interactive
           ? cn(
-              "cursor-pointer active:bg-[rgba(120,120,128,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              "cursor-pointer active:bg-[color:var(--app-neutral-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
               isEmergency
                 ? "hover:bg-[color:var(--app-destructive)]/10"
                 : "hover:bg-[color:var(--app-card-surface-compact)]",

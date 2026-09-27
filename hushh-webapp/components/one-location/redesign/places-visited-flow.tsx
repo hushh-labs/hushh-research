@@ -282,7 +282,7 @@ export function PlacesVisitedFlow() {
                       asChild
                       variant="ghost"
                       size="sm"
-                      className="h-9 min-h-9 rounded-full px-3 text-[color:var(--app-accent)]"
+                      className="min-h-11 rounded-full px-3 text-[color:var(--app-settings-link)]"
                     >
                       <a
                         href={place.googleReviewUrl}
@@ -300,7 +300,7 @@ export function PlacesVisitedFlow() {
                     size="icon"
                     variant="ghost"
                     aria-label={`Remove your rating for ${place.label}`}
-                    className="h-9 w-9 shrink-0 rounded-full text-muted-foreground"
+                    className="h-11 w-11 shrink-0 rounded-full text-[color:var(--app-secondary-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
                     onClick={() => setRemoving(place)}
                   >
                     <Trash2 className="h-4 w-4" />

@@ -119,7 +119,7 @@ export function AuthLegalDialog({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-full"
+                  className="size-11 rounded-full"
                   aria-label="Close legal document"
                   data-voice-control-id={closeControlId}
                 >
@@ -137,7 +137,7 @@ export function AuthLegalDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange} modal={false}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} modal>
       <DialogContent
         showCloseButton={false}
         className="max-w-[min(40rem,calc(100%-1.5rem))] max-h-[calc(100dvh-1.5rem)] gap-0 overflow-hidden p-0"
@@ -159,7 +159,7 @@ export function AuthLegalDialog({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="absolute right-3 top-3 h-9 w-9 rounded-full"
+                className="absolute right-3 top-3 size-11 rounded-full"
                 aria-label="Close legal document"
                 data-voice-control-id={closeControlId}
               >

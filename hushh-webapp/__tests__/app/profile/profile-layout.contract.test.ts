@@ -61,8 +61,12 @@ describe("Profile canonical page layout", () => {
     expect(css).toMatch(
       /\[data-profile-stack-screen="panel:account"\] \{[\s\S]*?background: transparent;/,
     );
-    expect(css).not.toMatch(
-      /\[data-profile-stack-screen="panel:account"\] \{[\s\S]*?background: var\(--ios-account-screen-background\);/,
+    const accountCanvas = css.match(
+      /\[data-profile-stack-screen="panel:account"\] \{([^}]+)\}/,
+    )?.[1];
+    expect(accountCanvas).toContain("background: transparent;");
+    expect(accountCanvas).not.toContain(
+      "background: var(--ios-account-screen-background);",
     );
   });
 
@@ -89,30 +93,29 @@ describe("Profile canonical page layout", () => {
     );
   });
 
-  it("keeps the Profile menu on the same colored tile and type system as Account", () => {
+  it("keeps the Profile menu in neutral grouped rows with the Account type scale", () => {
     const workspace = readFileSync(
       join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
     const homeMenu = workspace.slice(
-      workspace.indexOf('<SettingsGroup title="Your settings"'),
+      workspace.indexOf('<SettingsGroup title="Account & privacy"'),
       workspace.indexOf("</AppPageContentRegion>"),
     );
 
-    for (const tone of ["blue", "purple", "green", "indigo", "orange", "red"]) {
-      expect(homeMenu).toContain(`iconTone="${tone}"`);
+    for (const group of ["Account & privacy", "Connections", "More"]) {
+      expect(homeMenu).toContain(`<SettingsGroup title="${group}" separatorInset>`);
     }
+    expect(homeMenu).toContain('iconTone="gray"');
+    expect(homeMenu).toContain('iconTone="red"');
     expect(homeMenu).not.toContain('iconTone="capability"');
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(
       /\.profile-home-content \[data-slot="settings-row-title"\] \{[\s\S]*?font-size: var\(--ios-account-row-title-size\) !important;[\s\S]*?font-weight: var\(--ios-account-regular-weight\) !important;[\s\S]*?letter-spacing: var\(--ios-account-row-title-tracking\) !important;/,
     );
     expect(css).toMatch(
-      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="blue"\][\s\S]*?background: var\(--ios-account-accent\) !important;/,
-    );
-    expect(css).toMatch(
-      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="indigo"\][\s\S]*?background: var\(--app-indigo\) !important;/,
+      /\.profile-home-content \[data-slot="settings-row-icon"\]:not\(\[data-icon-tone="capability"\]\):not\(\[data-icon-tone="transparent"\]\),[\s\S]*?background: transparent !important;/,
     );
   });
   it("keeps account identity in a compact leading-aligned header row", () => {
@@ -168,8 +171,11 @@ describe("Profile canonical page layout", () => {
     }
     expect(source).not.toMatch(/icon=\{Fingerprint\}\s+iconTone="gray"/);
     expect(source).toContain('className="profile-account-inline-action"');
-    expect(css).toMatch(
-      /\.profile-home-content \[data-icon-tone="purple"\] \{\s+background: var\(--app-purple\) !important;/,
+    expect(css).toContain(
+      ".profile-home-content [data-icon-tone] {",
+    );
+    expect(css).toContain(
+      "background: var(--app-settings-icon-surface) !important;",
     );
   });
 

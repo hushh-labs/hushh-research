@@ -154,7 +154,8 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(shell).toBeNull();
     expect(intro?.className).toContain("fixed");
     expect(intro?.className).toContain("inset-0");
-    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("overflow-y-auto");
+    expect(intro?.firstElementChild?.className).toContain("my-auto");
     expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("my-auto");
   });
@@ -173,7 +174,8 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(intro).toBeTruthy();
     expect(intro?.className).toContain("fixed");
     expect(intro?.className).toContain("inset-0");
-    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("overflow-y-auto");
+    expect(intro?.firstElementChild?.className).toContain("my-auto");
     expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("min-h-[calc(100dvh");
     expect(intro?.className).not.toContain("my-auto");

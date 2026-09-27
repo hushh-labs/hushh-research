@@ -179,6 +179,7 @@ import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+import { LocationUtilityIcon } from "@/components/one-location/location-utility-icon";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -2022,13 +2023,13 @@ function LiveShareDurationDialog({
 }
 
 const LOCATION_GROUP_SURFACE =
-  "overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] ring-1 ring-inset ring-[color:var(--app-separator)]";
+  "overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] shadow-none";
 
 const LOCATION_GROUP_SHELL_CLASSNAME =
-  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:!shadow-none";
+  "[--settings-group-radius:var(--app-card-radius-compact)] !rounded-[var(--app-card-radius-compact)] !border !border-[color:var(--app-settings-border)] !bg-[color:var(--app-settings-surface)] !shadow-none";
 
 const LOCATION_INTERACTIVE_SURFACE =
-  "bg-[color:var(--app-primary-surface)] ring-1 ring-inset ring-[color:var(--app-separator)]";
+  "border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] shadow-none";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -2263,7 +2264,7 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="group flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-settings-border)] px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-settings-icon-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
@@ -2296,7 +2297,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         data-testid="one-location-share-row"
         className={cn(
           LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
+          "flex w-full flex-col gap-4 rounded-[var(--app-card-radius-standard)] px-5 py-5 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -2308,7 +2309,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
             >
               You&apos;re not sharing
             </CardTitle>
-            <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+            <span className="mt-1 block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
@@ -2321,7 +2322,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] min-[420px]:w-auto"
+          className="min-h-11 w-full shrink-0 rounded-[12px] bg-[color:var(--app-label)] px-5 text-[color:var(--app-settings-canvas)] hover:bg-[color:var(--app-secondary-label)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] min-[420px]:w-auto"
         >
           Share location
         </Button>
@@ -2335,11 +2336,9 @@ function LocationSharePulseIcon() {
     <span
       aria-hidden="true"
       data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
+      className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)] sm:h-16 sm:w-16"
     >
-      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
-      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+      <LocationMenuGlyph name="share" size={25} />
     </span>
   );
 }
@@ -2381,12 +2380,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-            className="group flex h-[88px] min-h-[88px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            className="group flex h-[96px] min-h-[96px] min-w-0 flex-col items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-3 py-3 text-center shadow-none transition-[background-color,border-color,transform] [-webkit-tap-highlight-color:transparent] hover:border-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-settings-icon-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[color:var(--app-accent)] [&_svg]:h-[25px] [&_svg]:w-[25px] md:h-9 md:w-9 md:[&_svg]:h-7 md:[&_svg]:w-7"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)] [&_svg]:h-[21px] [&_svg]:w-[21px]"
             >
               {item.icon}
             </span>
@@ -2413,7 +2412,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-0 flex min-h-[68px] w-full items-center justify-between gap-3.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-4 py-2.5 text-left shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-destructive-tint)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
+          className="group mt-0 flex min-h-[72px] w-full items-center justify-between gap-3.5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-4 py-2.5 text-left shadow-none transition-[background-color,border-color,transform] [-webkit-tap-highlight-color:transparent] hover:border-[color:var(--app-destructive-border)] hover:bg-[color:var(--app-destructive-tint)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
         >
           <span className="flex min-w-0 items-center gap-2.5">
               <span
@@ -2560,15 +2559,11 @@ function LocationMenuGlyph({
 
 function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]"
-      data-location-menu-list-icon=""
-    >
+    <LocationUtilityIcon size="compact" className="[&>span]:leading-none">
       <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
         <LocationMenuGlyph name={name} size={18} />
       </span>
-    </span>
+    </LocationUtilityIcon>
   );
 }
 
@@ -3301,6 +3296,11 @@ function LocationSettingsFlow({
           className="[--settings-row-description-gap:2px] [--type-row-description-size:13px] [--type-row-description-line:18px]"
         >
           <SettingsRow
+            leading={
+              <LocationUtilityIcon size="compact">
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              </LocationUtilityIcon>
+            }
             title="Auto-approve requests"
             description={activeScopeLabel}
             trailing={
@@ -3327,6 +3327,11 @@ function LocationSettingsFlow({
           shellClassName="[--settings-group-radius:16px] shadow-none"
         >
           <SettingsRow
+            leading={
+              <LocationUtilityIcon size="compact">
+                <UsersRound className="h-4 w-4" aria-hidden="true" />
+              </LocationUtilityIcon>
+            }
             title="Emergency contacts"
             trailing={
               <TrailingValue as="span">{smsContactCount}</TrailingValue>
@@ -3546,7 +3551,7 @@ function ActiveShareAvatar({
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
       <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
-      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
+      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-success)]" />
     </span>
   );
 }
@@ -3566,7 +3571,7 @@ function ActiveShareMetadata({
       <span>Active</span>
       <span aria-hidden="true">·</span>
       {sms ? (
-        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
+        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[color:var(--app-destructive-tint)] px-1.5 text-[10px] font-semibold leading-none text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">
           SMS
         </span>
       ) : null}
@@ -3896,7 +3901,7 @@ function CircleIdentityStack({
                 index > 0 && "-ml-6",
                 isSmsCircle
                   ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                  : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+                  : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]",
               )}
             >
               {isSmsCircle ? (
@@ -4114,7 +4119,7 @@ function CircleInvitationsDialog({
                 >
                   <span
                     aria-hidden="true"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] bg-[color:var(--app-neutral-fill-strong)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
                   >
                     {circleInitials(circleName) || (
                       <UsersRound className="h-[17px] w-[17px]" />
@@ -6748,7 +6753,7 @@ function InviteFlow({
                   : "Invite expires soon"}
               </p>
             </div>
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/12 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+            <span className="rounded-full border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] px-2.5 py-0.5 text-xs font-semibold text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]">
               Pending
             </span>
           </div>
@@ -6775,7 +6780,7 @@ function InviteFlow({
             variant="ghost"
             onClick={() => vm.onRevokeCircleInvite(invite)}
             isLoading={vm.busy === "circleRevoke"}
-            className="h-11 w-full rounded-full text-sm text-red-600 hover:text-red-700 dark:text-red-300"
+            className="h-11 w-full rounded-full text-sm text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] dark:text-[color:var(--app-destructive-bright)]"
           >
             Revoke invite
           </Button>

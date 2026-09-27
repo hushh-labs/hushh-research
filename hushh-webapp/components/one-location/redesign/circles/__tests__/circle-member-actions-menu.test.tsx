@@ -122,10 +122,10 @@ describe("CircleMemberActionsMenu on a phone", () => {
     expect(within(sheet).getByLabelText("Verified advisor")).toBeInTheDocument();
 
     expect(
-      within(sheet).getByRole("menuitem", { name: /Share location/i }),
+      within(sheet).getByRole("button", { name: /Share location/i }),
     ).toBeInTheDocument();
     expect(
-      within(sheet).getByRole("menuitem", { name: /Remove from Circle/i }),
+      within(sheet).getByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
   });
 
@@ -134,7 +134,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Share location/i }),
+      await screen.findByRole("button", { name: /Share location/i }),
     );
 
     expect(onShare).toHaveBeenCalledTimes(1);
@@ -155,7 +155,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     );
 
     // Same surface, second pane -- so there is never a confirm painting
@@ -178,13 +178,13 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
     // Back to the action list, not out of the sheet entirely.
     expect(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
     expect(onRemove).not.toHaveBeenCalled();
   });
@@ -195,10 +195,10 @@ describe("CircleMemberActionsMenu on a phone", () => {
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
 
     expect(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("menuitem", { name: /Share location/i }),
+      screen.queryByRole("button", { name: /Share location/i }),
     ).toBeNull();
   });
 });

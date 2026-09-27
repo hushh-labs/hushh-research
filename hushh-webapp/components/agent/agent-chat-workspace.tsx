@@ -1271,11 +1271,11 @@ function AgentPromptSuggestions({
           type="button"
           disabled={disabled}
           onClick={() => onPromptSelect(prompt)}
-          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
+          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground transition-[background-color,border-color,transform] duration-150 hover:border-[color:var(--app-secondary-label)]/35 hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
         >
           <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
           <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
+            className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
             aria-hidden
           />
         </button>
@@ -1296,15 +1296,15 @@ function AgentWelcomePanel({
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
-    <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
+    <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-8 sm:py-12">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-1 text-center sm:px-2">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          One workspace
-        </div>
-        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          YOUR PRIVATE AGENT
+        </p>
+        <h2 className="text-[clamp(2rem,5vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-foreground">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
+        <p className="mx-auto mt-3 max-w-xl text-balance text-[15px] leading-6 text-muted-foreground sm:text-base">
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <AgentPromptSuggestions
@@ -1341,7 +1341,7 @@ function PostSetupWelcomeCard({
   return (
     <section
       data-testid="post-setup-welcome-card"
-      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.42)] sm:p-7"
+      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-5 sm:p-7"
     >
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         One · Your private agent
@@ -1354,7 +1354,7 @@ function PostSetupWelcomeCard({
         Here’s where we can start together.
       </p>
 
-      <div className="mt-6 rounded-2xl bg-muted/45 px-4 py-4 text-sm text-foreground">
+      <div className="mt-6 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-neutral-fill)] px-4 py-4 text-sm text-foreground">
         <p className="font-medium">What’s ready so far</p>
         {context.status === "loading" ? (
           <p className="mt-1 text-muted-foreground" role="status">I’m checking your setup summary…</p>
@@ -6808,7 +6808,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           type="button"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
-          className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          className="text-muted-foreground hover:text-foreground"
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -6821,7 +6821,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ) : null}
       <ShellActionSurface
         type="submit"
-        className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+        className="border-transparent bg-[color:var(--app-accent-action)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-action-hover)] disabled:bg-[color:var(--app-neutral-fill)] disabled:text-muted-foreground"
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
@@ -6845,7 +6845,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
         // Chat is the canonical root workspace. In canonical mode it spans full
         // height and manages its internal scroll streams and composer clearance.
-        "min-h-[420px] overflow-hidden bg-background",
+        "min-h-[420px] overflow-hidden bg-[color:var(--app-settings-canvas)]",
         isCanonicalChatRoute
           ? // The persistent bottom nav is `position: fixed`, so a flex-1/h-full
             // ancestor has no way to know it needs to leave room above it. Without
@@ -6912,12 +6912,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-settings-canvas)]",
           )}
         >
           <div
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
@@ -6952,11 +6952,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   this tile costs is better spent on the agent's name. */}
               <div
                 data-agent-chat-brand-tile
-                className="grid h-9 w-9 shrink-0 place-items-center max-sm:hidden"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--app-radius-md)] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)] max-sm:hidden"
               >
                 {isPuppySurface ? (
                   <Laptop
-                    className="h-5 w-5 text-[color:var(--app-accent-deep)]"
+                    className="h-5 w-5 text-current"
                     aria-hidden
                   />
                 ) : (
@@ -6980,7 +6980,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   which agent is answering, so it names the agent actually on
                   screen rather than the workspace. */}
               <div className="min-w-0">
-                <div className="truncate text-base font-medium leading-5 text-foreground">
+                <div className="truncate text-[17px] font-semibold leading-5 tracking-[-0.02em] text-foreground">
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({
@@ -7036,7 +7036,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] px-3 text-xs font-medium text-foreground sm:max-w-[9.5rem]"
                   >
                     {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
@@ -7118,7 +7118,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
                 onClick={() => requestProfilePaneOpen("tap")}
-                className="!h-8 !w-8 shrink-0 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
+                className="!h-11 !w-11 shrink-0 !border !border-[color:var(--app-settings-border)] !bg-[color:var(--app-settings-icon-surface)] p-0 !text-[color:var(--app-settings-icon-foreground)] !shadow-none hover:!bg-[color:var(--app-neutral-fill-strong)]"
               >
                 <Avatar className="h-8 w-8">
                   {userAvatarUrl ? (
@@ -7237,7 +7237,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
-                <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
                   {accessAction ? (
                     <Button
@@ -8378,7 +8378,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             >
               {queuedPrompts.length > 0 ? (
                 <div
-                  className="mb-2 rounded-[18px] bg-foreground/[0.045] px-3 py-2"
+                  className="mb-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-3 py-2"
                   data-testid="agent-chat-prompt-queue"
                   aria-live="polite"
                 >
@@ -8394,7 +8394,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     {queuedPrompts.map((prompt, index) => (
                       <div
                         key={prompt.id}
-                        className="flex min-w-0 items-center gap-2 rounded-xl bg-background/75 px-2 py-1.5 text-sm"
+                        className="flex min-w-0 items-center gap-2 rounded-xl bg-[color:var(--app-neutral-fill)] px-2 py-1.5 text-sm"
                       >
                         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                           {index + 1}
@@ -8433,7 +8433,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="h-7 px-2 text-xs"
+                            className="min-h-11 px-3 text-xs"
                             onClick={() =>
                               editQueuedPrompt(
                                 prompt.id,
@@ -8448,7 +8448,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             type="button"
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7"
+                            className="h-11 w-11"
                             aria-label={`Edit queued message ${index + 1}`}
                             onClick={() => {
                               setEditingQueuedPromptId(prompt.id);
@@ -8462,7 +8462,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          className="h-11 w-11 text-muted-foreground hover:text-destructive"
                           aria-label={`Remove queued message ${index + 1}`}
                           onClick={() => removeQueuedPrompt(prompt.id)}
                         >
@@ -8474,7 +8474,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </div>
               ) : null}
               {voiceActive ? (
-                <div className="rounded-[22px] bg-foreground/[0.045] p-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]">
+                <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-2">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -8500,7 +8500,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : null}
                   {longPromptAttachment ? (
                     <div
-                      className="relative mb-2 rounded-[18px] border border-foreground/[0.12] bg-foreground/[0.045] p-3 pr-11 text-sm"
+                      className="relative mb-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-3 pr-14 text-sm"
                       data-testid="agent-chat-text-attachment"
                     >
                       <button
@@ -8534,7 +8534,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="absolute right-2 top-2 h-8 w-8"
+                        className="absolute right-2 top-2 h-11 w-11"
                         aria-label="Remove text attachment"
                         onClick={removeLongPromptAttachment}
                       >
@@ -8625,8 +8625,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
                         className={
                             composerExpanded
-                              ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30"
+                              ? "absolute right-2 top-2 h-11 w-11 rounded-full text-muted-foreground"
+                              : "h-11 w-11 shrink-0 rounded-full border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] text-muted-foreground hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                         }
                         aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
                         title={composerExpanded ? "Collapse" : "Expand"}
@@ -8652,7 +8652,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "flex shrink-0 items-center gap-1.5"
                           }
                         >
-                          <div className="flex items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] p-1">
+                          <div className="flex items-center gap-1 rounded-full border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] p-1">
                             {composerActionRail}
                           </div>
                         </div>

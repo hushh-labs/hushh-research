@@ -22,7 +22,6 @@ import {
   type ConnectCirclesSnapshot,
 } from "../circle-discovery";
 import { VaultContext } from "@/lib/vault/vault-context";
-import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -233,22 +232,15 @@ describe("circle discovery actions", () => {
     expect(mocks.sms).not.toHaveBeenCalled();
   });
 
-  it("reuses home icon colours while keeping selection and actions independent", () => {
+  it("uses neutral starter icons while keeping selection and actions independent", () => {
     render(ui());
-    const expected = {
-      family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-      finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
-      investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
-      business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
-      location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-      sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
-    };
-    for (const [id, style] of Object.entries(expected)) {
+    for (const id of ["family", "finance", "investor", "business", "location", "sms"]) {
       const node = screen.getByTestId(`circle-starter-${id}`);
-      for (const [property, value] of Object.entries(style)) {
-        expect(node.style.getPropertyValue(property)).toBe(value);
-      }
+      expect(node.style.getPropertyValue("--agent-icon-profile-bg")).toBe("");
       fireEvent.click(node);
+      expect(node.querySelector(`[data-circle-starter-icon='${id}']`)).toHaveClass(
+        "bg-[color:var(--app-settings-surface)]",
+      );
       expect(node.querySelector("[data-circle-icon-style='duotone']")).toBeTruthy();
       expect(node.querySelector("[data-icon-source='figma']")).toBeNull();
       expect(node).toHaveAttribute("aria-pressed", "true");
@@ -259,7 +251,7 @@ describe("circle discovery actions", () => {
       ).toBe("");
       expect(
         screen.getByTestId("circle-discovery-preview").className,
-      ).toContain("bg-[color:var(--app-secondary-surface)]");
+      ).toContain("bg-[color:var(--app-settings-icon-surface)]");
       expect(
         screen.getByTestId("circle-discovery-orbit").querySelector("circle"),
       ).toHaveAttribute("fill", "none");

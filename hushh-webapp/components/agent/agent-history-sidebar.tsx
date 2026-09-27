@@ -276,9 +276,9 @@ export function AgentHistorySidebar({
           <button
             type="button"
             className={cn(
-              "relative grid h-9 w-9 place-items-center rounded-xl transition-[transform,opacity] motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+              "relative grid h-11 w-11 place-items-center rounded-xl transition-[transform,opacity] motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
               active
-                ? "bg-[color:var(--app-accent)] text-white shadow-sm"
+                ? "bg-[color:var(--app-settings-icon-surface)] text-foreground"
                 : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground dark:hover:bg-white/[0.08]"
             )}
             onClick={() => onSelectConversation(conversation.id)}
@@ -303,19 +303,19 @@ export function AgentHistorySidebar({
         className={cn(
           "group relative rounded-xl transition-[transform,opacity] motion-reduce:transition-none duration-150",
           active
-            ? "bg-[color:var(--app-accent)] text-white shadow-sm"
+            ? "bg-[color:var(--app-settings-icon-surface)] text-foreground"
             : "text-foreground/80 hover:bg-foreground/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
         )}
       >
         {isRenaming ? (
           <form
             onSubmit={submitRename}
-            className="flex items-center gap-1 rounded-xl bg-background/90 p-1 ring-1 ring-black/10 dark:bg-[#141720] dark:ring-white/15"
+            className="flex items-center gap-1 rounded-xl bg-background/90 p-1 ring-1 ring-black/10 dark:bg-[color:var(--app-settings-surface)] dark:ring-white/15"
           >
             <Input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
-              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-medium text-foreground focus-visible:ring-0"
+              className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2 text-base font-medium text-foreground focus-visible:ring-0"
               maxLength={160}
               autoFocus
               disabled={pending}
@@ -328,7 +328,7 @@ export function AgentHistorySidebar({
               type="submit"
               variant="ghost"
               size="icon-xs"
-              className="h-6 w-6 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 dark:text-emerald-400"
+              className="h-11 w-11 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 dark:text-emerald-400"
               disabled={pending || !normalizeTitle(renameValue)}
               aria-label="Save chat name"
             >
@@ -338,7 +338,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon-xs"
-              className="h-6 w-6 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+              className="h-11 w-11 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
               onClick={cancelRename}
               disabled={pending}
               aria-label="Cancel rename"
@@ -351,9 +351,9 @@ export function AgentHistorySidebar({
             <button
               type="button"
               className={cn(
-                "flex h-9 min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60",
-                isMobileMode ? "pr-8" : "pr-7",
-                active ? "font-semibold text-white" : "font-medium text-foreground/80 group-hover:text-foreground"
+                "flex min-h-11 min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
+                "pr-12",
+                active ? "font-semibold text-foreground" : "font-medium text-foreground/80 group-hover:text-foreground"
               )}
               onClick={() => onSelectConversation(conversation.id)}
               disabled={disabled || pending}
@@ -368,7 +368,7 @@ export function AgentHistorySidebar({
                 <span
                   className={cn(
                     "shrink-0 text-[11px] tabular-nums font-normal transition-opacity duration-150",
-                    active ? "text-white/80" : "text-muted-foreground/50",
+                    active ? "text-foreground" : "text-muted-foreground",
                     !isMobileMode && "group-hover:opacity-0 group-focus-within:opacity-0"
                   )}
                 >
@@ -395,9 +395,9 @@ export function AgentHistorySidebar({
                     variant="ghost"
                     size="icon-xs"
                     className={cn(
-                      "h-7 w-7 rounded-lg focus-visible:opacity-100",
+                      "h-11 w-11 rounded-full focus-visible:opacity-100",
                       active
-                        ? "text-white/80 hover:bg-white/20 hover:text-white"
+                        ? "text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]"
                         : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground dark:hover:bg-white/[0.1]"
                     )}
                     disabled={disabled || pending}
@@ -409,7 +409,7 @@ export function AgentHistorySidebar({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={6} className="z-[560]">
                   <DropdownMenuItem
-                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)]"
+                    className="min-h-11 cursor-pointer rounded-[10px]"
                     onSelect={() => startRename(conversation)}
                   >
                     <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -417,7 +417,7 @@ export function AgentHistorySidebar({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
-                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)]"
+                    className="min-h-11 cursor-pointer rounded-[10px]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -443,7 +443,7 @@ export function AgentHistorySidebar({
           // through the drawer on iOS while Chromium's blur hid it on web.
           isMobileMode
             ? "rounded-r-[28px] border-r border-black/[0.06] bg-background shadow-[18px_0_42px_rgba(0,0,0,0.25)] dark:border-white/[0.08]"
-            : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
+            : "border-r border-black/[0.06] bg-[color:var(--app-settings-canvas)] dark:border-white/[0.08] dark:bg-[color:var(--app-settings-canvas)]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -468,7 +468,7 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                  className="h-11 w-11 rounded-full text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
                   onClick={onClose}
                   aria-label="Close chat history"
                   title="Close chats"
@@ -483,7 +483,7 @@ export function AgentHistorySidebar({
               variant="outline"
               size="sm"
               data-chat-new-button
-              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+              className="mt-2.5 flex h-11 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
@@ -503,7 +503,7 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-xl border border-black/10 bg-black/[0.035] text-muted-foreground hover:bg-black/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                  className="h-11 w-11 rounded-xl border border-black/10 bg-black/[0.035] text-muted-foreground hover:bg-black/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
                   onClick={onToggleCollapsed}
                   aria-label="Expand chat history"
                   title="Expand chat history"
@@ -514,7 +514,7 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-xl bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/20 focus-visible:ring-2 focus-visible:ring-primary/60"
+                  className="h-11 w-11 rounded-xl bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent-ink)] hover:bg-[color:var(--app-accent)]/20 focus-visible:ring-2 focus-visible:ring-primary/60"
                   onClick={onCreateNew}
                   disabled={disabled}
                   aria-label="Create new chat"
@@ -542,7 +542,7 @@ export function AgentHistorySidebar({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="hidden h-8 w-8 rounded-lg text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-white/[0.08] lg:inline-flex"
+                        className="hidden h-11 w-11 rounded-full text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-white/[0.08] lg:inline-flex"
                         onClick={onToggleCollapsed}
                         aria-label="Collapse chat history"
                         title="Collapse chat history"
@@ -555,7 +555,7 @@ export function AgentHistorySidebar({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                        className="h-11 w-11 rounded-full text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
                         onClick={onClose}
                         aria-label="Close chat history"
                         title="Close chat history"
@@ -571,7 +571,7 @@ export function AgentHistorySidebar({
                   variant="outline"
                   size="sm"
                   data-chat-new-button
-                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+                  className="group relative flex h-11 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
                   onClick={onCreateNew}
                   disabled={disabled}
                   aria-label="Create new chat"
@@ -606,7 +606,7 @@ export function AgentHistorySidebar({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                className="h-9 rounded-xl border border-black/[0.06] bg-foreground/[0.035] pl-8 pr-8 text-[13px] text-foreground placeholder:text-muted-foreground/60 focus-visible:border-[color:var(--app-accent)]/50 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-[color:var(--app-accent)]/30 dark:border-white/[0.07] dark:bg-white/[0.04] dark:focus-visible:bg-[#0c0c0e]"
+                className="h-11 rounded-full border border-black/[0.06] bg-foreground/[0.035] pl-9 pr-11 text-base text-foreground placeholder:text-muted-foreground/60 focus-visible:border-[color:var(--app-accent)]/50 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-[color:var(--app-accent)]/30 dark:border-white/[0.07] dark:bg-white/[0.04] dark:focus-visible:bg-[color:var(--app-settings-surface)]"
               />
               <SearchClearButton
                 visible={searchQuery.length > 0}
@@ -641,7 +641,7 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="mt-3.5 h-8 gap-1.5 rounded-lg border-black/10 bg-background/50 text-xs font-medium hover:bg-foreground/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/[0.08]"
+                className="mt-3.5 min-h-11 gap-1.5 rounded-lg border-black/10 bg-background/50 text-xs font-medium hover:bg-foreground/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/[0.08]"
                 onClick={onCreateNew}
                 disabled={disabled}
               >
@@ -656,7 +656,7 @@ export function AgentHistorySidebar({
           conversations.length > 0 &&
           filteredConversations.length === 0 ? (
             <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-foreground/[0.015] px-4 py-7 text-center dark:border-white/10 dark:bg-white/[0.02]">
-              <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
+              <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
                 <Search className="h-4 w-4 opacity-70" aria-hidden="true" />
               </div>
               <p className="text-[13px] font-semibold text-foreground/80">No matches found</p>
@@ -689,7 +689,7 @@ export function AgentHistorySidebar({
             <div className="space-y-4">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
-                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted-foreground/70">
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
                     {group.label}
                   </div>
                   <div

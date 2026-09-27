@@ -82,7 +82,7 @@ export function EmergencySmsNotificationToast({
       <button
         type="button"
         onClick={onOpen}
-        className="press-scale flex min-h-11 w-full items-center justify-between rounded-[var(--app-radius-pill)] border border-white bg-white px-4 text-sm font-semibold text-red-700 shadow-sm transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-red-600"
+        className="press-scale flex min-h-11 w-full items-center justify-between rounded-[var(--app-radius-pill)] border border-white bg-white px-4 text-sm font-semibold text-[color:var(--app-destructive-deep)] shadow-sm transition-colors hover:bg-[color:var(--app-destructive-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--app-destructive)]"
       >
         <span className="flex items-center gap-2">
           <Icon icon={MapPin} size="sm" aria-hidden="true" />

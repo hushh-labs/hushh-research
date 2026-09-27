@@ -202,6 +202,7 @@ export function AgentSectionIcon({
           />
         ) : Icon ? (
           <Icon
+            weight="regular"
             className={cn(
               classes.glyph,
               size === "roster" || size === "roster-dashboard"
@@ -253,8 +254,7 @@ export function AgentSectionIcon({
       ) : CustomIcon ? (
         <CustomIcon
           className={cn(
-              classes.glyph,
-            "drop-shadow-sm",
+            classes.glyph,
             isActive === false &&
               "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale",
           )}
@@ -262,13 +262,14 @@ export function AgentSectionIcon({
         />
       ) : Icon ? (
         <Icon
+          weight="regular"
           // cmdk applies a muted foreground to bare SVGs. Give this icon an
           // explicit, important theme-aware foreground so a command/menu
           // ancestor cannot override the requested contrast. Branded chips
           // use dark glyphs in light mode and light glyphs in dark mode; the
           // same primitive drives the dashboard grid and the top switcher.
           className={cn(
-              classes.glyph,
+            classes.glyph,
             isActive === false
               ? "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale"
               : tone

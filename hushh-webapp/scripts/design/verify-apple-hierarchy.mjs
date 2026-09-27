@@ -163,12 +163,12 @@ if (!globals.includes(".app-page-shell")) {
 
 expectIncludes(
   "app/globals.css",
-  '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
-  "product UI must use Inter only",
+  '--font-family-product: "DMSansVariable", "DM Sans", system-ui, sans-serif;',
+  "product UI must use the licensed DM Sans family",
 );
 expectNotIncludes(
   "app/globals.css",
-  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "DMSansVariable"',
   "product UI must not prefer the Apple/system font stack",
 );
 
@@ -323,7 +323,7 @@ for (const marker of [
   'data-action-priority="primary"',
   'data-ui-role="selection-summary"',
   '"grid w-full gap-2.5"',
-  '"sm:flex sm:items-center sm:justify-end"',
+  '"sm:flex sm:flex-wrap sm:items-center sm:justify-end"',
 ]) {
   expectIncludes(
     "components/app-ui/flow-actions.tsx",

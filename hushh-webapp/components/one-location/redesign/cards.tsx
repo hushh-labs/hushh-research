@@ -961,7 +961,7 @@ export function DeviceReadinessCard({
             size="sm"
             onClick={onRefresh}
             isLoading={refreshBusy}
-            className="ui-text-button-label h-10 w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="ui-text-button-label min-h-11 w-full rounded-full"
           >
             {!refreshBusy ? <RefreshCw className="mr-2 h-4 w-4" /> : null}
             {refreshLabel}
@@ -973,7 +973,7 @@ export function DeviceReadinessCard({
             size="sm"
             onClick={onAction}
             isLoading={actionBusy}
-            className="ui-text-button-label h-10 w-full rounded-full"
+            className="ui-text-button-label min-h-11 w-full rounded-full"
           >
             {!actionBusy ? <ExternalLink className="mr-2 h-4 w-4" /> : null}
             {actionLabel}

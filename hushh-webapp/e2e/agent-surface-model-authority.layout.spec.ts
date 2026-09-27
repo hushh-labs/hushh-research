@@ -72,7 +72,7 @@ import {
  * Run: npx playwright test e2e/agent-surface-model-authority.layout.spec.ts --project=chromium
  */
 
-const WIDTHS = [360, 390, 430, 768, 1024, 1280] as const;
+const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280] as const;
 
 /** A person with a choice of cloud models, so One's picker exists at all. */
 const MODEL_PREFERENCE = {

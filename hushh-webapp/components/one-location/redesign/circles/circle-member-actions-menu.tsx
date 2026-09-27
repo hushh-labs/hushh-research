@@ -353,14 +353,13 @@ export function CircleMemberActionsMenu({
                 </div>
 
                 <div
-                  role="menu"
+                  role="group"
                   aria-label={menuLabel}
                   className="overflow-hidden rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]"
                 >
                   {profileHref ? (
                     <Link
                       href={profileHref}
-                      role="menuitem"
                       className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
                       onClick={() => closeSheet()}
                       data-testid="circle-member-view-profile"
@@ -378,7 +377,6 @@ export function CircleMemberActionsMenu({
                   {canShare ? (
                     <button
                       type="button"
-                      role="menuitem"
                       disabled={busy}
                       className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
                       onClick={() => {
@@ -405,7 +403,6 @@ export function CircleMemberActionsMenu({
                   {canRemove ? (
                     <button
                       type="button"
-                      role="menuitem"
                       disabled={busy}
                       className={cn(
                         MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,

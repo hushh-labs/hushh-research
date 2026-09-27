@@ -86,7 +86,7 @@ function buildHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <style>
 ${productFontStyle()}
-html, body { margin: 0; min-height: 100%; font-family: InterVariable, Inter, system-ui, sans-serif; background: #f2f2f7; color: #111823; }
+html, body { margin: 0; min-height: 100%; font-family: DMSansVariable, "DM Sans", system-ui, sans-serif; background: #f2f2f7; color: #111823; }
 [data-one-feature-screen] { box-sizing: border-box; min-height: 100vh; display: flex; flex-direction: column; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
 [data-one-feature-scroll] { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 [data-one-feature-header], [data-one-story-container], [data-one-feature-cta] { width: 100%; max-width: 430px; margin-left: auto; margin-right: auto; }

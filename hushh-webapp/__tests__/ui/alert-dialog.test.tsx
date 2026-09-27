@@ -41,6 +41,10 @@ describe("AlertDialog", () => {
     );
 
     expect(alertContent).toHaveClass("z-(--z-dialog)");
+    expect(alertContent).toHaveClass(
+      "max-h-[calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px))]",
+      "overflow-y-auto",
+    );
     expect(alertOverlay).toHaveClass("z-(--z-dialog-overlay)");
     // Inline as well, so a caller's className cannot demote it below a sheet.
     expect((alertContent as HTMLElement).style.zIndex).toBe("var(--z-dialog)");

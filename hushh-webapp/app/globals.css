@@ -193,19 +193,53 @@ textarea {
 }
 
 @font-face {
-  font-family: "InterVariable";
+  font-family: "DMSansVariable";
+  src: url("/fonts/DM-Sans/DMSans-latin-ext.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 1000;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "DMSansVariable";
+  src: url("/fonts/DM-Sans/DMSans-latin.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 1000;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "DMSansVariable";
+  src: url("/fonts/DM-Sans/DMSans-Italic-latin-ext.woff2") format("woff2");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 100 1000;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "DMSansVariable";
+  src: url("/fonts/DM-Sans/DMSans-Italic-latin.woff2") format("woff2");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 100 1000;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "InterNumeric";
   src: url("/fonts/Inter/InterVariable.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 100 900;
 }
 
-@font-face {
-  font-family: "InterVariable";
-  src: url("/fonts/Inter/InterVariable-Italic.woff2") format("woff2");
-  font-display: swap;
-  font-style: italic;
-  font-weight: 100 900;
+/* DM Sans has proportional figures. Fixed-width values use the existing
+   licensed Inter face so clocks and counters do not move as digits change. */
+:is(.tabular-nums, .type-numeric) {
+  font-family: var(--font-app-numeric);
 }
 
 :root {
@@ -235,17 +269,18 @@ textarea {
   --z-system: 9999;
   --z-transient-scrim: 10099;
   --z-transient: 10100;
-  /* Centralized app typography variables. Product UI uses Inter only. */
-  --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
+  /* Licensed, self-hosted product type. DM Sans brings warm geometric clarity
+     without shipping Meta's private Optimistic AI font. */
+  --font-family-product: "DMSansVariable", "DM Sans", system-ui, sans-serif;
   /* Emoji tier, appended to the text stack rather than folded into
      --font-family-product: verify-apple-hierarchy pins that token's exact
      literal to keep Inter the product typeface, and this must not weaken it.
-     Inter, its fallbacks and system-ui carry no emoji glyphs, so without an
+     DM Sans, its fallbacks and system-ui carry no emoji glyphs, so without an
      emoji tier every emoji codepoint fell through to the browser's last-resort
      matching, which has no defined priority — on a Mac with Noto Color Emoji
      installed (Google Fonts, Docker and design tooling all ship it) Chrome
      could pick the Android artwork, and the winner could change between paints
-     as InterVariable swapped in. Naming the platform emoji fonts in order pins
+     as DMSansVariable swapped in. Naming the platform emoji fonts in order pins
      it: Apple on macOS/iOS, Segoe on Windows, Noto elsewhere. Emoji fonts
      carry only emoji, so Latin text still resolves to Inter exactly as before. */
   --font-app-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
@@ -254,6 +289,7 @@ textarea {
   --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
+  --font-app-numeric: "InterNumeric", ui-monospace, monospace;
 
   --foundation-display-size: clamp(2.125rem, 1.55rem + 2.3vw, 3.5rem);
   --foundation-display-line: 1.06;
@@ -424,9 +460,8 @@ textarea {
        enforces this.
      - -deep is the TEXT-legible tone on light surfaces; -bright is the
        TEXT-legible tone on dark surfaces; -tint/-surface are fills. */
-  /* Values are the EXACT Apple Blue v2 recipe from the Location redesign
-     (the reference implementation): pure system blue #007aff carries both
-     text and fills on light — never a derived darker tone. */
+  /* Preserve the identity blue. Small text and filled actions use their
+     contrast-tested ink and action roles below. */
   --app-accent: #007aff; /* solid fills / CTAs */
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
@@ -441,15 +476,27 @@ textarea {
   --app-accent-border: rgba(0, 122, 255, 0.32);
   --app-accent-fg: #ffffff; /* text on solid accent */
   --app-accent-hover: #0070ea; /* pressed/hover partner of the solid fill */
+  /* Solid controls need 4.5:1 contrast with their smaller text labels. */
+  --app-accent-action: #006fe8;
+  --app-accent-action-hover: #0063cf;
+  --app-accent-ink: #005abf;
   --app-accent-ring: rgba(0, 122, 255, 0.25);
 
-  /* Apple Summer 2026 semantic refinement tokens. These intentionally alias
-     the existing Foundation system instead of creating a second design system. */
+  /* Quiet settings surfaces shared by Profile, Connect, Feed, and connectors. */
   --app-screen-background: #ffffff;
   --app-grouped-background: #f2f2f7;
   --app-primary-surface: #ffffff;
   --app-secondary-surface: #f9f9fb;
   --app-elevated-surface: #ffffff;
+  /* One settings canvas shared by Profile and the connector manager. */
+  --app-settings-canvas: #ffffff;
+  --app-settings-surface: #f2f2f3;
+  --app-settings-border: #e9e9eb;
+  --app-settings-icon-surface: #f2f2f3;
+  --app-settings-icon-foreground: #55565b;
+  --app-settings-row-hover: #f5f5f6;
+  --app-settings-row-pressed: #ececee;
+  --app-settings-link: var(--app-accent-ink);
   --app-label: #1d1d1f;
   --app-secondary-label: #6e6e73;
   --app-section-label: #6e6e73;
@@ -568,7 +615,7 @@ textarea {
   --app-people-bright: #a5a3ff;
   --app-people-fg: #ffffff;
 
-  --app-focus-ring: rgba(0, 122, 255, 0.25);
+  --app-focus-ring: var(--app-accent-ink);
   --app-glass-surface: rgba(255, 255, 255, 0.78);
   --app-glass-border: rgba(60, 60, 67, 0.18);
   --app-glass-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.3);
@@ -868,23 +915,17 @@ textarea {
    * VALUES now resolve through --app-* exactly like SurfaceCard and the
    * morphy-ux surface primitives. Fallbacks preserve the old values if a
    * token is ever missing. Never reintroduce a literal accent hex here. */
-  --ios-account-screen-background: var(--background, #f2f2f7);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #ffffff);
+  --ios-account-screen-background: var(--app-settings-canvas);
+  --ios-account-card-background: var(--app-settings-surface);
   --ios-account-label: var(--foreground, #1d1d1f);
   --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: var(
-    --app-card-border-standard,
-    rgba(60, 60, 67, 0.1)
-  );
-  --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: var(
-    --app-icon-tile-background,
-    #8e8e93
-  );
-  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
-  --ios-account-service-icon-tile-background: #1c1c1e;
-  --ios-account-service-icon-glyph: #ffffff;
+  --ios-account-separator: var(--app-settings-border);
+  --ios-account-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-utility-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-utility-icon-glyph: var(--app-settings-icon-foreground);
+  --ios-account-service-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-service-icon-glyph: var(--app-settings-icon-foreground);
   --ios-account-accent: var(--app-accent, #007aff);
   --ios-account-destructive: var(--app-destructive, #ff3b30);
   --ios-account-on-accent: #ffffff;
@@ -921,8 +962,8 @@ textarea {
     var(--ios-account-card-leading-inset) + var(--ios-account-icon-tile-size) +
       var(--settings-row-gap)
   );
-  --ios-account-nav-material-background: rgba(255, 255, 255, 0.84);
-  --ios-account-nav-material-border: rgba(60, 60, 67, 0.18);
+  --ios-account-nav-material-background: color-mix(in srgb, var(--app-settings-canvas) 88%, transparent);
+  --ios-account-nav-material-border: var(--app-settings-border);
   --ios-account-nav-material-blur: saturate(180%) blur(20px);
   --ios-account-nav-material-shadow: none;
   --data-table-controls-gap: 16px;
@@ -1004,7 +1045,7 @@ textarea {
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
   --background: #f2f2f7;
-  --one-launcher-background: #f3f3f7;
+  --one-launcher-background: var(--app-settings-canvas);
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -1223,7 +1264,7 @@ textarea {
 .dark {
   --app-screen-background: #0e0e10;
   --app-grouped-background: #0e0e10;
-  --one-launcher-background: var(--background);
+  --one-launcher-background: var(--app-settings-canvas);
   --app-primary-surface: #17171a;
   --app-secondary-surface: #1e1e22;
   --app-elevated-surface: #222226;
@@ -1291,33 +1332,35 @@ textarea {
   --app-people-bright: #a5a3ff;
   --app-people-fg: #ffffff;
 
-  --app-focus-ring: rgba(10, 132, 255, 0.3);
+  --app-focus-ring: var(--app-accent-ink);
   --app-glass-surface: rgba(24, 24, 28, 0.9);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
+  --app-settings-canvas: #111113;
+  --app-settings-surface: #222225;
+  --app-settings-border: #303034;
+  --app-settings-icon-surface: #2b2b2f;
+  --app-settings-icon-foreground: #dedee1;
+  --app-settings-row-hover: #232326;
+  --app-settings-row-pressed: #2d2d31;
+  --app-settings-link: var(--app-accent-ink);
   /* Dark Profile aliases — same rule as the light block above. */
-  --ios-account-screen-background: var(--background, #0e0e10);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #17171a);
+  --ios-account-screen-background: var(--app-settings-canvas);
+  --ios-account-card-background: var(--app-settings-surface);
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: var(
-    --app-card-border-standard,
-    rgba(84, 84, 88, 0.65)
-  );
-  --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: var(
-    --app-icon-tile-background,
-    #636366
-  );
-  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
-  --ios-account-service-icon-tile-background: #1c1c20;
-  --ios-account-service-icon-glyph: #ffffff;
+  --ios-account-separator: var(--app-settings-border);
+  --ios-account-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-utility-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-utility-icon-glyph: var(--app-settings-icon-foreground);
+  --ios-account-service-icon-tile-background: var(--app-settings-icon-surface);
+  --ios-account-service-icon-glyph: var(--app-settings-icon-foreground);
+  --ios-account-nav-material-background: color-mix(in srgb, var(--app-settings-canvas) 88%, transparent);
+  --ios-account-nav-material-border: var(--app-settings-border);
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(24, 24, 28, 0.9);
-  --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
 @media (prefers-contrast: more) {
@@ -1507,7 +1550,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-account-content [data-slot="settings-group-heading"] {
-  color: #6e6e73 !important;
+  color: var(--app-secondary-label) !important;
   display: flex !important;
   font-family: var(--font-app-body);
   font-size: var(--ios-account-section-header-size) !important;
@@ -1522,15 +1565,15 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
   --settings-group-radius: var(--ios-account-card-radius);
-  background: var(--ios-account-card-background);
-  border-color: transparent;
+  background: var(--app-settings-surface);
+  border: 0;
   box-shadow: none;
 }
 
 [data-profile-stack-screen="account"] [data-testid="settings-row"],
 [data-profile-stack-screen="panel:account"] [data-testid="settings-row"],
 .profile-account-content [data-testid="settings-row"] {
-  background: var(--ios-account-card-background);
+  background: var(--app-settings-surface);
   min-height: 56px;
 }
 
@@ -1561,46 +1604,12 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: 17px !important;
 }
 
-[data-profile-stack-screen="account"] [data-icon-tone="blue"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="blue"],
-.profile-account-content [data-icon-tone="blue"],
-.profile-home-content [data-icon-tone="blue"] {
-  background: var(--ios-account-accent) !important;
-}
-
-[data-profile-stack-screen="account"] [data-icon-tone="green"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="green"],
-.profile-account-content [data-icon-tone="green"],
-.profile-home-content [data-icon-tone="green"] {
-  background: var(--app-success) !important;
-}
-
-[data-profile-stack-screen="account"] [data-icon-tone="orange"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="orange"],
-.profile-account-content [data-icon-tone="orange"],
-.profile-home-content [data-icon-tone="orange"] {
-  background: var(--app-warning) !important;
-}
-
-[data-profile-stack-screen="account"] [data-icon-tone="indigo"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
-.profile-account-content [data-icon-tone="indigo"],
-.profile-home-content [data-icon-tone="indigo"] {
-  background: var(--app-indigo) !important;
-}
-
-[data-profile-stack-screen="account"] [data-icon-tone="purple"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="purple"],
-.profile-account-content [data-icon-tone="purple"],
-.profile-home-content [data-icon-tone="purple"] {
-  background: var(--app-purple) !important;
-}
-
-[data-profile-stack-screen="account"] [data-icon-tone="red"],
-[data-profile-stack-screen="panel:account"] [data-icon-tone="red"],
-.profile-account-content [data-icon-tone="red"],
-.profile-home-content [data-icon-tone="red"] {
-  background: var(--app-destructive) !important;
+[data-profile-stack-screen="account"] [data-icon-tone],
+[data-profile-stack-screen="panel:account"] [data-icon-tone],
+.profile-account-content [data-icon-tone],
+.profile-home-content [data-icon-tone] {
+  background: var(--app-settings-icon-surface) !important;
+  color: var(--app-settings-icon-foreground) !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone] svg,
@@ -1611,7 +1620,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     [data-icon-tone="transparent"]
   )
   svg {
-  color: #ffffff !important;
+  color: currentColor !important;
 }
 
 [data-profile-stack-screen="account"]
@@ -1687,7 +1696,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   [data-tone="destructive"]
   [data-slot="settings-row-icon"]
   svg {
-  color: var(--ios-account-utility-icon-glyph) !important;
+  color: var(--ios-account-on-accent) !important;
 }
 
 [data-profile-stack-screen="account"]
@@ -1706,7 +1715,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
   background: var(--ios-account-utility-icon-tile-background) !important;
-  color: #ffffff !important;
+  color: var(--ios-account-utility-icon-glyph) !important;
 }
 
 .profile-account-content
@@ -1797,6 +1806,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --settings-row-px: 16px;
   --settings-row-py: 9px;
   --settings-row-gap: 12px;
+  background: var(--app-settings-canvas);
   color: var(--ios-account-label);
   display: flex;
   flex-direction: column;
@@ -1965,7 +1975,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-heading"] {
-  color: #6e6e73 !important;
+  color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body);
   font-size: var(--ios-account-section-header-size) !important;
   font-weight: var(--ios-account-medium-weight) !important;
@@ -1977,14 +1987,26 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-slot="settings-group-shell"] {
   --settings-group-radius: var(--ios-account-card-radius);
-  background: var(--ios-account-card-background);
-  border-color: transparent;
+  background: var(--app-settings-surface);
+  border: 0;
   box-shadow: none;
 }
 
 .profile-home-content [data-testid="settings-row"] {
-  background: var(--ios-account-card-background);
+  background: var(--app-settings-surface);
   min-height: 56px;
+}
+
+.profile-home-content [data-testid="settings-row"]:is(button, a):hover,
+.profile-account-content [data-testid="settings-row"]:is(button, a):hover,
+[data-profile-stack-content="true"] [data-testid="settings-row"]:is(button, a):hover {
+  background: var(--app-settings-row-hover);
+}
+
+.profile-home-content [data-testid="settings-row"]:is(button, a):active,
+.profile-account-content [data-testid="settings-row"]:is(button, a):active,
+[data-profile-stack-content="true"] [data-testid="settings-row"]:is(button, a):active {
+  background: var(--app-settings-row-pressed);
 }
 
 .profile-home-content [data-testid="settings-row"]::after {
@@ -2015,59 +2037,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: 17px !important;
 }
 
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="blue"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--ios-account-accent) !important;
-}
-
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="green"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--app-success) !important;
-}
-
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="orange"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--app-warning) !important;
-}
-
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="indigo"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--app-indigo) !important;
-}
-
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="purple"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--app-purple) !important;
-}
-
-.profile-home-content
-  [data-slot="settings-row-icon"][data-icon-tone="red"]:not(
-    [data-icon-tone="capability"]
-  ):not([data-icon-tone="transparent"]) {
-  background: var(--app-destructive) !important;
-}
-
-.profile-home-content
-  [data-icon-tone]:not([data-icon-tone="capability"]):not(
-    [data-icon-tone="transparent"]
-  )
-  svg {
-  color: #ffffff !important;
-}
-
-/* Preserve a clean, unboxed treatment for any genuinely branded capability
- * icon added to Profile later. The primary Profile menu intentionally uses
- * semantic coloured tiles, matching its Account and Vault detail screens. */
+/* Branded connector marks keep their own identity; utility actions use the
+ * same neutral icon wells as Muse's simple settings and activity rows. */
 .profile-home-content [data-icon-tone="capability"],
 .profile-home-content [data-icon-tone="transparent"] {
   background: transparent !important;
@@ -2082,7 +2053,6 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   height: 22px !important;
   width: 22px !important;
 }
-
 .profile-home-content [data-slot="settings-row-title"] {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-body);
@@ -2097,8 +2067,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not(
     [data-icon-tone="transparent"]
   ) {
-  background: var(--ios-account-destructive) !important;
-  color: var(--ios-account-on-accent) !important;
+  background: color-mix(in srgb, var(--ios-account-destructive) 10%, transparent) !important;
+  color: var(--ios-account-destructive) !important;
 }
 
 .profile-home-content
@@ -2107,7 +2077,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     [data-icon-tone="transparent"]
   )
   svg {
-  color: var(--ios-account-on-accent) !important;
+  color: currentColor !important;
 }
 
 .profile-home-content
@@ -2120,19 +2090,178 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-secondary-label) !important;
 }
 
+/* Pushed Profile screens and Connectors use the same grouped surface recipe. */
+[data-profile-stack-content="true"] [data-slot="settings-group-shell"],
+[data-slot="connectors-panel"] [data-slot="settings-group-shell"] {
+  background: var(--app-settings-surface);
+  border: 0;
+  box-shadow: none;
+}
+
+/* A Profile drill-in is the same settings family as its root screen. Tone
+ * labels still describe actions, but ordinary utility icons use one quiet
+ * neutral well across every nested panel. Status/destructive icons keep their
+ * semantic color. */
+[data-profile-stack-content="true"] [data-tone="default"] [data-slot="settings-row-icon"] {
+  background: var(--app-settings-icon-surface) !important;
+  color: var(--app-settings-icon-foreground) !important;
+}
+
+[data-profile-stack-content="true"] [data-tone="default"] [data-slot="settings-row-icon"] svg {
+  color: currentColor !important;
+}
+
+[data-slot="connectors-panel"] {
+  background: var(--app-settings-canvas);
+  color: var(--app-label);
+}
+
+/* Muse's utility navigation uses simple line glyphs. Brand marks in connector
+   rows remain untouched; only Profile and Account actions use this treatment. */
+.profile-home-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
+.profile-account-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]),
+[data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]) {
+  background: transparent !important;
+  border-radius: 0 !important;
+  color: var(--app-label) !important;
+  height: 28px !important;
+  width: 28px !important;
+}
+
+.profile-home-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
+.profile-account-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]) svg,
+[data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]) svg {
+  color: currentColor !important;
+  height: 20px !important;
+  stroke-width: 1.8 !important;
+  width: 20px !important;
+}
+
+.profile-home-content [data-tone="destructive"] [data-slot="settings-row-icon"],
+.profile-account-content [data-tone="destructive"] [data-slot="settings-row-icon"],
+[data-profile-stack-content="true"] [data-tone="destructive"] [data-slot="settings-row-icon"] {
+  color: var(--app-destructive) !important;
+}
+
+@media (max-width: 767px) {
+  body:has(.profile-home-screen),
+  body:has(.profile-account-content),
+  body:has([data-profile-stack="true"]) {
+    --ios-account-screen-background: #f4f4f5;
+    --ios-account-card-background: #ffffff;
+  }
+
+  .dark body:has(.profile-home-screen),
+  .dark body:has(.profile-account-content),
+  .dark body:has([data-profile-stack="true"]) {
+    --ios-account-screen-background: #111113;
+    --ios-account-card-background: #222225;
+  }
+
+  .profile-home-screen {
+    background: var(--ios-account-screen-background);
+  }
+
+  [data-slot="connectors-panel"] {
+    background: var(--ios-account-screen-background);
+  }
+
+  .profile-home-content [data-slot="settings-group-shell"],
+  .profile-account-content [data-slot="settings-group-shell"],
+  [data-profile-stack-content="true"] [data-slot="settings-group-shell"],
+  [data-slot="connectors-panel"] [data-slot="settings-group-shell"] {
+    background: var(--ios-account-card-background);
+    border-radius: 20px;
+  }
+
+  .profile-home-content [data-testid="settings-row"],
+  .profile-account-content [data-testid="settings-row"],
+  [data-profile-stack-content="true"] [data-testid="settings-row"],
+  [data-slot="connectors-panel"] [data-testid="settings-row"] {
+    background: var(--ios-account-card-background);
+  }
+}
+
+/* Feed, Connect, and route-level settings share Profile's reading canvas. Their
+ * lists still own their individual states and layout; these aliases keep each
+ * grouped card and utility icon on one light/dark surface scale. */
+.app-page-shell[data-one-workspace="feed"],
+.app-page-shell[data-one-workspace="connect"],
+.app-page-shell[data-one-workspace="settings"] {
+  --app-card-surface-default-solid: var(--app-settings-surface);
+  --app-card-border-standard: var(--app-settings-border);
+  --app-card-shadow-standard: none;
+  color: var(--app-label);
+}
+
+.app-page-shell[data-one-workspace="feed"] [data-slot="settings-group-shell"],
+.app-page-shell[data-one-workspace="connect"] [data-slot="settings-group-shell"],
+.app-page-shell[data-one-workspace="settings"] [data-slot="settings-group-shell"] {
+  background: var(--app-settings-surface);
+  border: 1px solid var(--app-settings-border);
+  box-shadow: none;
+}
+
+.app-page-shell[data-one-workspace="feed"] [data-tone="default"] [data-slot="settings-row-icon"],
+.app-page-shell[data-one-workspace="connect"] [data-tone="default"] [data-slot="settings-row-icon"],
+.app-page-shell[data-one-workspace="settings"] [data-tone="default"] [data-slot="settings-row-icon"] {
+  background: var(--app-settings-icon-surface) !important;
+  color: var(--app-settings-icon-foreground) !important;
+}
+
+.app-page-shell[data-one-workspace="feed"] [data-tone="default"] [data-slot="settings-row-icon"] svg,
+.app-page-shell[data-one-workspace="connect"] [data-tone="default"] [data-slot="settings-row-icon"] svg,
+.app-page-shell[data-one-workspace="settings"] [data-tone="default"] [data-slot="settings-row-icon"] svg {
+  color: currentColor !important;
+}
+
+/* The anchored Connect directory floats over live content without a modal
+ * scrim. Keep its neutral surface opaque enough for text while blurring the
+ * page immediately behind it in both themes. */
+.connect-web-directory-popover {
+  background: color-mix(in srgb, var(--app-settings-surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 14px 32px rgb(0 0 0 / 14%);
+}
+
+.dark .connect-web-directory-popover {
+  box-shadow: 0 14px 32px rgb(0 0 0 / 30%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .connect-web-directory-popover {
+    background: var(--app-settings-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 html:has(.profile-home-screen),
 html:has(.profile-account-content),
 html:has([data-profile-stack="true"]),
+html:has([data-one-workspace="feed"]),
+html:has([data-one-workspace="connect"]),
+html:has([data-one-workspace="settings"]),
+html:has([data-one-workspace="profile-authorization"]),
 body:has(.profile-home-screen),
 body:has(.profile-account-content),
-body:has([data-profile-stack="true"]) {
+body:has([data-profile-stack="true"]),
+body:has([data-one-workspace="feed"]),
+body:has([data-one-workspace="connect"]),
+body:has([data-one-workspace="settings"]),
+body:has([data-one-workspace="profile-authorization"]) {
   background: var(--ios-account-screen-background) !important;
   min-height: 100dvh;
 }
 
 body:has(.profile-home-screen) .foundation-public-ambient,
 body:has(.profile-account-content) .foundation-public-ambient,
-body:has([data-profile-stack="true"]) .foundation-public-ambient {
+body:has([data-profile-stack="true"]) .foundation-public-ambient,
+body:has([data-one-workspace="feed"]) .foundation-public-ambient,
+body:has([data-one-workspace="connect"]) .foundation-public-ambient,
+body:has([data-one-workspace="settings"]) .foundation-public-ambient,
+body:has([data-one-workspace="profile-authorization"]) .foundation-public-ambient {
   display: none;
 }
 
@@ -2265,7 +2394,7 @@ body:has(.profile-account-content)
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
+  --agent-chat-header-height: calc(7rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -2280,20 +2409,10 @@ body:has(.profile-account-content)
   );
 }
 
-@media (min-width: 640px) {
+@media (min-width: 1024px) {
   .agent-chat-workspace {
     --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
   }
-}
-
-/* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
-.agent-chat-workspace [data-chat-new-button] {
-  position: relative;
-}
-.agent-chat-workspace [data-chat-new-button]::after {
-  content: "";
-  position: absolute;
-  inset: -4px 0;
 }
 
 /* The canonical root Chat surface owns the text composer, so it does not
@@ -4150,6 +4269,7 @@ body:has([data-testid="one-location-onboarding"])
   --app-accent-border: rgba(0, 122, 255, 0.35);
   --app-accent-fg: #ffffff; /* Apple system blue always pairs with white */
   --app-accent-hover: #0070ea;
+  --app-accent-ink: #8cc3ff;
   --app-accent-ring: rgba(0, 122, 255, 0.3);
   --app-accent-hero-from: #0a2f5e;
   --app-accent-hero-mid: #007aff;
@@ -4541,7 +4661,7 @@ body:has([data-testid="one-location-onboarding"])
     line-height: var(--ios-account-section-header-line) !important;
     font-weight: var(--ios-account-medium-weight) !important;
     letter-spacing: -0.01em !important;
-    color: #6e6e73 !important;
+    color: var(--app-secondary-label) !important;
     text-transform: none !important;
   }
 
@@ -4554,7 +4674,7 @@ body:has([data-testid="one-location-onboarding"])
     line-height: var(--ios-account-section-header-line) !important;
     font-weight: var(--ios-account-medium-weight) !important;
     letter-spacing: -0.01em !important;
-    color: #6e6e73 !important;
+    color: var(--app-secondary-label) !important;
     text-transform: none !important;
   }
 
@@ -4667,6 +4787,18 @@ body:has([data-testid="one-location-onboarding"])
        hardcoded near-black here made transparent route surfaces and sampled
        chrome disagree, especially in mobile WebKit. */
     background-color: var(--background) !important;
+  }
+  /* This base-layer important rule wins over unlayered Profile backgrounds. */
+  html.dark body:has([data-one-launcher-root="true"]),
+  html.dark body:has(.agent-chat-workspace),
+  html.dark body:has(.profile-home-screen),
+  html.dark body:has(.profile-account-content),
+  html.dark body:has([data-profile-stack="true"]),
+  html.dark body:has([data-one-workspace="feed"]),
+  html.dark body:has([data-one-workspace="connect"]),
+  html.dark body:has([data-one-workspace="settings"]),
+  html.dark body:has([data-one-workspace="profile-authorization"]) {
+    background-color: var(--app-settings-canvas) !important;
   }
   html.native-ios body {
     padding-top: 0;
@@ -5309,15 +5441,11 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
-/* The One composer is a direct-entry surface, not another navigation pill.
-   It keeps the shared chrome geometry while giving active writing a warmer
-   elevation and an accent-only focus state. */
+/* Keep the composer quiet and distinct from the active chat content. */
 .agent-chat-composer-surface {
-  border: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
-  background: color-mix(in oklab, var(--background) 92%, var(--foreground)) !important;
-  box-shadow:
-    0 16px 36px -26px color-mix(in oklab, var(--foreground) 48%, transparent),
-    inset 0 1px 0 color-mix(in oklab, var(--background) 16%, var(--foreground));
+  border: 1px solid var(--app-settings-border);
+  background: var(--app-settings-surface) !important;
+  box-shadow: none;
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
@@ -5325,17 +5453,14 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .dark .agent-chat-composer-surface {
-  background: color-mix(in oklab, var(--background) 86%, var(--foreground)) !important;
-  border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+  background: var(--app-settings-surface) !important;
+  border-color: var(--app-settings-border);
 }
 
 .agent-chat-composer-surface:focus-within {
-  border-color: color-mix(in oklab, var(--app-accent) 62%, transparent);
-  background: color-mix(in oklab, var(--background) 88%, var(--app-accent)) !important;
-  box-shadow:
-    0 16px 38px -24px color-mix(in oklab, var(--app-accent) 42%, transparent),
-    0 0 0 3px color-mix(in oklab, var(--app-accent) 16%, transparent),
-    inset 0 1px 0 color-mix(in oklab, var(--background) 18%, var(--foreground));
+  border-color: var(--app-accent);
+  background: var(--app-settings-surface) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 18%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6047,10 +6172,131 @@ svg[data-canonical-icon="true"] {
   }
 }
 
+/* Sonner is mounted once by the app provider. Keep every feature's feedback on
+ * the same surface and status language, including toasts rendered through a
+ * portal above drawers and the native iOS safe area. */
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 14px 52px 14px 16px;
+  background: var(--app-settings-surface);
+  border: 1px solid var(--app-settings-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgb(17 19 23 / 12%);
+  color: var(--app-label);
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dark .toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  box-shadow: 0 14px 38px rgb(0 0 0 / 36%);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] {
+  margin-top: 2px;
+  color: var(--app-secondary-label);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--app-success-deep);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--app-warning-deep);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--app-destructive-deep);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--app-settings-link);
+}
+
+.dark .toaster[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--app-success-bright);
+}
+
+.dark .toaster[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--app-warning-bright);
+}
+
+.dark .toaster[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--app-destructive-bright);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-content] {
+  min-width: 0;
+  flex: 1 1 12rem;
+  gap: 2px;
+  text-align: left;
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] {
+  color: var(--app-label);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--app-secondary-label);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  min-height: 44px;
+  height: auto;
+  max-width: 100%;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--app-settings-link);
+  color: var(--app-settings-surface);
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: normal;
+  text-align: center;
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-cancel] {
+  background: var(--app-settings-icon-surface);
+  color: var(--app-label);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button]:focus-visible,
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button]:focus-visible {
+  outline: 2px solid var(--app-settings-link);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  left: auto;
+  right: 2px;
+  top: 2px;
+  width: 44px;
+  height: 44px;
+  transform: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--app-secondary-label);
+}
+
+.toaster[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button]:hover {
+  background: var(--app-settings-icon-surface);
+  color: var(--app-label);
+}
+
 @media (max-width: 600px) {
   .toaster[data-x-position="center"] {
-    left: 1rem !important;
-    right: 1rem !important;
+    left: max(1rem, env(safe-area-inset-left, 0px)) !important;
+    right: max(1rem, env(safe-area-inset-right, 0px)) !important;
     width: auto !important;
     transform: none !important;
   }
@@ -6065,6 +6311,18 @@ svg[data-canonical-icon="true"] {
 html.dark,
 html.dark body {
   background-color: var(--background) !important;
+}
+
+html.dark:has([data-one-launcher-root="true"]),
+html.dark:has(.agent-chat-workspace),
+html.dark:has(.profile-home-screen),
+html.dark:has(.profile-account-content),
+html.dark:has([data-profile-stack="true"]),
+html.dark:has([data-one-workspace="feed"]),
+html.dark:has([data-one-workspace="connect"]),
+html.dark:has([data-one-workspace="settings"]),
+html.dark:has([data-one-workspace="profile-authorization"]) {
+  background-color: var(--app-settings-canvas) !important;
 }
 
 .dark {
@@ -6101,8 +6359,11 @@ html[data-accent="gold"] {
   --app-accent-surface: #f7f1e8;
   --app-accent-surface-strong: #efe4d2;
   --app-accent-border: #e8d8bf;
-  --app-accent-fg: #ffffff;
+  --app-accent-fg: #1d1d1f;
   --app-accent-hover: #c79a5e;
+  --app-accent-action: var(--app-accent);
+  --app-accent-action-hover: var(--app-accent-hover);
+  --app-accent-ink: #795323;
   --app-accent-ring: rgba(184, 137, 77, 0.3);
   --app-accent-hero-from: #6d431a;
   --app-accent-hero-mid: #b8894d;
@@ -6120,6 +6381,7 @@ html[data-accent="gold"].dark {
   --app-accent-border: rgba(212, 165, 116, 0.28);
   --app-accent-fg: #1d1d1f;
   --app-accent-hover: #e0b382;
+  --app-accent-ink: #e6b366;
   --app-accent-ring: rgba(212, 165, 116, 0.35);
   --app-accent-hero-from: #8a5a24;
   --app-accent-hero-mid: #d4a574;
@@ -6960,7 +7222,6 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
-  white-space: nowrap !important;
 }
 
 :is(.ui-text-compact-button-label) {
@@ -6969,7 +7230,6 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-compact-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-compact-button-label-line) !important;
-  white-space: nowrap !important;
 }
 
 /* Connect's directory headings and contact-sync action are peers even though

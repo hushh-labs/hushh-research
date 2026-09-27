@@ -163,7 +163,7 @@ export function CapabilityCinematicIntroGate({
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
   const introLayoutClass =
-    "motion-step-enter fixed inset-0 z-[5] mx-auto flex w-full flex-col justify-center items-center px-4 pb-[calc(var(--app-bottom-inset,0px)+4rem)] pt-[var(--top-shell-reserved-height,60px)] text-center overflow-hidden";
+    "motion-step-enter fixed inset-0 z-[5] mx-auto flex w-full flex-col items-center overflow-y-auto overscroll-contain bg-[color:var(--app-settings-canvas)] px-4 pb-[calc(var(--onboarding-agent-bar-clearance,4rem)+1rem)] pt-[var(--top-shell-reserved-height,60px)] text-center";
 
   const content = (
     <section
@@ -178,42 +178,40 @@ export function CapabilityCinematicIntroGate({
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
-      {/* Eyebrow was `text-muted-foreground`, which reads as heavily faded /
-          low-contrast on the light onboarding background. Use the primary
-          foreground token at reduced weight so it stays legible in both themes
-          without hardcoding a slate color that would break dark mode. */}
-      <p className="type-subhead font-medium text-foreground/80">
-        One · {copy.title}
-      </p>
-      <h1
-        id={`capability-intro-${capabilityId}`}
-        className="mt-4 max-w-[16ch] text-balance type-display text-foreground"
-      >
-        {premise}
-      </h1>
-      <p className="mt-5 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
-        {promise}
-      </p>
-      {introSupplement ? (
-        <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
-      ) : null}
-      <div className="mx-auto mt-10 w-full self-center sm:w-80">
-        <Button
-          type="button"
-          variant="blue"
-          effect="fill"
-          size="prominent"
-          fullWidth
-
-          onClick={() => {
-            markCapabilityIntroSeen(capabilityId);
-            setShouldFocusCapabilityBody(true);
-            setShowIntro(false);
-          }}
-          data-capability-intro-continue={capabilityId}
+      <div className="my-auto flex w-full shrink-0 flex-col items-center py-6">
+        <p className="ui-text-eyebrow text-muted-foreground">
+          One · {copy.title}
+        </p>
+        <h1
+          id={`capability-intro-${capabilityId}`}
+          className="ui-text-large-page-title mt-4 max-w-[18ch] text-balance text-foreground"
         >
-          Continue
-        </Button>
+          {premise}
+        </h1>
+        <p className="ui-text-page-subtitle mt-4 max-w-[30rem] text-pretty text-muted-foreground">
+          {promise}
+        </p>
+        {introSupplement ? (
+          <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
+        ) : null}
+        <div className="mx-auto mt-8 w-full self-center sm:w-80">
+          <Button
+            type="button"
+            variant="blue"
+            effect="fill"
+            size="prominent"
+            fullWidth
+            className="justify-center text-center"
+            onClick={() => {
+              markCapabilityIntroSeen(capabilityId);
+              setShouldFocusCapabilityBody(true);
+              setShowIntro(false);
+            }}
+            data-capability-intro-continue={capabilityId}
+          >
+            Continue
+          </Button>
+        </div>
       </div>
     </section>
   );

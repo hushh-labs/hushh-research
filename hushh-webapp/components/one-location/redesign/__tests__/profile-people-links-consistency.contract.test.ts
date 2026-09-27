@@ -95,7 +95,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("uses semantic Profile icon tiles with contrasting glyphs", () => {
+  it("uses neutral Profile utility icons and keeps destructive sign-out distinct", () => {
     const source = readSource(
       "components/profile/profile-workspace-page.tsx",
     );
@@ -103,18 +103,18 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    expect(source).toMatch(/icon=\{AccountProfileIcon\}\s+iconTone="blue"/);
+    expect(source).toMatch(/icon=\{AccountProfileIcon\}\s+iconTone="gray"/);
     expect(source).toMatch(
-      /icon=\{PreferencesProfileIcon\}\s+iconTone="purple"/,
+      /icon=\{PreferencesProfileIcon\}\s+iconTone="gray"/,
     );
-    expect(source).toMatch(/icon=\{SecurityProfileIcon\}\s+iconTone="green"/);
-    expect(source).toMatch(/icon=\{DevicesProfileIcon\}\s+iconTone="indigo"/);
+    expect(source).toMatch(/icon=\{SecurityProfileIcon\}\s+iconTone="gray"/);
+    expect(source).toMatch(/icon=\{DevicesProfileIcon\}\s+iconTone="gray"/);
     expect(source).toMatch(
-      /icon=\{InviteFriendsProfileIcon\}\s+iconTone="purple"/,
+      /icon=\{InviteFriendsProfileIcon\}\s+iconTone="gray"/,
     );
-    expect(source).toMatch(/icon=\{SupportProfileIcon\}\s+iconTone="blue"/);
+    expect(source).toMatch(/icon=\{SupportProfileIcon\}\s+iconTone="gray"/);
     expect(source).toMatch(
-      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="orange"/,
+      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="gray"/,
     );
     expect(source).toMatch(/icon=\{SignOutProfileIcon\}\s+iconTone="red"/);
     expect(source).toContain('tone="destructive"');

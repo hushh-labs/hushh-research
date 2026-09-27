@@ -8,6 +8,20 @@ import {
 } from "@/components/ui/dialog";
 
 describe("DialogContent", () => {
+  it("is modal by default so its canonical scrim is present", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Blocking dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
+      "[backdrop-filter:var(--app-scrim-filter)]",
+    );
+  });
+
   it("renders the close button by default", () => {
     render(
       <Dialog open>
@@ -18,6 +32,7 @@ describe("DialogContent", () => {
     );
 
     expect(screen.getByRole("button", { name: /close/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /close/i })).toHaveClass("size-11");
   });
 
   it("hides the close button when showCloseButton is false", () => {

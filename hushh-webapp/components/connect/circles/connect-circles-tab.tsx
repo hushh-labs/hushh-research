@@ -812,7 +812,7 @@ export function ConnectCirclesTab({
 
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
     const kind = systemKindOf(circle);
-    const { Icon, tone } = circleVisual(circle);
+    const { Icon } = circleVisual(circle);
     const testId = kind
       ? `connect-circle-${kind}`
       : circle.role === "owner"
@@ -835,7 +835,7 @@ export function ConnectCirclesTab({
         aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
       >
         <span className="flex w-full min-w-0 items-center justify-between gap-2">
-          <span aria-hidden="true" className={`flex size-10 shrink-0 items-center justify-center rounded-full ${tone}`}>
+          <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-[12px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]">
             <Icon className="size-5" />
           </span>
           <span className="ml-auto min-w-0 scale-90 origin-right sm:scale-100">
@@ -898,15 +898,12 @@ export function ConnectCirclesTab({
           {showingStarter ? (
             <section
               data-testid="connect-circle-starter"
-              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-6 text-center sm:px-8"
+              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-5 py-6 text-center shadow-none sm:px-8"
             >
-              <span aria-hidden="true" className="relative mx-auto flex size-28 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)]">
-                <span className="flex size-14 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[color:var(--app-accent)]">
+              <span aria-hidden="true" className="mx-auto flex size-20 items-center justify-center rounded-[22px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)]">
+                <span className="flex size-14 items-center justify-center rounded-[16px] text-[color:var(--app-settings-icon-foreground)]">
                   <UsersRound className="size-7" />
                 </span>
-                <span className="absolute -left-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-rose-100 dark:bg-rose-950/50" />
-                <span className="absolute -right-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-blue-100 dark:bg-blue-950/50" />
-                <span className="absolute bottom-0 left-1/2 size-5 -translate-x-1/2 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-amber-100 dark:bg-amber-950/50" />
               </span>
               <h2 className="ui-text-major-section-title mt-5 text-[color:var(--app-primary-label)]">
                 A circle starts with your people
@@ -915,11 +912,11 @@ export function ConnectCirclesTab({
                 Make a space for family, friends, or any group you choose. Invite people when you're ready.
               </p>
               <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
-                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[12px] !bg-[color:var(--app-label)] !text-[color:var(--app-settings-canvas)] hover:!bg-[color:var(--app-secondary-label)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
                   <Plus aria-hidden="true" className="mr-1.5 size-4" />
                   New circle
                 </Button>
-                <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
+                <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[12px] !border !border-[color:var(--app-settings-border)] !bg-[color:var(--app-settings-surface)] !text-[color:var(--app-label)] hover:!bg-[color:var(--app-settings-icon-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
                   Find people
                 </Button>
               </div>

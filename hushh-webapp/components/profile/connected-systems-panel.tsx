@@ -2092,7 +2092,17 @@ export function ConnectedSystemsPanel({
 
   if (mode === "list") {
     return (
-      <div className="space-y-4 sm:space-y-5">
+      <div className="space-y-5 sm:space-y-6">
+        {!isSetupPresentation ? (
+          <header className="space-y-1 px-0.5 pt-2 sm:pt-4">
+            <h1 className="font-[family-name:var(--font-app-display)] text-[26px] font-semibold leading-tight tracking-tight text-foreground sm:text-[30px]">
+              Connected systems
+            </h1>
+            <p className="max-w-xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+              Review the systems linked to your private profile.
+            </p>
+          </header>
+        ) : null}
         {systems.length === 0 &&
         (busy === "systems" || systemsResource.loading) ? (
           <SettingsGroup>
@@ -2133,7 +2143,7 @@ export function ConnectedSystemsPanel({
           </SettingsGroup>
         ) : null}
         {systems.length > 0 ? (
-          <SettingsGroup separatorInset>
+          <SettingsGroup title="Systems" separatorInset>
             {systems.map((system) => {
               const title =
                 system.displayName ||
@@ -2156,15 +2166,17 @@ export function ConnectedSystemsPanel({
                   description={crmTypeDisplayLabel(system) || "CRM"}
                   trailing={
                     <span
-                      className={
+                      className={cn(
+                        "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-medium leading-4",
                         rowState === "Connected"
-                          ? "text-xs font-medium text-emerald-700 dark:text-emerald-300"
-                          : "text-xs font-medium text-muted-foreground"
-                      }
+                          ? "bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]"
+                          : "bg-[color:var(--app-settings-icon-surface)] text-muted-foreground",
+                      )}
                     >
                       {rowState}
                     </span>
                   }
+                  stackTrailingOnMobile
                   chevron
                   onClick={() =>
                     router.push(

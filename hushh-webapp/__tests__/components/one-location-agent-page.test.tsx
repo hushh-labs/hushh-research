@@ -2159,8 +2159,8 @@ describe("OneLocationAgentPage", () => {
     const sosRow = screen.getByRole("button", {
       name: "Save My Soul emergency alert",
     });
-    expect(sosRow).toHaveClass("min-h-[68px]", "py-2.5");
-    expect(sosRow).toHaveClass("bg-[color:var(--app-primary-surface)]");
+    expect(sosRow).toHaveClass("min-h-[72px]", "py-2.5");
+    expect(sosRow).toHaveClass("bg-[color:var(--app-settings-surface)]");
     expect(sosRow).not.toHaveClass("bg-[color:var(--app-destructive-tint)]");
     expect(within(actions).getByText("Emergency alert")).toBeTruthy();
 
@@ -2174,20 +2174,19 @@ describe("OneLocationAgentPage", () => {
     actionCells?.forEach((cell) => {
       expect(cell.className).toContain("flex-col");
       expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("h-[88px]");
-      expect(cell.className).toContain("rounded-[14px]");
+      expect(cell.className).toContain("h-[96px]");
+      expect(cell.className).toContain("rounded-[var(--app-card-radius-compact)]");
     });
     const regularActionIconClassName = actionGrid?.querySelector(
       "[data-one-location-action-icon]",
     )?.className;
     expect(regularActionIconClassName).toContain(
-      "text-[color:var(--app-accent)]",
+      "text-[color:var(--app-settings-icon-foreground)]",
     );
-    // Regular actions use standalone glyphs: no decorative circle or tint.
+    // Regular actions use monochrome glyphs in quiet utility wells.
     expect(regularActionIconClassName).not.toContain("rounded-full");
-    expect(regularActionIconClassName).not.toContain("bg-[");
-    expect(regularActionIconClassName).toContain("[&_svg]:h-[25px]");
-    expect(regularActionIconClassName).toContain("md:[&_svg]:h-7");
+    expect(regularActionIconClassName).toContain("bg-[color:var(--app-settings-icon-surface)]");
+    expect(regularActionIconClassName).toContain("[&_svg]:h-[21px]");
     expect(
       actionGrid?.querySelector('[data-location-menu-icon="ask"]'),
     ).toHaveAttribute("width", "21");

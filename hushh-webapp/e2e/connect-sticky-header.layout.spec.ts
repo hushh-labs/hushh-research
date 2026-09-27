@@ -31,7 +31,7 @@ import {
  *
  * Run with: npm run test:layout-contracts
  */
-const WIDTHS = [320, 360, 393, 600, 1440] as const;
+const WIDTHS = [320, 360, 393, 600, 768, 1440] as const;
 const SLACK_PX = 2;
 const PAGE_HEADER_HEIGHT_PX = 34;
 const SURFACE_STRIP_HEIGHT_PX = 38;
@@ -110,21 +110,21 @@ function shellMarkup(): string {
 
   return `<div data-app-shell-root="true" style="${shellStyle}">
     <div data-app-top-bar style="position:fixed;inset-inline:0;top:0;z-index:50;height:var(--top-shell-live-height);">
-      <div data-app-top-bar-solid style="height:var(--top-shell-mask-solid-height);background:#f5f5f7;"></div>
+      <div data-app-top-bar-solid style="height:var(--top-shell-mask-solid-height);background:var(--app-settings-canvas);"></div>
     </div>
     <div data-app-scroll-root="true" style="position:fixed;inset:0;overflow-y:auto;">
       <div data-app-shell-top-spacer="true" aria-hidden></div>
-      <main class="app-page-shell ${APP_SHELL_FRAME_CLASSNAME} ${APP_SHELL_MAX_WIDTHS.agent}" data-app-density="compact" data-app-shell-width="agent">
+      <main class="app-page-shell ${APP_SHELL_FRAME_CLASSNAME} ${APP_SHELL_MAX_WIDTHS.agent}" data-app-density="compact" data-app-shell-width="agent" data-one-workspace="connect">
         <div class="app-page-header-region w-full min-w-0">
-          <div data-page-header style="height:${PAGE_HEADER_HEIGHT_PX}px;background:#c8c8d0;">Connect</div>
+          <div data-page-header style="height:${PAGE_HEADER_HEIGHT_PX}px;background:var(--app-settings-canvas);">Connect</div>
         </div>
         <div data-connect-content class="app-page-content-region w-full ${CONNECT_PAGE_CONTENT_CLASSNAME}">
           <div class="surface-stack surface-stack-compact">
             <div data-connect-stack class="relative space-y-3 sm:space-y-4">
               <div data-testid="connect-sticky-header" class="${STICKY_HEADER_CLASSNAME}">
-                <div data-strip style="height:${SURFACE_STRIP_HEIGHT_PX}px;background:#e8e8ed;">Connections / Circles</div>
+                <div data-strip style="height:${SURFACE_STRIP_HEIGHT_PX}px;background:var(--app-settings-surface);">Connections / Circles</div>
               </div>
-              <div data-my-connections style="height:900px;background:#dddde2;">
+              <div data-my-connections style="height:900px;background:var(--app-settings-surface);">
                 <div data-contact-row class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5">
                   <div data-contact-title class="${CONNECT_WRAPPING_TITLE_ROW_CLASSNAME}">
                     <span data-contact-name class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">Kushal Trivedi</span>
@@ -137,13 +137,13 @@ function shellMarkup(): string {
                     <span data-person-title class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">24E2100221 Mayank Featherstonehaugh-Rajendran</span>
                     <span data-person-description class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">m***k@extraordinarily-long-university-domain.example</span>
                   </div>
-                  <button data-person-action class="h-8 min-h-8 shrink-0 rounded-2xl px-2.5">Connect</button>
+                  <button data-person-action class="h-11 min-h-11 shrink-0 rounded-2xl px-2.5">Connect</button>
                 </div>
               </div>
               <div data-testid="connect-search-row" class="${STICKY_SEARCH_CLASSNAME}">
-                <div style="height:44px;background:#cfe0f5;">Search people</div>
+                <div style="height:44px;background:var(--app-settings-icon-surface);">Search people</div>
               </div>
-              <div data-directory style="height:1600px;background:#d5d5dd;">Directory results</div>
+              <div data-directory style="height:1600px;background:var(--app-settings-surface);">Directory results</div>
             </div>
           </div>
         </div>
@@ -152,7 +152,7 @@ function shellMarkup(): string {
   </div>`;
 }
 
-async function writeFixture(): Promise<string> {
+async function writeFixture(theme: "light" | "dark" = "light"): Promise<string> {
   const css = await buildStylesheet([
     "app-page-shell",
     "app-page-content-region",
@@ -194,7 +194,7 @@ async function writeFixture(): Promise<string> {
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${productFontStyle()}body{margin:0}</style><link rel="stylesheet" href="fixture.css"></head><body data-ambient-chrome-primed="true">${shellMarkup()}<script>(function(){var header=document.querySelector('[data-testid="connect-sticky-header"]');var stack=document.querySelector('[data-connect-stack]');stack.style.setProperty('--connect-sticky-header-height',Math.ceil(header.getBoundingClientRect().height)+'px');})();</script></body></html>`,
+    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${productFontStyle()}body{margin:0}</style><link rel="stylesheet" href="fixture.css"></head><body data-ambient-chrome-primed="true">${shellMarkup()}<script>(function(){var header=document.querySelector('[data-testid="connect-sticky-header"]');var stack=document.querySelector('[data-connect-stack]');stack.style.setProperty('--connect-sticky-header-height',Math.ceil(header.getBoundingClientRect().height)+'px');})();</script></body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
 }
@@ -252,6 +252,57 @@ async function measureAt(page: Page, y: number) {
 }
 
 test.describe("connect sticky header", () => {
+  for (const theme of ["light", "dark"] as const) {
+    for (const width of [320, 768, 1440] as const) {
+      test(`${theme} pinned surfaces use the route canvas at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(await writeFixture(theme));
+        await awaitProductFont(page);
+        await measureAt(page, 1400);
+        const state = await page.evaluate(() => {
+          const header = document.querySelector<HTMLElement>(
+            '[data-testid="connect-sticky-header"]',
+          )!;
+          const search = document.querySelector<HTMLElement>(
+            '[data-testid="connect-search-row"]',
+          )!;
+          const title = document.querySelector<HTMLElement>("[data-person-title]")!;
+          const directory = document.querySelector<HTMLElement>("[data-directory]")!;
+          const tokenProbe = document.createElement("div");
+          document.body.append(tokenProbe);
+          tokenProbe.style.backgroundColor = "var(--app-settings-canvas)";
+          const expectedCanvas = getComputedStyle(tokenProbe).backgroundColor;
+          tokenProbe.style.backgroundColor = "var(--app-settings-surface)";
+          const expectedSurface = getComputedStyle(tokenProbe).backgroundColor;
+          tokenProbe.remove();
+          return {
+            canvas: getComputedStyle(document.body).backgroundColor,
+            expectedCanvas,
+            directorySurface: getComputedStyle(directory).backgroundColor,
+            expectedSurface,
+            header: getComputedStyle(header).backgroundColor,
+            search: getComputedStyle(search).backgroundColor,
+            titleFont: getComputedStyle(title).fontFamily,
+            pageWidth: document.documentElement.scrollWidth,
+          };
+        });
+        expect(state.header).toBe(state.canvas);
+        expect(state.search).toBe(state.canvas);
+        expect(state.canvas).toBe(state.expectedCanvas);
+        expect(state.directorySurface).toBe(state.expectedSurface);
+        expect(state.titleFont).toContain("DMSansVariable");
+        expect(state.pageWidth).toBeLessThanOrEqual(width + 1);
+        if (process.env.ONE_THEME_EVIDENCE_DIR && (width === 320 || width === 1440)) {
+          fs.mkdirSync(process.env.ONE_THEME_EVIDENCE_DIR, { recursive: true });
+          await page.screenshot({
+            path: path.join(process.env.ONE_THEME_EVIDENCE_DIR, `connect-${theme}-${width}.png`),
+          });
+        }
+      });
+    }
+  }
   for (const width of WIDTHS) {
     test(`tabs join the solid top chrome at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });

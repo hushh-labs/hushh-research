@@ -192,7 +192,7 @@ export function GmailVerificationOnboarding({
             </p>
           </div>
         </div>
-        <Button type="button" onClick={onRequestVaultUnlock} className="w-full justify-center h-10 font-semibold rounded-full">
+        <Button type="button" size="standard" onClick={onRequestVaultUnlock} className="w-full justify-center font-semibold rounded-full">
           Open private vault
         </Button>
       </SurfaceInset>

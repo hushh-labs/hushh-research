@@ -103,10 +103,12 @@ for (const width of [320, 393, 768, 1440]) {
       expect(buttonBox.y - cardBox.y - cardBox.height).toBeCloseTo(16, 0);
       await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");
       await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("opacity", "1");
-      for (const property of ["height","border-radius","font-size","font-weight","background-color","color","opacity"]) {
+      for (const property of ["height","border-radius","font-size","font-weight"]) {
         const expected = await page.getByTestId("primary-reference").evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop),property);
         await expect(finish).toHaveCSS(property,expected);
       }
+      await expect(finish).not.toHaveCSS("background-color", await page.getByTestId("primary-reference").evaluate(el => getComputedStyle(el).backgroundColor));
+      await expect(finish).toHaveCSS("opacity", "1");
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
       await page.screenshot({path:testInfo.outputPath("setup-required.png")});
       await page.evaluate(() => window.dispatchEvent(new Event("fixture:ai-choice-saved")));

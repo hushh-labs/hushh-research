@@ -355,7 +355,7 @@ export function OneSetupHub() {
       as="main"
       width="reading"
       fitContent
-      className="relative isolate max-w-[600px]"
+      className="relative isolate max-w-[640px]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -364,6 +364,7 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
+          <p className={styles.setupEyebrow}>ONE / SETUP</p>
           <PageHeader
             title={
               !hubStateLoading && runtimeChoiceComplete ? "You're all set" : "Set up One"

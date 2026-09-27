@@ -143,7 +143,7 @@ const brandTileClass = one(
 
 const nameMatch = one(
   header,
-  /<div className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
+  /<div className="(truncate [^"]+)">\s*\{(isPuppySurface\s*\?[^}]+)\}/,
   "agent name",
   WORKSPACE_PATH,
 );

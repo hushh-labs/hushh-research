@@ -19,7 +19,7 @@ describe("recursive Profile pane contracts", () => {
       'import { ProfilePage } from "@/components/profile/profile-workspace-page"',
     );
     expect(pane).toContain("w-full max-w-none");
-    expect(pane).toContain("sm:max-w-[560px]");
+    expect(pane).toContain("sm:max-w-[640px]");
     expect(pane).toContain("env(safe-area-inset-top)");
     expect(pane).toContain("env(safe-area-inset-bottom)");
     expect(pane).toContain('data-profile-pane-scroll-root="true"');

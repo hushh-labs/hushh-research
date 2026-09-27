@@ -114,21 +114,24 @@ export default function TrustedDeviceAuthorizePage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[70vh] max-w-xl items-center px-6 py-12">
+    <main
+      data-one-workspace="profile-authorization"
+      className="mx-auto flex min-h-[70dvh] max-w-xl items-center px-[var(--page-inline-gutter-standard)] py-8 sm:py-12"
+    >
       <NativeRouteMarker
         routeId={ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE}
         marker="native-route-profile"
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
-      <section className="w-full rounded-3xl border bg-card p-8 shadow-sm">
-        <div className="mb-6 flex size-12 items-center justify-center rounded-2xl bg-primary/10">
-          <Laptop className="size-6 text-primary" aria-hidden />
+      <section className="w-full min-w-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] p-5 sm:p-8">
+        <div className="mb-6 flex size-12 items-center justify-center rounded-[12px] bg-[color:var(--app-settings-icon-surface)]">
+          <Laptop className="size-6 text-[color:var(--app-settings-icon-foreground)]" aria-hidden />
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="font-[family-name:var(--font-app-display)] text-[length:var(--type-page-title-size)] font-semibold leading-[var(--type-page-title-line)] tracking-[-0.02em] text-[color:var(--app-label)]">
           Connect this Hermes device
         </h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        <p className="mt-3 text-[length:var(--type-page-subtitle-size)] leading-6 text-[color:var(--app-secondary-label)]">
           Approve this private computer as an extension of One. The vault
           passphrase remains local to Hermes and is never sent to Hussh. When
           this browser can use an existing One passkey, Touch ID can secure the
@@ -137,30 +140,30 @@ export default function TrustedDeviceAuthorizePage() {
           actions, including confirmed PKM writes.
         </p>
 
-        <dl className="mt-6 rounded-2xl bg-muted/50 p-4 text-sm">
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Hussh account</dt>
-            <dd className="truncate font-medium">
+        <dl className="mt-6 space-y-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-canvas)] p-4 text-sm">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4">
+            <dt className="text-[color:var(--app-secondary-label)]">Hussh account</dt>
+            <dd className="min-w-0 break-words text-right font-medium text-[color:var(--app-label)] [overflow-wrap:anywhere]">
               {user?.email || "Sign in required"}
             </dd>
           </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Device</dt>
-            <dd className="font-medium">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4">
+            <dt className="text-[color:var(--app-secondary-label)]">Device</dt>
+            <dd className="min-w-0 break-words text-right font-medium text-[color:var(--app-label)] [overflow-wrap:anywhere]">
               {request.device_name || "Unknown device"}
             </dd>
           </div>
-          <div className="mt-2 flex justify-between gap-4">
-            <dt className="text-muted-foreground">Access</dt>
-            <dd className="text-right font-medium">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4">
+            <dt className="text-[color:var(--app-secondary-label)]">Access</dt>
+            <dd className="min-w-0 break-words text-right font-medium text-[color:var(--app-label)] [overflow-wrap:anywhere]">
               Trusted until revoked; short-lived action capabilities
             </dd>
           </div>
         </dl>
 
-        <div className="mt-6 flex items-start gap-3 text-sm text-muted-foreground">
+        <div className="mt-6 flex items-start gap-3 text-sm text-[color:var(--app-secondary-label)]">
           <ShieldCheck
-            className="mt-0.5 size-4 shrink-0 text-emerald-600"
+            className="mt-0.5 size-4 shrink-0 text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]"
             aria-hidden
           />
           <p>
@@ -170,17 +173,17 @@ export default function TrustedDeviceAuthorizePage() {
         </div>
 
         {error ? (
-          <p className="mt-5 text-sm text-destructive">{error}</p>
+          <p role="alert" className="mt-5 text-sm text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">{error}</p>
         ) : null}
         {!complete ? (
-          <p className="mt-5 text-sm text-destructive">
+          <p role="alert" className="mt-5 text-sm text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">
             The Hermes authorization request is incomplete. Return to Hermes and
             try again.
           </p>
         ) : null}
 
         <Button
-          className="mt-7 w-full"
+          className="mt-7 min-h-11 w-full"
           disabled={!user || !complete || submitting}
           onClick={() => void approve()}
         >

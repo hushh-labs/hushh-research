@@ -6,10 +6,8 @@
  * "Let trusted people know you're here." A focused, full-screen task flow that
  * reuses the existing encrypted location-share pipeline via `vm.onCheckIn`.
  *
- * Visual spec: Apple Blue v2 design (Location Agent - Apple Blue v2.dc.html,
- * `data-screen-label="Check in"`). Literal design values (12px cards, gray
- * segmented duration control, blue pill CTA) are used deliberately, with dark
- * variants layered on so the screen stays legible in dark mode.
+ * The form uses the shared quiet Location surfaces and semantic actions, with
+ * the same readable contrast in light and dark modes.
  *
  * PRESENTATION + LOCAL SELECTION STATE ONLY.
  * - The list of people ("Who should know?") is the SAME trusted contacts used by
@@ -83,9 +81,8 @@ const REVIEWED_POINT_MAX_AGE_MS = 60_000;
 const REVIEWED_POINT_FUTURE_SKEW_MS = 30_000;
 const PRIVATE_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
-/** White surface card — design radius 12px, with a dark-mode variant. */
 const CARD =
-  "rounded-[var(--app-card-radius-compact)] border border-border/60 bg-[color:var(--app-card-surface-default-solid)]";
+  "rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] shadow-none";
 
 // Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
 // A thin, touch-friendly scrollbar keeps it unobtrusive on mobile.
@@ -204,8 +201,8 @@ function ContactRow({
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
           checked
-            ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-            : "border-[1.5px] border-black/25 dark:border-white/25",
+            ? "bg-[color:var(--app-label)] text-[color:var(--app-settings-surface)]"
+            : "border-[1.5px] border-[color:var(--app-secondary-label)]",
         )}
       >
         {checked ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : null}
@@ -637,7 +634,7 @@ export function CheckInFlow({
         <button
           type="button"
           onClick={close}
-          className="shrink-0 pt-1 text-[color:var(--app-accent)]"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-[10px] px-2 text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-settings-icon-surface)] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <TrailingAction as="span">Cancel</TrailingAction>
         </button>
@@ -645,10 +642,10 @@ export function CheckInFlow({
 
       {entrySource === "nearby" ? (
         <section
-          className="mt-4 flex gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4"
+          className="mt-4 flex gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] p-4"
           data-testid="nearby-private-share-disclosure"
         >
-          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
+          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--app-settings-icon-foreground)]" />
           <div>
             <MediumRowLabel as="p">
               Nearby and private sharing are separate
@@ -695,7 +692,7 @@ export function CheckInFlow({
                 ? "Recenter map on the confirmed check-in location"
                 : undefined
             }
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[12px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] px-3 text-[13px] font-semibold text-[color:var(--app-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-60"
           >
             <RefreshCw
               className={cn(
@@ -901,9 +898,9 @@ export function CheckInFlow({
         </section>
       ) : null}
 
-      {/* DURATION — gray segmented control incl. "Until I stop". */}
+      {/* Duration choices share the same neutral selected state as Location. */}
       <SectionLabel>Duration</SectionLabel>
-      <div className="flex rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] p-0.5">
+      <div className="flex rounded-[14px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] p-1">
         {durationOptions.map((option) => (
           <button
             key={option.key}
@@ -912,10 +909,10 @@ export function CheckInFlow({
             disabled={retryLocked}
             style={{ flexGrow: option.grow, flexBasis: 0 }}
             className={cn(
-              "whitespace-nowrap rounded-[7px] py-[9px] text-center text-[13px] transition-colors",
+              "min-h-11 whitespace-nowrap rounded-[10px] px-1 py-2 text-center text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
               option.active
-                ? "bg-[color:var(--app-card-surface-default-solid)] font-semibold text-foreground shadow-none"
-                : "font-normal text-foreground/80",
+                ? "bg-[color:var(--app-settings-surface)] font-semibold text-[color:var(--app-label)] shadow-none"
+                : "font-normal text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]",
               retryLocked && "cursor-not-allowed opacity-60",
             )}
           >
@@ -953,7 +950,7 @@ export function CheckInFlow({
       {retryLocked ? (
         <button
           type="button"
-          className="mb-3 w-full rounded-full border border-[color:var(--app-separator)] py-3 text-[color:var(--app-label)] transition-colors hover:bg-[color:var(--app-secondary-surface)]"
+          className="mb-3 min-h-11 w-full rounded-[12px] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-surface)] px-4 py-2 text-[color:var(--app-label)] transition-colors hover:bg-[color:var(--app-settings-icon-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           disabled={busy}
           onClick={editAndReconfirm}
         >
@@ -961,13 +958,13 @@ export function CheckInFlow({
         </button>
       ) : null}
 
-      {/* Primary CTA — full blue pill (design). */}
+      {/* Primary CTA stays full width on narrow screens. */}
       <button
         type="button"
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[color:var(--app-accent-fg)] transition-opacity",
+          "flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px] bg-[color:var(--app-label)] px-4 py-3 text-[color:var(--app-settings-canvas)] transition-colors hover:bg-[color:var(--app-secondary-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
           (!canSubmit || busy) && "opacity-50",
         )}
       >

@@ -25,6 +25,7 @@ import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { Button } from "@/components/ui/button";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import { LocationUtilityIcon } from "@/components/one-location/location-utility-icon";
 import {
   ONE_LOCATION_ONBOARDING_STEPS,
   type OneLocationOnboardingScreen,
@@ -284,7 +285,7 @@ function OnboardingSkipButton({
         plain
           ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
           : floating
-            ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+            ? "h-11 bg-[color:var(--app-neutral-fill)] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
             : inverse
               ? "text-white"
               : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
@@ -331,12 +332,12 @@ function OnboardingNavigation({
         className={cn(
           "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
           plain
-            ? "text-[#59616c] dark:text-[color:var(--app-label)]"
+            ? "text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-label)]"
             : floating
-              ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+              ? "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
               : inverse
                 ? "bg-white/15 text-white"
-                : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
+                : "bg-black/[0.05] text-[color:var(--app-label)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
         )}
         aria-label="Go back"
       >
@@ -389,7 +390,7 @@ function WelcomeRadar() {
       ))}
       <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
         <span
-          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
+          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[color:var(--app-accent-deep)] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
           data-one-welcome-core
         >
           <MapPin
@@ -397,7 +398,7 @@ function WelcomeRadar() {
             strokeWidth={2.7}
           />
         </span>
-        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
+        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[color:var(--app-accent-deep)] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
           You
         </span>
       </span>
@@ -429,7 +430,7 @@ function WelcomeRadar() {
             />
           </span>
           <span
-            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[#31c65b]"
+            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[color:var(--app-success)]"
             data-one-welcome-orbit-status
           />
         </span>
@@ -460,9 +461,9 @@ function WelcomeScreen({
   }, []);
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-accent)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-[color:var(--app-accent-fg)]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
-      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
+      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[color:var(--app-accent-deep)]/55" />
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[700px] flex-1 flex-col">
         <OnboardingNavigation
           inverse
@@ -632,7 +633,7 @@ function TwoLineFeatureTitle({
       aria-level={2}
       aria-label={lines.join(" ")}
       className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-[color:var(--app-label)]",
+        "font-bold leading-[1.13] tracking-[-0.015em] text-[color:var(--app-label)] dark:text-[color:var(--app-label)]",
         className,
       )}
       data-one-feature-title
@@ -673,7 +674,7 @@ function ShareLocationFeatureCard() {
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="text-[15px] leading-[1.4] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Share your live location with your Circle in one tap.
@@ -739,7 +740,7 @@ function CheckInFeatureCard() {
         data-one-feature-copy
       >
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
+          className="inline-flex rounded-full bg-[color:var(--app-success-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-success-deep)] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
           data-one-use-case-tag
         >
           Check in
@@ -749,7 +750,7 @@ function CheckInFeatureCard() {
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="text-[14px] leading-[1.4] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Check in on the spot and notify your circle
@@ -802,7 +803,7 @@ function SaveMySoulFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
+          className="inline-flex rounded-full bg-[color:var(--app-destructive-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-destructive-deep)] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
           data-one-use-case-tag
         >
           SMS · Save My Soul
@@ -812,7 +813,7 @@ function SaveMySoulFeatureCard() {
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="text-[14px] leading-[1.4] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Alert your contacts with your live location.
@@ -834,16 +835,16 @@ function SaveMySoulFeatureCard() {
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/30 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full border-2 border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-[10px] rounded-full border-2 border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#ff3b30] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
+              className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
             >
               <span className="relative z-10" data-one-sms-label>
                 SMS
@@ -926,7 +927,7 @@ function FeaturesScreen({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="ui-text-agent-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
+            className="ui-text-agent-title text-[color:var(--app-label)] outline-none dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
           >
             Keep your people updated.
@@ -947,7 +948,7 @@ function FeaturesScreen({
           </div>
         </div>
         <p
-          className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]"
+          className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]"
           aria-live="polite"
           role={
             locationPreparationRetry || locationBlocked ? "alert" : undefined
@@ -1221,7 +1222,7 @@ function ContactsScreen({
             type="button"
             onClick={onBack}
             disabled={navigationDisabled}
-            className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+            className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[color:var(--app-label)] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
             aria-label="Go back"
           >
             <ArrowLeft className="h-6 w-6" />
@@ -1242,12 +1243,12 @@ function ContactsScreen({
               <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
                 <UserPlus className="h-7 w-7" strokeWidth={2} />
               </span>
-              <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+              <h1 className="ui-text-agent-title mt-4 text-[color:var(--app-label)] dark:!text-[color:var(--app-label)]">
                 Find your people
               </h1>
             </>
           ) : null}
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
             {primed
               ? "Find people from your contacts already on One. Exact matches connect automatically."
               : state.kind === "matched"
@@ -1259,18 +1260,18 @@ function ContactsScreen({
             <>
               <div
                 className={cn(
-                  "rounded-[20px] border border-[#e4e6e9] bg-white p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]",
+                  "rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-white p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]",
                   embedded ? "mt-4" : "mt-7",
                 )}
               >
                 {state.kind === "busy" ? (
-                  <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                  <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                     <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                     contacts
                   </div>
                 ) : (
                   <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
-                    <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                    <p className="max-w-[320px] text-[15px] leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                       Connect contacts to see who is already here.
                     </p>
                     {/* Play prominent disclosure: must render above the button
@@ -1310,9 +1311,9 @@ function ContactsScreen({
                 return (
                   <li
                     key={match.userId}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-[color:var(--app-card-border-standard)] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                   >
-                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[color:var(--app-label)] dark:text-[color:var(--app-label)]">
                       <span className="min-w-0 truncate">
                         {match.displayName}
                       </span>
@@ -1333,7 +1334,7 @@ function ContactsScreen({
                         {added ? "Requested" : adding ? "Sending" : "Request"}
                       </button>
                     ) : (
-                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[color:var(--app-secondary-label)]">
                         {connected ? (
                           <Check className="h-4 w-4 text-emerald-600" />
                         ) : null}
@@ -1349,7 +1350,7 @@ function ContactsScreen({
               })}
               {visibleMatches.length < matches.length ? (
                 <li className="flex flex-col items-center gap-2 pt-2">
-                  <span className="text-xs text-[#73777f]" aria-live="polite">
+                  <span className="text-xs text-[color:var(--app-secondary-label)]" aria-live="polite">
                     Showing {visibleMatches.length} of {matches.length}
                   </span>
                   <button
@@ -1359,7 +1360,7 @@ function ContactsScreen({
                         Math.min(current + MATCH_PAGE_SIZE, matches.length),
                       )
                     }
-                    className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                    className="press-scale min-h-11 rounded-full border border-[color:var(--app-card-border-standard)] px-5 text-sm font-semibold dark:border-white/[0.08]"
                   >
                     Show more
                   </button>
@@ -1376,7 +1377,7 @@ function ContactsScreen({
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
-                  className="press-scale min-h-11 rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  className="press-scale min-h-11 rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-5 text-sm font-bold text-[color:var(--app-label)] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   Sync again
                 </button>
@@ -1385,11 +1386,11 @@ function ContactsScreen({
           ) : null}
 
           {state.kind === "none" ? (
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+            <div className="mt-7 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                 No eligible contacts matched.
               </p>
-              <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+              <p className="mt-2 text-[13px] leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                 {state.partial
                   ? state.summary ||
                     "Only part of your contact list was checked. "
@@ -1412,7 +1413,7 @@ function ContactsScreen({
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
-                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-5 text-sm font-bold text-[color:var(--app-label)] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   Sync again
                 </button>
@@ -1421,15 +1422,15 @@ function ContactsScreen({
           ) : null}
 
           {state.kind === "failed" ? (
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+            <div className="mt-7 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                 {state.message}
               </p>
               {state.canOpenSettings ? (
                 <button
                   type="button"
                   onClick={onOpenSettings}
-                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-5 text-sm font-bold text-[color:var(--app-label)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   Open Settings
                 </button>
@@ -1439,7 +1440,7 @@ function ContactsScreen({
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
-                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-5 text-sm font-bold text-[color:var(--app-label)] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   Try again
                 </button>
@@ -1619,7 +1620,7 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[color:var(--app-label)] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
@@ -1648,12 +1649,12 @@ function ReadyScreen({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
+            className="ui-text-agent-title pb-1 leading-[1.15] text-[color:var(--app-label)] outline-none dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
             Private until you share.
           </p>
 
@@ -1663,17 +1664,17 @@ function ReadyScreen({
             in three seconds cannot afford a sentence that only restates its own
             layout. */}
           <div
-            className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+            className="mt-6 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
             data-testid="one-location-onboarding-invite-card"
             data-one-ready-code
           >
             {loading ? (
-              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                 <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
               </div>
             ) : error ? (
               <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-                <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                <p className="max-w-[260px] text-sm leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                   {error}
                 </p>
                 <Button
@@ -1691,7 +1692,7 @@ function ReadyScreen({
                   your people to Ankit's Circle" spent five words introducing
                   the two things directly under it -- a code and a Share
                   button -- which the card's own shape already introduces. */}
-                <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
+                <p className="text-[13px] font-medium leading-[18px] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                   {invite.circleName}
                 </p>
                 <p
@@ -1706,7 +1707,7 @@ function ReadyScreen({
                 {/* Kept, shortened. The expiry changes what the person does with
                   the code, so it stays; "You can get a fresh one any time" is a
                   reassurance about a screen they have not reached yet. */}
-                <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                <p className="mt-2 text-[12px] leading-[18px] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                   Expires in 72 hours
                 </p>
                 <FlowActionGroup
@@ -1717,7 +1718,7 @@ function ReadyScreen({
                       variant="outline"
                       size="standard"
                       onClick={onCopy}
-                      className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                      className="border-[color:var(--app-card-border-standard)] bg-white text-[color:var(--app-label)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                     >
                       {copied ? (
                         <Check className="h-5 w-5" strokeWidth={2.5} />
@@ -1741,7 +1742,7 @@ function ReadyScreen({
                 />
               </>
             ) : (
-              <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+              <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                 {/* Where to get it is the button at the bottom of this screen,
                   which already says "Open One Location". Saying it again here
                   is the paragraph this card used to be. */}
@@ -1757,12 +1758,12 @@ function ReadyScreen({
                 onClick={() => onToggleDisclosure("join")}
                 aria-expanded={activeDisclosure === "join"}
                 aria-controls="onboarding-join-circle-panel"
-                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-white px-4 text-left text-[15px] font-bold text-[color:var(--app-label)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 data-testid="onboarding-join-circle-toggle"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                <LocationUtilityIcon>
                   <UserPlus className="h-4 w-4" aria-hidden />
-                </span>
+                </LocationUtilityIcon>
                 <span className="min-w-0 flex-1">Join with a code</span>
                 <ChevronDown
                   className={cn(
@@ -1780,7 +1781,7 @@ function ReadyScreen({
                 >
                   {joinAccepted ? (
                     <p
-                      className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
+                      className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[color:var(--app-label)] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
                       role="status"
                     >
                       <Check
@@ -1793,13 +1794,13 @@ function ReadyScreen({
                     </p>
                   ) : joinPreview ? (
                     <div
-                      className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                      className="rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                       data-testid="onboarding-join-circle-preview"
                     >
-                      <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <p className="text-[15px] font-bold leading-5 text-[color:var(--app-label)] dark:text-[color:var(--app-label)]">
                         {joinPreview.name}
                       </p>
-                      <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                      <p className="mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]">
                         {joinPreview.ownerDisplayName} &middot;{" "}
                         {joinPreview.memberCount}{" "}
                         {joinPreview.memberCount === 1 ? "person" : "people"}
@@ -1849,13 +1850,13 @@ function ReadyScreen({
                         aria-describedby={
                           joinError ? "onboarding-join-code-error" : undefined
                         }
-                        className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="h-11 min-w-0 flex-1 rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[color:var(--app-label)] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       />
                       <button
                         type="button"
                         onClick={onPreviewJoinCode}
                         disabled={joinBusy || !joinCode.trim() || leaving}
-                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[color:var(--app-card-border-standard)] bg-white px-4 text-[15px] font-bold text-[color:var(--app-label)] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       >
                         {joinBusy ? (
                           <Loader2
@@ -1888,11 +1889,11 @@ function ReadyScreen({
                 onClick={() => onToggleDisclosure("contacts")}
                 aria-expanded={activeDisclosure === "contacts"}
                 aria-controls="onboarding-contacts-panel"
-                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-white px-4 text-left text-[15px] font-bold text-[color:var(--app-label)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                <LocationUtilityIcon>
                   <UserPlus className="h-4 w-4" aria-hidden />
-                </span>
+                </LocationUtilityIcon>
                 <span className="min-w-0 flex-1">Find contacts</span>
                 <ChevronDown
                   className={cn(
@@ -1934,7 +1935,7 @@ function ReadyScreen({
         <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
-              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
+              className="mb-3 text-center text-[13px] leading-5 text-[color:var(--app-secondary-label)] dark:text-[color:var(--app-secondary-label)]"
               role="status"
             >
               That didn&apos;t save. Tap again.
@@ -2537,7 +2538,7 @@ export function OneLocationOnboardingFlow({
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
       // it above elevated Talk to One / bottom-nav states without touching those
       // global controls.
-      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[color:var(--app-label)] sm:[--type-agent-title-size:44px]"
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[color:var(--app-label)] [--type-agent-title-size:34px] dark:text-[color:var(--app-label)] sm:[--type-agent-title-size:44px]"
       data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"

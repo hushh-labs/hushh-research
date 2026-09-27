@@ -44,7 +44,7 @@ export const FeedRow = memo(function FeedRow({
         ) : (
           <span
             aria-hidden
-            className="inline-flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-settings-icon-foreground)]"
           >
             <Icon className="size-[18px]" />
           </span>
@@ -69,7 +69,7 @@ export const FeedRow = memo(function FeedRow({
           data-state={read ? "read" : "unread"}
           className={cn(
             "block size-1.5 rounded-full",
-            read ? "bg-transparent" : "bg-accent",
+            read ? "bg-transparent" : "bg-[color:var(--app-label)]",
           )}
         />
       }

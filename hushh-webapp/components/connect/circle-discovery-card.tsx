@@ -15,8 +15,6 @@ import {
 } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/lib/morphy-ux/button";
-import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
-import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
@@ -38,18 +36,8 @@ const STARTER_ICONS = {
   sms: AlertCircle,
 };
 
-// Match the home palette and its duotone icon language. The emergency siren
-// reads as an alert at a glance, while the SMS label names its delivery type.
-const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
-  family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
-  finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,
-  investor: DASHBOARD_AGENT_ICON_STYLE_BY_ID.ria,
-  business: DASHBOARD_AGENT_ICON_STYLE_BY_ID.consent,
-  location: DASHBOARD_AGENT_ICON_STYLE_BY_ID.location,
-  sms: DASHBOARD_AGENT_ICON_STYLE_BY_ID.gmail,
-};
 const STARTER_TONE_CLASSNAME =
-  "[--circle-tint:var(--agent-icon-profile-bg)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
+  "[--circle-tint:var(--app-settings-icon-surface)] [--circle-ink:var(--app-settings-icon-foreground)]";
 const CIRCLE_TOUR_INTERVAL_MS = 3_000;
 
 export type CircleDiscoveryCardProps = {
@@ -298,7 +286,6 @@ export function CircleDiscoveryCard({
                   "group absolute top-[var(--circle-node-mobile-top)] flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-xl py-0.5 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait sm:top-[var(--circle-node-desktop-top)]",
                 )}
                 style={{
-                  ...STARTER_ICON_STYLES[item.id],
                   left: `${50 + Math.cos(angle) * 44}%`,
                   "--circle-node-mobile-top": `${50 + Math.sin(angle) * 36}%`,
                   "--circle-node-desktop-top": `${50 + Math.sin(angle) * 40}%`,
@@ -308,15 +295,15 @@ export function CircleDiscoveryCard({
                   <span
                     data-circle-starter-icon={item.id}
                     className={cn(
-                      "relative flex size-12 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-sm transition-[transform,box-shadow,border-color] duration-200 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
+                      "relative flex size-12 items-center justify-center rounded-[16px] border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-none transition-[transform,background-color,border-color] duration-200 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
                       active
-                        ? "scale-105 border-[color:var(--app-accent)] ring-[3px] ring-[color:var(--app-accent-ring)]"
-                        : "border-[color:color-mix(in_oklab,var(--circle-ink)_14%,transparent)]",
+                        ? "scale-105 border-[color:var(--app-label)] bg-[color:var(--app-settings-surface)] ring-2 ring-[color:var(--app-neutral-fill-strong)]"
+                        : "border-[color:var(--app-settings-border)]",
                     )}
                   >
                     <Icon aria-hidden="true" data-circle-icon-style="duotone" weight="duotone" color="currentColor" className="size-5.5" />
                     {existing && item.id !== "sms" ? (
-                      <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] sm:size-4">
+                      <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-[color:var(--app-label)] text-[color:var(--app-settings-surface)] sm:size-4">
                         <Check aria-hidden="true" className="size-2.5 sm:size-3" />
                       </span>
                     ) : null}
@@ -339,7 +326,7 @@ export function CircleDiscoveryCard({
             key={selected}
             data-testid="circle-discovery-preview"
             data-circle-discovery-preview=""
-            className="motion-step-enter rounded-[var(--app-radius-sm)] bg-[color:var(--app-secondary-surface)] px-3 py-2.5 text-center md:rounded-[var(--app-card-radius-compact)] md:border md:border-[color:var(--app-card-border-standard)] md:bg-[color:var(--app-card-surface-default-solid)] md:px-5 md:py-5 md:text-left"
+            className="motion-step-enter rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-settings-border)] bg-[color:var(--app-settings-icon-surface)] px-4 py-3 text-center md:px-5 md:py-5 md:text-left"
             aria-live={autoTourActive ? "off" : "polite"}
             aria-atomic="true"
           >
@@ -358,13 +345,13 @@ export function CircleDiscoveryCard({
             !needsSetup && !circlesUnavailable && "grid-cols-2 max-[299px]:grid-cols-1",
           )} data-circle-discovery-actions="">
             {needsSetup ? (
-              <Button type="button" size="standard" variant="blue" effect="fill" onClick={onSetupCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)]">
+              <Button type="button" size="standard" variant="blue" effect="fill" onClick={onSetupCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-label)] !text-[color:var(--app-settings-canvas)] hover:!bg-[color:var(--app-secondary-label)]">
                 Finish setting up One
               </Button>
             ) : circlesUnavailable ? (
               <>
                 <p className="text-xs text-[color:var(--app-secondary-label)]">We couldn't load your circles.</p>
-                <Button type="button" size="standard" variant="blue" effect="fill" onClick={onRetryCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)]">
+                <Button type="button" size="standard" variant="blue" effect="fill" onClick={onRetryCircles} className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-label)] !text-[color:var(--app-settings-canvas)] hover:!bg-[color:var(--app-secondary-label)]">
                   Retry circles
                 </Button>
               </>
@@ -381,7 +368,7 @@ export function CircleDiscoveryCard({
                 onFocus={stopAutoTour}
                 onClick={handlePrimaryAction}
                 aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle — ${starter.name}`}
-                className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3"
+                className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-label)] !px-3 !text-[color:var(--app-settings-canvas)] hover:!bg-[color:var(--app-secondary-label)]"
                 data-testid="circle-discovery-primary"
               >
                 {creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : "Create a Circle"}
@@ -394,7 +381,7 @@ export function CircleDiscoveryCard({
               size="standard"
               disabled={loading || Boolean(creating)}
               onClick={connectionsUnavailable ? onRetry : onFindPeople}
-              className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)] !text-[color:var(--app-accent)]"
+              className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !border !border-[color:var(--app-settings-border)] !bg-[color:var(--app-settings-surface)] !text-[color:var(--app-label)] hover:!bg-[color:var(--app-settings-icon-surface)]"
             >
               {connectionsUnavailable ? "Try again" : "Add connection"}
             </Button>

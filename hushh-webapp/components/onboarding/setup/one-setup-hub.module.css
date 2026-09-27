@@ -5,15 +5,24 @@
 
 .setupHeader :global(h1),
 .stepHeader :global(h1) {
-  font-size: 1.75rem !important;
-  line-height: 1.08 !important;
-  letter-spacing: -0.01em !important;
+  font-size: 2rem !important;
+  line-height: 1.12 !important;
+  letter-spacing: -0.035em !important;
+}
+
+.setupEyebrow {
+  margin-bottom: 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 16px;
 }
 
 .setupHeader :global([data-slot="page-header-description"]),
 .stepHeader :global([data-slot="page-header-description"]) {
-  font-size: 13px !important;
-  line-height: 20px !important;
+  font-size: 15px !important;
+  line-height: 22px !important;
 }
 
 .setupContent.setupContent {
@@ -27,11 +36,18 @@
 }
 
 .flatChecklist [data-slot="settings-group-shell"] {
-  --settings-group-radius: 18px;
-  border: 0;
-  background: var(--app-card-surface-default-solid);
-  border-radius: 18px;
+  --settings-group-radius: var(--app-card-radius-compact);
+  border: 1px solid var(--app-settings-border);
+  background: var(--app-settings-surface);
+  border-radius: var(--app-card-radius-compact);
   box-shadow: none;
+}
+
+.flatChecklist :global([data-testid="one-setup-master-ack"]:disabled) {
+  background: var(--app-neutral-fill) !important;
+  color: var(--muted-foreground) !important;
+  opacity: 1 !important;
+  border: 1px solid var(--app-settings-border);
 }
 
 .flatChecklist :global([data-slot="settings-group-heading"]) {
@@ -69,7 +85,7 @@
 @media (min-width: 640px) {
   .setupHeader :global(h1),
   .stepHeader :global(h1) {
-    font-size: 1.95rem !important;
+    font-size: 2.5rem !important;
   }
 }
 

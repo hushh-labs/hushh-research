@@ -64,6 +64,10 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import {
+  SegmentedModeControl,
+  type ShareMode,
+} from "@/components/one-location/segmented-mode-control";
+import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
   type OnboardingCircleInvite,
   type OnboardingContactSyncResult,
@@ -1050,13 +1054,13 @@ function recommendationToneClassName(tier?: string | null): string {
   switch (tier) {
     case "needs_action":
     case "setup_needed":
-      return "bg-[#fff3e6] text-[#9a5a00] dark:bg-orange-400/15 dark:text-orange-200";
+      return "bg-[color:var(--app-warning-tint)] text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]";
     case "trusted_circle":
-      return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
+      return "bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]";
     case "kai_network":
-      return "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-deep)]";
+      return "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-ink)]";
     default:
-      return "bg-[#f2f2f7] text-[#636366] dark:bg-white/10 dark:text-white/65";
+      return "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]";
   }
 }
 
@@ -1828,7 +1832,7 @@ function LocalMapPreview({
               asChild
               variant="outline"
               size="sm"
-              className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
+              className="min-h-11 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent-ink)] hover:bg-[color:var(--app-accent-surface-strong)]"
             >
               <a
                 href={directionsUrl}
@@ -1881,28 +1885,26 @@ function ActionButton({
   );
 }
 
-type ShareMode = "share" | "request";
-
 const onePanelClassName =
-  "w-full min-w-0 max-w-full overflow-x-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+  "w-full min-w-0 max-w-full overflow-x-hidden rounded-[var(--app-card-radius-standard,20px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
 const oneScrollablePanelClassName = cn(
   onePanelClassName,
   "max-h-[min(70dvh,560px)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/20 dark:[&::-webkit-scrollbar-thumb]:bg-white/20",
 );
 const oneInsetClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
-const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
+  "w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-compact,14px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-label)]";
+const oneSecondaryTextClassName = "text-[color:var(--app-secondary-label)]";
 
 function sectionLabel(title: string, count?: number) {
   return (
     <div
       role="heading"
       aria-level={2}
-      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-normal text-[#3a3a3c] dark:text-white/75"
+      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-normal text-[color:var(--app-label)]"
     >
       {title}
       {typeof count === "number" && count > 0 ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff3b30] px-1.5 text-[10px] font-bold text-white">
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[color:var(--app-destructive)] px-1.5 text-[10px] font-bold text-[color:var(--app-destructive-fg)]">
           {count}
         </span>
       ) : null}
@@ -1951,47 +1953,13 @@ function AvatarBubble({
         size === "md" && "h-[52px] w-[52px] text-[18px]",
         size === "lg" && "h-11 w-11 text-[17px]",
         muted
-          ? "bg-[#e5e5ea] text-[#8e8e93] dark:bg-white/10 dark:text-white/55"
+          ? "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]"
           : `${avatarColor(index)} text-[color:var(--app-accent-deep)]`,
       )}
       aria-hidden="true"
     >
       {initialsForLabel(label)}
     </span>
-  );
-}
-
-function SegmentedModeControl({
-  value,
-  onChange,
-}: {
-  value: ShareMode;
-  onChange: (value: ShareMode) => void;
-}) {
-  return (
-    <div
-      aria-label="Choose location sharing mode"
-      className="flex h-9 w-full min-w-0 max-w-full items-center overflow-hidden rounded-[9px] bg-[#efeff0] p-[3px] dark:bg-white/10"
-      role="tablist"
-    >
-      {(["share", "request"] as const).map((mode) => (
-        <button
-          key={mode}
-          aria-selected={value === mode}
-          role="tab"
-          type="button"
-          onClick={() => onChange(mode)}
-          className={cn(
-            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-[background-color,color,box-shadow] duration-150",
-            value === mode
-              ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
-              : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",
-          )}
-        >
-          {mode}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -2006,15 +1974,15 @@ function EmptyOneState({
 }) {
   return (
     <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-3.5 text-sm sm:flex-row sm:items-center">
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
         <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="font-semibold text-[#1c1c1e] dark:text-white">
+        <div className="font-semibold text-[color:var(--app-label)]">
           {title}
         </div>
         {description ? (
-          <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+          <div className="break-words text-[13px] leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
             {description}
           </div>
         ) : null}
@@ -2077,21 +2045,21 @@ function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
   return (
     <section
       aria-label="How Location works"
-      className="relative min-w-0 max-w-full overflow-hidden rounded-[20px] border border-[color:var(--app-accent-border)] bg-gradient-to-b from-[color:var(--app-accent-surface)] to-white p-4 shadow-sm dark:border-[color:var(--app-accent-border)] dark:from-[color:var(--app-accent-tint)] dark:to-transparent"
+      className="relative min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-accent-border)] bg-gradient-to-b from-[color:var(--app-accent-surface)] to-[color:var(--app-card-surface-default-solid)] p-4 dark:from-[color:var(--app-accent-tint)] dark:to-[color:var(--app-card-surface-default-solid)]"
     >
       <button
         type="button"
         aria-label="Dismiss the getting started guide"
         onClick={onDismiss}
-        className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-[#8e8e93] transition-colors hover:bg-black/[0.05] hover:text-[#1c1c1e] dark:hover:bg-white/10 dark:hover:text-white"
+        className="absolute right-1 top-1 inline-flex h-11 w-11 items-center justify-center rounded-full text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] motion-reduce:transition-none"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>
-      <div className="space-y-0.5 pr-8">
-        <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
+      <div className="space-y-0.5 pr-11">
+        <h3 className="text-[16px] font-semibold tracking-tight text-[color:var(--app-label)]">
           3 quick steps
         </h3>
-        <p className="text-[13px] leading-snug text-[#8e8e93] dark:text-white/55">
+        <p className="text-[13px] leading-snug text-[color:var(--app-secondary-label)]">
           You choose when sharing starts.
         </p>
       </div>
@@ -2100,19 +2068,19 @@ function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
           ({ icon: Icon, title, detail }, index) => (
             <li
               key={title}
-              className="flex min-w-0 items-start gap-2.5 rounded-[14px] border border-black/[0.04] bg-white/70 px-3 py-2.5 dark:border-white/[0.08] dark:bg-white/[0.06]"
+              className="flex min-w-0 items-start gap-2.5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-2.5"
             >
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-deep)]">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-ink)]">
                 <Icon className="h-4 w-4" aria-hidden="true" />
               </span>
               <span className="min-w-0">
-                <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-[#1c1c1e] dark:text-white">
-                  <span className="text-[color:var(--app-accent)] dark:text-[color:var(--app-accent-deep)]">
+                <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-[color:var(--app-label)]">
+                  <span className="text-[color:var(--app-accent)] dark:text-[color:var(--app-accent-ink)]">
                     {index + 1}.
                   </span>
                   {title}
                 </span>
-                <span className="mt-0.5 block text-[11.5px] leading-snug text-[#8e8e93] dark:text-white/55">
+                <span className="mt-0.5 block text-[11.5px] leading-snug text-[color:var(--app-secondary-label)]">
                   {detail}
                 </span>
               </span>
@@ -2135,16 +2103,16 @@ function OneLocationTrustStrip() {
       {ONE_LOCATION_TRUST_CHIPS.map(({ icon: Icon, label, detail }) => (
         <li
           key={label}
-          className="flex min-w-0 items-start gap-2.5 rounded-[14px] border border-black/[0.05] bg-white/80 px-3 py-2.5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
+          className="flex min-w-0 items-start gap-2.5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-2.5"
         >
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#34c759]/12 text-[#2dbd5a] dark:bg-[#34c759]/15">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]">
             <Icon className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className="min-w-0">
-            <span className="block text-[13px] font-semibold leading-tight text-[#1c1c1e] dark:text-white">
+            <span className="block text-[13px] font-semibold leading-tight text-[color:var(--app-label)]">
               {label}
             </span>
-            <span className="mt-0.5 block text-[11.5px] leading-snug text-[#8e8e93] dark:text-white/55">
+            <span className="mt-0.5 block text-[11.5px] leading-snug text-[color:var(--app-secondary-label)]">
               {detail}
             </span>
           </span>
@@ -2320,7 +2288,7 @@ function OneLocationInitialSkeleton() {
     >
       <section className="space-y-2 px-1">
         {sectionLabel("Device readiness")}
-        <div className="rounded-[20px] border border-[#34c759]/20 bg-[#34c759]/10 p-4 shadow-sm dark:border-[#34c759]/25 dark:bg-[#34c759]/12">
+        <div className="rounded-[20px] border border-[color:var(--app-success-border)] bg-[color:var(--app-success-tint)] p-4">
           <div className="flex items-center gap-3">
             <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
             <Skeleton className="h-6 w-44 max-w-[70%] rounded-lg" />
@@ -2332,7 +2300,7 @@ function OneLocationInitialSkeleton() {
       </section>
 
       <section className="space-y-4 px-1">
-        <div className="flex h-9 w-full rounded-[9px] bg-[#efeff0] p-[3px] dark:bg-white/10">
+        <div className="flex min-h-12 w-full rounded-[9px] bg-[color:var(--app-segmented-track-surface)] p-[2px]">
           <Skeleton className="h-full flex-1 rounded-[7px]" />
           <Skeleton className="h-full flex-1 rounded-[7px] opacity-60" />
         </div>
@@ -14676,7 +14644,7 @@ export function OneLocationAgentPageContent({
           {loadError && !state ? (
             <div
               role="alert"
-              className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
+              className="rounded-[20px] border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] p-4 text-sm font-medium text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]"
             >
               {loadError}
             </div>
@@ -14753,7 +14721,7 @@ export function OneLocationAgentPageContent({
               size="sm"
               onClick={() => void refresh().catch(() => null)}
               disabled={busy === "load"}
-              className="h-9 rounded-full px-3"
+              className="min-h-11 rounded-full px-3"
               data-voice-control-id="one-location-refresh"
             >
               {busy === "load" ? (
@@ -14772,7 +14740,7 @@ export function OneLocationAgentPageContent({
 
       <AppPageContentRegion className="mx-auto w-full max-w-[720px] min-w-0 space-y-6 overflow-x-hidden pb-10 sm:pb-8">
         {loadError ? (
-          <div className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm text-[#ff3b30] dark:text-[#ff9f9a]">
+          <div className="rounded-[20px] border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] p-4 text-sm text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">
             {loadError}
           </div>
         ) : null}
@@ -14817,7 +14785,7 @@ export function OneLocationAgentPageContent({
               <button
                 type="button"
                 onClick={() => setLocationTab("activity")}
-                className="mx-1 flex items-center gap-2 rounded-[14px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 px-3.5 py-2.5 text-left text-[13px] font-semibold text-[#b42318] transition-colors hover:bg-[#ff3b30]/15 dark:text-[#ff9f9a]"
+                className="mx-1 flex min-h-11 items-center gap-2 rounded-[14px] border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] px-3.5 py-2.5 text-left text-[13px] font-semibold text-[color:var(--app-destructive-deep)] transition-colors hover:bg-[color:var(--app-destructive-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:text-[color:var(--app-destructive-bright)]"
               >
                 <UserRoundCheck
                   className="h-4 w-4 shrink-0"
@@ -14845,13 +14813,13 @@ export function OneLocationAgentPageContent({
                   className={cn(
                     "flex min-w-0 max-w-full flex-col items-center gap-3 overflow-hidden rounded-[20px] border px-4 py-4 text-center shadow-sm sm:flex-row sm:justify-between sm:text-left",
                     locationReadiness.tone === "ready" &&
-                      "border-[#34c759]/25 bg-[#34c759]/10 text-[#1c1c1e] dark:text-white",
+                      "border-[color:var(--app-success-border)] bg-[color:var(--app-success-tint)] text-[color:var(--app-label)]",
                     locationReadiness.tone === "warning" &&
-                      "border-[#ff9500]/30 bg-[#ff9500]/10 text-[#1c1c1e] dark:text-white",
+                      "border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] text-[color:var(--app-label)]",
                     locationReadiness.tone === "blocked" &&
-                      "border-[#ff3b30]/30 bg-[#ff3b30]/10 text-[#1c1c1e] dark:text-white",
+                      "border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] text-[color:var(--app-label)]",
                     locationReadiness.tone === "checking" &&
-                      "border-black/[0.04] bg-white/70 text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-white",
+                      "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-label)]",
                   )}
                 >
                   <div className="flex min-w-0 flex-col items-center gap-3 sm:flex-row sm:items-center">
@@ -14859,11 +14827,11 @@ export function OneLocationAgentPageContent({
                       className={cn(
                         "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
                         locationReadiness.tone === "ready" &&
-                          "bg-[#34c759]/15 text-[#2dbd5a]",
+                          "bg-[color:var(--app-success-surface)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]",
                         locationReadiness.tone === "warning" &&
-                          "bg-[#ff9500]/15 text-[#ff9500]",
+                          "bg-[color:var(--app-warning-surface)] text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]",
                         locationReadiness.tone === "blocked" &&
-                          "bg-[#ff3b30]/15 text-[#ff3b30]",
+                          "bg-[color:var(--app-destructive-surface)] text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]",
                         locationReadiness.tone === "checking" &&
                           "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]",
                       )}
@@ -14883,7 +14851,7 @@ export function OneLocationAgentPageContent({
                       <h3 className="break-words text-[16px] font-semibold tracking-tight [overflow-wrap:anywhere]">
                         {locationReadiness.title}
                       </h3>
-                      <p className="max-w-[34rem] break-words text-[12.5px] font-medium leading-5 text-[#5f6368] [overflow-wrap:anywhere] dark:text-white/55">
+                      <p className="max-w-[34rem] break-words text-[13px] font-normal leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
                         {locationReadiness.description}
                       </p>
                     </div>
@@ -14898,7 +14866,7 @@ export function OneLocationAgentPageContent({
                           : () => void handleOpenLocationSettings()
                       }
                       variant="outline"
-                      className="h-10 w-full shrink-0 rounded-full border-black/[0.06] bg-white px-4 text-[13px] font-semibold text-[#1c1c1e] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                      className="min-h-11 w-full shrink-0 rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 text-[13px] font-semibold text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill)] sm:w-auto"
                     >
                       {busy !== "locationSettings" ? (
                         <ExternalLink
@@ -14911,7 +14879,7 @@ export function OneLocationAgentPageContent({
                   ) : null}
                 </div>
 
-                <div className="overflow-hidden rounded-[20px] border border-black/[0.06] bg-white shadow-[0_2px_12px_rgba(15,23,42,0.06)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+                <div className={onePanelClassName}>
                   <div className="p-3.5">
                     <Button
                       type="button"
@@ -14939,7 +14907,7 @@ export function OneLocationAgentPageContent({
                   </div>
 
                   {myLocationError ? (
-                    <div className="mx-3.5 mb-3.5 rounded-[14px] border border-[#ff3b30]/25 bg-[#ff3b30]/10 px-3 py-2 text-[12px] font-medium text-[#b42318] dark:text-[#ff9f9a]">
+                    <div className="mx-3.5 mb-3.5 rounded-[14px] border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] px-3 py-2 text-[12px] font-medium text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]">
                       {myLocationError}
                     </div>
                   ) : null}
@@ -14967,13 +14935,13 @@ export function OneLocationAgentPageContent({
                 <div className="flex min-w-0 max-w-full flex-col gap-3">
                   {sectionLabel("One Network")}
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[color:var(--app-secondary-label)]" />
                     <input
                       value={recipientSearch}
                       onChange={(event) =>
                         setRecipientSearch(event.target.value)
                       }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[color:var(--app-label)] shadow-sm outline-none transition-shadow placeholder:text-[color:var(--app-secondary-label)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
                       placeholder="Search One Network..."
                       type="text"
                     />
@@ -14987,7 +14955,7 @@ export function OneLocationAgentPageContent({
                         onClick={() => void handleSyncContactSignal()}
                         disabled={!auth.user || busy === "contactInvite"}
                         variant="outline"
-                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#1c1c1e] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[color:var(--app-label)] shadow-sm hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                       >
                         {busy !== "contactSync" ? (
                           <ContactRound
@@ -15003,7 +14971,7 @@ export function OneLocationAgentPageContent({
                         onClick={() => void handleShareContactInvite()}
                         disabled={!vaultOwnerToken || busy === "contactSync"}
                         variant="outline"
-                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[color:var(--app-accent-deep)] dark:hover:bg-white/15 dark:hover:text-white"
+                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] dark:border-white/[0.08] dark:bg-white/10 dark:text-[color:var(--app-accent-ink)] dark:hover:bg-white/15 dark:hover:text-white"
                       >
                         {busy !== "contactInvite" ? (
                           <Send className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -15045,10 +15013,10 @@ export function OneLocationAgentPageContent({
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                  <span className="min-w-0 max-w-full truncate text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
+                                  <span className="min-w-0 max-w-full truncate text-[16px] font-semibold tracking-tight text-[color:var(--app-label)]">
                                     {recipientLabel(recipient)}
                                   </span>
-                                  <span className="rounded-md bg-[color:var(--app-accent-surface)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-deep)]">
+                                  <span className="rounded-md bg-[color:var(--app-accent-surface)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-ink)]">
                                     {recipient.phoneVerified
                                       ? "Verified"
                                       : "Contact"}
@@ -15064,7 +15032,7 @@ export function OneLocationAgentPageContent({
                                     {recommendationCategoryLabel(recipient)}
                                   </span>
                                 </div>
-                                <p className="mt-0.5 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                                <p className="mt-0.5 break-words text-[12px] font-medium text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                                   {recipientRecommendationLine(recipient)}
                                 </p>
                                 {reasons.length ? (
@@ -15072,7 +15040,7 @@ export function OneLocationAgentPageContent({
                                     {reasons.map((reason) => (
                                       <span
                                         key={reason.code}
-                                        className="rounded-full bg-[#f2f2f7] px-2 py-0.5 text-[11px] font-semibold text-[#636366] dark:bg-white/10 dark:text-white/65"
+                                        className="rounded-full bg-[color:var(--app-neutral-fill)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--app-secondary-label)]"
                                       >
                                         {reason.label}
                                       </span>
@@ -15081,7 +15049,7 @@ export function OneLocationAgentPageContent({
                                 ) : null}
                               </div>
                               {selected ? (
-                                <CheckCircle2 className="mt-1 h-[22px] w-[22px] shrink-0 text-[color:var(--app-accent)] dark:text-[color:var(--app-accent-deep)]" />
+                                <CheckCircle2 className="mt-1 h-[22px] w-[22px] shrink-0 text-[color:var(--app-accent)] dark:text-[color:var(--app-accent-ink)]" />
                               ) : (
                                 <button
                                   type="button"
@@ -15101,7 +15069,7 @@ export function OneLocationAgentPageContent({
                                       );
                                     }
                                   }}
-                                  className="mt-0.5 inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[#e5e5ea] hover:text-[#1c1c1e] dark:bg-white/10 dark:text-[color:var(--app-accent-deep)] dark:hover:bg-white/15 dark:hover:text-white"
+                                  className="mt-0.5 inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-neutral-fill)] px-3 text-[12px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-[color:var(--app-label)] dark:bg-white/10 dark:text-[color:var(--app-accent-ink)] dark:hover:bg-white/15 dark:hover:text-white"
                                 >
                                   <Plus className="h-3.5 w-3.5" />
                                   Select
@@ -15138,7 +15106,7 @@ export function OneLocationAgentPageContent({
                       onClick={() =>
                         setOneNetworkListExpanded((expanded) => !expanded)
                       }
-                      className="h-9 w-full rounded-full border-black/[0.06] bg-white text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[color:var(--app-accent-deep)] dark:hover:bg-white/15 dark:hover:text-white"
+                      className="h-9 w-full rounded-full border-black/[0.06] bg-white text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] dark:border-white/[0.08] dark:bg-white/10 dark:text-[color:var(--app-accent-ink)] dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       {showExpandedOneNetworkList ? (
                         <ChevronUp
@@ -15210,7 +15178,7 @@ export function OneLocationAgentPageContent({
                                 onClick={() =>
                                   removeShareRecipient(recipient.userId)
                                 }
-                                className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[color:var(--app-accent-surface)] px-3 text-[12px] font-semibold text-[color:var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[#1c1c1e] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)] dark:hover:bg-[color:var(--app-accent-surface-strong)] dark:hover:text-white"
+                                className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[color:var(--app-accent-surface)] px-3 text-[12px] font-semibold text-[color:var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-label)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)] dark:hover:bg-[color:var(--app-accent-surface-strong)] dark:hover:text-white"
                               >
                                 <span className="min-w-0 truncate">
                                   {recipientLabel(recipient)}
@@ -15224,7 +15192,7 @@ export function OneLocationAgentPageContent({
                           </div>
                         ) : null}
                         {setupNeededSelectedRecipients.length ? (
-                          <div className="rounded-[14px] border border-[#ff9500]/30 bg-[#ff9500]/10 p-3 text-xs leading-5 text-[#9a5a00] dark:text-[#ffd79a]">
+                          <div className="rounded-[14px] border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] p-3 text-xs leading-5 text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]">
                             {peopleCountLabel(
                               setupNeededSelectedRecipients.length,
                             )}{" "}
@@ -15232,7 +15200,7 @@ export function OneLocationAgentPageContent({
                             can start.
                           </div>
                         ) : null}
-                        <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                        <p className="text-[12px] font-medium text-[color:var(--app-secondary-label)]">
                           {selectedShareRecipients.length
                             ? `${peopleCountLabel(
                                 selectedShareRecipients.length,
@@ -15246,7 +15214,7 @@ export function OneLocationAgentPageContent({
                             className="min-w-0 max-w-full space-y-3 overflow-hidden rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] p-3 text-[13px] leading-5 text-[color:var(--app-accent-deep)] dark:border-[color:var(--app-accent-border)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
                           >
                             <div>
-                              <p className="font-semibold text-[#0b3d70] dark:text-[#e6f2ff]">
+                              <p className="font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
                                 Confirm private One user sharing
                               </p>
                               <p className="mt-1">
@@ -15332,7 +15300,7 @@ export function OneLocationAgentPageContent({
                                 onClick={() =>
                                   removeRequestOwner(recipient.userId)
                                 }
-                                className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[color:var(--app-accent-surface)] px-3 text-[12px] font-semibold text-[color:var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[#1c1c1e] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)] dark:hover:bg-[color:var(--app-accent-surface-strong)] dark:hover:text-white"
+                                className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[color:var(--app-accent-surface)] px-3 text-[12px] font-semibold text-[color:var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-label)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)] dark:hover:bg-[color:var(--app-accent-surface-strong)] dark:hover:text-white"
                               >
                                 <span className="min-w-0 truncate">
                                   {recipientLabel(recipient)}
@@ -15345,7 +15313,7 @@ export function OneLocationAgentPageContent({
                             ))}
                           </div>
                         ) : null}
-                        <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                        <p className="text-[12px] font-medium text-[color:var(--app-secondary-label)]">
                           {selectedRequestOwners.length
                             ? `${peopleCountLabel(
                                 selectedRequestOwners.length,
@@ -15368,7 +15336,7 @@ export function OneLocationAgentPageContent({
                             maxLength={REQUEST_MESSAGE_MAX_LENGTH}
                             className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
                           />
-                          <p className="px-1 text-right text-[11px] font-medium text-[#8e8e93] dark:text-white/45">
+                          <p className="px-1 text-right text-[11px] font-medium text-[color:var(--app-secondary-label)] dark:text-white/45">
                             {requestMessage.length}/{REQUEST_MESSAGE_MAX_LENGTH}
                           </p>
                         </div>
@@ -15454,14 +15422,14 @@ export function OneLocationAgentPageContent({
                             size="sm"
                           />
                           <div className="min-w-0 flex-1">
-                            <h3 className="break-words text-[16px] font-medium tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                            <h3 className="break-words text-[16px] font-medium tracking-tight text-[color:var(--app-label)] [overflow-wrap:anywhere] dark:text-white">
                               {grantCounterpartyLabel(grant)}
                             </h3>
                             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                               <Badge variant={statusVariant(grant.status)}>
                                 {grant.status}
                               </Badge>
-                              <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                              <span className="min-w-0 break-words text-[12px] font-medium text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                                 {expiresLabel(grant)}
                                 {grant.durationMode === "until_stopped" ||
                                 grant.durationHours == null
@@ -15478,7 +15446,7 @@ export function OneLocationAgentPageContent({
                                 size="icon"
                                 onClick={() => void handlePublish(grant)}
                                 disabled={busy === "publish"}
-                                className="h-8 w-8 rounded-full border-0 bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea] hover:text-[#1c1c1e] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15 dark:hover:text-white"
+                                className="h-8 w-8 rounded-full border-0 bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-[color:var(--app-label)] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15 dark:hover:text-white"
                               >
                                 {busy === "publish" ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -15492,7 +15460,7 @@ export function OneLocationAgentPageContent({
                                 size="icon"
                                 onClick={() => void handleRevoke(grant.id)}
                                 disabled={busy === "revoke"}
-                                className="h-8 w-8 rounded-full border-0 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20 dark:bg-[#ff453a]/15 dark:text-[#ff9f9a]"
+                                className="h-11 w-11 rounded-full border-0 bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-surface)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:text-[color:var(--app-destructive-bright)]"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -15523,7 +15491,7 @@ export function OneLocationAgentPageContent({
                   className={cn(
                     oneScrollablePanelClassName,
                     pendingOwnerRequests.length &&
-                      "relative before:absolute before:bottom-0 before:left-0 before:top-0 before:w-1 before:bg-[#ff3b30]",
+                      "relative before:absolute before:bottom-0 before:left-0 before:top-0 before:w-1 before:bg-[color:var(--app-destructive)]",
                   )}
                 >
                   {pendingOwnerRequests.length ? (
@@ -15532,21 +15500,21 @@ export function OneLocationAgentPageContent({
                         key={request.id}
                         className="flex min-w-0 max-w-full items-start gap-3 overflow-hidden p-3.5"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
                           <UserRoundCheck className="h-[18px] w-[18px]" />
                         </span>
                         <div className="min-w-0 flex-1 space-y-1">
-                          <h3 className="break-words text-[16px] font-semibold tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                          <h3 className="break-words text-[16px] font-semibold tracking-tight text-[color:var(--app-label)] [overflow-wrap:anywhere] dark:text-white">
                             {requestLabel(request)}
                           </h3>
                           {/* What is being asked, before anything else. The
                               amount and whether it is extra time on a live
                               share are the whole decision; the free-text
                               note and timestamp are context underneath. */}
-                          <p className="text-[13px] font-semibold leading-relaxed text-[#1c1c1e] dark:text-white">
+                          <p className="text-[13px] font-semibold leading-relaxed text-[color:var(--app-label)]">
                             {locationAskPromptLine(request, approvalsNowMs)}
                           </p>
-                          <p className="text-[13px] font-medium leading-relaxed text-[#8e8e93] dark:text-white/55">
+                          <p className="text-[13px] font-medium leading-relaxed text-[color:var(--app-secondary-label)]">
                             {request.message ||
                               `Requested ${formatDateTime(request.requestedAt)}`}
                           </p>
@@ -15555,7 +15523,7 @@ export function OneLocationAgentPageContent({
                               variant="outline"
                               onClick={() => void handleDeny(request.id)}
                               disabled={busy === "deny"}
-                              className="h-9 flex-1 rounded-[12px] border-0 bg-[#f2f2f7] font-semibold text-[#1c1c1e] hover:bg-[#e5e5ea] hover:text-[#1c1c1e] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                              className="h-9 flex-1 rounded-[12px] border-0 bg-[color:var(--app-neutral-fill)] font-semibold text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-[color:var(--app-label)] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                             >
                               Deny
                             </Button>
@@ -15601,7 +15569,7 @@ export function OneLocationAgentPageContent({
                         <span
                           title={circleInviteUrl}
                           aria-label={`Invite to One link ${circleInviteUrl}`}
-                          className="block truncate text-[13px] font-medium text-[#1c1c1e] dark:text-white"
+                          className="block truncate text-[13px] font-medium text-[color:var(--app-label)]"
                         >
                           {publicInviteUrlPreview(circleInviteUrl)}
                         </span>
@@ -15650,7 +15618,7 @@ export function OneLocationAgentPageContent({
                       variant="outline"
                       onClick={() => void handleShareCircleInvite()}
                       disabled={!circleInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:bg-white hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       <Send className="mr-2 h-4 w-4" />
                       Share
@@ -15659,7 +15627,7 @@ export function OneLocationAgentPageContent({
                       variant="outline"
                       onClick={() => void handleCopyCircleInvite()}
                       disabled={!circleInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:bg-white hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       <Copy className="mr-2 h-4 w-4" />
                       Copy
@@ -15667,12 +15635,12 @@ export function OneLocationAgentPageContent({
                   </div>
                   {latestActiveCircleInvite ? (
                     <div className="space-y-2">
-                      <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
+                      <div className="flex flex-col gap-3 rounded-[14px] bg-[color:var(--app-neutral-fill)] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
                         <div className="min-w-0">
-                          <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                          <p className="text-[14px] font-semibold text-[color:var(--app-label)]">
                             Latest active Invite to One link
                           </p>
-                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                          <p className="break-words text-[12px] text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                             Expires{" "}
                             {formatDateTime(latestActiveCircleInvite.expiresAt)}
                           </p>
@@ -15686,7 +15654,7 @@ export function OneLocationAgentPageContent({
                             )
                           }
                           disabled={busy === "circleRevoke"}
-                          className="w-full rounded-full border-black/[0.06] bg-white text-[#1c1c1e] hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                          className="w-full rounded-full border-black/[0.06] bg-white text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                         >
                           Revoke
                         </Button>
@@ -15710,7 +15678,7 @@ export function OneLocationAgentPageContent({
                         <span
                           title={publicInviteUrl}
                           aria-label={`Public location link ${publicInviteUrl}`}
-                          className="block truncate text-[13px] font-medium text-[#1c1c1e] dark:text-white"
+                          className="block truncate text-[13px] font-medium text-[color:var(--app-label)]"
                         >
                           {publicInviteUrlPreview(publicInviteUrl)}
                         </span>
@@ -15756,7 +15724,7 @@ export function OneLocationAgentPageContent({
                       variant="outline"
                       onClick={() => void handleSharePublicInvite()}
                       disabled={!publicInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:bg-white hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       <Send className="mr-2 h-4 w-4" />
                       Share
@@ -15765,7 +15733,7 @@ export function OneLocationAgentPageContent({
                       variant="outline"
                       onClick={() => void handleCopyPublicInvite()}
                       disabled={!publicInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:bg-white hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       <Copy className="mr-2 h-4 w-4" />
                       Copy
@@ -15773,12 +15741,12 @@ export function OneLocationAgentPageContent({
                   </div>
                   {latestActivePublicInvite ? (
                     <div className="space-y-2">
-                      <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
+                      <div className="flex flex-col gap-3 rounded-[14px] bg-[color:var(--app-neutral-fill)] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
                         <div className="min-w-0">
-                          <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                          <p className="text-[14px] font-semibold text-[color:var(--app-label)]">
                             Latest active public link
                           </p>
-                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                          <p className="break-words text-[12px] text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                             Expires{" "}
                             {formatDateTime(latestActivePublicInvite.expiresAt)}
                           </p>
@@ -15792,7 +15760,7 @@ export function OneLocationAgentPageContent({
                             )
                           }
                           disabled={busy === "publicRevoke"}
-                          className="w-full rounded-full border-black/[0.06] bg-white text-[#1c1c1e] hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                          className="w-full rounded-full border-black/[0.06] bg-white text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                         >
                           Revoke
                         </Button>
@@ -15828,7 +15796,7 @@ export function OneLocationAgentPageContent({
                               size="sm"
                             />
                             <div className="min-w-0 flex-1">
-                              <h3 className="break-words text-[16px] font-medium tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                              <h3 className="break-words text-[16px] font-medium tracking-tight text-[color:var(--app-label)] [overflow-wrap:anywhere] dark:text-white">
                                 {receivedGrantOwnerLabel(grant)}
                               </h3>
                               <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -15840,7 +15808,7 @@ export function OneLocationAgentPageContent({
                                   grant.expiresAt,
                                   nowMs,
                                 ) ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2dbd5a] dark:bg-[#34c759]/15">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-[color:var(--app-success-tint)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]">
                                     <Clock3
                                       className="h-3 w-3"
                                       aria-hidden="true"
@@ -15851,7 +15819,7 @@ export function OneLocationAgentPageContent({
                                     )}
                                   </span>
                                 ) : null}
-                                <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                                <span className="min-w-0 break-words text-[12px] font-medium text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                                   {expiresLabel(grant)}
                                 </span>
                               </div>
@@ -15863,7 +15831,7 @@ export function OneLocationAgentPageContent({
                                   size="sm"
                                   onClick={() => void handleView(grant)}
                                   disabled={busy === "view"}
-                                  className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                                  className="w-full rounded-full border-black/[0.06] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:bg-white hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                                 >
                                   {busy === "view" ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -15877,7 +15845,7 @@ export function OneLocationAgentPageContent({
                                   size="sm"
                                   aria-label={`Stop watching ${receivedGrantOwnerLabel(grant)}'s location`}
                                   onClick={() => handleUnwatch(grant)}
-                                  className="w-full rounded-full border-black/[0.06] bg-transparent text-[#8e8e93] hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] sm:w-auto dark:border-white/[0.08] dark:text-white/55 dark:hover:bg-[#ff453a]/15 dark:hover:text-[#ff9f9a]"
+                                  className="min-h-11 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-transparent text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-destructive-tint)] hover:text-[color:var(--app-destructive-deep)] sm:w-auto dark:hover:text-[color:var(--app-destructive-bright)]"
                                 >
                                   <X className="mr-2 h-4 w-4" />
                                   Unwatch
@@ -15895,7 +15863,7 @@ export function OneLocationAgentPageContent({
                                     size="sm"
                                     onClick={() => void handleAskReshare(grant)}
                                     disabled={busy === "request"}
-                                    className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                                    className="min-h-11 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)] px-3 text-[12px] font-semibold text-[color:var(--app-warning-deep)] hover:bg-[color:var(--app-warning-tint)] dark:text-[color:var(--app-warning-bright)]"
                                   >
                                     {busy === "request" ? (
                                       <Loader2
@@ -15915,13 +15883,13 @@ export function OneLocationAgentPageContent({
                             </div>
                           ) : viewError && grant.status === "active" ? (
                             <div className="px-3.5 pb-3.5">
-                              <div className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex flex-col gap-2.5 rounded-2xl border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] p-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="flex items-start gap-2">
                                   <AlertTriangle
-                                    className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                                    className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]"
                                     aria-hidden="true"
                                   />
-                                  <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+                                  <p className="min-w-0 break-words text-[13px] font-medium leading-snug text-[color:var(--app-warning-deep)] [overflow-wrap:anywhere] dark:text-[color:var(--app-warning-bright)]">
                                     {viewError}
                                   </p>
                                 </div>
@@ -15930,7 +15898,7 @@ export function OneLocationAgentPageContent({
                                   size="sm"
                                   onClick={() => void handleAskReshare(grant)}
                                   disabled={busy === "request"}
-                                  className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+                                  className="min-h-11 w-full shrink-0 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-warning-deep)] hover:bg-[color:var(--app-warning-surface)] sm:w-auto dark:text-[color:var(--app-warning-bright)]"
                                 >
                                   {busy === "request" ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -15983,14 +15951,14 @@ export function OneLocationAgentPageContent({
                           key={submission.id}
                           className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
                             <ExternalLink className="h-[18px] w-[18px]" />
                           </span>
                           <div className="min-w-0 flex-1">
-                            <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                            <h3 className="break-words text-[16px] font-medium text-[color:var(--app-label)] [overflow-wrap:anywhere] dark:text-white">
                               {publicSubmissionLabel(submission)}
                             </h3>
-                            <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                            <p className="break-words text-[12px] text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                               {submission.message ||
                                 `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`}
                             </p>
@@ -16059,7 +16027,7 @@ export function OneLocationAgentPageContent({
                               variant="outline"
                               onClick={() => void handleRefer(grant)}
                               disabled={!referralTargets[grant.id]}
-                              className="w-full min-w-0 rounded-full border-black/[0.06] bg-white text-[#1c1c1e] hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                              className="w-full min-w-0 rounded-full border-black/[0.06] bg-white text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                             >
                               Refer
                             </ActionButton>
@@ -16092,14 +16060,14 @@ export function OneLocationAgentPageContent({
                         key={request.id}
                         className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
                           <Clock3 className="h-[18px] w-[18px]" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                          <h3 className="break-words text-[16px] font-medium text-[color:var(--app-label)] [overflow-wrap:anywhere] dark:text-white">
                             {requestOwnerLabel(request, recipients)}
                           </h3>
-                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                          <p className="break-words text-[12px] text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere] dark:text-white/55">
                             Status {request.status} -{" "}
                             {formatDateTime(request.requestedAt)}
                           </p>

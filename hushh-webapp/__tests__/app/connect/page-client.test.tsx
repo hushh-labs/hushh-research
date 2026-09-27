@@ -1275,8 +1275,10 @@ describe("Connect — People", () => {
     const field = screen.getByLabelText("Search people");
     const searchRow = field.closest('[data-testid="connect-search-row"]');
 
-    expect(searchRow).toHaveClass("pt-0.5", "pb-2");
-    expect(searchRow).not.toHaveClass("py-2");
+    expect(searchRow).toHaveClass(
+      "bg-[color:var(--app-settings-canvas)]",
+      "py-2",
+    );
 
     // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
     expect(
@@ -2436,7 +2438,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     });
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
-    expect(remove.className).toContain("rounded-xl");
+    expect(remove.className).toContain("rounded-[12px]");
     expect(remove.className).toContain("text-destructive");
     expect(remove.className).not.toContain("h-9");
     expect(remove.className).not.toContain("before:-inset-y-1.5");
@@ -2550,7 +2552,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(cancel.textContent).toBe("Cancel");
     expect(cancel.className).toContain("h-11");
     expect(cancel.className).toContain("min-h-11");
-    expect(cancel.className).toContain("rounded-xl");
+    expect(cancel.className).toContain("rounded-[12px]");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or
@@ -2790,7 +2792,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
 });
 
 describe("Connect — Circles", () => {
-  it("opens the directory filter as a portalled material popover on web", async () => {
+  it("opens the directory filter as a portalled frosted popover on web", async () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
@@ -2800,8 +2802,7 @@ describe("Connect — Circles", () => {
     const anchor = screen.getByTestId("connect-directory-menu-anchor");
     expect(anchor.contains(menu)).toBe(false);
     expect(menu).toHaveAttribute("data-slot", "popover-content");
-    expect(menu.className).toContain("backdrop-blur-2xl");
-    expect(menu.className).toContain("shadow-[0_18px_48px");
+    expect(menu.className).toContain("connect-web-directory-popover");
     expect(menu.className).not.toContain("absolute");
     expect(
       within(menu).getByRole("menuitemradio", { name: "People" }),
@@ -2812,6 +2813,29 @@ describe("Connect — Circles", () => {
     expect(
       within(menu).getByRole("menuitemradio", { name: "Around you" }),
     ).toBeTruthy();
+  });
+
+  it("moves through directory choices with menu arrow keys", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const trigger = screen.getByRole("button", { name: /Current directory:/ });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+
+    const menu = await screen.findByTestId("connect-directory-menu");
+    const people = within(menu).getByRole("menuitemradio", { name: "People" });
+    const rias = within(menu).getByRole("menuitemradio", { name: "RIAs" });
+    const nearby = within(menu).getByRole("menuitemradio", {
+      name: "Around you",
+    });
+
+    await waitFor(() => expect(people).toHaveFocus());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(rias).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(nearby).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(people).toHaveFocus();
   });
 
   it("keeps the existing inline directory menu when running in native", async () => {
@@ -2827,7 +2851,7 @@ describe("Connect — Circles", () => {
     expect(menu).not.toHaveAttribute("data-slot", "popover-content");
     expect(menu.className).toContain("absolute left-0 top-full");
     expect(menu.className).toContain(
-      "bg-[color:var(--app-card-surface-default-solid)]",
+      "bg-[color:var(--app-settings-surface)]",
     );
     expect(menu.className).not.toContain("app-card-surface-standard");
   });

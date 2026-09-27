@@ -4563,25 +4563,28 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset>
+            <SettingsGroup title="Account & privacy" separatorInset>
               <SettingsRow
                 icon={AccountProfileIcon}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.account}
+                description="Identity and contact details"
                 chevron
                 onClick={openAccountPanel}
               />
               <SettingsRow
                 icon={PreferencesProfileIcon}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.preferences}
+                description="Appearance and how One responds"
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
                 icon={SecurityProfileIcon}
-                iconTone="green"
+                iconTone="gray"
                 title={PROFILE_LABELS.security}
+                description="Vault, privacy, and account controls"
                 chevron
                 voiceControlId="profile_security"
                 voiceActionId="route.profile_security_panel"
@@ -4591,24 +4594,31 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={DevicesProfileIcon}
-                iconTone="indigo"
+                iconTone="gray"
                 title="Trusted devices"
+                description="Review devices with access to One"
                 chevron
                 onClick={() =>
                   openVaultBackedPanel("security", "trusted-devices")
                 }
               />
+            </SettingsGroup>
+
+            <SettingsGroup title="Connections" separatorInset>
               <SettingsRow
                 icon={ConnectedSystemsAgentIcon}
-                iconTone="green"
+                iconTone="gray"
                 title="Connectors"
                 description="Google Workspace and finance connections"
                 chevron
                 onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
               />
+            </SettingsGroup>
+
+            <SettingsGroup title="More" separatorInset>
               <SettingsRow
                 icon={InviteFriendsProfileIcon}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 voiceControlId="profile_referrals"
@@ -4624,7 +4634,7 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={SupportProfileIcon}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.support}
                 chevron
                 onClick={() =>
@@ -4634,7 +4644,7 @@ function ProfilePageContent({
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={DeveloperToolsProfileIcon}
-                  iconTone="orange"
+                  iconTone="gray"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
@@ -4686,6 +4696,7 @@ function ProfilePageContent({
           rootContent={profileRootContent}
           entries={profileStackEntries}
           resetScroll={!isPanePresentation}
+          showScreenTitle={!isPanePresentation}
         />
       </SettingsPresentationProvider>
 
@@ -4766,7 +4777,7 @@ function ProfilePageContent({
         open={passphraseDialogOpen}
         onOpenChange={setPassphraseDialogOpen}
       >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
+        <DialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
           <DialogTitle>Change passphrase</DialogTitle>
           <DialogDescription>
             Set a new passphrase for Vault unlock. Your passkey and biometric

@@ -74,10 +74,12 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
+        "min-h-11 w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-normal rounded-[12px] px-4 text-center [overflow-wrap:anywhere] sm:min-w-24",
+        action.tone === "primary" &&
+          "bg-[color:var(--app-label)] text-[color:var(--app-settings-canvas)] hover:bg-[color:var(--app-secondary-label)]",
         action.tone === "danger" &&
           !showConfirm &&
-          "text-destructive hover:bg-destructive/10",
+          "bg-[color:var(--app-settings-icon-surface)] text-[color:var(--app-destructive-deep)] hover:bg-[color:var(--app-destructive-tint)] dark:text-[color:var(--app-destructive-bright)]",
       )}
     >
       {isRunning ? (
@@ -227,9 +229,12 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       <span className="inline-flex min-w-0 items-center gap-1.5">
         <span
           aria-hidden="true"
+          data-testid="feed-actionable-live-indicator"
           className={cn(
             "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
-            isLive ? "bg-emerald-500" : "bg-accent",
+            isLive
+              ? "bg-[color:var(--app-success)]"
+              : "bg-[color:var(--app-accent)]",
           )}
         />
         <span className="whitespace-normal [overflow-wrap:anywhere]">

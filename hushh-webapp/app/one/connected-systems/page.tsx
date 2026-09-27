@@ -47,6 +47,7 @@ export default function ConnectedSystemsPage() {
     <AppPageShell
       as="main"
       width="reading"
+      data-one-workspace="settings"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/one/connected-systems",

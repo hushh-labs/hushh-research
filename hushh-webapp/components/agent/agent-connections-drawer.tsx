@@ -203,12 +203,13 @@ export function AgentConnectionsDrawer({
       ))}
       <div
         aria-hidden="true"
+        data-testid="agent-connections-backdrop"
         className={cn(
           // Anchored below the chat header like the drawer panel, so the dim layer never
           // covers the header controls (agent toggle, close) above it. It also ends at
           // the top of the fixed bottom bar: that bar lives in a different stacking
           // context, so no z-index here can lift the drawer above it on narrow screens.
-          "absolute inset-x-0 bottom-[var(--app-bottom-shell-height,0px)] top-[var(--agent-chat-header-height)] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          "absolute inset-x-0 bottom-[var(--app-bottom-shell-height,0px)] top-[var(--agent-chat-header-height)] touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)] transition-opacity duration-150 motion-reduce:transition-none",
           "z-(--z-sheet-overlay)",
           historyOpen ? "opacity-100" : "pointer-events-none opacity-0",
         )}

@@ -56,6 +56,10 @@ function locationTablistClass(): string {
     path.join(WEBAPP_ROOT, "components/app-ui/top-shell-tabs.tsx"),
     "utf8",
   );
+  const base = source.match(
+    /aria-label=\{`\$\{tabSet\.label\} navigation`\}\s*className=\{cn\(\s*"([^"]+)"/,
+  )?.[1];
+  if (!base) throw new Error("Location tablist base class string not found");
   // Anchored on the pill's own fill token, which is what makes this element the
   // Location segmented control and appears nowhere else in the file. Anchoring
   // on the width classes instead would make any edit to them throw "not found"
@@ -65,7 +69,7 @@ function locationTablistClass(): string {
   const open = source.lastIndexOf('"', anchor);
   const close = source.indexOf('"', anchor);
   if (open < 0 || close < 0) throw new Error("tablist class string not found");
-  return source.slice(open + 1, close);
+  return `${base} ${source.slice(open + 1, close)}`;
 }
 
 const TABLIST_CLASS = locationTablistClass();
@@ -73,63 +77,26 @@ const TABLIST_CLASS = locationTablistClass();
 /** The top bar's frame and the page shell's frame — the two that must agree. */
 const FRAME_CLASS = "mx-auto w-full px-[var(--page-inline-gutter-standard)]";
 
-
-/**
- * The shell width and the gutter ladder, lifted from app/globals.css.
- *
- * Read, not copied: the whole point of this contract is that the strip and the
- * page column share one measure, so the fixture must use the shipping values.
- */
-function tokenCss(): string {
-  const css = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
-  const agent = /--app-shell-agent:\s*([^;]+);/.exec(css);
-  if (!agent) throw new Error("--app-shell-agent not found in globals.css");
-
-  // Every declaration of the gutter, in source order, with the min-width it
-  // sits under (the base one has none).
-  const gutters: { min: number; value: string }[] = [];
-  for (const m of css.matchAll(/--page-inline-gutter-standard:\s*([^;]+);/g)) {
-    const before = css.slice(0, m.index ?? 0);
-    const media = [...before.matchAll(/@media[^{]*\(min-width:\s*(\d+)px\)/g)].pop();
-    const openBraces = (before.match(/\{/g) ?? []).length;
-    const closeBraces = (before.match(/\}/g) ?? []).length;
-    const insideMedia = openBraces - closeBraces > 1;
-    gutters.push({
-      min: insideMedia && media ? Number(media[1]) : 0,
-      value: m[1].trim(),
-    });
-  }
-  if (!gutters.length) throw new Error("gutter token not found in globals.css");
-
-  const base = gutters.filter((g) => g.min === 0).pop()!;
-  const steps = [...new Map(gutters.filter((g) => g.min > 0).map((g) => [g.min, g])).values()]
-    .sort((a, b) => a.min - b.min);
-
-  return [
-    `:root{--app-shell-agent:${agent[1].trim()};--page-inline-gutter-standard:${base.value}}`,
-    ...steps.map(
-      (g) =>
-        `@media (min-width:${g.min}px){:root{--page-inline-gutter-standard:${g.value}}}`,
-    ),
-    ".app-page-shell[data-app-shell-width=\"agent\"]{max-width:var(--app-shell-agent)}",
-  ].join("\n");
-}
-
-async function buildFixture(): Promise<string> {
+async function buildFixture(theme: "light" | "dark" = "light"): Promise<string> {
   const { compile } = (await import(
     path.join(WEBAPP_ROOT, "node_modules/tailwindcss/dist/lib.mjs")
   )) as {
     compile: (css: string, opts: unknown) => Promise<{ build: (c: string[]) => string }>;
   };
 
-  const compiler = await compile('@import "tailwindcss";', {
-    base: path.join(WEBAPP_ROOT, "node_modules"),
+  const globals = fs
+    .readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8")
+    .replace(/^@source\s+[^;]+;\s*$/gm, "");
+  const compiler = await compile(globals, {
+    base: path.join(WEBAPP_ROOT, "app"),
     onDependency: () => {},
     loadStylesheet: async (id: string, base: string) => {
       const file =
         id === "tailwindcss"
           ? path.join(WEBAPP_ROOT, "node_modules/tailwindcss/index.css")
-          : path.resolve(base, id);
+          : id === "tw-animate-css"
+            ? path.join(WEBAPP_ROOT, "node_modules/tw-animate-css/dist/tw-animate.css")
+            : path.resolve(base, id);
       return {
         path: file,
         base: path.dirname(file),
@@ -156,7 +123,7 @@ async function buildFixture(): Promise<string> {
 </div>
 <main class="app-page-shell ${FRAME_CLASS} max-w-[880px]" data-app-shell-width="agent" style="padding-top:56px">
   <div class="w-full min-w-0 space-y-4">
-    <div data-testid="card" data-ui-role="grouped-card" style="height:60px;background:#eee;border-radius:24px"></div>
+    <div data-testid="card" data-ui-role="grouped-card" style="height:60px;background:var(--app-card-surface-default-solid);border-radius:24px"></div>
   </div>
 </main>`;
 
@@ -172,17 +139,10 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8">
+    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>
-  /* The two tokens this contract turns on, READ OUT OF app/globals.css at test
-     time rather than hand-copied — if the shell width or the gutter ladder is
-     retuned, this fixture moves with it instead of quietly certifying the old
-     numbers. globals.css itself cannot be compiled standalone here (its imports
-     do not resolve outside Next), which is why the working specs in this folder
-     all inject the tokens the same way. */
-  ${tokenCss()}
   body{margin:0}
 ${productFontStyle()}
 </style>
@@ -192,6 +152,43 @@ ${productFontStyle()}
 }
 
 test.describe("One Location tab strip", () => {
+  for (const theme of ["light", "dark"] as const) {
+    for (const width of [320, 768, 1440] as const) {
+      test(`${theme} tab strip uses product tokens at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(await buildFixture(theme));
+        await awaitProductFont(page);
+        const state = await page.evaluate(() => {
+          const tablist = document.querySelector<HTMLElement>(
+            '[data-testid="tablist"]',
+          )!;
+          const tokenProbe = document.createElement("div");
+          tokenProbe.style.backgroundColor = "var(--app-neutral-fill)";
+          document.body.append(tokenProbe);
+          const result = {
+            fill: getComputedStyle(tablist).backgroundColor,
+            expectedFill: getComputedStyle(tokenProbe).backgroundColor,
+            font: getComputedStyle(tablist).fontFamily,
+            pageWidth: document.documentElement.scrollWidth,
+          };
+          tokenProbe.remove();
+          return result;
+        });
+        expect(state.fill).toBe(state.expectedFill);
+        expect(state.fill).not.toBe("rgba(0, 0, 0, 0)");
+        expect(state.font).toContain("DMSansVariable");
+        expect(state.pageWidth).toBeLessThanOrEqual(width + 1);
+        if (process.env.ONE_THEME_EVIDENCE_DIR && (width === 320 || width === 1440)) {
+          fs.mkdirSync(process.env.ONE_THEME_EVIDENCE_DIR, { recursive: true });
+          await page.screenshot({
+            path: path.join(process.env.ONE_THEME_EVIDENCE_DIR, `location-${theme}-${width}.png`),
+          });
+        }
+      });
+    }
+  }
   for (const width of WIDTHS) {
     test(`shares its edges with the cards below at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });

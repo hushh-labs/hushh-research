@@ -13,7 +13,6 @@ describe("setup completion footer contract", () => {
       "utf8",
     );
 
-    expect(source).not.toContain("var(--onboarding-agent-bar-clearance)");
     // Trailing clearance prefers the shared scroll-root token and falls back
     // to the onboarding agent-bar clearance, so the CTA never hides under the
     // persistent agent bar even on routes without the onboarding scroll root
@@ -41,7 +40,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain('effect = "fill"');
     expect(source).toContain('variant === "none" && effect === "fade"');
     expect(source).toContain('const visualVariant = variant === "blue-gradient" ? "blue" : variant');
-    expect(source).toContain("!text-[var(--app-accent)]");
+    expect(source).toContain("!text-[var(--app-accent-ink)]");
     expect(source).toContain("data-voice-action-id={actionId}");
   });
 

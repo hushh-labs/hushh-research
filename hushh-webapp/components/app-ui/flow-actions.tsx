@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 
+export const FLOW_ACTION_MEASURE_CLASSNAME = "mx-auto w-full max-w-[30rem]";
+
 type FlowActionGroupProps = {
   primary: ReactNode;
   secondary?: ReactNode;
@@ -39,27 +41,27 @@ export function FlowActionGroup({
       data-testid={testId}
       className={cn(
         "w-full",
-        measure === "decision" && "mx-auto max-w-[30rem]",
+        measure === "decision" && FLOW_ACTION_MEASURE_CLASSNAME,
         className,
       )}
     >
       <div
         className={cn(
           "grid w-full gap-2.5",
-          !stacked && "sm:flex sm:items-center sm:justify-end",
+          !stacked && "sm:flex sm:flex-wrap sm:items-center sm:justify-end",
         )}
       >
         {secondary ? (
           <div
             data-action-priority="secondary"
-            className={cn("w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
+            className={cn("min-w-0 max-w-full w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
           >
             {secondary}
           </div>
         ) : null}
         <div
           data-action-priority="primary"
-          className={cn("w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
+          className={cn("min-w-0 max-w-full w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
         >
           {primary}
         </div>

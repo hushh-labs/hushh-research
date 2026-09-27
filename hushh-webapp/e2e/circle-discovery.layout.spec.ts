@@ -265,7 +265,9 @@ for (const width of [320, 390, 640, 768, 1440]) {
           }),
         );
       expect(colours).toHaveLength(6);
-      expect(new Set(colours.map((icon) => icon.background)).size).toBe(6);
+      // Starter icons share the same neutral well; selection is conveyed by
+      // its border and text weight rather than a different hue for each type.
+      expect(new Set(colours.map((icon) => icon.background)).size).toBeLessThanOrEqual(2);
       const luminance = (colour: string) => {
         const unitChannels = colour.startsWith("color(srgb ");
         const channels = colour

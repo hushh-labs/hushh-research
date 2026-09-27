@@ -49,7 +49,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
-    expect(history).toContain("bg-background/90 backdrop-blur-2xl");
+    expect(history).toContain("bg-[color:var(--app-settings-canvas)]");
     expect(history).toContain("ShellActionSurface");
     expect(history).not.toContain('"border-r border-border/70');
   });

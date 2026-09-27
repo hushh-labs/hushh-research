@@ -87,7 +87,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
         side="right"
         showCloseButton={false}
         contentDragDismiss={false}
-        className="w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,560px)] sm:max-w-[560px]"
+        className="w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,640px)] sm:max-w-[640px]"
         aria-label="Profile"
         data-testid="profile-pane"
       >
@@ -105,7 +105,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <SheetTitle className="truncate font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+            <SheetTitle className="truncate font-[family-name:var(--font-app-display)] text-[22px] font-semibold leading-[28px] tracking-tight sm:text-[24px] sm:leading-[30px]">
               {title}
             </SheetTitle>
           </div>

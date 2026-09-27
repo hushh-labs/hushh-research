@@ -24,7 +24,7 @@ export function FeedRowMetadata({
         <time
           data-slot="feed-event-time"
           dateTime={new Date(timestamp!).toISOString()}
-          className="block text-xs tabular-nums text-muted-foreground"
+          className="block text-xs tabular-nums text-[color:var(--app-tertiary-label)]"
         >
           {label}
         </time>
