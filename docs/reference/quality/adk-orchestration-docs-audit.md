@@ -2252,3 +2252,20 @@ checkpoint could discard historical resource IDs absent from its typed list. The
 correction preserves those IDs through intent and observation; its negative control
 failed on the previous behavior and all 11 Files provisioning cases passed. Retaining
 an ID does not establish its type, exclusive ownership or erasure eligibility.
+
+The legacy inventory was subsequently reconciled through a reviewed, strict
+registry compare-and-set. All eight original IDs mapped to the canonical resource
+types. Successful historical bucket/key creation records matched the original
+bootstrap principal and the current resources' immutable creation identities.
+Only the existing receipt changed; readback preserved the approval and all other
+metadata. No cloud resource was changed, and full erasure readiness remains
+unproven. The subsequent Files plan preflight passed; activation still requires
+its fresh Settings approval.
+
+The personal owner's Enable Puppy action still failed before a grant write.
+Endpoint and verification-key reads succeeded, and independent Hermes and browser
+verification accepted the current signed endpoint. This does not establish the
+owner browser's stored connection state or relay admission. Trusted Devices now
+maps recognized connection failures to fixed local messages and references;
+unknown error details remain hidden. No re-enrollment or device self-grant was
+performed to bypass the missing approval.

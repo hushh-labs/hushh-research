@@ -430,3 +430,15 @@ describe("owner pod endpoint", () => {
     expect(der[6 + 32]).toBe(0x00);
   });
 });
+
+
+it("exposes only known connection references, never raw Puppy failure details", async () => {
+  const { puppyAccessError } = await import("@/lib/trusted-device/puppy-access-error");
+  const { OwnerPodError } = await import("@/lib/services/owner-pod-crypto");
+  expect(puppyAccessError(new OwnerPodError("HUB_SIGNATURE_INVALID", "synthetic-private-detail"), true))
+    .toContain("Reference: HUB_SIGNATURE_INVALID");
+  for (const error of [new Error("synthetic-private-detail"), new OwnerPodError("UNKNOWN:synthetic-private-detail")]) {
+    expect(puppyAccessError(error, true)).not.toContain("synthetic-private-detail");
+    expect(puppyAccessError(error, true)).not.toContain("Reference:");
+  }
+});

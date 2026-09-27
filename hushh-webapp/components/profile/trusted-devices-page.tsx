@@ -35,6 +35,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { TrustedDevicesResourceService, type TrustedDevice } from "@/lib/services/trusted-devices-resource-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
+import { puppyAccessError } from "@/lib/trusted-device/puppy-access-error";
 import { useVault } from "@/lib/vault/vault-context";
 
 
@@ -115,9 +116,7 @@ export default function TrustedDevicesPage() {
           : enabled
             ? "Puppy access enabled. Connect Hermes on your trusted computer."
             : "Puppy access disabled.",
-        error: enabled
-          ? "Could not enable Puppy. Check your pod connection and try again."
-          : "Withdrawal could not be confirmed. Check access and retry.",
+        error: (cause: unknown) => puppyAccessError(cause, enabled),
       }).unwrap();
       const result = await request;
       setPuppyAccess((current) => ({ ...current, [deviceId]: result.enabled }));
