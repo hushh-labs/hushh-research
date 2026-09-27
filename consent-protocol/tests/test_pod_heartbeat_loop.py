@@ -11,8 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-import pod_server
 from hushh_mcp.services.pod_hub_client import PodHubUnavailable
+
+# The production entrypoint sets pod mode on import. Collection must not
+# switch unrelated shared-runtime tests into the private authority lane.
+with pytest.MonkeyPatch.context() as _pod_import_env:
+    _pod_import_env.setenv("HUSSH_POD_MODE", "1")
+    import pod_server
 
 
 class _Response:

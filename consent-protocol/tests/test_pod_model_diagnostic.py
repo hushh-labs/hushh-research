@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import pytest
 
-import pod_server
 from api.routes.one import pod_relay
 
 # A fake bearer for scripted HTTP; nothing here talks to a real API.
 _TOKEN = "t"  # noqa: S105
+
+
+# The production entrypoint sets pod mode on import. Collection must not
+# switch unrelated shared-runtime tests into the private authority lane.
+with pytest.MonkeyPatch.context() as _pod_import_env:
+    _pod_import_env.setenv("HUSSH_POD_MODE", "1")
+    import pod_server
 
 
 class _Resp:

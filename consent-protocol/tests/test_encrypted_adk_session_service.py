@@ -360,3 +360,84 @@ async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_databas
     foreign = EncryptedAdkSessionService(static_chat_cipher("ab" * 32), repository=repository)
     with pytest.raises(ChatKeyMismatchError):
         await foreign.get_session(app_name="one", user_id="owner", session_id="thread")
+
+
+@pytest.mark.asyncio
+async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+        PodAdkSessionUnavailable,
+    )
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog, PodLogFenced
+
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.encrypted_session_service.get_db",
+        lambda: pytest.fail("private conversation reached hub database"),
+    )
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), b"k" * 32, owner_id="HA1fixture")
+    admitted = True
+
+    async def access():
+        if not admitted:
+            raise PermissionError("session expired")
+
+    def repository():
+        return PodAdkSessionRepository(
+            projection=PodAdkSessionProjection(owner_id="owner", hushh_id="HA1fixture", log=log),
+            require_access=access,
+        )
+
+    repo = repository()
+    service = EncryptedAdkSessionService(static_chat_cipher(), repository=repo)
+    identity = {"app_name": "hussh_one", "user_id": "owner", "session_id": "fixture-chat"}
+    session = await service.create_session(**identity, state={"fixture": "synthetic private text"})
+    old = await service.get_session(**identity)
+    await service.append_event(
+        session,
+        Event(
+            author="user",
+            content=types.Content(role="user", parts=[types.Part(text="synthetic message")]),
+        ),
+    )
+    # A second request gets a fresh admission callback and may share only sealed records.
+    restarted_repo = repository()
+    restarted = EncryptedAdkSessionService(static_chat_cipher(), repository=restarted_repo)
+    restored = await restarted.get_session(**identity)
+    assert restored.state["fixture"] == "synthetic private text"
+    assert len(restored.events) == 1
+    assert "synthetic private text" not in repr(restarted_repo._projection._entries)
+    coords = {
+        "app": "hussh_one",
+        "user": "owner",
+        "session": "fixture-chat",
+        "chat_marker": CHAT_CIPHERTEXT_LIKE,
+    }
+    assert not (
+        await repo.replace(**coords, revision=service._revision(old), **service._encode(old))
+    ).data
+    with pytest.raises(PodAdkSessionUnavailable, match="owner mismatch"):
+        await repo.get(**{**coords, "user": "foreign"})
+    admitted = False
+    with pytest.raises(PermissionError, match="expired"):
+        await restarted.get_session(**identity)  # warm cache does not confer authority
+    admitted = True
+    await restarted.delete_session(**identity)
+    assert await service.get_session(**identity) is None
+    assert not (
+        await repo.replace(
+            **coords, revision=service._revision(restored), **service._encode(restored)
+        )
+    ).data
+    assert (
+        await EncryptedAdkSessionService(static_chat_cipher(), repository=repository()).get_session(
+            **identity
+        )
+        is None
+    )
+    await log.fence_for_erasure(owner_id="HA1fixture", attempt_id="fixture-erasure")
+    with pytest.raises(PodLogFenced):
+        await restarted.get_session(**identity)

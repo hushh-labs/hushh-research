@@ -50,18 +50,23 @@ from typing import Any, Optional, Protocol
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.services.pod_log_replay import (
+    PodLogConflict as PodLogConflict,
+)
+from hushh_mcp.services.pod_log_replay import (
+    PodLogCursor as PodLogCursor,
+)
+from hushh_mcp.services.pod_log_replay import (
+    PodLogTampered as PodLogTampered,
+)
+from hushh_mcp.services.pod_log_replay import (
+    replay_chain,
+)
+
 POD_LOG_KEY_ENV = "HUSSH_POD_LOG_KEY"
 
 _NONCE_LEN = 12
 _KEY_LEN = 32
-
-
-class PodLogTampered(RuntimeError):
-    """The chain does not verify: altered, truncated, or reordered history."""
-
-
-class PodLogConflict(RuntimeError):
-    """The pointer moved underneath a writer more times than it was willing to retry."""
 
 
 class PodLogFenced(RuntimeError):
@@ -878,11 +883,22 @@ class PodCommitLog:
 
     # -- operations -------------------------------------------------------------------
 
-    async def append(self, kind: str, payload: Any) -> dict[str, Any]:
-        """Append one record. Linearized by the pointer CAS; retries lost races."""
+    async def append(
+        self, kind: str, payload: Any, *, expected_seq: int | None = None
+    ) -> dict[str, Any]:
+        """Append through the existing head CAS, optionally against a caller snapshot.
+
+        Ordinary appends retain retry behavior. A snapshot-derived mutation must
+        supply its observed sequence; a competing commit then requires the caller
+        to reread and recompute rather than silently append stale state.
+        """
+        if expected_seq is not None and (type(expected_seq) is not int or expected_seq < 0):
+            raise ValueError("expected sequence must be a nonnegative integer")
         for _ in range(self._max_retries):
             head_bytes, generation = await self._store.get_with_generation(self.HEAD)
             head = self._read_head(head_bytes)
+            if expected_seq is not None and (head["seq"] if head else 0) != expected_seq:
+                raise PodLogConflict("the caller's log snapshot is stale")
             if head is not None:
                 # Refuse a corrupt predecessor before publishing any successor.
                 blob = await self._store.get(head["key"])
@@ -928,35 +944,49 @@ class PodCommitLog:
         await self.require_open()
         return records
 
-    async def _replay_head(self, head: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
-        if head is None:
-            return []
+    async def replay_since(
+        self,
+        cursor: PodLogCursor | None = None,
+        *,
+        max_records: int = 10000,
+        max_bytes: int = 64 * 1024 * 1024,
+    ) -> tuple[list[dict[str, Any]], PodLogCursor | None]:
+        """Verify new records back to a previously verified anchor, with bounded I/O.
 
-        records: list[dict[str, Any]] = []
-        key: Optional[str] = head["key"]
-        expected_sha: Optional[str] = head["sha"]
-        expected_seq = head["seq"]
-        while key is not None:
-            blob = await self._store.get(key)
-            if blob is None:
-                raise PodLogTampered(f"the chain references a missing record: {key}")
-            record = self._unseal(blob)
-            if (
-                not isinstance(record, dict)
-                or type(record.get("seq")) is not int
-                or record["seq"] != expected_seq
-            ):
-                raise PodLogTampered("the log head and record sequence disagree")
-            expected_seq -= 1
-            recomputed = _record_sha(
-                record["seq"], record["kind"], record["payload"], record.get("prev_sha")
-            )
-            if recomputed != record.get("sha") or recomputed != expected_sha:
-                raise PodLogTampered(f"hash chain broke at seq {record.get('seq')}")
-            records.append(record)
-            key = record.get("prev_key")
-            expected_sha = record.get("prev_sha")
-        records.reverse()
-        if expected_seq != 0 or [r["seq"] for r in records] != list(range(1, len(records) + 1)):
-            raise PodLogTampered("the chain's sequence numbers are not contiguous")
-        return records
+        Callers keep only ciphertext projections and publish a new cursor after
+        applying the complete batch. A rolled-back or divergent head is refused.
+        An unchanged head reads no record objects, but still checks erasure.
+        """
+        if type(max_records) is not int or max_records < 1:
+            raise ValueError("max_records must be a positive integer")
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+        if cursor is not None:
+            # The same strict shape checks apply to head and cached anchor.
+            self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
+        raw, _ = await self._store.get_with_generation(self.HEAD)
+        head = self._read_head(raw)
+        records = await self._replay_head(
+            head, cursor=cursor, max_records=max_records, max_bytes=max_bytes
+        )
+        await self.require_open()
+        next_cursor = PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
+        return records, next_cursor
+
+    async def _replay_head(
+        self,
+        head: Optional[dict[str, Any]],
+        *,
+        cursor: PodLogCursor | None = None,
+        max_records: int | None = None,
+        max_bytes: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return await replay_chain(
+            head,
+            read_record=self._store.get,
+            unseal=self._unseal,
+            record_sha=_record_sha,
+            cursor=cursor,
+            max_records=max_records,
+            max_bytes=max_bytes,
+        )

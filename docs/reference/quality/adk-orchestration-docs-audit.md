@@ -1730,3 +1730,33 @@ integrated source: incoming ADK/UI/CI changes and the pod Mail authority seams.
 Existing limits, dependency-direction checks and import-side-effect checks are
 unchanged. This reviewed baseline retains measured debt; it does not declare the
 large account, conversation or orchestration owners structurally complete.
+
+
+### Local completion checkpoint — 2026-09-27 UTC
+
+Evidence base: `61850570d`, including local ADK `b45d15f48`. GitHub run
+`36298984969` found six backend failures caused by pod-mode import leakage during
+test collection. The two importing test modules now scope that environment
+change; the affected shared and pod tests pass together (76 tests). This is a
+local correction awaiting validation on the next combined candidate.
+
+The pod recovery log now supports conditional appends and bounded incremental
+replay anchored by sequence, object key and hash. Its chain reader is extracted
+behind the same public log interface. A request-admitted ADK repository projects
+owner-key ciphertext into a shared process cache; it does not use the hub database
+or retain a chat key. The existing encrypted session service passes synthetic
+restart, stale-write, owner, expired-admission and erasure-fence checks against
+this adapter. The focused log/session group passed 128 tests.
+
+This adapter is not yet mounted on the private chat route. Cold recovery currently
+refuses beyond 10,000 global records or 64 MiB of replay; the ciphertext projection
+is bounded at 1,000 retained identities and 32 MiB. A tombstone is logical deletion,
+not physical removal of historical ciphertext. These limits and retained history
+must be resolved or explicitly accepted in the owning recovery/retention design
+before declaring private conversation storage ready for rollout.
+
+Next local completion gates are the AG-UI admission/model/session wiring, exact
+connector approval ports using the existing action authority, and explicit
+owner-approved Files activation on existing pods. Normal software-update and
+real-device journeys follow on the combined candidate. No new deployment or owner
+update is established by these local checks.

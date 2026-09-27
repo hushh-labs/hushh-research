@@ -359,6 +359,29 @@ async def test_a_lost_cas_race_retries_and_linearizes(tmp_path: Path):
     assert [r["payload"]["n"] for r in await log.replay()] == [1]
 
 
+@pytest.mark.asyncio
+async def test_snapshot_mutations_cannot_silently_rebase_after_a_competing_commit(tmp_path: Path):
+    store = LocalObjectStore(str(tmp_path / "store"))
+    first, second = PodCommitLog(store, KEY), PodCommitLog(store, KEY)
+    results = await asyncio.gather(
+        first.append("snapshot", {"revision": "first"}, expected_seq=0),
+        second.append("snapshot", {"revision": "second"}, expected_seq=0),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, PodLogConflict) for result in results) == 1
+    records = await first.replay()
+    assert len(records) == 1
+    assert records[0]["seq"] == 1
+    await first.append("snapshot", {"revision": "fresh"}, expected_seq=1)
+    await second.append("ordinary", {"preserved": True})
+    assert [record["seq"] for record in await first.replay()] == [1, 2, 3]
+    with pytest.raises(PodLogConflict):
+        await first.append("stale", {}, expected_seq=1)
+    for invalid in (-1, True, "3"):
+        with pytest.raises(ValueError):
+            await first.append("invalid", {}, expected_seq=invalid)
+
+
 # --- the GCS client's conditional write ----------------------------------------------
 
 
@@ -1337,3 +1360,58 @@ async def test_gcs_write_refuses_redirect_or_invalid_generation(status, generati
     store = GcsObjectStore("user-bucket", session=InvalidTransport())
     with pytest.raises(RuntimeError, match="pod storage (write unconfirmed|generation unverified)"):
         await store.put_if_generation("head.json", b"{}", 3)
+
+
+@pytest.mark.asyncio
+async def test_incremental_replay_verifies_anchor_without_rereading_history(tmp_path):
+    class CountingStore(LocalObjectStore):
+        def __init__(self, path):
+            super().__init__(path)
+            self.record_reads = 0
+
+        async def get(self, key):
+            if key.startswith("records/"):
+                self.record_reads += 1
+            return await super().get(key)
+
+    store = CountingStore(str(tmp_path / "incremental"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("fixture", {"number": 1})
+    first, cursor = await log.replay_since()
+    old_head, _ = await store.get_with_generation(log.HEAD)
+    assert first[0]["payload"] == {"number": 1}
+    store.record_reads = 0
+    assert await log.replay_since(cursor) == ([], cursor)
+    assert store.record_reads == 0
+    await log.append("fixture", {"number": 2})
+    store.record_reads = 0
+    new, next_cursor = await log.replay_since(cursor)
+    assert [r["payload"] for r in new] == [{"number": 2}]
+    assert store.record_reads == 1
+    assert next_cursor.seq == 2
+    # Same sequence with a changed anchor is not an unchanged history.
+    from dataclasses import replace
+
+    with pytest.raises(PodLogTampered, match="anchor"):
+        await log.replay_since(replace(next_cursor, sha="0" * 64))
+    _, generation = await store.get_with_generation(log.HEAD)
+    await store.put_if_generation(log.HEAD, old_head, generation)
+    with pytest.raises(PodLogTampered, match="behind"):
+        await log.replay_since(next_cursor)
+
+
+@pytest.mark.asyncio
+async def test_incremental_replay_bounds_recovery_and_keeps_erasure_closed(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "incremental-fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("fixture", {})
+    _, cursor = await log.replay_since()
+    await log.append("fixture", {})
+    with pytest.raises(PodLogConflict, match="work limit"):
+        await log.replay_since(max_records=1)
+    assert len((await log.replay_since(cursor, max_records=1))[0]) == 1
+    with pytest.raises(PodLogConflict, match="byte limit"):
+        await log.replay_since(cursor, max_bytes=1)
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await log.replay_since(cursor)

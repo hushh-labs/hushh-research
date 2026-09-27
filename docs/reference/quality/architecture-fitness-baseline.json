@@ -1155,15 +1155,6 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/pod_commit_log.py|PodCommitLog|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
-      "symbol": "PodCommitLog",
-      "value": 263
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/connected_systems_service.py|ExternalCrmStreamableMcpAdapter|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -12666,15 +12657,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/pod_commit_log.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
-      "symbol": null,
-      "value": 962
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|.claude/skills/impeccable/scripts/live/svelte-ast.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17046,6 +17028,24 @@
       "path": "consent-protocol/hushh_mcp/constants.py",
       "symbol": null,
       "value": 504
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 288,
+      "limit": 250,
+      "symbol": "PodCommitLog",
+      "key": "class_size|consent-protocol/hushh_mcp/services/pod_commit_log.py|PodCommitLog|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 992,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/services/pod_commit_log.py||module exceeds the advisory operon budget"
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -18969,6 +18969,31 @@
           "value": 504,
           "disposition": "retain_reviewed_size_debt",
           "reason": "Imported local ADK/main connector, account, model, UI or CI behavior; retained integration size debt, not a new budget or an assertion that the hotspot is resolved."
+        }
+      ]
+    },
+    "2026-09-27-pod-chat-storage": {
+      "evidence_base": "61850570d",
+      "scope": "Conditional append and bounded incremental recovery only; route integration remains incomplete.",
+      "review": "Independent read-only storage regression review found no blocker. Chain verification extracted into import-safe pod_log_replay; no new module threshold, dependency or import-init waiver.",
+      "dispositions": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/pod_commit_log.py|PodCommitLog|class exceeds the advisory operon budget",
+          "previous_values": [
+            263
+          ],
+          "value": 288,
+          "disposition": "retain_reviewed_size_debt",
+          "reason": "Keep existing log CAS, erasure admission and public interface authoritative while adding bounded cursor reads. Existing class/module growth remains measured debt; chain verification is a separate cohesive seam."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/pod_commit_log.py||module exceeds the advisory operon budget",
+          "previous_values": [
+            962
+          ],
+          "value": 992,
+          "disposition": "retain_reviewed_size_debt",
+          "reason": "Keep existing log CAS, erasure admission and public interface authoritative while adding bounded cursor reads. Existing class/module growth remains measured debt; chain verification is a separate cohesive seam."
         }
       ]
     }
