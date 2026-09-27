@@ -7,6 +7,8 @@ history boundary; tool arguments, result bodies and provider text never do.
 """
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 from google.adk.events import Event
@@ -184,6 +186,82 @@ async def test_connector_steps_carry_outcome_enums_only(monkeypatch) -> None:
     ]
     assert PRIVATE not in json.dumps(history)
     assert "transfer_to_agent" not in json.dumps(history)
+
+
+@pytest.mark.asyncio
+async def test_roster_tool_turn_restores_its_row_and_its_markdown(monkeypatch) -> None:
+    # Measured 2026-09-27: a Calendar turn showed an Activity card live and came
+    # back as a bare paragraph, because only 13 of the roster's tools could
+    # restore a row. The answer's own markdown is stored exactly as streamed.
+    answer = "Here is **tomorrow**:\n\n1. [Standup](https://example.test)\n2. Run `sync`"
+    events = [
+        _text("user-event", "what is on tomorrow", author="user"),
+        _call("call-events", "calendar_events", {"query": PRIVATE}),
+        _response("call-events", "calendar_events", {"status": "ok", "events": [PRIVATE]}),
+        _text("answer-event", answer),
+    ]
+    history = await _history(monkeypatch, events)
+    restored = history["messages"][-1]
+    assert restored["content"] == answer
+    assert restored["metadata"]["turnActivity"]["content"]["steps"] == [
+        {"id": "call-events", "tool": "calendar_events", "status": "done"}
+    ]
+    assert PRIVATE not in json.dumps(history)
+
+
+def _roster_tool_names() -> set[str]:
+    from google.adk.tools.agent_tool import AgentTool
+
+    from hushh_mcp.one_adk import agent_tree
+
+    tools = agent_tree._one_roster_tools(specialist_model="test-model", allow_workspace_tools=True)
+    names = {
+        tool.agent.name
+        if isinstance(tool, AgentTool)
+        else getattr(tool, "name", None) or getattr(tool, "__name__", "")
+        for tool in tools
+        if type(tool).__name__ != "RegisteredMcpToolset"  # opaque mcp_<digest> tools
+    }
+    # Added to the roster only when the CRM product is available.
+    return names | {"ask_connected_systems_agent"}
+
+
+def _browser_presentations() -> dict[str, dict[str, str]]:
+    source = (
+        Path(__file__).resolve().parents[3] / "hushh-webapp/lib/services/agent-chat-client.ts"
+    ).read_text()
+    table = source.split("const SERVER_TOOL_PRESENTATION", 1)[1].split("\n};\n", 1)[0]
+    entry = re.compile(
+        r'^  ([a-z_]+): \{\n    label: "([^"]*)",\n    message: "([^"]*)",\n    activity: "([^"]*)",\n  \},$',
+        flags=re.MULTILINE,
+    )
+    parsed = {
+        tool: {"label": label, "message": message, "activity": activity}
+        for tool, label, message, activity in entry.findall(table)
+    }
+    # Every key in the table must parse; a malformed entry must not hide a tool.
+    assert len(parsed) == len(re.findall(r"^  [a-z_]+: \{$", table, flags=re.MULTILINE))
+    return parsed
+
+
+# ADK's confirmation envelope for a reviewed connector call. The browser names
+# it live; history restores the reviewed call's own row instead.
+_LIVE_ONLY_TOOLS = {"adk_request_confirmation"}
+_GENERIC_LABELS = {"", "Agent step", "Connected tool", "Action", "Working on your request"}
+
+
+def test_every_tool_one_can_call_has_a_specific_name_live_and_restored() -> None:
+    # Measured 2026-09-27: 46 roster tools rendered as "Agent step · Completing
+    # a step for your request." and vanished on reload. A tool added to the
+    # roster without a name, live or restored, fails here.
+    roster = _roster_tool_names()
+    presentations = _browser_presentations()
+    assert roster - agent_chat._ACTIVITY_TOOLS == set()
+    assert set(presentations) == agent_chat._ACTIVITY_TOOLS | _LIVE_ONLY_TOOLS
+    for tool, presentation in presentations.items():
+        assert presentation["label"] not in _GENERIC_LABELS, tool
+        assert presentation["message"] and presentation["activity"], tool
+        assert presentation["activity"] not in _GENERIC_LABELS, tool
 
 
 @pytest.mark.asyncio

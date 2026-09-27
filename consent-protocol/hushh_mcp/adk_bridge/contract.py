@@ -199,6 +199,10 @@ class SpecialistReadResult(BaseModel):
     owner_compile_available: bool = False
     owner_compile_query: str | None = Field(default=None, max_length=2048)
     owner_compile_window: OwnerCompileWindow | None = None
+    # Owner-only affordance; starting a search requires a separate explicit
+    # search-specific background authorization at the owner search endpoint.
+    background_search_available: bool = False
+    background_search_query: str | None = Field(default=None, max_length=2048)
 
 
 @dataclass(frozen=True)

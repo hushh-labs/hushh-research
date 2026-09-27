@@ -282,6 +282,55 @@ describe("refreshing on unlock", () => {
     expect(outcome).toMatchObject({ refreshed: 0, saved: false });
   });
 
+  it("sends nothing with no sealed connections or a locked vault", async () => {
+    await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: {} });
+    await refreshVaultConnections({ userId: "owner", vaultKey: null, vaultOwnerToken: "vot", financial: linked });
+    await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: null, financial: linked });
+    expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
+    expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("reads a rejected connection once and never retries it within the run", async () => {
+    const two = {
+      connections_v1: {
+        ...linked.connections_v1,
+        item_2: { ...linked.connections_v1.item_1, access_token: "access-sandbox-second" },
+      },
+    };
+    saveRunsBuild(two);
+    client.fetchVaultSnapshot
+      .mockRejectedValueOnce(Object.assign(new Error("Plaid rejected the request."), { status: 400 }))
+      .mockResolvedValueOnce(snapshot({ item: { ...snapshot().item, item_id: "item_2" } }));
+    const outcome = await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: two });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({ refreshed: 1, failed: 1, saved: true });
+  });
+
+  it("records a connection Plaid refuses, then stops reading it on unlock (UAT 2026-09-27)", async () => {
+    saveRunsBuild(linked);
+    const refused = { code: "INVALID_ACCESS_TOKEN", message: "The linked connection needs attention." };
+    client.fetchVaultSnapshot.mockResolvedValue(
+      snapshot({
+        item: { item_id: null, institution_id: null, products: [], consented_products: [], error: refused },
+        accounts: [],
+        investments: { unavailable: refused.code },
+        transactions: { unavailable: refused.code },
+      }),
+    );
+    const params = { userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" };
+    const first = await refreshVaultConnections({ ...params, financial: linked });
+    expect(first).toMatchObject({ needsRelink: ["item_1"], saved: true });
+    const recorded = plans[0]!.domainData as typeof linked;
+    expect(recorded.connections_v1.item_1.status).toBe("needs_relink");
+
+    // Every later app load: no request for a connection only a relink can fix.
+    await refreshVaultConnections({ ...params, financial: recorded });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
+    // The person's own refresh (and relink) still reads it.
+    await refreshVaultConnections({ ...params, financial: recorded, force: true });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a connection refreshed moments ago alone", async () => {
     const fresh = {
       connections_v1: {

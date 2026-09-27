@@ -76,9 +76,20 @@ time budget. A synthetic 1,000-job queue verifies bounded progress and read-only
 reconciliation for uncertain permission writes; it does not measure live Google
 throughput. Notification outboxes share the same finite job budget fairly.
 
-Large live search remains bounded to the current result window. Gathering
-thousands of matches requires durable pagination and progress; the queue test
-above does not establish that discovery capability.
+Large searches can continue through owner-confirmed metadata-only jobs under
+`/api/connectors/google_drive/searches`. The UI shows matches, elapsed time and
+Stop, restores recent searches on reopening, and keeps chat usable. Checkpoints
+and result metadata are encrypted; no document index or content ingestion is
+created. Jobs expire after 24 hours and visibly stop incomplete at 10,000 files.
+
+Release acceptance for this search change requires the focused REST/delegation,
+PostgreSQL restart/lease/expiry/owner-isolation and 1,000-file/40-page automation,
+the backend lane, plus a healthy deployed Drive worker and authenticated UAT
+replay of the named-file search and continuation after tab closure. Unit tests
+alone do not establish live OAuth, provider latency or deployed worker progress.
+`consent-protocol/scripts/eval_drive_search_planner.py` is the opt-in synthetic
+One delegation → Documents planner check; it performs no Drive I/O and must
+complete all repetitions without a find-to-read misclassification.
 
 ## Selected-file implementation history
 

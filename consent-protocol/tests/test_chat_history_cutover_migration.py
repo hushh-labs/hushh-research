@@ -21,8 +21,8 @@ from urllib.parse import urlparse
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db/migrations/parked/251_one_chat_history_legacy_cutover.sql"
-ROLLBACK = ROOT / "db/migrations/rollback/251_one_chat_history_legacy_cutover.rollback.sql"
+MIGRATION = ROOT / "db/migrations/parked/252_one_chat_history_legacy_cutover.sql"
+ROLLBACK = ROOT / "db/migrations/rollback/252_one_chat_history_legacy_cutover.rollback.sql"
 MANIFEST = ROOT / "db/release_migration_manifest.json"
 MARKER = "hussh-chat-v1:"
 

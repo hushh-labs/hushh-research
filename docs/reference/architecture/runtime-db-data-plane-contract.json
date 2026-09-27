@@ -1411,6 +1411,22 @@
       "trust_boundary": "No audio, transcripts, coordinates, tokens, or spoken names are stored. Entity context holds canonical ids plus display names the server itself returned; receipts are stored as SHA-256 hashes; tool args are canonical ids only.",
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "medium_per_user_bounded_ttl"
+    },
+    {
+      "id": "drive_owner_search",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_owner_search_jobs",
+        "drive_owner_search_results"
+      ],
+      "primary_access_path": "Owner-confirmed search create/status/results/stop; existing Drive worker claims bounded metadata-only page slices. Owner+client idempotency, one active job per owner, keyed result deduplication and lease CAS. No document indexing or sharing authority.",
+      "retention_policy": "24-hour job/result TTL; bounded 100-job purge on worker discovery and owner reads. At most 10000 encrypted result rows per job.",
+      "deletion_behavior": "Account erasure deletes owner jobs; result rows cascade. Stopping invalidates the lease; expired jobs and ciphertext are deleted.",
+      "trust_boundary": "Explicit job-scoped metadata-search consent plus current verified live grant/generation. Existing DriveSharingCipher uses DRIVE_SHARING_KEY_V1 and owner/resource/purpose-bound AES-GCM. Query, provider cursors, shared-drive IDs and result metadata encrypted; no document content or owner session tokens persisted.",
+      "plaintext_posture": "encrypted_query_checkpoint_and_results_with_opaque_workflow_metadata",
+      "expected_row_growth": "one_job_per_search_up_to_10000_results_24_hour_ttl"
     }
   ]
 }

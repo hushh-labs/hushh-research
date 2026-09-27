@@ -156,7 +156,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain('return "Ready";');
     // Status belongs below One, not beside the profile avatar. The subtitle
     // crossfades without moving the right-hand controls.
-    expect(workspace).toContain('statusText || "Your private agent"');
+    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = "Your private agent"');
+    expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
+    expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
     expect(workspace).not.toContain('title={statusText || undefined}');
   });
 

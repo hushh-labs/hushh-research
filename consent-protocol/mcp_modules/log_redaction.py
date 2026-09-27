@@ -20,7 +20,9 @@ _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
 # Per-request owner chat key.
 _CHAT_KEY_VALUE_RE = re.compile(r"hck1\.[0-9A-Fa-f]{64}")
 _QUERY_SECRET_RE = re.compile(
-    r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
+    # An optional dotted prefix covers nested names such as the Weather API's
+    # ``location.latitude``.
+    r"([?&](?:[A-Za-z_]+\.)*(?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
     r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|pageToken|"
     # A person's position is as sensitive as a credential and leaks the same
     # way. httpx logs every outbound request URL at INFO, so any provider call

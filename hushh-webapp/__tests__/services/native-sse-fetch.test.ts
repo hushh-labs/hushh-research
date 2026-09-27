@@ -224,6 +224,9 @@ describe("nativeStreamFetch", () => {
     );
     expect(streamBridgeErrorCode(401, '{"detail":"nope"}')).toBe("AUTH_VAULT_OWNER_INVALID");
     expect(streamBridgeErrorCode(403, "")).toBe("AUTH_VAULT_OWNER_INVALID");
+    // A chat-key refusal is routed by the chat client, never read as a dead token.
+    expect(streamBridgeErrorCode(403, '{"detail":{"code":"CHAT_KEY_REQUIRED"}}')).toBe("CHAT_KEY_REQUIRED");
+    expect(streamBridgeErrorCode(403, '{"detail":"x","code":"CHAT_KEY_MISMATCH"}')).toBe("CHAT_KEY_MISMATCH");
     expect(streamBridgeErrorCode(500, "boom")).toBe("HUSHH_HTTP_500");
     // A lifecycle code on the wrong status is not trusted.
     expect(streamBridgeErrorCode(500, '{"detail":{"code":"AUTH_ACCOUNT_NOT_FOUND"}}')).toBe("HUSHH_HTTP_500");

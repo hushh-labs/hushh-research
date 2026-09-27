@@ -25,17 +25,26 @@ class EmbeddingClient:
             from sentence_transformers import SentenceTransformer
 
             model_source = MODEL_ID
-            if self.local_files_only and (baked_dir := os.getenv(BAKED_MODEL_DIR_ENV)):
+            local_only = self.local_files_only
+            baked_dir = os.getenv(BAKED_MODEL_DIR_ENV)
+            if self.local_files_only and baked_dir:
                 # The isolated production child has no network or credential
                 # environment. A missing/broken image asset is an error, not
                 # permission to fall back to a mutable remote model.
                 if baked_dir != BAKED_MODEL_DIR or not Path(baked_dir).is_dir():
                     raise FileNotFoundError("pinned Drive embedding model is unavailable")
                 model_source = baked_dir
+            elif baked_dir == BAKED_MODEL_DIR and Path(baked_dir).is_dir():
+                # Every image bakes the pinned model. Loading it by hub name made
+                # each new backend instance call Hugging Face on its first turn;
+                # a 429 there stalled the turn and aborted the process (UAT,
+                # 2026-09-27). Use the baked copy and never touch the network.
+                model_source = baked_dir
+                local_only = True
             self._model = SentenceTransformer(
                 model_source,
                 revision=self.model_revision,
-                local_files_only=self.local_files_only,
+                local_files_only=local_only,
                 trust_remote_code=False,
             )
         return self._model

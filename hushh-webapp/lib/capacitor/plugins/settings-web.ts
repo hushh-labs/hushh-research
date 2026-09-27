@@ -16,7 +16,6 @@ const DEFAULT_SETTINGS: HushhSettingsData = {
   useRemoteLLM: true,               // DEV: true
   preferredLLMProvider: "openai",
   requireBiometricUnlock: true,
-  autoLockTimeout: 5,
   theme: "system",
   hapticFeedback: true,
   showDebugInfo: true,              // DEV: true

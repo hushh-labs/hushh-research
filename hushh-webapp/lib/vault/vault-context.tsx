@@ -149,6 +149,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const mountedRef = useRef(true);
   const renewalRef = useRef<{ epoch: number; promise: Promise<void> } | null>(null);
   const [renewalState, setRenewalState] = useState<"idle" | "renewing" | "unavailable">("idle");
+  // Each failed renewal re-arms the retry timer through this counter. A failure
+  // that settles before "renewing" commits batches "unavailable" into
+  // "unavailable", which React skips, so the state alone can strand retries.
+  const [renewalFailures, setRenewalFailures] = useState(0);
   const [, updateTokenClock] = useState(0);
   const nativeGenerationRef = useRef<Promise<number | null>>(Promise.resolve(null));
 
@@ -331,6 +335,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         if (!stillCurrent()) return;
         if (!authStateRef.current.ready || issued?.renewalValidated !== true || !issued?.token || !Number.isFinite(issued.expiresAt) || issued.expiresAt <= Date.now()) {
           setRenewalState("unavailable");
+          setRenewalFailures((count) => count + 1);
           return;
         }
         // A response for the replaced credential must not invalidate its
@@ -357,6 +362,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
           lockVault();
         } else {
           setRenewalState("unavailable");
+          setRenewalFailures((count) => count + 1);
           if (sessionOwner && (backendCode === "AUTH_ACCOUNT_STATUS_UNAVAILABLE" ||
               backendCode === "AUTH_ACCOUNT_DELETION_IN_PROGRESS")) {
             dispatchAuthSessionVerificationRequired(sessionOwner, backendCode);
@@ -384,7 +390,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       Math.max(0, storedTokenExpiresAt - Date.now() - OWNER_TOKEN_RENEWAL_LEAD_MS);
     const timer = setTimeout(() => void retryOwnerTokenRenewal(), delay);
     return () => clearTimeout(timer);
-  }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, retryOwnerTokenRenewal]);
+  }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, renewalFailures, retryOwnerTokenRenewal]);
 
   // Native bridges can collapse expiry and revocation into the same invalid
   // owner code. Expiry withdraws authority, not local key custody; authenticated

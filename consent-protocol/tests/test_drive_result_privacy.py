@@ -740,3 +740,45 @@ def test_connector_step_label_fields_are_the_only_additions(content, expected_ex
         **expected_extra,
     }
     assert "PRIVATE" not in json.dumps(safe)
+
+
+def test_owner_search_continuation_survives_live_wire_but_not_durable_tool_history():
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+    from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
+    from hushh_mcp.one_adk.output_privacy import public_event
+
+    receipt = SpecialistReadResult(
+        connector="drive",
+        status="ok",
+        metadata_only=True,
+        truncated=True,
+        background_search_available=True,
+        background_search_query="Find product documents",
+    ).model_dump(mode="json")
+    projection = ConfirmationWireProjection()
+    private_call_ids = set()
+    events = [
+        ToolCallStartEvent(tool_call_id="owner-search", tool_call_name="ask_documents_agent"),
+        ToolCallResultEvent(
+            message_id="search-result",
+            tool_call_id="owner-search",
+            content=json.dumps({"structured": receipt}),
+        ),
+    ]
+    wire_receipt = None
+    for event in events:
+        for projected in projection.project(event):
+            projected = redact_drive_wire_event(projected, private_call_ids)
+            projected = public_event(projected, allow_thought_summary=True)
+            if isinstance(projected, ToolCallResultEvent):
+                wire_receipt = json.loads(projected.model_dump_json())["content"]
+    assert wire_receipt is not None
+    assert json.loads(wire_receipt)["structured"]["background_search_available"] is True
+    assert (
+        json.loads(wire_receipt)["structured"]["background_search_query"]
+        == "Find product documents"
+    )
+    saved = redacted_read_receipt({"structured": receipt})["structured"]
+    assert saved["background_search_available"] is False
+    assert saved["background_search_query"] is None
+    assert saved["status"] == "ok" and saved["truncated"] is True

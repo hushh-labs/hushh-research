@@ -64,7 +64,9 @@ SHARE_METADATA_FIELDS = (
 # an archive, a folder): what it is and where to open it, never its bytes.
 FACT_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,trashed"
 # Live search: one bounded files.list shape, never a caller-chosen field set.
-LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+LIST_FIELDS = (
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+)
 # Drive sorts each key ascending unless told "desc"; live results are newest
 # first by the file time the owner asked about. modifiedTime is the default and
 # the time sort Drive optimizes on large collections.
@@ -186,6 +188,8 @@ class GoogleDriveAdapter:
         operation = (
             "list"
             if path == "/files"
+            else "list_drives"
+            if path == "/drives"
             else "account"
             if path == "/about"
             else "export"
@@ -241,12 +245,29 @@ class GoogleDriveAdapter:
             allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
         elif path == "/files":
             allowed = (
-                all(params.get(key) == value for key, value in LIST_FIXED.items())
-                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy"}
+                all(
+                    params.get(key) == value
+                    for key, value in LIST_FIXED.items()
+                    if key != "corpora"
+                )
+                and (
+                    params.get("corpora") == "user"
+                    and "driveId" not in params
+                    or params.get("corpora") == "drive"
+                    and FILE_ID.fullmatch(params.get("driveId", "")) is not None
+                )
+                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
                 and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
-                and len(params.get("q", "")) <= 2000
+                and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
+            )
+        elif path == "/drives":
+            allowed = (
+                params.get("fields") == "nextPageToken,drives(id,name)"
+                and set(params) <= {"fields", "pageSize", "pageToken"}
+                and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
+                and len(params.get("pageToken", "")) <= 1024
             )
         elif re.fullmatch(r"/files/[A-Za-z0-9_-]{1,200}(?:/export)?", path):
             allowed = (
@@ -492,11 +513,22 @@ class GoogleDriveAdapter:
         page_size: int,
         page_token: str | None = None,
         order_by: str | None = None,
+        drive_id: str | None = None,
     ) -> dict[str, Any]:
         """One bounded Drive REST search page (the GA API the picker lane already uses)."""
-        if not 1 <= page_size <= 25:
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 25
+        ):
+            raise DriveReadError("invalid_argument")
+        if drive_id is not None and (
+            not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id)
+        ):
             raise DriveReadError("invalid_argument")
         params = {**LIST_FIXED, "q": query, "pageSize": str(page_size)}
+        if drive_id is not None:
+            params.update(corpora="drive", driveId=drive_id)
         if page_token:
             params["pageToken"] = page_token
         if order_by:
@@ -504,6 +536,25 @@ class GoogleDriveAdapter:
         return _decode_json(
             await self._get(
                 "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def list_drives(
+        self, *, access_token: str, page_size: int = 25, page_token: str | None = None
+    ) -> dict[str, Any]:
+        """One bounded page of shared drives visible under the current owner grant."""
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 25
+        ):
+            raise DriveReadError("invalid_argument")
+        params = {"fields": "nextPageToken,drives(id,name)", "pageSize": str(page_size)}
+        if page_token:
+            params["pageToken"] = page_token
+        return _decode_json(
+            await self._get(
+                "/drives", access_token=access_token, params=params, limit=METADATA_LIMIT
             )
         )
 

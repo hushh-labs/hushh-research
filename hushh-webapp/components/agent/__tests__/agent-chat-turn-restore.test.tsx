@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chatHeaderSubtitle,
   labelRestoredConnectorSteps,
   restoredMessageTime,
   storedMessagesToAgentMessages,
@@ -49,7 +50,7 @@ describe("restoring a turn from history", () => {
     ]);
     expect(restored?.streamEvents).toEqual([
       // Routine: the panel keeps it out of Activity, exactly as on the live turn.
-      expect.objectContaining({ id: "call-calendar", label: "Connector access", message: "Connector access checked.", status: "done", brand: "calendar", routine: true }),
+      expect.objectContaining({ id: "call-calendar", label: "Google Calendar", message: "Connector access checked.", status: "done", brand: "calendar", routine: true }),
       expect.objectContaining({ id: "call-mcp", label: "Connected tool", status: "done", tag: "Read", connectorId: "custom_0123" }),
       expect.objectContaining({ id: "call-review", status: "waiting", tag: "Needs review" }),
       expect.objectContaining({ id: "call-public", status: "done", tag: "Public" }),
@@ -100,7 +101,39 @@ describe("restoring a turn from history", () => {
   });
 });
 
+describe("the chat header during a turn", () => {
+  it("names the running call, newest first, then returns to the idle subtitle", () => {
+    const gmail = { id: "a", label: "Gmail", activity: "Checking Gmail" };
+    const drive = { id: "b", label: "Google Drive", activity: "Searching Drive" };
+    const header = (activeToolCalls: typeof gmail[], statusText: string | null = "Thinking") =>
+      chatHeaderSubtitle({ isPuppySurface: false, activeToolCalls, statusText });
+    expect(header([gmail])).toBe("Checking Gmail…");
+    expect(header([gmail, drive])).toBe("Searching Drive…");
+    expect(header([])).toBe("Thinking");
+    expect(header([], null)).toBe("Your private agent");
+    // Puppy One's header never narrates One's calls.
+    expect(chatHeaderSubtitle({ isPuppySurface: true, activeToolCalls: [gmail], statusText: null }))
+      .toBe("Separate conversation");
+  });
+});
+
 describe("restored turn details", () => {
+  it("restores a roster step with the live label and mark, and the answer's markdown verbatim", () => {
+    const answer = "Here is **tomorrow**:\n\n1. [Standup](https://example.test)\n2. Run `sync`";
+    const [restored] = storedMessagesToAgentMessages([{
+      ...connectAnswer,
+      content: answer,
+      metadata: { turnActivity: { activityType: "one.turn_activity.v1", content: {
+        steps: [{ id: "call-events", tool: "calendar_events", status: "done" }],
+      } } },
+    }]);
+    expect(restored?.text).toBe(answer);
+    expect(restored?.streamEvents).toEqual([expect.objectContaining({
+      label: "Google Calendar", message: "Reading your calendar events.", status: "done", brand: "calendar",
+    })]);
+  });
+
+
   it("reads epoch-second history timestamps as seconds, not 1970 milliseconds", () => {
     const seconds = 1_790_000_000.25;
     expect(restoredMessageTime(seconds)?.getTime()).toBe(seconds * 1000);

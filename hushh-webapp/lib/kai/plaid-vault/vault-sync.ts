@@ -497,6 +497,18 @@ export type VaultRefreshOutcome = {
   saved: boolean;
 };
 
+/**
+ * Whether a background (unlock) refresh should re-read this connection. One
+ * that needs a new login cannot return anything until the person relinks it,
+ * and a failed read never advances `last_refreshed_at`, so re-reading it would
+ * fire the same failing request on every app load (seen on UAT 2026-09-27:
+ * eight sealed Sandbox connections, eight 400s per load). Relink and the
+ * person's own refresh pass `force` and still read it.
+ */
+function isDueForBackgroundRefresh(connection: ConnectionRecord, nowMs: number): boolean {
+  return connection.status !== "needs_relink" && isStale(connection, nowMs);
+}
+
 function isStale(connection: ConnectionRecord, nowMs: number): boolean {
   if (!connection.last_refreshed_at) return true;
   const last = Date.parse(connection.last_refreshed_at);
@@ -541,7 +553,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   if (!vaultKey || !vaultOwnerToken || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
   const nowMs = Date.now();
   const due = Object.entries(vaultConnections(params.financial)).filter(
-    ([, connection]) => params.force === true || isStale(connection, nowMs),
+    ([, connection]) => params.force === true || isDueForBackgroundRefresh(connection, nowMs),
   );
   if (due.length === 0) return outcome;
 

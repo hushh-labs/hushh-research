@@ -163,7 +163,8 @@ export interface PlaidItemError {
 }
 
 export interface PlaidSnapshotItem {
-  item_id: string;
+  /** Null when Plaid refused the sealed token before naming the Item. */
+  item_id: string | null;
   institution_id: string | null;
   products: string[];
   consented_products: string[];

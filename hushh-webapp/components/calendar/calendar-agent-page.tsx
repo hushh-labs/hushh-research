@@ -502,23 +502,16 @@ export function CalendarAgentPage({
                   <AskOneButton
                     disabled={busy}
                     onClick={() => {
-                      openChat("Summarize my calendar events and help me plan meetings");
+                      if (needsSchedulingReconnect) {
+                        void connect("manage");
+                      } else {
+                        openChat("Summarize my calendar events and help me plan meetings");
+                      }
                     }}
                     className="sm:w-full"
                   >
                     Try Calendar Agent with One
                   </AskOneButton>
-                  {needsSchedulingReconnect ? (
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      disabled={busy}
-                      onClick={() => void connect("manage")}
-                    >
-                      Enable scheduling
-                    </Button>
-                  ) : null}
                   <button
                     type="button"
                     className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"

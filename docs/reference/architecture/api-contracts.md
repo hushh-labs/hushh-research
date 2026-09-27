@@ -1494,6 +1494,35 @@ asked for it. `gmail.modify` is a Google restricted scope and needs Google's
 restricted-scope verification before production use. Native Google sign-in does not yet
 request it.
 
+### Owner Drive searches
+
+`/api/connectors/google_drive/searches` requires a current Vault Owner and private/no-store responses.
+`POST` records consent only for continuing this metadata search. It never enables document-request
+preparation, downloads content, indexes documents, or grants sharing permissions.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `POST /` | `{clientRequestId,query,backgroundConsent:true,timezone}`; idempotent by owner, request ID and original query/timezone. The Documents planner runs once, then the frozen search is checkpointed. Returns initial job progress after at most one 25-file page. Another active search returns `409 search_in_progress`. |
+| `GET /` | Up to 20 unexpired searches belonging to the current owner, newest first. |
+| `GET /{id}` | `{jobId,status,revision,matched,pagesScanned,incompleteSearch,canStop,createdAt,updatedAt,expiresAt,errorCode}`. Status is `queued`, `running`, `completed`, `stopped`, `failed`, or `limited`. |
+| `GET /{id}/results?cursor=…` | Up to 25 metadata records (`id,name,mimeType,modifiedTime,openUrl`), result count, revision and opaque `nextCursor`, bound to owner and search. Requires the same active Drive connection generation. |
+| `POST /{id}/stop` | Empty body; invalidates the lease atomically. Late provider responses cannot append. Cancellation remains available after search-feature or provider-access revocation. |
+
+Search jobs retain encrypted queries/checkpoints and result metadata for 24 hours, with one active
+job per owner and a 10,000-file cap. Each worker slice processes at most four 25-file pages or 90
+seconds, checkpoints every page, and resumes through the existing Drive suggestions worker.
+A queued slice wakes its successor; the scheduler remains the recovery path. Search-only consent
+survives tab closure; Stop, connection changes and account deletion fence subsequent collection.
+Expired records are excluded from reads before bounded cleanup removes them.
+
+The REST compiler uses exact `name =` for literal titles before pagination, Google's token/phrase
+full-text rules for topics and dates, and preserves provider relevance order. It searches the user
+corpus first, then bounded shared-drive corpora, deduplicating by file ID. Duplicate filenames stay
+distinct. Empty pages with cursors continue; `incompleteSearch` and any bounded coverage become
+visible incomplete results, never proof of absence. Existence queries return metadata without
+exports. Optional content-read failure preserves successful siblings. Sharing remains the existing
+reviewed exact-ID permission flow below.
+
 ### Exact-file Drive sharing (default-off)
 
 All routes below use `/api/connectors/google_drive/sharing` and require a current Vault

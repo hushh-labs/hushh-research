@@ -18,7 +18,11 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
-from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, require_vault_owner_chat_key
+from api.middlewares.chat_key import (
+    CHAT_KEY_REQUIRED_DETAIL,
+    log_chat_key_refusal,
+    require_vault_owner_chat_key,
+)
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_private_runtime
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -98,7 +102,12 @@ from hushh_mcp.one_adk.history_projection import (
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
-from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
+from hushh_mcp.one_adk.request_secrets import (
+    consume_request_secret,
+    resolve_request_secret,
+    store_request_secret,
+)
+from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -192,6 +201,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # Durable history is sealed with the owner's chat key. Refuse before any
         # stream starts rather than failing mid-turn or reading without it.
         if not request_has_chat_key(user_id):
+            log_chat_key_refusal(request, "CHAT_KEY_REQUIRED", owner_id=user_id)
             raise HTTPException(
                 status_code=403,
                 detail={"message": CHAT_KEY_REQUIRED_DETAIL, "code": "CHAT_KEY_REQUIRED"},
@@ -254,8 +264,15 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=403, detail="Connector configuration is unavailable. Unlock and try again."
         ) from None
+    # The device sends a coarse position only when the person already granted
+    # location; pre-vault turns never keep it.
+    turn_location = admit_turn_location(forwarded)
+    if not (token and user_id):
+        consume_request_secret(turn_location)
+        turn_location = ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
         WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),

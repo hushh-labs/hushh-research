@@ -203,6 +203,7 @@ class TurnTiming:
     model_calls: int = 0
     model_call_total_ms: float = 0.0
     first_model_call_ms: float | None = None
+    connector_discovery_ms: float = 0.0
     model_id: str = "unavailable"
     thinking_level: str = "unavailable"
     pending_model_call_starts: list[float] | None = None
@@ -289,7 +290,7 @@ class TurnTiming:
         logger.info(
             "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
             "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
-            "first_model_call_ms=%s model_calls=%s model_call_total_ms=%s "
+            "first_model_call_ms=%s connector_discovery_ms=%s model_calls=%s model_call_total_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s",
@@ -301,6 +302,7 @@ class TurnTiming:
             _ms_since(self.started_at, self.first_tool_call_at),
             _ms_since(self.started_at, time.perf_counter()),
             self.first_model_call_ms,
+            round(self.connector_discovery_ms),
             self.model_calls,
             round(self.model_call_total_ms),
             self.model_id,
@@ -526,6 +528,13 @@ def _request_text(value: Any) -> str:
     return "".join(
         part_text for part in parts if isinstance((part_text := getattr(part, "text", None)), str)
     )
+
+
+def record_connector_discovery(elapsed_ms: float) -> None:
+    """Add one connector-catalog discovery to the current turn's timing line."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.connector_discovery_ms += max(0.0, elapsed_ms)
 
 
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> None:

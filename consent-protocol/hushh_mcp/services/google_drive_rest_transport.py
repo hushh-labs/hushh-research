@@ -48,8 +48,8 @@ from hushh_mcp.services.google_drive_write_adapter import (
 PARSE_REASONS = frozenset(
     {"encrypted_document", "no_extractable_text", "file_too_large", "invalid_document"}
 )
-_MAX_ARGUMENT_BYTES = 4_096
-_MAX_QUERY_CHARS = 1_800
+_MAX_ARGUMENT_BYTES = 8_192
+_MAX_QUERY_CHARS = 4_096
 # A search may only rank by a file time, newest first; anything else is refused.
 _SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
@@ -59,23 +59,13 @@ _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 _FULL_TEXT = re.compile(r"\bfullText\b")
 
 
+# Quoted values are opaque: compatibility field translation and operator
+# detection must never rewrite a filename or mistake its words for syntax.
+_QUERY_PARTS = re.compile(r"('(?:\\.|[^'\\])*')")
+
+
 def has_full_text_term(query: str) -> bool:
-    return _FULL_TEXT.search(query) is not None
-
-
-def _newest_first(files: list[Any], order: str) -> list[Any]:
-    """Sort one relevance-ordered page by the requested file time, newest first.
-
-    Only the returned page is reordered; Drive still chooses which files make
-    the page, by relevance. Items without the time sort last, never dropped.
-    """
-    field = order.split(" ", 1)[0]
-
-    def key(item: Any) -> tuple[bool, str]:
-        value = item.get(field) if isinstance(item, dict) else None
-        return (isinstance(value, str) and bool(value), value if isinstance(value, str) else "")
-
-    return sorted(files, key=key, reverse=True)
+    return any(_FULL_TEXT.search(part) for part in _QUERY_PARTS.split(query)[::2])
 
 
 # Friendly type names the model can use instead of exact MIME types.
@@ -97,6 +87,23 @@ _MAX_TEXT_CHARS = 200
 def quote_literal(value: str) -> str:
     """One Drive ``q`` string literal: backslash and quote escaped, nothing else."""
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def full_text_literal(term: str) -> str:
+    """A token or a quoted phrase, according to Drive's fullText grammar."""
+    phrase = ('"' + term.replace('"', '\\"') + '"') if any(not c.isalnum() for c in term) else term
+    return quote_literal(phrase)
+
+
+def compile_search_terms(terms: list[str], *, title_only: bool = False) -> str:
+    """Compile literal terms; token separators require a full-text phrase."""
+    clauses = []
+    for term in terms:
+        title = f"title contains {quote_literal(term)}"
+        clauses.append(
+            title if title_only else f"({title} or fullText contains {full_text_literal(term)})"
+        )
+    return " and ".join(clauses)
 
 
 def _rfc3339(value: object) -> str:
@@ -122,8 +129,10 @@ def structured_query(arguments: dict[str, Any]) -> list[str]:
     if text is not None:
         if not isinstance(text, str) or not text.strip() or len(text) > _MAX_TEXT_CHARS:
             raise DriveOAuthError("invalid_argument", status_code=400)
-        literal = quote_literal(" ".join(text.split()))
-        clauses.append(f"(name contains {literal} or fullText contains {literal})")
+        term = " ".join(text.split())
+        clauses.append(
+            f"(name contains {quote_literal(term)} or fullText contains {full_text_literal(term)})"
+        )
     mime = arguments.get("mimeType")
     if mime is not None:
         if isinstance(mime, str) and mime in MIME_FAMILIES:
@@ -155,8 +164,17 @@ def rest_query(query: str) -> str:
     The live reader only compiles title, fullText, mimeType, sharedWithMe and
     time clauses from validated terms, so only ``title`` and ``owner`` differ.
     """
-    translated = _TITLE.sub(lambda match: f"name {match.group(1)} ", query)
-    translated = translated.replace("owner = 'me'", "'me' in owners")
+    parts = _QUERY_PARTS.split(query)
+    for index in range(0, len(parts), 2):
+        parts[index] = _TITLE.sub(lambda match: f"name {match.group(1)} ", parts[index])
+        if (
+            index + 1 < len(parts)
+            and parts[index + 1] == "'me'"
+            and re.search(r"\bowner = $", parts[index])
+        ):
+            parts[index] = re.sub(r"\bowner = $", "", parts[index])
+            parts[index + 1] += " in owners"
+    translated = "".join(parts)
     return f"({translated}) and trashed = false"
 
 
@@ -368,20 +386,51 @@ class GoogleDriveRestTransport:
         q = " and ".join(clauses)
         if query is None:
             q += " and trashed = false"
-        # A metadata-only search keeps the requested file-time order on the
-        # provider side, so the page cut itself is newest first. Drive rejects
-        # orderBy with a fullText term and ranks those by relevance; that page
-        # is then reordered locally by file time.
+        # Full-text pages retain Google's relevance order. Sorting a bounded
+        # page locally cannot establish the newest files across the corpus.
         full_text = has_full_text_term(q)
+        drive_id = arguments.get("driveId")
+        if drive_id is not None and (
+            not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id)
+        ):
+            raise DriveOAuthError("invalid_argument", status_code=400)
         page = await self.adapter.list_files(
             access_token=token,
             query=q,
             page_size=page_size,
             page_token=page_token,
             order_by=None if full_text else order,
+            **({"drive_id": drive_id} if drive_id is not None else {}),
         )
-        files = _page_files(page)
-        return _project_page(page, _newest_first(files, order) if full_text else files)
+        return _project_page(page, _page_files(page))
+
+    async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
+        _only(arguments, {"pageSize", "pageToken"})
+        page_size, page_token = _page_arguments(arguments)
+        page = await self.adapter.list_drives(
+            access_token=token, page_size=page_size, page_token=page_token
+        )
+        drives = page.get("drives", [])
+        next_token = page.get("nextPageToken")
+        if (
+            not isinstance(drives, list)
+            or len(drives) > page_size
+            or next_token is not None
+            and (not isinstance(next_token, str) or len(next_token) > 1024)
+            or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not FILE_ID.fullmatch(item["id"])
+                or not isinstance(item.get("name"), str)
+                or not 1 <= len(item["name"]) <= 1024
+                for item in drives
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        return {
+            "drives": [{"id": item["id"], "name": item["name"]} for item in drives],
+            "nextPageToken": next_token,
+        }
 
     async def _private_destination(self, folder: object, token: str) -> str:
         """A folder only the owner can see. Filing into any other folder shares the file.
@@ -494,6 +543,7 @@ def _only(arguments: dict[str, Any], allowed: set[str]) -> None:
 # Tool name -> transport method. REST_TOOLS is derived from it so the admitted
 # set and the implemented set cannot drift apart.
 _OPERATIONS = {
+    "list_shared_drives": "_list_shared_drives",
     "search_files": "_search_files",
     "list_recent_files": "_list_recent_files",
     "read_file_content": "_read_file_content",
@@ -523,7 +573,7 @@ def _page_arguments(arguments: dict[str, Any]) -> tuple[int, str | None]:
         or isinstance(page_size, bool)
         or not 1 <= page_size <= 25
         or page_token is not None
-        and not isinstance(page_token, str)
+        and (not isinstance(page_token, str) or len(page_token) > 1024)
     ):
         raise DriveOAuthError("invalid_argument", status_code=400)
     return page_size, page_token
@@ -531,7 +581,11 @@ def _page_arguments(arguments: dict[str, Any]) -> tuple[int, str | None]:
 
 def _page_files(page: dict[str, Any]) -> list[Any]:
     files = page.get("files", [])
-    if not isinstance(files, list):
+    if (
+        not isinstance(files, list)
+        or len(files) > 25
+        or any(not isinstance(item, dict) for item in files)
+    ):
         raise DriveReadError("provider_response_invalid")
     return files
 
@@ -541,6 +595,7 @@ def _project_page(page: dict[str, Any], files: list[Any]) -> dict:
         {
             "files": [_as_mcp_file(item) for item in files if isinstance(item, dict)],
             "nextPageToken": page.get("nextPageToken"),
+            "incompleteSearch": page.get("incompleteSearch", False),
         }
     )
     return projected

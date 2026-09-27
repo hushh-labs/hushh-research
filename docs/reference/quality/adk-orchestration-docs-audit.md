@@ -1980,3 +1980,26 @@ yet supplied remain explicitly unavailable; this is not complete shared/pod pari
 The dev bridge runbook now matches the explicit dev-only model-project choice;
 configuration alone is not live prediction evidence. No dev deployment, normal
 owner update or real-device acceptance is established by this source checkpoint.
+
+
+### Frozen freshness integration — 2026-09-27 UTC
+
+Integrated main `670b2e68eecc48ce826b132b446dad4a4c90e5c6`, which contains the
+frozen local ADK `91bc9f7cbfa9a9d544623808b9e3ab36dc3a050c`, into the existing
+infrastructure branch after local pod implementation `5cb66e4a7`. The separate
+ADK auth/email draft continues in its own worktree and is not part of this
+candidate; source review found unfinished test imports and test-mail containment
+issues. No draft or PDF edits were overwritten.
+
+Conflict resolution retained the pod's owner admission and encrypted history
+adapter, upstream MCP ambient-credential refusal and model regional failover,
+Activity restoration, coarse location admission, and chat-key unlock behavior.
+Automatic chat retry now requires a request known not to have started; streamed
+failures cannot silently resend an effect. Pending retry is bound to the same
+authenticated identity generation and conversation. The focused combined backend
+suite passed 302 tests; the chat-client/direct-route frontend suite passed 81.
+
+Migration 251 is now the upstream Drive search-job migration. The unexecuted
+legacy-history cutover moves to parked 252; migration 249 retains the pod branch's
+public-profile bridge. Release/schema contracts pass. This records source
+compatibility, not live migration, cleanup, or owner-pod update evidence.

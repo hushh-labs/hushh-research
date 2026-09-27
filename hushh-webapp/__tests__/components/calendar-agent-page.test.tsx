@@ -143,13 +143,15 @@ describe("CalendarAgentPage", () => {
 
     await screen.findByText(/View events and availability/);
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
-    expect(screen.getByRole("button", { name: "Enable scheduling" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
     expect(
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Enable scheduling" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try Calendar Agent with One" }),
+    );
     await waitFor(() =>
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
@@ -230,7 +232,7 @@ describe("CalendarAgentPage", () => {
     render(<CalendarAgentPage />);
     await waitFor(() => expect(popupWatcher).not.toBeNull());
     fireEvent.click(
-      await screen.findByRole("button", { name: "Enable scheduling" }),
+      await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
     );
     await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
     Object.assign(mocks.popup as object, { closed: true });
@@ -354,7 +356,7 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Enable scheduling" }),
+      await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
     );
     await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
@@ -426,7 +428,7 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Enable scheduling" }),
+      await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
     );
 
     await waitFor(() =>

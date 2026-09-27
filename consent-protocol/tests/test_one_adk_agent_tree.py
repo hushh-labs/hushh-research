@@ -5708,3 +5708,17 @@ async def test_connections_parent_hop_preserves_child_domain_disable():
         )
     assert result["status"] == "domain_disabled"
     dispatch.assert_not_awaited()
+
+
+def test_text_agents_fail_over_across_vertex_regions_and_only_live_stays_pinned() -> None:
+    """UAT 2026-09-27: One's chat was pinned to ``global`` and 8 of 10 turns
+    failed on RESOURCE_EXHAUSTED while ``us``/``eu`` had capacity. Text agents
+    must use the regional model; only the Live head may pin one location."""
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "hushh_mcp/one_adk/agent_tree.py"
+    text = source.read_text()
+    assert "build_managed_gemini_adk_model(_SPECIALIST_MODEL)" not in text
+    assert text.count("build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)") >= 1
+    pinned = [line for line in text.splitlines() if "build_managed_gemini_adk_model(" in line]
+    assert pinned and all("_ONE_LIVE_LOCATION" in line for line in pinned)

@@ -43,6 +43,7 @@ import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
+import { chatKeyRefusalCode } from "@/lib/vault/one-chat-key";
 
 /** Same event name `vault-context.tsx` listens for; the API service dispatches it too. */
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
@@ -126,6 +127,10 @@ export function streamBridgeErrorCode(status: number, body: string): string {
           ? "AUTH_ACCOUNT_STATUS_UNAVAILABLE"
           : null;
   if (lifecycle && LIFECYCLE_STATUS_BY_CODE[lifecycle] === status) return lifecycle;
+  // A chat-key refusal is not an invalid owner token. The chat client routes it
+  // (at most one forced unlock); locking here too would bypass that bound.
+  const chatKeyCode = payload ? chatKeyRefusalCode(payload) : null;
+  if (chatKeyCode) return chatKeyCode;
   if (status === 401 || status === 403) return "AUTH_VAULT_OWNER_INVALID";
   return `HUSHH_HTTP_${status}`;
 }

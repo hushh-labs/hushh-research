@@ -13,6 +13,7 @@ from hushh_mcp.services import google_drive_adapter as adapter_module
 from hushh_mcp.services import google_drive_rest_transport as rest
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveMetadata, DriveReadError
 
 FILE_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
@@ -86,6 +87,7 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
         ],
         "nextPageToken": "next",
         "overLimit": False,
+        "incompleteSearch": False,
     }
     listing.assert_awaited_once_with(
         access_token=GRANT,
@@ -107,7 +109,7 @@ def _file(file_id, *, modified, created="2026-09-01T00:00:00Z"):
     }
 
 
-async def test_full_text_search_sends_no_order_and_sorts_the_page_locally(monkeypatch):
+async def test_full_text_search_preserves_provider_relevance_and_cursor(monkeypatch):
     # Drive refuses orderBy on any q with a fullText term ("Sorting is not
     # supported for queries with fullText terms"), so a keyword search that
     # sent one failed outright. Negative control: the previous code sent
@@ -128,11 +130,11 @@ async def test_full_text_search_sends_no_order_and_sorts_the_page_locally(monkey
     assert listing.await_args.kwargs["query"] == (
         "((name contains 'tax' or fullText contains 'tax')) and trashed = false"
     )
-    assert [item["id"] for item in result.payload["files"]] == ["newest", "older", "undated"]
+    assert [item["id"] for item in result.payload["files"]] == ["older", "undated", "newest"]
     assert result.payload["nextPageToken"] == "more"
 
 
-async def test_full_text_search_honours_a_created_time_request_locally(monkeypatch):
+async def test_full_text_does_not_pretend_page_sorting_is_global_chronology(monkeypatch):
     listing = AsyncMock(
         return_value={
             "files": [
@@ -151,7 +153,7 @@ async def test_full_text_search_honours_a_created_time_request_locally(monkeypat
         },
     )
     assert listing.await_args.kwargs["order_by"] is None
-    assert [item["id"] for item in result.payload["files"]] == ["b", "a"]
+    assert [item["id"] for item in result.payload["files"]] == ["a", "b"]
 
 
 async def test_a_metadata_search_keeps_the_provider_side_order(monkeypatch):
@@ -424,7 +426,20 @@ async def test_the_connect_probe_is_one_bounded_rest_search():
             {**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "spaces": "appDataFolder"},
             False,
         ),
-        ({**adapter_module.LIST_FIXED, "q": "x" * 2001, "pageSize": "8"}, False),
+        ({**adapter_module.LIST_FIXED, "q": "x" * 4097, "pageSize": "8"}, False),
+        (
+            {
+                **adapter_module.LIST_FIXED,
+                "corpora": "drive",
+                "driveId": "team-1",
+                "q": "x",
+                "pageSize": "25",
+            },
+            True,
+        ),
+        ({**adapter_module.LIST_FIXED, "corpora": "drive", "q": "x", "pageSize": "25"}, False),
+        ({**adapter_module.LIST_FIXED, "driveId": "team-1", "q": "x", "pageSize": "25"}, False),
+        ({**adapter_module.LIST_FIXED, "corpora": "allDrives", "q": "x", "pageSize": "25"}, False),
     ],
 )
 async def test_the_adapter_admits_only_the_bounded_list_shape(monkeypatch, params, allowed):
@@ -470,7 +485,7 @@ async def test_typed_search_filters_compile_to_one_escaped_drive_query(monkeypat
     )
     literal = "'Q3 \\'budget\\' \\\\ final'"
     assert listing.await_args.kwargs["query"] == (
-        f"(name contains {literal} or fullText contains {literal})"
+        f"(name contains {literal} or fullText contains {rest.full_text_literal("Q3 'budget' \\ final")})"
         " and mimeType = 'application/vnd.google-apps.spreadsheet'"
         " and sharedWithMe = true"
         " and modifiedTime >= '2026-09-01T00:00:00Z'"
@@ -625,3 +640,125 @@ async def test_any_failure_after_a_write_was_sent_is_an_unknown_outcome(monkeypa
     unsent.writer = SimpleNamespace(comment=AsyncMock(side_effect=RuntimeError("before send")))
     with pytest.raises(RuntimeError, match="before send"):
         await unsent.write_tool(user_id="owner", tool_name="add_comment", arguments=arguments)
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["O'Brien\\Notes.pdf", "A title contains B", "fullText owner = 'me'", "नमस्ते • résumé.pdf"],
+)
+async def test_exact_title_literals_survive_rest_compatibility_translation(monkeypatch, title):
+    listing = AsyncMock(
+        return_value={"files": [], "incompleteSearch": True, "nextPageToken": "later"}
+    )
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    literal = rest.quote_literal(title)
+    result = await drive.read_tool(
+        user_id="owner", tool_name="search_files", arguments={"query": f"title = {literal}"}
+    )
+    assert listing.await_args.kwargs["query"] == f"(name = {literal}) and trashed = false"
+    assert listing.await_args.kwargs["order_by"] == "modifiedTime desc"
+    assert result.payload["incompleteSearch"] is True and result.payload["nextPageToken"] == "later"
+
+
+def test_query_compilation_treats_punctuation_as_literal_and_multiword_text_as_phrase():
+    assert rest.compile_search_terms(["bank", "salary slip"]) == (
+        "(title contains 'bank' or fullText contains 'bank') and "
+        "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
+    )
+    assert rest.compile_search_terms(["2026/09/10"]) == (
+        "(title contains '2026/09/10' or fullText contains '\"2026/09/10\"')"
+    )
+    assert rest.rest_query("owner = 'me' and title contains 'owner = \\'me\\''") == (
+        "('me' in owners and name contains 'owner = \\'me\\'') and trashed = false"
+    )
+
+
+async def test_shared_drive_inventory_and_per_drive_search_preserve_cursors(monkeypatch):
+    adapter = SimpleNamespace(
+        list_drives=AsyncMock(
+            return_value={
+                "drives": [{"id": "drive-1", "name": "Team", "secret": "drop"}],
+                "nextPageToken": "drive-next",
+            }
+        ),
+        list_files=AsyncMock(
+            return_value={"files": [], "nextPageToken": "file-next", "incompleteSearch": True}
+        ),
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    inventory = await drive.read_tool(
+        user_id="owner",
+        tool_name="list_shared_drives",
+        arguments={"pageSize": 25, "pageToken": "drive-start"},
+    )
+    assert inventory.payload == {
+        "drives": [{"id": "drive-1", "name": "Team"}],
+        "nextPageToken": "drive-next",
+    }
+    assert adapter.list_drives.await_args.kwargs["page_token"] == "drive-start"
+    listing = await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "name = 'Plan'", "driveId": "drive-1", "pageToken": "file-start"},
+    )
+    assert adapter.list_files.await_args.kwargs["drive_id"] == "drive-1"
+    assert (
+        listing.payload["nextPageToken"] == "file-next"
+        and listing.payload["incompleteSearch"] is True
+    )
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "name = 'Plan'", "driveId": "../bad"},
+        )
+    assert adapter.list_files.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "params,allowed",
+    [
+        ({"fields": "nextPageToken,drives(id,name)", "pageSize": "25", "pageToken": "next"}, True),
+        ({"fields": "*", "pageSize": "25"}, False),
+        ({"fields": "nextPageToken,drives(id,name)", "pageSize": "26"}, False),
+        (
+            {
+                "fields": "nextPageToken,drives(id,name)",
+                "pageSize": "25",
+                "useDomainAdminAccess": "true",
+            },
+            False,
+        ),
+    ],
+)
+async def test_shared_drive_inventory_is_bounded_without_admin_authority(
+    monkeypatch, params, allowed
+):
+    monkeypatch.setattr(
+        adapter_module.httpx,
+        "AsyncClient",
+        lambda **_: (_ for _ in ()).throw(RuntimeError("admitted")),
+    )
+    with pytest.raises(RuntimeError, match="admitted" if allowed else "operation_not_allowed"):
+        await adapter_module.GoogleDriveAdapter()._get_private(
+            "/drives", access_token=GRANT, params=params, limit=adapter_module.METADATA_LIMIT
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"files": [None]},
+        {"files": [], "incompleteSearch": "false"},
+        {"files": [], "nextPageToken": "x" * 1025},
+    ],
+)
+async def test_bad_page_cannot_be_reported_as_complete_empty_results(monkeypatch, payload):
+    drive = transport(
+        adapter=SimpleNamespace(list_files=AsyncMock(return_value=payload)), monkeypatch=monkeypatch
+    )
+    with pytest.raises((DriveReadError, ExternalMcpError)) as raised:
+        await drive.read_tool(
+            user_id="owner", tool_name="search_files", arguments={"query": "name = 'Plan'"}
+        )
+    assert str(raised.value) in {"provider_response_invalid", "Invalid Drive listing."}

@@ -222,7 +222,8 @@
     "247_private_mcp_registration.sql",
     "248_adk_chat_action_authority.sql",
     "249_public_profile_bridge.sql",
-    "250_gmail_mailbox_action_proposals.sql"
+    "250_gmail_mailbox_action_proposals.sql",
+    "251_drive_owner_search_jobs.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -459,6 +460,7 @@
     "246_drive_feed_projection.sql": "rollback/246_drive_feed_projection.rollback.sql",
     "247_private_mcp_registration.sql": "rollback/247_private_mcp_registration.rollback.sql",
     "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql",
-    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql"
+    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql",
+    "251_drive_owner_search_jobs.sql": "rollback/251_drive_owner_search_jobs.rollback.sql"
   }
 }

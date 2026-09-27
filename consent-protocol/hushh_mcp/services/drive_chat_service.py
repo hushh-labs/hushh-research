@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from datetime import timezone as datetime_timezone
 from pathlib import Path
@@ -87,6 +88,8 @@ def result(
     owner_compile_available=False,
     owner_compile_query=None,
     owner_compile_window=None,
+    background_search_available=False,
+    background_search_query=None,
 ):
     return {
         "conversationId": conversation_id,
@@ -102,12 +105,15 @@ def result(
             "owner_compile_available": owner_compile_available,
             "owner_compile_query": owner_compile_query,
             "owner_compile_window": owner_compile_window,
+            "background_search_available": background_search_available,
+            "background_search_query": background_search_query,
         },
     }
 
 
 # Owner-only wording for the reader's allowlisted reasons.
 _NOT_READ_LABELS = {
+    "provider_unavailable": "temporarily unavailable to read",
     "encrypted_document": "password-protected",
     "file_too_large": "too large to read",
     "unsupported_format": "this file type can't be read yet",
@@ -154,7 +160,9 @@ def _found_files(
     lines = [
         intro
         or (
-            "I found these Drive files. I couldn't read their contents here, but you can open them:"
+            "Search incomplete. No matching files returned yet."
+            if not matches and truncated
+            else "I found these Drive files. I couldn't read their contents here, but you can open them:"
             if unreadable
             else "I found these Drive files:"
         )
@@ -174,7 +182,7 @@ def _found_files(
         detail = " · ".join(item for item in (kind, date, reason) if item)
         lines.append(f"{index}. {title} · {detail} — [Open in Drive]({match['open_url']})")
     if truncated or len(matches) > limit:
-        lines.append("More matches may exist. Ask for a narrower filename or period.")
+        lines.append("More matches may exist.")
     return "\n".join(lines)
 
 
@@ -382,6 +390,13 @@ class DriveChatService:
             outcome["status"] == "ok"
             and listing_selection.get("stage") == "owner_title_date_listing"
         )
+        background_available = (
+            outcome["status"] == "ok"
+            and outcome["metadata_only"]
+            and not outcome["unreadable"]
+            and outcome["found_truncated"]
+            and listing_selection.get("mode") == "find"
+        )
         return result(
             conversation_id,
             text,
@@ -396,6 +411,8 @@ class DriveChatService:
             owner_compile_window=(
                 listing_selection.get("owner_compile_window") if compile_available else None
             ),
+            background_search_available=background_available,
+            background_search_query=message if background_available else None,
         )
 
     async def run_live_query(
@@ -518,6 +535,7 @@ class DriveChatService:
                         metadata_only=True,
                         selection={
                             "stage": "owner_title_date_listing",
+                            "mode": "find",
                             "candidates": len(found["matches"]),
                             "selected": count,
                             "owner_compile_query": owner_compile_query(listing),
@@ -532,6 +550,7 @@ class DriveChatService:
                 if live:
                     stage = "search_plan"
                     await require_access()
+                    plan_started = time.perf_counter()
                     exact_presence = simple_exact_title_presence_plan(message)
                     plan = exact_presence or simple_file_activity_plan(message)
                     if plan is None:
@@ -548,6 +567,12 @@ class DriveChatService:
                             ),
                             user_id=user_id,
                         )
+                    logger.info(
+                        "drive_chat.planned mode=%s exact_title=%s duration_ms=%.2f",
+                        plan.mode,
+                        bool(plan.exact_title),
+                        (time.perf_counter() - plan_started) * 1000,
+                    )
                     query = plan.terms
                     if _EXPLICIT_FILE_REFERENCE.search(message) and (
                         not plan.exact_title
@@ -566,6 +591,8 @@ class DriveChatService:
                         "shared_with_me": plan.shared_with_me,
                         "recent": plan.sort == "recent",
                     }
+                    if plan.exact_title:
+                        search_kwargs["exact_title"] = plan.exact_title
                     if exact_presence is not None:
                         search_kwargs["title_only"] = True
                     date_field = (
@@ -592,18 +619,39 @@ class DriveChatService:
                             f"Files {action} from {start_local:%Y-%m-%d %H:%M} through "
                             f"{end_local:%Y-%m-%d %H:%M} ({owner_timezone})."
                         )
+                    search_started = time.perf_counter()
                     found = await reader.find(**search_kwargs)
+                    logger.info(
+                        "drive_chat.searched mode=%s candidates=%d incomplete=%s duration_ms=%.2f",
+                        plan.mode,
+                        len(found["matches"]),
+                        found["truncated"],
+                        (time.perf_counter() - search_started) * 1000,
+                    )
                     matches = found["matches"]
                     if plan.exact_title:
                         matches = [
                             item
                             for item in matches
-                            if item["name"].casefold() == plan.exact_title.strip().casefold()
+                            if item["name"].casefold() == plan.exact_title.casefold()
                         ]
                         if not matches:
+                            if found["truncated"] and plan.mode == "find":
+                                await reader.require_current()
+                                return _files_outcome(
+                                    [],
+                                    found,
+                                    unreadable=False,
+                                    time_window=time_window,
+                                    selection={"stage": "incomplete_exact_title", "mode": "find"},
+                                )
                             return _outcome(
                                 "input_required",
-                                "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
+                                (
+                                    "The search is incomplete. I haven't found that exact title yet."
+                                    if found["truncated"]
+                                    else "I couldn't find that exact title. Check the filename."
+                                ),
                             )
                         if found["truncated"]:
                             # The bounded search may have omitted another file
@@ -620,6 +668,7 @@ class DriveChatService:
                                 timezone=owner_timezone,
                                 selection={
                                     "stage": "incomplete_exact_title",
+                                    "mode": plan.mode,
                                     "candidates": len(matches),
                                     "selected": len(matches),
                                 },
@@ -639,14 +688,28 @@ class DriveChatService:
                                 timezone=owner_timezone,
                                 selection={
                                     "stage": "ambiguous_exact_title",
+                                    "mode": plan.mode,
                                     "candidates": len(matches),
                                     "selected": len(matches),
                                 },
                             )
                     if not matches:
+                        if found["truncated"] and plan.mode == "find":
+                            await reader.require_current()
+                            return _files_outcome(
+                                [],
+                                found,
+                                unreadable=False,
+                                time_window=time_window,
+                                selection={"stage": "incomplete_search", "mode": "find"},
+                            )
                         return _outcome(
                             "input_required",
-                            "I couldn't find a matching Drive file. Try a more specific filename or period.",
+                            (
+                                "The search is incomplete. No matches have been returned yet."
+                                if found["truncated"]
+                                else "I couldn't find a matching Drive file. Try a more specific filename or period."
+                            ),
                         )
                     if plan.terms and not plan.exact_title:
                         # Keyword hits are candidates; the tool-less selector
@@ -674,6 +737,14 @@ class DriveChatService:
                         )
                         if not matches:
                             await reader.require_current()
+                            if found["truncated"] and plan.mode == "find":
+                                return _files_outcome(
+                                    [],
+                                    found,
+                                    unreadable=False,
+                                    time_window=time_window,
+                                    selection={**selection, "mode": "find"},
+                                )
                             return _outcome(
                                 "input_required",
                                 "None of the Drive files I found look like what you asked for. "
@@ -709,7 +780,7 @@ class DriveChatService:
                             time_window=time_window,
                             date_field=date_field,
                             timezone=owner_timezone,
-                            selection=selection,
+                            selection={**(selection or {}), "mode": "find"},
                         )
                 await require_access()
                 stage = "read_file_content"

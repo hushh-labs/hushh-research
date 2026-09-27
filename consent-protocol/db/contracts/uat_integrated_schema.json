@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 250,
+  "expected_migration_version": 251,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -637,6 +637,36 @@
       "invalidated_at",
       "created_at",
       "expires_at"
+    ],
+    "drive_owner_search_jobs": [
+      "job_id",
+      "user_id",
+      "client_request_id",
+      "request_digest",
+      "connection_generation",
+      "consent_version",
+      "status",
+      "revision",
+      "matched",
+      "pages_scanned",
+      "incomplete_search",
+      "checkpoint_envelope",
+      "lease_id",
+      "lease_expires_at",
+      "retry_count",
+      "next_at",
+      "inspected_at",
+      "error_code",
+      "created_at",
+      "updated_at",
+      "expires_at"
+    ],
+    "drive_owner_search_results": [
+      "job_id",
+      "user_id",
+      "position",
+      "file_digest",
+      "metadata_envelope"
     ],
     "drive_owner_shares": [
       "request_id",

@@ -683,7 +683,6 @@ export interface HushhSettingsData {
   useRemoteLLM: boolean;
   preferredLLMProvider: "local" | "mlx" | "openai" | "anthropic" | "google";
   requireBiometricUnlock: boolean;
-  autoLockTimeout: number;
   theme: "system" | "light" | "dark";
   hapticFeedback: boolean;
   showDebugInfo: boolean;

@@ -20,6 +20,7 @@ from typing import Any, Literal, cast, get_args
 
 from google.adk.telemetry.tracing import _should_report_mcp_http_exchanges
 from google.adk.tools.mcp_tool.mcp_session_manager import (
+    MCPSessionManager,
     StreamableHTTPConnectionParams,
     _http_debug_var,
 )
@@ -328,6 +329,24 @@ def mcp_tool_fingerprint(descriptor: dict[str, Any]) -> str:
     return _digest({key: value for key, value in descriptor.items() if key != "annotations"})
 
 
+class _GovernedMcpSessionManager(MCPSessionManager):
+    """ADK's session manager without its ambient Google mTLS upgrade.
+
+    Stock ADK tries mTLS for every HTTP MCP server: it loads this process's
+    Google application-default credentials (``cloud-platform`` scope) in a
+    worker thread on every new session, and when a client certificate is found
+    it swaps the governed transport for its own redirect-following client
+    whose requests carry those backend credentials. A connector belongs to the
+    person and is reached only with the headers they configured, through
+    ``create_bounded_mcp_http_client``. The attempt was also on the critical
+    path: on UAT it separated session setup from the first model call by 2.7 s
+    on a warm process and 12.8 s on a fresh one (2026-09-27).
+    """
+
+    async def _get_mtls_transport(self) -> None:
+        return None
+
+
 class GovernedMcpToolset(McpToolset):
     """Use ADK's native session/tool machinery without ambient owner authority.
 
@@ -383,6 +402,11 @@ class GovernedMcpToolset(McpToolset):
             header_provider=self._current_headers,
             tool_list_cache_ttl_seconds=None,
         )
+        if type(self._mcp_session_manager) is not MCPSessionManager:
+            # A changed ADK construction must fail here, not silently regain the
+            # ambient-credential transport.
+            raise TypeError("Unexpected MCP session manager")
+        self._mcp_session_manager.__class__ = _GovernedMcpSessionManager
 
     def refresh(self) -> None:
         self.catalog_epoch += 1

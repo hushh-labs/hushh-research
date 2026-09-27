@@ -114,13 +114,13 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
-import { appendThinkingSummary } from "@/lib/agent/thinking-summary";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   isRoutineReadinessTool,
+  connectorBrandForTool,
   driveBatchProgressToVisibleStreamEvent,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
@@ -172,6 +172,8 @@ import {
   subscribeAgentPkmAutoSavePolicyInvalidation,
   type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
+import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
 import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
@@ -243,6 +245,7 @@ import {
   type PendingConsent,
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
+import { DriveBackgroundSearches } from "@/components/agent/drive-background-search";
 import { useVault } from "@/lib/vault/vault-context";
 import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
 import {
@@ -329,8 +332,6 @@ type AgentMessage = {
   renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
-  /** Transient provider summary for this turn; excluded from stored history. */
-  thinkingSummary?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
@@ -1654,7 +1655,6 @@ function AgentBubble({
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
-    Boolean(message.thinkingSummary) ||
     Boolean(message.sources?.length) ||
     structuredExperiences.length > 0;
   const shouldRenderStreamPanel =
@@ -1745,7 +1745,6 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
-              thinkingSummary={message.thinkingSummary}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
@@ -1964,17 +1963,21 @@ export function storedMessageToAgentMessage(
   });
   // The same Activity rows the owner saw live, rebuilt from app-owned labels.
   const streamEvents: AgentVisibleStreamEvent[] = message.role === "assistant"
-    ? parseRestoredTurnActivity(message.metadata?.turnActivity).map((step) => ({
+    ? parseRestoredTurnActivity(message.metadata?.turnActivity).map((step) => {
+      // The same product mark the live row carried, from the same rule.
+      const brand = connectorBrandForTool(step.toolName, step.provider) ?? step.provider;
+      return {
         id: step.id,
         label: step.label,
         message: step.message,
         status: step.status,
         ...(step.tag ? { tag: step.tag } : {}),
-        ...(step.provider ? { brand: step.provider } : {}),
+        ...(brand ? { brand } : {}),
         ...(step.connectorId ? { connectorId: step.connectorId } : {}),
         ...(isRoutineReadinessTool(step.toolName) ? { routine: true as const } : {}),
         createdAtMs: createdAt?.getTime() ?? 0,
-      }))
+      };
+    })
     : [];
   // Do not resurrect a duplicate through the legacy descriptor, or leave an
   // empty thinking bubble. Prose and all distinct cards retain source order.
@@ -2059,12 +2062,25 @@ function ChatAgentSubtitle({ text }: { text: string }) {
   </p>;
 }
 
-function activeToolStatus(label: string): string {
-  if (label === "Connected tool") return "Using a connected tool";
-  if (label === "Connector access") return "Checking connector access";
-  if (label === "Connected systems") return "Checking connected systems";
-  if (label === "Agent step") return "Working on your request";
-  return `Using ${label}`;
+export type ActiveToolCall = { id: string; label: string; activity?: string };
+
+export const IDLE_AGENT_SUBTITLE = "Your private agent";
+
+/**
+ * The line under the agent's name. While a turn runs it names what One is
+ * doing right now ("Checking Gmail…"), from the same app-owned table that
+ * labels the Activity rows; the newest running call wins. With nothing in
+ * flight it falls back to the turn status, then to the idle subtitle.
+ */
+export function chatHeaderSubtitle(input: {
+  isPuppySurface: boolean;
+  activeToolCalls: readonly ActiveToolCall[];
+  statusText: string | null;
+}): string {
+  if (input.isPuppySurface) return "Separate conversation";
+  const current = input.activeToolCalls.at(-1);
+  if (current) return `${current.activity || current.label}…`;
+  return input.statusText || IDLE_AGENT_SUBTITLE;
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -2231,7 +2247,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   );
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [activeToolCalls, setActiveToolCalls] = useState<Array<{ id: string; label: string }>>([]);
+  const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
@@ -2267,6 +2283,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
   } | null>(null);
   const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
+  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions; owner: AuthSessionOwnerSnapshot; conversationId: string | null } | null>(null);
+  useEffect(() => { pendingChatKeyRetryRef.current = null; }, [renderedWorkspaceOwnerId]);
   currentDraftRef.current = { input, attachment: longPromptAttachment };
   const recoveryUiRef = useRef({
     conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
@@ -4630,6 +4648,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     performance.mark("hushh:agent-chat:send-handler-entry");
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+    const requestOwner = snapshotValidatedAuthSessionOwner();
+    const requestConversationId = conversationIdRef.current;
     // Pre-model paste guard: a message that appears to contain a full card
     // number must never reach /api/one/agent-chat, history, or telemetry.
     // Block before ANY network call and route to the secure add form.
@@ -5316,13 +5336,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
-          onThinkingSummary: (chunk) => {
-            if (streamAbortController.signal.aborted || latestVisibleTurnIdRef.current !== debugTurnId) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thinkingSummary: appendThinkingSummary(message.thinkingSummary, chunk),
-            }));
-          },
+          // No onThinkingSummary: the model's reasoning is never shown in
+          // chat, live or restored. Only the answer and Activity render.
           onMcpReview: (review) => {
             if (streamAbortController.signal.aborted || !review.isCurrent()) return;
             // Ephemeral only: never copy pending references or private previews
@@ -5355,7 +5370,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
-              { id: toolEvent.callId, label: toolEvent.label }]);
+              { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity }]);
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             upsertTurnStreamEvent(
               agentToolEventToVisibleStreamEvent("start", toolEvent),
@@ -5365,6 +5380,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
               setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            } else {
+              // The call's arguments are complete now, so a connector call can
+              // name its product ("Checking Google Drive access…").
+              setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
+                ? { ...item, label: toolEvent.label, activity: toolEvent.activity } : item));
             }
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const visibleEvent = agentToolEventToVisibleStreamEvent(
@@ -5573,7 +5593,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "error",
         ),
       }));
-      void loadConversationList(true).catch(() => undefined);
+      if (isChatKeyRefusal(error)) {
+        // Chat is locked, not failed. Keep the unsent message, show the unlock
+        // flow, and send it once after unlock. Refreshing the conversation list
+        // here would only be refused again.
+        if (!currentDraftRef.current.input.trim()) setInput(text);
+        if (error.recovery === "unlock") {
+          if (error.retrySafe && requestOwner?.userId === userId &&
+              isValidatedAuthSessionOwnerCurrent(requestOwner) && conversationIdRef.current === requestConversationId) {
+            pendingChatKeyRetryRef.current = { text, options, owner: requestOwner, conversationId: requestConversationId };
+          }
+          setVaultDialogOpen(true);
+        }
+      } else {
+        void loadConversationList(true).catch(() => undefined);
+      }
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
@@ -5585,6 +5619,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   runAgentTurnRef.current = runAgentTurn;
+
+  // One retry after the unlock a chat-key refusal asked for, and only of the
+  // message the person left untouched in the composer.
+  useEffect(() => {
+    const pending = pendingChatKeyRetryRef.current;
+    if (!hasChatAccess || !pending) return;
+    pendingChatKeyRetryRef.current = null;
+    if (!isValidatedAuthSessionOwnerCurrent(pending.owner)) return;
+    if (conversationIdRef.current !== pending.conversationId) return;
+    if (currentDraftRef.current.input.trim() !== pending.text) return;
+    setInput("");
+    void runAgentTurnRef.current(pending.text, pending.options);
+  }, [hasChatAccess]);
 
   /**
    * Follow-up turn that reports a specialist DelegateResult back to One.
@@ -6701,10 +6748,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <div className="truncate text-base font-medium leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
-                <ChatAgentSubtitle text={isPuppySurface ? "Separate conversation" :
-                  activeToolCalls.length > 0
-                    ? activeToolStatus(activeToolCalls.at(-1)!.label)
-                    : statusText || "Your private agent"} />
+                <ChatAgentSubtitle text={chatHeaderSubtitle({
+                  isPuppySurface,
+                  activeToolCalls,
+                  statusText,
+                })} />
               </div>
             </div>
 
@@ -6857,6 +6905,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </ShellActionSurface>
             </div>
           </div>
+
+          {!isPuppySurface ? <DriveBackgroundSearches /> : null}
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

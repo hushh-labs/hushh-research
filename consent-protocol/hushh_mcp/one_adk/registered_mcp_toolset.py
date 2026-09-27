@@ -7,11 +7,13 @@ resolver; providers without native admission retain their existing adapters.
 
 import asyncio
 import json
+import time
 from copy import copy
 
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.one_adk.agui_turn_timing import record_connector_discovery
 from hushh_mcp.one_adk.governed_mcp_toolset import native_registration_admitted
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
@@ -79,6 +81,7 @@ class RegisteredMcpToolset(BaseToolset):
         self.clear_invocation_catalog()
 
     async def get_tools(self, readonly_context=None):
+        started = time.perf_counter()
         try:
             return await self._discover(readonly_context)
         except ExternalMcpError:
@@ -89,6 +92,9 @@ class RegisteredMcpToolset(BaseToolset):
             raise ExternalMcpError(
                 "Connector discovery unavailable.", code="MCP_CATALOG_UNAVAILABLE"
             ) from None
+        finally:
+            # Runs before every model step, so it sits on first-token latency.
+            record_connector_discovery((time.perf_counter() - started) * 1000)
 
     async def _discover(self, readonly_context):
         context = readonly_context

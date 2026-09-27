@@ -26,6 +26,7 @@ from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn
 from hushh_mcp.one_adk.output_privacy import safe_exception_event
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
@@ -88,6 +89,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     screen_context = forwarded.get("screenContext")
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
     state = {
+        STATE_TURN_LOCATION: admit_turn_location(forwarded),
         STATE_MCP_CONFIGURATION: admit_turn_configurations(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id
         ),

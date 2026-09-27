@@ -278,7 +278,24 @@ def harness(monkeypatch):
     )
 
 
-async def test_native_adk_toolset_uses_bounded_transport():
+async def test_native_adk_toolset_uses_bounded_transport(monkeypatch):
+    """A person's connector never gets the backend's Google credentials.
+
+    Stock ADK loads application-default credentials for an mTLS attempt on
+    every session and, with a client certificate present, replaces the bounded
+    transport with one that sends them. It also cost 2.7-12.8 s on UAT.
+    """
+    import google.auth
+    from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
+
+    loads = []
+
+    def default(*args, **kwargs):
+        loads.append(kwargs.get("scopes"))
+        raise google.auth.exceptions.DefaultCredentialsError("synthetic")
+
+    monkeypatch.setattr(google.auth, "default", default)
+    monkeypatch.delenv("GOOGLE_API_USE_CLIENT_CERTIFICATE", raising=False)
     binding = McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp")
     toolset = GovernedMcpToolset(
         binding=binding,
@@ -288,10 +305,15 @@ async def test_native_adk_toolset_uses_bounded_transport():
         authorize_call=AsyncMock(),
     )
     try:
-        assert (
-            toolset._mcp_session_manager._connection_params.httpx_client_factory
-            is create_bounded_mcp_http_client
-        )
+        manager = toolset._mcp_session_manager
+        assert manager._connection_params.httpx_client_factory is create_bounded_mcp_http_client
+        assert await manager._get_mtls_transport() is None
+        assert loads == []
+
+        # Negative control: the stock manager does load ambient credentials.
+        stock = MCPSessionManager(connection_params=manager._connection_params)
+        assert await stock._get_mtls_transport() is None
+        assert loads, "stock ADK no longer attempts ambient mTLS; revisit the override"
     finally:
         await toolset.close()
 
