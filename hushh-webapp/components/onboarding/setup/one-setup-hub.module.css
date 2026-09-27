@@ -78,6 +78,29 @@
   flex-direction: column;
   gap: 16px;
 }
+
+@media (max-width: 639px) {
+  .aiSelectionPage.aiSelectionPage {
+    /* Reserve the fixed action so even the last key-entry helper can scroll
+       above it. The shared shell removes its voice-bar reserve on this route. */
+    padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
+  }
+
+  .aiSelectionFooter.aiSelectionFooter {
+    position: fixed;
+    z-index: var(--z-chrome);
+    inset-inline: var(--page-inline-gutter-standard);
+    bottom: calc(16px + var(--app-safe-area-bottom-effective, 0px));
+    width: auto;
+  }
+
+  /* Keep the action in flow while a key is being entered, so it cannot cover
+     the iOS keyboard or the focused field in the non-resizing native WebView. */
+  :global(html.kb-open) .aiSelectionFooter {
+    position: static;
+    width: 100%;
+  }
+}
 .aiSelectionContent :global([data-slot="settings-row-description"]),
 .aiSelectionContent :global([data-slot="settings-group-description"]),
 .aiSelectionContent :global([data-ui-role="helper-text"]) {

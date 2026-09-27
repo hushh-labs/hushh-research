@@ -40,15 +40,17 @@
   margin: auto 0;
 }
 
-.brand {
+.shell .brand {
   flex: none;
+  width: 87.3px;
+  height: 24.3px;
   margin-bottom: 8px;
 }
 
 .artwork {
   position: relative;
   width: 100%;
-  height: var(--intro-art-height);
+  height: calc(var(--intro-art-height) * 0.9);
   flex: none;
   /* WebKit includes untransformed decorative bounds in scroll extents. */
   overflow: clip;
@@ -60,7 +62,7 @@
   left: 50%;
   width: 402px;
   height: 360px;
-  transform: translate(-50%, -50%) scale(calc(var(--intro-art-height) / 360px));
+  transform: translate(-50%, -50%) scale(calc(var(--intro-art-height) / 360px * 0.9));
 }
 
 /* Keep the original image crop and separate light emoji inside a decorative
@@ -151,7 +153,9 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  margin-top: 48px;
+  /* Give the artwork/logo savings to the pause before the privacy assurance,
+     keeping the footer anchored and the hero's internal spacing unchanged. */
+  margin-top: calc(48px + var(--intro-art-height) * 0.1 + 2.7px);
 }
 
 .privacy { display: flex; justify-content: center; width: 100%; }

@@ -88,6 +88,7 @@ for (const width of [320, 393, 768, 1440]) {
         await route.fulfill({contentType:"image/svg+xml", body:fs.readFileSync(path.join(process.cwd(),"public/brand/providers",filename))});
       });
       await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://fixture.local/"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.addStyleTag({ content: ":root { --app-safe-area-bottom-effective: 34px; }" });
       await page.addScriptTag({content:script});
       await expect(page.getByRole("heading", { name: "Choose your AI" })).toBeVisible();
       await awaitProductFont(page);
@@ -109,7 +110,11 @@ for (const width of [320, 393, 768, 1440]) {
       expect(upcomingBox.y - box.y - box.height).toBeCloseTo(24,0);
       expect(upcomingBox.x).toBeCloseTo(box.x,0);
       expect(upcomingBox.width).toBeCloseTo(box.width,0);
-      expect(buttonBox.y - upcomingBox.y - upcomingBox.height).toBeCloseTo(16,0);
+      if (width < 640) {
+        expect(buttonBox.y + buttonBox.height).toBeCloseTo(852 - 34 - 16, 0);
+      } else {
+        expect(buttonBox.y - upcomingBox.y - upcomingBox.height).toBeCloseTo(16,0);
+      }
       await expect(upcoming.locator("li")).toHaveCount(4);
       await expect(upcoming.locator("button, input, [role=radio]")).toHaveCount(0);
       await expect(upcoming.getByRole("heading")).toHaveCSS("font-size","14px");
@@ -154,6 +159,12 @@ for (const width of [320, 393, 768, 1440]) {
       await expect(page.getByRole("alert")).toHaveText("This key could not be validated.");
       await expect(next).toBeDisabled();
       await page.getByLabel("Gemini API key").fill("fixture-valid");
+      if (width < 640) {
+        await page.evaluate(() => document.documentElement.classList.add("kb-open"));
+        await expect(next.locator("..")).toHaveCSS("position", "static");
+        await page.evaluate(() => document.documentElement.classList.remove("kb-open"));
+        await expect(next.locator("..")).toHaveCSS("position", "fixed");
+      }
       await page.getByRole("button",{name:"Validate key",exact:true}).click();
       await page.getByRole("button",{name:"Confirm and save",exact:true}).click();
       await expect(next).toBeEnabled();

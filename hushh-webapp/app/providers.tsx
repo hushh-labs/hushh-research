@@ -226,10 +226,11 @@ function AppShellFrame({ children }: ProvidersProps) {
       searchParams?.get("action") ?? null,
       searchParams?.get("circleId") ?? null,
     );
-  // Focused query-scoped Location flows clear the bottom command/navigation
-  // stack while keeping the top shell route context.
+  // Focused tasks clear the bottom command/navigation stack while keeping the
+  // top shell route context. AI selection owns its mobile Continue action.
   const bottomChromeHidden =
     hidesPersistentChrome ||
+    routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
     focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
