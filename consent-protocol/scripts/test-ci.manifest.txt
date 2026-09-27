@@ -219,6 +219,11 @@ tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
+# Parallel digest-pinned web image build on every deploy lane, and promotion
+# of the UAT-verified backend digest into production. Both run the real step
+# bodies with guarded cloud stand-ins.
+tests/test_frontend_prebuilt_image_contract.py
+tests/test_production_image_promotion_contract.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
 # can never renew or regain authority through a later grant/duplicate token.
@@ -367,9 +372,6 @@ tests/test_health_review_mode.py
 tests/services/test_person_profile_service.py
 tests/services/test_information_request_service.py
 tests/services/test_consent_export_read_dedupe.py
-# Person-to-person export readback binds on the status owner: both owner-scoped
-# status reads must select user_id; the agent-scoped lookup must never return it.
-tests/services/test_consent_db_request_statuses.py
 tests/test_consent_handshake.py
 tests/test_consent_db_revocation_worker.py
 tests/scripts/test_eval_specialist_turns.py

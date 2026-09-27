@@ -1191,6 +1191,9 @@ async def apply_migration_files(
             entries,
             mode=mode,
             deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
+            # The pool keeps a second connection; it is used only to name the
+            # session blocking a migration that is waiting on a lock.
+            lock_probe_pool=pool,
         )
     else:
         async with pool.acquire() as conn:
@@ -1199,6 +1202,7 @@ async def apply_migration_files(
                 entries,
                 mode=mode,
                 deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
+                lock_probe_pool=pool,
             )
     for filename in applied:
         print(f"  -> applied {filename}")

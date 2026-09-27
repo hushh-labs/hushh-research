@@ -32,6 +32,14 @@ on:
         options:
           - "false"
           - "true"
+      backend_image_source:
+        description: "Backend image: build-from-source (rebuild at this SHA, today's path) or promote-from-uat (copy the exact digest UAT verified for this SHA; needs the IAM in deploy/iam/README.md)"
+        required: true
+        default: "build-from-source"
+        type: choice
+        options:
+          - build-from-source
+          - promote-from-uat
       nearby_check_in_cohort:
         description: "Nearby check-in audience. Leave this as 'all' for a normal deploy. Clearing it turns nearby check-in OFF in production, which is the kill switch; a comma-separated list of user ids restricts it to those accounts."
         required: false
@@ -64,6 +72,10 @@ env:
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
   ACCOUNT_DELETION_SCHEDULER_JOB: account-deletion-cleanup-production
   BACKUP_MAX_AGE_HOURS: "30"
+  # Read-only source for backend_image_source=promote-from-uat. Production never
+  # deploys from this registry; it copies the verified digest into its own.
+  UAT_GCP_PROJECT_ID: hushh-pda-uat
+  UAT_BACKEND_IMAGE_REPOSITORY: gcr.io/hushh-pda-uat/consent-protocol
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 # One global group: the account deletion fence, migration, and activation
@@ -117,6 +129,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          # The deployment SHA may predate this verifier; always use main's.
+          cp scripts/ci/resolve-uat-verified-image.py \
+            "${RUNNER_TEMP}/release-tools/resolve-uat-verified-image.py"
 
       - name: Checkout deployment SHA
         shell: bash
@@ -229,6 +244,90 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      # promote-from-uat preflight. Runs before the secret sync, backup, fence
+      # and migrations so a missing UAT release or missing IAM stops the run
+      # before it changes anything. Evidence chain, all of which must agree:
+      #   healthy-UAT git tag for exactly this SHA -> the backend revision it
+      #   recorded -> that revision's deploy-sha label, env and @sha256 image.
+      - name: Resolve UAT-verified backend image for promotion
+        id: uat-verified-backend-image
+        if: steps.scope.outputs.deploy_backend == 'true' && github.event.inputs.backend_image_source == 'promote-from-uat'
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          set -euo pipefail
+          iam_help="Grant the production deployer read access to UAT as written in deploy/iam/README.md (Production image promotion), or dispatch again with backend_image_source=build-from-source."
+
+          # deploy-uat.yml writes deployed/uat/<sha8>-<time> only after a UAT
+          # release classified healthy. Newest first; each must peel to this SHA.
+          git fetch --force --no-tags origin 'refs/tags/deployed/uat/*:refs/tags/deployed/uat/*'
+          release_tags="$(git for-each-ref --sort=-creatordate \
+            --format='%(refname) %(*objectname)' 'refs/tags/deployed/uat/' \
+            | awk -v sha="${DEPLOY_SHA}" '$2 == sha { print $1 }')"
+          if [ -z "${release_tags}" ]; then
+            echo "Refusing promotion: ${DEPLOY_SHA} has no healthy UAT release. Deploy it to UAT first, or dispatch with backend_image_source=build-from-source." >&2
+            exit 1
+          fi
+
+          image_reference=""
+          while IFS= read -r release_tag; do
+            [ -n "${release_tag}" ] || continue
+            git for-each-ref --format='%(contents)' "${release_tag}" > /tmp/prod-uat-release-tag.txt
+            uat_revision="$(sed -n 's/^backend_revision: //p' /tmp/prod-uat-release-tag.txt | head -n 1)"
+            if [ -z "${uat_revision}" ]; then
+              echo "${release_tag}: records no backend revision; skipping." >&2
+              continue
+            fi
+            if ! gcloud run revisions describe "${uat_revision}" \
+              --project="${{ env.UAT_GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/prod-uat-backend-revision.json 2> /tmp/prod-uat-backend-revision.err; then
+              if grep -qiE 'PERMISSION_DENIED|403|does not have permission' /tmp/prod-uat-backend-revision.err; then
+                echo "Refusing promotion: the production deployer cannot read Cloud Run revisions in ${{ env.UAT_GCP_PROJECT_ID }}. ${iam_help}" >&2
+                exit 1
+              fi
+              echo "${release_tag}: UAT revision ${uat_revision} is no longer described (retired by retention?); skipping." >&2
+              continue
+            fi
+            if image_reference="$(python3 "${RUNNER_TEMP}/release-tools/resolve-uat-verified-image.py" \
+              --sha "${DEPLOY_SHA}" \
+              --revision-json /tmp/prod-uat-backend-revision.json \
+              --release-tag-annotation /tmp/prod-uat-release-tag.txt \
+              --expected-repository "${{ env.UAT_BACKEND_IMAGE_REPOSITORY }}" \
+              --json-output /tmp/prod-backend-image-promotion-source.json)"; then
+              echo "Promotion source: ${image_reference} (UAT revision ${uat_revision}, ${release_tag#refs/tags/})."
+              echo "uat_revision=${uat_revision}" >> "$GITHUB_OUTPUT"
+              echo "uat_release_tag=${release_tag#refs/tags/}" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            image_reference=""
+          done <<< "${release_tags}"
+          if [ -z "${image_reference}" ]; then
+            echo "Refusing promotion: no healthy UAT release of ${DEPLOY_SHA} still proves which backend digest it verified. A frontend-only UAT release does not verify a backend image. Deploy this SHA to UAT with backend scope, or dispatch with backend_image_source=build-from-source." >&2
+            exit 1
+          fi
+
+          # Registry read preflight: prove the digest is readable and is one
+          # executable image, before anything in production is touched.
+          gcloud auth configure-docker gcr.io --quiet
+          if ! docker buildx imagetools inspect --raw "${image_reference}" \
+            > /tmp/prod-uat-backend-image-manifest.json 2> /tmp/prod-uat-backend-image.err; then
+            cat /tmp/prod-uat-backend-image.err >&2
+            echo "Refusing promotion: the production deployer cannot read ${image_reference}. ${iam_help}" >&2
+            exit 1
+          fi
+          pinned="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${image_reference}" \
+            --manifest-json /tmp/prod-uat-backend-image-manifest.json \
+            --sha "${DEPLOY_SHA}" \
+            --json-output /tmp/prod-uat-backend-image.json)"
+          if [ "${pinned}" != "${image_reference}" ]; then
+            echo "Refusing promotion: UAT's verified image is not a single executable manifest." >&2
+            exit 1
+          fi
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python + uv runtime
         uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -300,19 +399,83 @@ jobs:
           echo "backup_id=${BACKUP_ID}" >> "$GITHUB_OUTPUT"
           echo "backup_completed_at=${BACKUP_COMPLETED_AT}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and pin backend image before lifecycle migration
-        id: build-backend-image
-        if: steps.scope.outputs.deploy_backend == 'true'
+      # The web image is production-specific (NEXT_PUBLIC_* values from this
+      # project's Secret Manager are compiled in), so it is always built here,
+      # never promoted from UAT. It builds while the backend image, fence,
+      # migrations and backend candidate checks run, and the lane comes back
+      # for it right before the frontend deploy.
+      - name: Start frontend image build in parallel
+        id: start-frontend-image-build
+        if: steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
         run: |
           set -euo pipefail
           image_tag="prod-${{ github.event.inputs.sha }}"
-          gcloud builds submit \
+          # The single definition of every value compiled into the web image.
+          # The deploy step reuses it, so the build and deploy cannot disagree.
+          build_substitutions="_APP_ENV=production,_DEPLOY_ENV=production,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_LOCATION_MAP_DEMO=false"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
+          # A deployment SHA from before the split has no build-only config.
+          # It keeps the combined build-and-deploy, serially, exactly as before.
+          if [ ! -f deploy/frontend-image.cloudbuild.yaml ] \
+            || ! grep -q '_SKIP_IMAGE_BUILD' deploy/frontend.cloudbuild.yaml; then
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Frontend image build::This SHA predates the prebuilt frontend image; using the combined build-and-deploy."
+            exit 0
+          fi
+          build_id="$(gcloud builds submit \
+            --async \
             --project="${{ env.GCP_PROJECT_ID }}" \
-            --config=deploy/backend-image.cloudbuild.yaml \
-            "--substitutions=_IMAGE_TAG=${image_tag}"
+            --config=deploy/frontend-image.cloudbuild.yaml \
+            --format='value(id)' \
+            "--substitutions=${build_substitutions}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Frontend image build did not return a Cloud Build id." >&2
+            exit 1
+          fi
+          echo "Started frontend image build ${build_id}."
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
+          echo "prebuilt=true" >> "$GITHUB_OUTPUT"
 
+      - name: Build and pin backend image before lifecycle migration
+        id: build-backend-image
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_IMAGE_SOURCE: ${{ github.event.inputs.backend_image_source }}
+          UAT_VERIFIED_IMAGE_REFERENCE: ${{ steps.uat-verified-backend-image.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          image_tag="prod-${{ github.event.inputs.sha }}"
           image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          case "${BACKEND_IMAGE_SOURCE:-}" in
+            build-from-source)
+              gcloud builds submit \
+                --project="${{ env.GCP_PROJECT_ID }}" \
+                --config=deploy/backend-image.cloudbuild.yaml \
+                "--substitutions=_IMAGE_TAG=${image_tag}"
+              ;;
+            promote-from-uat)
+              if [[ ! "${UAT_VERIFIED_IMAGE_REFERENCE:-}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
+                echo "Refusing promotion: the UAT-verified backend digest is missing or malformed." >&2
+                exit 1
+              fi
+              # Copy the exact manifest UAT verified into this project's
+              # registry. Cloud Run then deploys the copy, so production never
+              # depends on the UAT registry at runtime or for rollback.
+              if ! gcloud container images add-tag --quiet \
+                "${UAT_VERIFIED_IMAGE_REFERENCE}" "${image_repository}:${image_tag}"; then
+                echo "Refusing promotion: could not copy ${UAT_VERIFIED_IMAGE_REFERENCE} into ${image_repository}. The production deployer needs read on the UAT gcr.io repository and write on the production gcr.io repository (deploy/iam/README.md, Production image promotion), or dispatch again with backend_image_source=build-from-source." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "backend_image_source must be build-from-source or promote-from-uat." >&2
+              exit 1
+              ;;
+          esac
+
           image_digest="$(gcloud container images describe \
             "${image_repository}:${image_tag}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
@@ -332,7 +495,13 @@ jobs:
             --manifest-json /tmp/prod-backend-image-manifest.json \
             --sha "${{ github.event.inputs.sha }}" \
             --json-output /tmp/prod-backend-image.json)"
+          if [ "${BACKEND_IMAGE_SOURCE}" = "promote-from-uat" ] \
+            && [ "${image_reference}" != "${image_repository}@${UAT_VERIFIED_IMAGE_REFERENCE#*@}" ]; then
+            echo "Refusing promotion: production resolved ${image_reference}, not the digest UAT verified (${UAT_VERIFIED_IMAGE_REFERENCE#*@})." >&2
+            exit 1
+          fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -694,13 +863,72 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy frontend using Cloud Build
-        if: steps.scope.outputs.deploy_frontend == 'true'
+      - name: Wait for frontend image and pin its digest
+        id: build-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
         run: |
-          gcloud builds submit \
+          set -euo pipefail
+          started_at="$(date +%s)"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+            --image-repository "${image_repository}" \
+            --image-tag "${FRONTEND_IMAGE_TAG}" \
+            --sha "${{ github.event.inputs.sha }}" \
+            --manifest-json /tmp/prod-frontend-image-manifest.json \
+            --json-output /tmp/prod-frontend-image.json)"
+          if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Frontend image did not pin to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy frontend using Cloud Build
+        id: deploy-frontend
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        env:
+          FRONTEND_PREBUILT: ${{ steps.start-frontend-image-build.outputs.prebuilt }}
+          FRONTEND_IMAGE_REFERENCE: ${{ steps.build-frontend-image.outputs.image_reference }}
+          FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
+        run: |
+          set -euo pipefail
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
+            echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
+            exit 1
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          source_arg="."
+          case "${FRONTEND_PREBUILT}" in
+            true)
+              # Deploy exactly the digest pinned above; never rebuild or re-resolve a tag.
+              if [[ ! "${FRONTEND_IMAGE_REFERENCE}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+                echo "Refusing frontend deploy: the pinned image digest is missing or malformed." >&2
+                exit 1
+              fi
+              SUBSTITUTIONS="${SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_IMAGE_REFERENCE}"
+              # Deploy-only: nothing in the build context is read, so skip the upload.
+              source_arg="--no-source"
+              ;;
+            false)
+              echo "Combined build-and-deploy for a SHA that predates the prebuilt frontend image."
+              ;;
+            *)
+              echo "Refusing frontend deploy: prebuilt-image mode was not resolved." >&2
+              exit 1
+              ;;
+          esac
+          gcloud builds submit "${source_arg}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_LOCATION_MAP_DEMO=false,_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+            "--substitutions=${SUBSTITUTIONS}"
 
       - name: Get frontend URL
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -752,6 +980,24 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "Backend candidate revision: ${backend_revision:-n/a}"
           echo "Frontend candidate revision: ${frontend_revision:-n/a}"
+
+      - name: Verify frontend candidate runs the pinned image digest
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_REVISION: ${{ steps.candidate-state.outputs.frontend_revision }}
+          EXPECTED_IMAGE_REFERENCE: ${{ steps.build-frontend-image.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          deployed_image="$(gcloud run revisions describe "${FRONTEND_REVISION}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(spec.containers[0].image)')"
+          if [ -z "${EXPECTED_IMAGE_REFERENCE}" ] || [ "${deployed_image}" != "${EXPECTED_IMAGE_REFERENCE}" ]; then
+            echo "Frontend candidate ${FRONTEND_REVISION} runs '${deployed_image}', not the pinned '${EXPECTED_IMAGE_REFERENCE}'." >&2
+            exit 1
+          fi
+          echo "Frontend candidate ${FRONTEND_REVISION} runs the pinned image ${deployed_image}."
 
       - name: Verify backend candidate runtime identity
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1488,6 +1734,27 @@ jobs:
           )
           PY
 
+      - name: Cancel an unused parallel frontend image build
+        # Hygiene only: a release that stopped before the frontend deploy leaves
+        # the web build running. It never affects release classification.
+        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
+          case "${status}" in
+            QUEUED|PENDING|WORKING)
+              gcloud builds cancel "${FRONTEND_IMAGE_BUILD_ID}" --project="${{ env.GCP_PROJECT_ID }}"
+              ;;
+            *)
+              echo "Frontend image build ${FRONTEND_IMAGE_BUILD_ID} is already ${status}; nothing to cancel."
+              ;;
+          esac
+
       - name: Upload production deploy artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -1503,6 +1770,11 @@ jobs:
             /tmp/prod-frontend-provenance.json
             /tmp/prod-backend-image.json
             /tmp/prod-backend-image-manifest.json
+            /tmp/prod-backend-image-promotion-source.json
+            /tmp/prod-uat-backend-image.json
+            /tmp/prod-uat-backend-image-manifest.json
+            /tmp/prod-frontend-image.json
+            /tmp/prod-frontend-image-manifest.json
             /tmp/prod-backend-candidate.json
             /tmp/prod-backend-candidate-readiness.json
             /tmp/prod-backend-candidate-health.json
@@ -1543,6 +1815,11 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
               echo "- Backend URL: \`${{ steps.backend-url.outputs.url }}\`"
               echo "- Backend predeploy revision: \`${{ steps.predeploy-state.outputs.backend_revision || 'unknown' }}\`"
+              echo "- Backend image source: \`${{ github.event.inputs.backend_image_source }}\`"
+              echo "- Backend image: \`${{ steps.build-backend-image.outputs.image_reference || 'n/a' }}\`"
+              if [ "${{ github.event.inputs.backend_image_source }}" = "promote-from-uat" ]; then
+                echo "- Promoted from UAT revision: \`${{ steps.uat-verified-backend-image.outputs.uat_revision || 'n/a' }}\` (\`${{ steps.uat-verified-backend-image.outputs.uat_release_tag || 'n/a' }}\`)"
+              fi
               echo "- Backend candidate revision: \`${{ steps.candidate-state.outputs.backend_revision || 'n/a' }}\`"
               echo "- Backend serving revision (final): \`${{ steps.final-state.outputs.backend_serving || 'unknown' }}\`"
               echo "- Backend health gate: \`${{ steps.health-backend.outcome }}\`"

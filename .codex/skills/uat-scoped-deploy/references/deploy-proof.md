@@ -37,7 +37,9 @@ gh run watch <run-id> --exit-status
 
 1. GitHub run URL, SHA, scope, and conclusion.
 2. Step proof that untouched lanes were skipped.
-3. Cloud Build duration for each executed lane.
+3. Cloud Build duration for each executed lane, plus `frontend_image_wait` from
+   the release status artifact (time the lane blocked on the parallel web image
+   build) and the pinned `hushh-webapp@sha256:` digest the candidate runs.
 4. Cloud Run service tuple from discovery: project, service, region.
 5. Latest ready revision, traffic split, image tag, deploy SHA label, GitHub run label, timeout, and key env values.
 6. Live behavior proof for the changed surface, including request IDs and logs for API/runtime fixes.

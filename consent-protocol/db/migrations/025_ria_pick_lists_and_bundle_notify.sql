@@ -1,5 +1,25 @@
-ALTER TABLE IF EXISTS consent_audit
-    ALTER COLUMN metadata SET DEFAULT '{}'::jsonb;
+-- Replay guard. Every deploy re-applies this file, and SET DEFAULT takes an
+-- ACCESS EXCLUSIVE lock on consent_audit even when the default is already
+-- '{}'::jsonb. Skip it only when the catalog proves the default is in place;
+-- otherwise run the original statement unchanged.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_attribute AS col
+    JOIN pg_attrdef AS def
+      ON def.adrelid = col.attrelid
+     AND def.adnum = col.attnum
+    WHERE col.attrelid = to_regclass('consent_audit')
+      AND col.attname = 'metadata'
+      AND NOT col.attisdropped
+      AND pg_get_expr(def.adbin, def.adrelid) = '''{}''::jsonb'
+  ) THEN
+    ALTER TABLE IF EXISTS consent_audit
+        ALTER COLUMN metadata SET DEFAULT '{}'::jsonb;
+  END IF;
+END
+$$;
 
 CREATE OR REPLACE FUNCTION consent_audit_notify()
 RETURNS TRIGGER AS $$

@@ -1,8 +1,6 @@
 // Synthetic auth/native/Mail boundaries only; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
-export const bearerAuthorizationValue = () => { throw new Error("No custom credentials in layout fixture"); };
-export const VaultContext = createContext({ vaultOwnerToken: "synthetic-owner" });
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
 export const loadCustomConnectorSnapshot = async () => ({
@@ -13,7 +11,9 @@ export const saveCustomConnectorConfiguration = async () => { throw new Error("N
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const projectCustomConnectorTurnConfigurations = () => { throw new Error("Not admitted in layout fixture"); };
-export const isVaultOwnerCredential = () => { throw new Error("No custom credentials in layout fixture"); };
+// Pure credential helpers the settings surface calls; the real ones, since they
+// read nothing and write nothing.
+export { bearerAuthorizationValue, isVaultOwnerCredential } from "@/lib/connections/custom-connector-schema";
 const user = {
   uid: "fixture-owner",
   getIdToken: async () => "synthetic-firebase",
@@ -24,6 +24,10 @@ export function useAuth() {
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
+// Same synthetic vault as `useVault`, for components that read the context.
+export const VaultContext = createContext<{ vaultOwnerToken: string } | null>({
+  vaultOwnerToken: "synthetic-owner",
+});
 export function useCalendarConnectionStatus() {
   return { connected: false, loaded: true, error: null };
 }

@@ -102,6 +102,8 @@ for (const width of [320, 393, 768, 1440]) {
       const card = page.getByTestId("profile-gemini-runtime");
       const box = (await card.boundingBox())!;
       const buttonBox = (await next.boundingBox())!;
+      expect(buttonBox.width).toBeCloseTo(width >= 640 ? 320 : box.width, 0);
+      expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(box.x + box.width / 2, 0);
       const upcoming = page.getByTestId("setup-coming-soon-runtime");
       const upcomingBox = (await upcoming.boundingBox())!;
       expect(upcomingBox.y - box.y - box.height).toBeCloseTo(24,0);

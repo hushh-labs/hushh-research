@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type SVGProps } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -103,5 +103,29 @@ describe("SegmentedControl accessibility", () => {
       metaKey: true,
     });
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("can go icon-only at a breakpoint and still name every segment", () => {
+    // The chat header's phone variant: the visible word is hidden, the icon
+    // shown, and the spoken name must survive both.
+    const Glyph = (props: SVGProps<SVGSVGElement>) => <svg {...props} />;
+    render(
+      <SegmentedControl
+        ariaLabel="Agent"
+        value="one"
+        onValueChange={() => {}}
+        iconClassName="sm:hidden"
+        labelClassName="max-sm:hidden"
+        options={[
+          { value: "one", label: "One", icon: Glyph, accessibleLabel: "One, your cloud agent" },
+          { value: "puppy", label: "Puppy", icon: Glyph, accessibleLabel: "Puppy One, on your machine" },
+        ]}
+      />,
+    );
+    const one = screen.getByRole("radio", { name: "One, your cloud agent" });
+    expect(one.querySelector("svg")).toHaveClass("sm:hidden");
+    expect(one.querySelector("svg")).toHaveAttribute("aria-hidden");
+    expect(screen.getByText("One")).toHaveClass("max-sm:hidden");
+    expect(screen.getByRole("radio", { name: "Puppy One, on your machine" })).not.toBeChecked();
   });
 });

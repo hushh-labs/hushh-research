@@ -197,7 +197,7 @@ export function CapabilityCinematicIntroGate({
       {introSupplement ? (
         <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
       ) : null}
-      <div className="mt-10 w-full max-w-[30rem] self-center">
+      <div className="mx-auto mt-10 w-full self-center sm:w-80">
         <Button
           type="button"
           variant="blue"

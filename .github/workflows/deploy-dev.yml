@@ -311,6 +311,44 @@ jobs:
             --environment "$FE_ENV" \
             > /tmp/dev-frontend-runtime-secret-sync.json
 
+      # The web image does not depend on migrations or the backend candidate,
+      # so it builds while they run. It starts after the runtime secret sync,
+      # because the build compiles NEXT_PUBLIC_* values from Secret Manager.
+      # The lane comes back for it right before the frontend deploy.
+      - name: Start frontend image build in parallel
+        id: start-frontend-image-build
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          # The single definition of every value compiled into the web image.
+          # The deploy step reuses it, so the build and deploy cannot disagree.
+          build_substitutions="_APP_ENV=dev,_DEPLOY_ENV=dev,_IMAGE_TAG=${image_tag}"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
+          # Skew guard: this workflow runs from main, but a train SHA may predate
+          # the build-only config. Such a SHA keeps the combined build-and-deploy.
+          if [ ! -f deploy/frontend-image.cloudbuild.yaml ] \
+            || ! grep -q '_SKIP_IMAGE_BUILD' deploy/frontend.cloudbuild.yaml; then
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Frontend image build::This SHA predates the prebuilt frontend image; using the combined build-and-deploy."
+            exit 0
+          fi
+          build_id="$(gcloud builds submit \
+            --async \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/frontend-image.cloudbuild.yaml \
+            --format='value(id)' \
+            "--substitutions=${build_substitutions}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Frontend image build did not return a Cloud Build id." >&2
+            exit 1
+          fi
+          echo "Started frontend image build ${build_id}."
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
+          echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+
       - name: Build and pin backend image before lifecycle migration
         id: build-backend-image
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -458,17 +496,73 @@ jobs:
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
+      - name: Wait for frontend image and pin its digest
+        id: build-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          started_at="$(date +%s)"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+            --image-repository "${image_repository}" \
+            --image-tag "${FRONTEND_IMAGE_TAG}" \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --manifest-json /tmp/dev-frontend-prebuilt-image-manifest.json \
+            --json-output /tmp/dev-frontend-prebuilt-image.json)"
+          if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Frontend image did not pin to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
         if: steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
+        env:
+          FRONTEND_PREBUILT: ${{ steps.start-frontend-image-build.outputs.prebuilt }}
+          FRONTEND_IMAGE_REFERENCE: ${{ steps.build-frontend-image.outputs.image_reference }}
+          FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          gcloud builds submit \
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+          if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
+            echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
+            exit 1
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          source_arg="."
+          case "${FRONTEND_PREBUILT}" in
+            true)
+              # Deploy exactly the digest pinned above; never rebuild or re-resolve a tag.
+              if [[ ! "${FRONTEND_IMAGE_REFERENCE}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+                echo "Refusing frontend deploy: the pinned image digest is missing or malformed." >&2
+                exit 1
+              fi
+              SUBSTITUTIONS="${SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_IMAGE_REFERENCE}"
+              # Deploy-only: nothing in the build context is read, so skip the upload.
+              source_arg="--no-source"
+              ;;
+            false)
+              echo "Combined build-and-deploy for a SHA that predates the prebuilt frontend image."
+              ;;
+            *)
+              echo "Refusing frontend deploy: prebuilt-image mode was not resolved." >&2
+              exit 1
+              ;;
+          esac
+          gcloud builds submit "${source_arg}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=dev,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=${SUBSTITUTIONS}"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
@@ -1098,10 +1192,34 @@ jobs:
               "timing_seconds": {
                   "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
                   "frontend_cloud_build": "${{ steps.deploy-frontend.outputs.duration_seconds || '0' }}",
+                  # Time the lane blocked on the parallel web image build. Near
+                  # zero means the build was fully hidden behind the backend path.
+                  "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
           Path("/tmp/dev-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Cancel an unused parallel frontend image build
+        # Hygiene only: a release that stopped before the frontend deploy leaves
+        # the web build running. It never affects release classification.
+        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
+          case "${status}" in
+            QUEUED|PENDING|WORKING)
+              gcloud builds cancel "${FRONTEND_IMAGE_BUILD_ID}" --project="${{ env.GCP_PROJECT_ID }}"
+              ;;
+            *)
+              echo "Frontend image build ${FRONTEND_IMAGE_BUILD_ID} is already ${status}; nothing to cancel."
+              ;;
+          esac
 
       - name: Upload dev deploy artifacts
         if: always()
@@ -1118,6 +1236,8 @@ jobs:
             /tmp/dev-candidate-*.json
             /tmp/dev-backend-image.json
             /tmp/dev-frontend-image.json
+            /tmp/dev-frontend-prebuilt-image.json
+            /tmp/dev-frontend-prebuilt-image-manifest.json
             /tmp/dev-frontend-provenance.json
             /tmp/dev-db-migration-guard-predeploy.json
             /tmp/dev-db-migration-guard-postdeploy.json

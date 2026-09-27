@@ -135,6 +135,12 @@ before traffic promotion; redirects do not count as health. The captured serving
 revision remains protected from retention cleanup as the rollback target. Migration
 compatibility and recovery evidence must establish that it is a usable target.
 
+The frontend image builds in parallel with the backend image and is pinned by
+digest before the frontend deploy
+([CI: deploy image pipeline](./ci.md#deploy-image-pipeline)). Because this workflow
+runs from `main` while the tree comes from the selected SHA, a train SHA without
+`deploy/frontend-image.cloudbuild.yaml` keeps the combined serial frontend build.
+
 `build_pod_image` defaults to `false`. Enabling it builds a dev-only pod image and
 does not approve installation on any owner's pod or publish a stable release.
 Calendar and configured Live voice keys participate in runtime parity. Configuration

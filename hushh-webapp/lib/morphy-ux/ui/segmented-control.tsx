@@ -59,6 +59,16 @@ interface SegmentedControlProps {
    * invisible. Callers should pass what the group actually chooses between.
    */
   ariaLabel?: string;
+  /**
+   * Classes for every segment's icon and visible label, so a caller can trade
+   * one for the other at a breakpoint (for example an icon-only control on a
+   * phone header: `iconClassName="sm:hidden"` + `labelClassName="max-sm:hidden"`).
+   * Only do that when every option carries both an `icon` and an
+   * `accessibleLabel`: a segment with neither visible text nor a spoken name
+   * is unnamed.
+   */
+  iconClassName?: string;
+  labelClassName?: string;
 }
 
 // =============================================================================
@@ -73,6 +83,8 @@ export function SegmentedControl({
   size = "default",
   className,
   ariaLabel,
+  iconClassName,
+  labelClassName,
 }: SegmentedControlProps) {
   const isExpanding = variant === "expanding";
   const buttonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
@@ -223,8 +235,10 @@ export function SegmentedControl({
                 className={cn(
                   config.icon,
                   "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                  isActive && "scale-105"
+                  isActive && "scale-105",
+                  iconClassName,
                 )}
+                aria-hidden
               />
             )}
 
@@ -243,7 +257,7 @@ export function SegmentedControl({
                 </span>
               </div>
             ) : (
-              <span className="whitespace-nowrap">
+              <span className={cn("whitespace-nowrap", labelClassName)}>
                 {option.label}
               </span>
             )}

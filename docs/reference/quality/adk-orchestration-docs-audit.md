@@ -1595,3 +1595,64 @@ still targets the shared endpoint and receives `AGENT_PRIVATE_RUNTIME_REQUIRED`.
 The next source stage introduces a storage port behind the existing encrypted ADK
 session service; it does not yet establish pod chat or MCP review parity. Cleanup
 250 remains parked. Private operational receipts remain outside maintained docs.
+
+### Image-update configuration and dev validation — 2026-09-27 UTC
+
+Exact revision `c00c43047` passed GitHub CI `36290652934`; governed dev deployment
+`36291911318` completed successfully. Serving backend `consent-protocol-00103-7dw`
+and frontend `hushh-webapp-00073-pg2` both carry that source revision at 100% traffic.
+The model probe returned a provider-side 403 refusal, so AI/voice acceptance
+remains unverified despite deployment success. The application has not merged into main.
+
+A read-only normal-update preflight found that re-rendering an existing BYOC pod
+would remove its dev browser origin, enable Memory Bank, local PKM and migration
+routes, and change its observed economy configuration to warm. Image approval
+alone does not authorize those changes. The follow-up source correction preserves
+observed operating policy, including absent flags, only in the image-upgrade path;
+explicit provisioning changes retain their existing owner. Fresh verification
+keys and application/model configuration still come from the canonical renderer.
+The 69 focused upgrade/provisioning checks pass. The stable post-deployment
+configuration preflight passes; a normal owner-approved update remains required.
+
+The predecessor and candidate share identical blobs for 24 inspected recovery,
+identity, authority, dependency and fixture files. The 112 synthetic recovery
+checks pass; this is unchanged-format evidence, not live cross-image acceptance.
+
+The real PostgreSQL erasure suite also exposed multiplicative receipt validation:
+a valid repository-grant check can repeat the memory-binding prerequisite over
+100,000 times before finalization. Preserve fail-closed guards while removing
+repeated evaluation through the owning migration/release workflow. This remains
+an erasure-capacity defect; do not remove its tests or claim cutover readiness.
+
+The image-only preservation helper passed a stable live configuration preflight
+after that deployment. The next dev descriptor admits only the inspected bridge
+digest, based on unchanged recovery blobs, synthetic recovery and configuration
+comparison; it neither installs an update nor proves live upgrade completion.
+
+Forward dev-only migration 942 removes same-family recursion in the secret and
+runtime-account receipt validators, retaining all shared prerequisites and exact
+predecessor payload/status checks. Its rollback restores the previous predicates.
+All 40 PostgreSQL authority tests and the direct old/new predicate equivalence
+check pass, including missing/null/malformed predecessors. Full combined CI and
+governed deployment remain required; no erasure or history deletion was executed.
+
+The canonical reviewer Trusted Devices browser rehearsal passed against serving
+`c00c43047`: cold vault gate, profile navigation, warm revisit and device sync-state
+contracts. This does not establish real-device relay or Puppy inference acceptance.
+
+### Combined local verification — 2026-09-27 UTC
+
+The combined core run completed with 7,079 backend tests passing and 239 skipped.
+Two failures were investigated: MCP timeout diagnostics blocked while reading a
+live child's stderr, and Puppy could raise an uncaught deadline error between
+frames. Diagnostics now stop only the test-owned child before bounded collection;
+Puppy's existing timeout handler now owns both deadline paths. All 18 focused
+broker/protocol checks pass, including an already-expired deadline. The initial
+core invocation remains a failed run; it is not relabeled as green.
+
+Frontend typecheck, lint and production build passed. Integration and all 92 PKM
+checks passed. Package checks and the packed-runtime initialization/tool-call
+rehearsal passed after rerunning its startup timeout. Complete final-SHA GitHub
+validation is still required before deployment. No timeout was loosened and no
+core test was removed. The canonical reviewer's live Software updates preflight
+preserved its BYOC assignment and bridge version; no installation was requested.

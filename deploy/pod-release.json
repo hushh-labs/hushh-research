@@ -1,19 +1,22 @@
 {
-  "version": "2026.09-dev.1",
+  "version": "2026.09-dev.2",
   "channel": "dev",
-  "summary": "Private agent updates with explicit owner approval and verified recovery boundaries.",
+  "summary": "Private agent connection fixes and updates that preserve your hosting choices.",
   "notes": {
     "improvements": [
-      "Hosting and software updates are available from your profile.",
-      "Update status distinguishes recorded versions from verified installation."
+      "Software updates retain your current hosting and memory settings."
     ],
     "fixes": [
-      "Successful updates retain their provider completion receipt."
+      "Image updates preserve browser access and resource sizing.",
+      "Trusted-device revocation fences the latest issued pod binding.",
+      "Puppy streaming deadlines return a consistent timeout and cancel device work."
     ],
     "security": [
-      "Update approval is bound to one image and your current pod.",
-      "Puppy inference requires a verified BYOC pod and device binding."
+      "Signed device bindings are checked against the owner and pod.",
+      "Installation requires approval for the exact release and pod."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:ac409994fddb8dda266c811eb14127d07678cd54b7c0c451aa16a8e94e7f4fea"
+  ]
 }

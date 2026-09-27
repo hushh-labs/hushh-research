@@ -348,6 +348,12 @@ Practical maintainer rule:
 4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
 5. If the last local edit touched `.codex/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
 
+### Local core mirror
+
+`bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full web suite (`web-full`, 240 s) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
+
+Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
@@ -591,6 +597,72 @@ UAT deploys use a separate latest-integrated contract:
 - `consent-protocol/db/contracts/uat_integrated_schema.json`
 
 The daily scheduled workflow `.github/workflows/prod-cloudsql-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
+
+## Deploy Image Pipeline
+
+Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
+builds each image once, pins it to an immutable `sha256` digest, and deploys that
+digest. Nothing downstream re-resolves a mutable tag.
+
+**Parallel web build.** A backend + frontend release used to run the web Cloud
+Build (p50 263s, p90 333s over the last 30 UAT deploys) serially after the backend
+image build, the migration fence, the migrations and the backend candidate
+checks, although it depends on none of them. Now:
+
+1. `Start frontend image build in parallel` submits
+   `deploy/frontend-image.cloudbuild.yaml` with `--async`, right after the runtime
+   secret sync (the build compiles `NEXT_PUBLIC_*` values from Secret Manager) and
+   at the same moment as the backend image build.
+2. `Wait for frontend image and pin its digest` runs where the frontend build used
+   to start. `scripts/ci/await-prebuilt-image.sh` streams the build log, fails on
+   any status but `SUCCESS`, resolves the tag once, and pins the executable
+   linux/amd64 manifest with `scripts/ci/resolve-cloud-run-image.py`.
+3. `Deploy frontend using Cloud Build` refuses to run without a well-formed
+   `gcr.io/<lane project>/hushh-webapp@sha256:<64 hex>`, then submits
+   `deploy/frontend.cloudbuild.yaml` with `_SKIP_IMAGE_BUILD=true` and
+   `_IMAGE_REFERENCE=<digest>` and `--no-source` (no 59 MB upload for a
+   deploy-only build). UAT and production then check the candidate revision runs
+   exactly that digest.
+
+The deploy, analytics smoke, promotion and rollback order is unchanged. Expected
+saving: 3.5-4.5 minutes per backend + frontend release. `frontend_image_wait` in
+the release status artifact records how long the lane still blocked on the web
+build; near zero means it was fully hidden. Frontend-only and backend-only scopes
+build only their own image. A deployment SHA older than this split has no
+build-only config and keeps the combined serial build-and-deploy. The dev
+auto-deploy Cloud Build trigger also keeps the combined path, which remains the
+default of `frontend.cloudbuild.yaml`.
+
+**Production backend promotion.** `deploy-production.yml` input
+`backend_image_source` chooses the backend image:
+
+- `build-from-source` (default today): rebuild at the SHA, as before.
+- `promote-from-uat`: deploy the exact bytes UAT tested (about 2.7 minutes
+  less). A preflight, before the secret sync, backup gate, fence and migrations,
+  requires a healthy UAT release tag `deployed/uat/<sha8>-*` for exactly this SHA,
+  reads the backend revision that tag recorded, and requires its `deploy-sha`
+  label and `HUSHH_DEPLOY_SHA` to equal the SHA and its image to be
+  `gcr.io/hushh-pda-uat/consent-protocol@sha256:...`
+  (`scripts/ci/resolve-uat-verified-image.py`). A frontend-only UAT release does
+  not verify a backend image and is refused. The build step then copies that
+  digest into `gcr.io/hushh-pda/consent-protocol:prod-<sha>` and refuses a copy
+  whose digest differs. Production Cloud Run always deploys from its own
+  registry.
+
+Promotion needs three read/copy bindings for the production deployer, listed in
+[`deploy/iam/README.md`](../../../deploy/iam/README.md#production-image-promotion)
+(`deploy/iam/grant_production_image_promotion.sh`). Until they exist, a promotion
+run stops with a message naming the missing access. The founder flips the default
+once they do.
+
+The production **frontend** is never promoted: its image compiles
+production-only public configuration (Firebase project, backend URL, GA4 id,
+passkey RP ID, app env), and the build refuses a UAT analytics id. It is built
+in `hushh-pda` with the parallel pattern above.
+
+**Rollback.** Revert the change, or dispatch production with
+`backend_image_source=build-from-source`. Cloud Run traffic rollback is
+unchanged.
 
 ---
 

@@ -93,7 +93,7 @@ export function LocationPermissionPrimerGate({
           Your agents work from where you are.
         </p>
 
-        <div className="mt-10 w-full">
+        <div className="mx-auto mt-10 w-full sm:w-80">
           <Button
             type="button"
             variant="blue"

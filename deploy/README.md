@@ -47,7 +47,9 @@ production.
 | Path | Purpose |
 | --- | --- |
 | `backend.cloudbuild.yaml` | Backend image build and Cloud Run candidate deployment used by governed workflows |
-| `frontend.cloudbuild.yaml` | Frontend image build and Cloud Run candidate deployment used by governed workflows |
+| `backend-image.cloudbuild.yaml` | Build-only backend image; lanes pin its digest before the migration fence |
+| `frontend.cloudbuild.yaml` | Frontend Cloud Run candidate deployment (deploys a pinned digest with `_SKIP_IMAGE_BUILD=true`; builds and deploys by tag otherwise) used by governed workflows |
+| `frontend-image.cloudbuild.yaml` | Build-only frontend image; lanes start it in parallel with the backend image build and pin its digest |
 | `iam/` | Environment-specific workload-identity and IAM provisioning helpers |
 | `marketplace/` | Marketplace job/scheduler provisioning helpers |
 | `observability/` | Observability infrastructure provisioning helpers |

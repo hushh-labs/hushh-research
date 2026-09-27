@@ -1556,9 +1556,11 @@ class UserGcpBackend:
                 raise RuntimeError("approved upgrade image is not an immutable digest")
             image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, recorded_digest)
             config = self.render_deploy_config(spec, image_digest=image_digest)
-            from hushh_mcp.services.pod_files.provisioning import preserve_existing_configuration
+            from hushh_mcp.services.pod_upgrade_configuration import (
+                preserve_image_upgrade_configuration,
+            )
 
-            preserve_existing_configuration(existing, config)
+            preserve_image_upgrade_configuration(existing, config)
             changed = image_digest != previous_digest
             svc: Optional[dict[str, Any]] = existing
             if changed:

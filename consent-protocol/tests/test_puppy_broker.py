@@ -156,8 +156,9 @@ async def test_an_inter_frame_stall_times_out_and_cancels_at_the_device(monkeypa
     assert (await broker.status(KEY))["busy"] is False
 
 
-async def test_the_request_deadline_bounds_a_device_that_keeps_streaming(monkeypatch):
-    monkeypatch.setattr(pb, "REQUEST_DEADLINE_SECONDS", 0.05)
+@pytest.mark.parametrize("deadline", [0.0, 0.05])
+async def test_the_request_deadline_bounds_a_device_that_keeps_streaming(monkeypatch, deadline):
+    monkeypatch.setattr(pb, "REQUEST_DEADLINE_SECONDS", deadline)
     monkeypatch.setattr(pb, "INTER_FRAME_TIMEOUT_SECONDS", 10.0)
     broker = pb.PuppyBroker()
     socket = _Socket()
@@ -169,8 +170,11 @@ async def test_the_request_deadline_bounds_a_device_that_keeps_streaming(monkeyp
             await broker.deliver(KEY, {"type": "inference.delta", "requestId": "r1", "text": "x"})
 
     feed = asyncio.create_task(feeder())
-    frames = await _collect(broker, _request())
-    feed.cancel()
+    try:
+        frames = await _collect(broker, _request())
+    finally:
+        feed.cancel()
+        await asyncio.gather(feed, return_exceptions=True)
     assert frames[-1]["code"] == "PUPPY_TIMEOUT"
     assert socket.sent[-1]["type"] == "inference.cancel"
 

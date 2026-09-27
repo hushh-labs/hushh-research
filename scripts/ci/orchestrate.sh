@@ -4,10 +4,16 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|all|advisory>
+  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|all|core|advisory>
 
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
+  CORE_SERIAL=1               Run the core stage's protocol and web-core checks one after the other
+
+Stage "core" is the fast local pre-push mirror: secret and governance, then
+protocol and web-core in parallel (separate Python and Node runtimes), then
+mcp-package and integration, which need the protocol stage's Python environment. The browser layout packs (web-targeted) and the full web suite
+(web-full) are left to GitHub Actions.
 
 Description:
   Canonical CI stage orchestrator used by GitHub Actions and local CI wrappers.
@@ -112,6 +118,39 @@ run_stage() {
 case "$STAGE" in
   secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|advisory)
     run_stage "$STAGE"
+    ;;
+  core)
+    echo "== Core CI (Local) =="
+    started=$SECONDS
+    run_stage secret
+    run_stage governance
+    if [ "${CORE_SERIAL:-0}" = "1" ]; then
+      run_stage protocol
+      run_stage web-core
+    else
+      log_dir="$(mktemp -d "${TMPDIR:-/tmp}/hushh-core-ci.XXXXXX")"
+      ( run_stage protocol ) >"$log_dir/protocol.log" 2>&1 &
+      protocol_pid=$!
+      ( run_stage web-core ) >"$log_dir/web-core.log" 2>&1 &
+      web_pid=$!
+      protocol_rc=0
+      web_rc=0
+      wait "$protocol_pid" || protocol_rc=$?
+      wait "$web_pid" || web_rc=$?
+      for name in protocol web-core; do
+        echo "---- $name (log: $log_dir/$name.log) ----"
+        tail -n 25 "$log_dir/$name.log"
+      done
+      if [ "$protocol_rc" -ne 0 ] || [ "$web_rc" -ne 0 ]; then
+        echo "Core CI failed: protocol=$protocol_rc web-core=$web_rc" >&2
+        exit 1
+      fi
+    fi
+    # mcp-package imports the protocol package through the Python environment the
+    # protocol stage provisions, so both cheap checks run after it.
+    run_stage mcp-package
+    run_stage integration
+    echo "✅ Core CI passed in $((SECONDS - started))s (web-targeted and web-full run on GitHub)."
     ;;
   all)
     echo "== CI Parity (Local) =="

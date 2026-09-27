@@ -166,7 +166,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
               </section>
             </div>
 
-            <div className="pt-8">
+            <div className="mx-auto w-full pt-8 sm:w-80">
               <Button
                 type="button"
                 variant="none"

@@ -25,11 +25,17 @@ has_match() {
   printf '%s\n' "$CHANGED_FILE_LIST" | grep -Eq "$pattern"
 }
 
+# Every matched pack runs and every failure is reported: stopping at the first
+# failure hid later broken packs behind it, one fix-and-rerun cycle at a time.
+failed_checks=()
 run_check() {
   local name="$1"
   shift
   echo "== Targeted web check: $name =="
-  (cd "$WEB_DIR" && "$@")
+  if ! (cd "$WEB_DIR" && "$@"); then
+    echo "!! Targeted web check failed: $name"
+    failed_checks+=("$name")
+  fi
 }
 
 ran=0
@@ -329,4 +335,10 @@ fi
 
 if [ "$ran" -eq 0 ]; then
   echo "No focused web contract pack matched the changed files."
+fi
+
+if [ "${#failed_checks[@]}" -gt 0 ]; then
+  echo "Failed targeted web checks (${#failed_checks[@]}):"
+  printf '  - %s\n' "${failed_checks[@]}"
+  exit 1
 fi

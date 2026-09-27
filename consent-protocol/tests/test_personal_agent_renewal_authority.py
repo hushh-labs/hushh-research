@@ -630,6 +630,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/rollback/941_personal_agent_files_erasure.rollback.sql")
     pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/942_personal_agent_erasure_validation_cost.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -2072,3 +2077,115 @@ def test_stale_restore_marker_cannot_bypass_erasure_barriers(provision_pg, barri
         assert pg.execute(
             "SELECT status,backend_metadata ? 'erasure' FROM personal_agent_registry"
         ) == [("suspended", True)]
+
+
+def _install_erasure_predicate_comparison(pg):
+    # Isolate stage-shape equivalence; the complete erasure journey above proves
+    # the real KMS/Files prerequisites. Both old and new predicates use these
+    # same bounded prerequisite results, including the false case.
+    for name, args in (
+        ("valid_erasure_kms_receipt", "r jsonb, stage text, receipt jsonb"),
+        ("valid_erasure_files_receipt", "r jsonb, kind text, stage text, receipt jsonb"),
+    ):
+        pg.execute(
+            f"CREATE FUNCTION public.{name}({args}) RETURNS boolean LANGUAGE sql "
+            "IMMUTABLE AS $$ SELECT (r->>'prerequisiteValid')::boolean $$"
+        )
+    for filename, family in (
+        ("925_personal_agent_secret_erasure.sql", "secret"),
+        ("941_personal_agent_files_erasure.sql", "account"),
+    ):
+        source = (ROOT / "db/migrations/parked" / filename).read_text()
+        start = source.index(f"CREATE OR REPLACE FUNCTION public.valid_erasure_{family}_receipt(")
+        definition = source[start : source.index("\n$$;", start) + 4]
+        for renamed in ("secret", "account"):
+            definition = definition.replace(
+                f"valid_erasure_{renamed}_receipt", f"before942_erasure_{renamed}_receipt"
+            )
+        pg.execute(definition)
+    pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
+
+
+def _stage_receipt_fixture():
+    identity = {"email": "runtime@synthetic-project.iam.gserviceaccount.com"}
+    secret = {
+        "type": "secret",
+        "id": "signing",
+        "disposition": "created",
+        "identity": {
+            "name": "projects/synthetic-project/secrets/signing",
+            "projectId": "synthetic-project",
+            "createTime": "2026-09-01",
+        },
+    }
+    account = {
+        "type": "service_account",
+        "id": identity["email"],
+        "disposition": "created",
+        "identity": identity,
+    }
+    reservation = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "synthetic-attempt",
+        "prerequisiteValid": True,
+        "registrySnapshot": {"user_cloud_project": "synthetic-project"},
+        "writerDisabled": {"runtimeIdentity": identity},
+        "substrateInventory": {
+            "plannedResources": [{"type": x["type"], "id": x["id"]} for x in (secret, account)],
+            "resourceObservations": [secret, account],
+        },
+    }
+    for family, observation in (("secret", secret), ("account", account)):
+        payload = {
+            "ownerId": reservation["ownerId"],
+            "attemptId": reservation["attemptId"],
+            "resourceObservation": observation,
+            **({"etag": "synthetic-etag"} if family == "secret" else {}),
+        }
+        reservation[family + "Erasure"] = {
+            stage: {**payload, "status": status}
+            for stage, status in (
+                ("admission", "admitted"),
+                ("acknowledgement", "acknowledged"),
+                ("deletion", "absent"),
+            )
+        }
+    return reservation
+
+
+def test_erasure_stage_predicates_preserve_rejection_and_null_semantics(pg):
+    from copy import deepcopy
+
+    _install_erasure_predicate_comparison(pg)
+    base = _stage_receipt_fixture()
+    for family in ("secret", "account"):
+        candidates = [deepcopy(base), {**deepcopy(base), "prerequisiteValid": False}]
+        for predecessor in ("admission", "acknowledgement"):
+            original = base[family + "Erasure"][predecessor]
+            for replacement in (
+                None,
+                "invalid",
+                [],
+                {},
+                {**original, "status": None},
+                {**original, "status": "wrong"},
+                {**original, "extra": True},
+                {**original, "ownerId": "foreign"},
+            ):
+                changed = deepcopy(base)
+                changed[family + "Erasure"][predecessor] = replacement
+                candidates.append(changed)
+            missing = deepcopy(base)
+            del missing[family + "Erasure"][predecessor]
+            candidates.append(missing)
+        for reservation in candidates:
+            for stage in ("admission", "acknowledgement", "deletion"):
+                receipt = base[family + "Erasure"][stage]
+                for current in (receipt, {k: v for k, v in receipt.items() if k != "status"}):
+                    values = (json.dumps(reservation), stage, json.dumps(current))
+                    old, new = pg.execute(
+                        f"SELECT before942_erasure_{family}_receipt(%s::jsonb,%s,%s::jsonb), "
+                        f"valid_erasure_{family}_receipt(%s::jsonb,%s,%s::jsonb)",
+                        values + values,
+                    )[0]
+                    assert new is old, (family, stage, old, new)

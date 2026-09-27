@@ -67,11 +67,37 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS consent_audit_feed_fanout ON consent_audit;
-CREATE TRIGGER consent_audit_feed_fanout
-  AFTER INSERT ON consent_audit
-  FOR EACH ROW
-  EXECUTE FUNCTION feed_events_from_consent_audit();
+-- Replay guard: DROP TRIGGER takes ACCESS EXCLUSIVE on consent_audit. Skip
+-- the drop and re-create only when the trigger already matches exactly what
+-- they would build (tgtype 5 = AFTER INSERT FOR EACH ROW, enabled, no WHEN,
+-- no arguments, no column list, no comment); otherwise run them unchanged.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger AS trg
+    WHERE trg.tgrelid = to_regclass('consent_audit')
+      AND trg.tgname = 'consent_audit_feed_fanout'
+      AND NOT trg.tgisinternal
+      AND trg.tgfoid = 'feed_events_from_consent_audit()'::regprocedure
+      AND trg.tgtype = 5
+      AND trg.tgenabled = 'O'
+      AND trg.tgqual IS NULL
+      AND trg.tgnargs = 0
+      AND trg.tgattr::TEXT = ''
+      AND trg.tgconstraint = 0
+      AND trg.tgoldtable IS NULL
+      AND trg.tgnewtable IS NULL
+      AND obj_description(trg.oid, 'pg_trigger') IS NULL
+  ) THEN
+    DROP TRIGGER IF EXISTS consent_audit_feed_fanout ON consent_audit;
+    CREATE TRIGGER consent_audit_feed_fanout
+      AFTER INSERT ON consent_audit
+      FOR EACH ROW
+      EXECUTE FUNCTION feed_events_from_consent_audit();
+  END IF;
+END
+$$;
 
 COMMENT ON FUNCTION feed_events_from_consent_audit() IS
   'Fans out feed-worthy consent_audit inserts (REQUESTED/CONSENT_GRANTED/REVOKED) into feed_events.';

@@ -322,12 +322,121 @@ async def _rollback_failed_transaction(conn: Any) -> None:
         await conn.execute("ROLLBACK")
 
 
+# Who is the migration waiting on? Read-only, and deliberately never selects
+# ``query``: another session's SQL text can carry personal information. The
+# pid, application_name, state, wait event and ages are enough to find it.
+_WAITING_ON_SQL = """
+SELECT waiting.relation::regclass::text AS relation, waiting.mode
+FROM pg_locks AS waiting
+WHERE waiting.pid = $1 AND NOT waiting.granted
+LIMIT 1
+"""
+_BLOCKERS_SQL = """
+SELECT blocker.pid,
+       blocker.application_name,
+       blocker.state,
+       blocker.wait_event_type,
+       blocker.wait_event,
+       EXTRACT(EPOCH FROM clock_timestamp() - blocker.xact_start)::bigint AS xact_age_s,
+       EXTRACT(EPOCH FROM clock_timestamp() - blocker.query_start)::bigint AS query_age_s
+FROM pg_stat_activity AS blocker
+WHERE blocker.pid = ANY (pg_blocking_pids($1))
+ORDER BY blocker.xact_start NULLS LAST
+LIMIT 5
+"""
+_LOCK_PROBE_MAX_INTERVAL_S = 1.0
+
+
+def _probe_label(value: Any) -> str:
+    """A catalog value made safe for one log line: bounded, no free text."""
+    if value is None:
+        return "-"
+    return re.sub(r"[^A-Za-z0-9_.:/@-]", "_", str(value))[:64] or "-"
+
+
+async def _describe_lock_wait(probe_conn: Any, pid: int) -> str | None:
+    """Name the relation ``pid`` is waiting for and the sessions holding it."""
+    blockers = await probe_conn.fetch(_BLOCKERS_SQL, pid)
+    if not blockers:
+        return None
+    waiting = await probe_conn.fetchrow(_WAITING_ON_SQL, pid)
+    target = (
+        f"waiting for {_probe_label(waiting['mode'])} on {_probe_label(waiting['relation'])}"
+        if waiting
+        else "waiting for a lock"
+    )
+    held_by = "; ".join(
+        f"pid={int(row['pid'])} app={_probe_label(row['application_name'])} "
+        f"state={_probe_label(row['state'])} "
+        f"wait={_probe_label(row['wait_event_type'])}/{_probe_label(row['wait_event'])} "
+        f"xact_age={_probe_label(row['xact_age_s'])}s query_age={_probe_label(row['query_age_s'])}s"
+        for row in blockers
+    )
+    return f"{target}, blocked by {held_by}"
+
+
+class _LockWaitProbe:
+    """Samples, from a second connection, who is blocking a running migration.
+
+    Postgres cannot answer this after the fact: once ``lock_timeout`` fires the
+    migration is no longer waiting, so ``pg_blocking_pids`` has nothing to say.
+    The probe therefore samples WHILE the statement runs, and keeps the last
+    non-empty answer. It starts only after the first interval, so the ordinary
+    millisecond migration never touches the second connection. A probe failure
+    only changes what the lock-contention log line says, never the migration.
+    """
+
+    def __init__(self, pool: Any, lock_timeout_ms: int) -> None:
+        self._pool = pool
+        self._interval_s = min(_LOCK_PROBE_MAX_INTERVAL_S, max(lock_timeout_ms, 1) / 5_000)
+        self.observed: str | None = None
+
+    async def watch(self, pid: int) -> None:
+        try:
+            await asyncio.sleep(self._interval_s)
+            # Opening the second connection can be slow over the Cloud SQL proxy;
+            # it must still land before the default 5s lock_timeout fires.
+            async with self._pool.acquire(timeout=self._interval_s * 3) as probe_conn:
+                while True:
+                    observed = await _describe_lock_wait(probe_conn, pid)
+                    if observed:
+                        self.observed = observed
+                    await asyncio.sleep(self._interval_s)
+        except asyncio.CancelledError:
+            raise
+        except Exception as probe_error:  # noqa: BLE001 - diagnostic only
+            self.observed = self.observed or (
+                f"blocker probe unavailable [{_failure_signature(probe_error)}]"
+            )
+
+
+async def _execute_observed(conn: Any, sql: str, probe: _LockWaitProbe | None) -> None:
+    """Run ``sql`` on ``conn`` while ``probe`` (if any) watches its lock waits."""
+    get_pid = getattr(conn, "get_server_pid", None)
+    if probe is None or not callable(get_pid):
+        await conn.execute(sql)
+        return
+    watcher = asyncio.create_task(probe.watch(int(get_pid())))
+    try:
+        await conn.execute(sql)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
+def _lock_wait_detail(probe: _LockWaitProbe | None) -> str:
+    if probe is None:
+        return ""
+    return f"; {probe.observed or 'no blocking session observed'}"
+
+
 async def apply_manifest_entries(
     conn: Any,
     entries: tuple[MigrationManifestEntryV2, ...],
     *,
     mode: MigrationMode,
     deploy_sha: str = "",
+    lock_probe_pool: Any | None = None,
 ) -> tuple[str, ...]:
     """Apply one manifest under a session advisory lock.
 
@@ -335,6 +444,9 @@ async def apply_manifest_entries(
     rows. ``observe`` inspects ledger/checksum state but executes no migration
     bodies. ``ledger`` executes only entries not covered by an applied row or
     a required verified baseline.
+
+    ``lock_probe_pool``, when given, supplies a second connection used only to
+    name the session blocking a migration that is waiting on a lock.
     """
 
     await _try_lock(conn)
@@ -371,6 +483,11 @@ async def apply_manifest_entries(
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
+                probe = (
+                    _LockWaitProbe(lock_probe_pool, entry.lock_timeout_ms)
+                    if lock_probe_pool is not None
+                    else None
+                )
                 try:
                     if mode is MigrationMode.LEDGER and entry.transactional:
                         async with conn.transaction():
@@ -380,7 +497,7 @@ async def apply_manifest_entries(
                             await conn.execute(
                                 f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
                             )
-                            await conn.execute(entry.sql)
+                            await _execute_observed(conn, entry.sql, probe)
                             duration_ms = round((time.perf_counter() - started) * 1000)
                             await _record_result(
                                 conn,
@@ -396,7 +513,7 @@ async def apply_manifest_entries(
                         await conn.execute(
                             f"SET statement_timeout = '{entry.statement_timeout_ms}ms'"
                         )
-                        await conn.execute(entry.sql)
+                        await _execute_observed(conn, entry.sql, probe)
                 except Exception as exc:
                     duration_ms = round((time.perf_counter() - started) * 1000)
                     # A busy database is not a broken migration. Roll back first
@@ -420,8 +537,8 @@ async def apply_manifest_entries(
                         retry_spent_s += delay
                         print(
                             f"  lock contention on {entry.filename} after {duration_ms}ms "
-                            f"[{_failure_signature(exc)}]; retry {attempt}/"
-                            f"{_LOCK_RETRY_ATTEMPTS - 1} in {delay:.0f}s",
+                            f"[{_failure_signature(exc)}]{_lock_wait_detail(probe)}; "
+                            f"retry {attempt}/{_LOCK_RETRY_ATTEMPTS - 1} in {delay:.0f}s",
                             file=sys.stderr,
                             flush=True,
                         )
@@ -435,7 +552,7 @@ async def apply_manifest_entries(
                         f"MIGRATION FAILED: {entry.filename} after {duration_ms}ms "
                         f"[{_failure_signature(exc)}]"
                         + (
-                            f" (gave up after {attempt} lock attempts)"
+                            f" (gave up after {attempt} lock attempts{_lock_wait_detail(probe)})"
                             if _is_lock_contention(exc)
                             else ""
                         ),

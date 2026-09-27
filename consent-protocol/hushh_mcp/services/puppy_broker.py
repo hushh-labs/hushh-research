@@ -233,10 +233,10 @@ class PuppyBroker:
         try:
             await link.send(frame)
             while True:
-                remaining = REQUEST_DEADLINE_SECONDS - (time.monotonic() - started)
-                if remaining <= 0:
-                    raise asyncio.TimeoutError
                 try:
+                    remaining = REQUEST_DEADLINE_SECONDS - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
                     async with asyncio.timeout(min(INTER_FRAME_TIMEOUT_SECONDS, remaining)):
                         response = await queue.get()
                 except asyncio.TimeoutError:

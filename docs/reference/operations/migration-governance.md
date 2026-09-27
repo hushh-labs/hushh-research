@@ -99,6 +99,31 @@ migrations must check index validity and document explicit rebuild instructions.
 The Feed 203–204 sequence and its recovery are documented in
 [Feed notification model](../one/feed-notification-model.md).
 
+### Replay and table locks
+
+Because `replay` re-runs every file on every deploy, a statement that is a no-op
+on an applied database still takes its lock. `ALTER TABLE ... SET DEFAULT`,
+`ADD COLUMN IF NOT EXISTS`, `ALTER COLUMN ... TYPE`, `DROP/ADD CONSTRAINT` and
+`DROP TRIGGER` take ACCESS EXCLUSIVE before they discover there is nothing to
+do; `CREATE INDEX IF NOT EXISTS` takes SHARE. On a busy table that lock waits
+behind live traffic until the runner's 5s `lock_timeout` fires (SQLSTATE 55P03).
+Across 21 backend UAT deploy attempts, 6 failed this way, in migrations 025
+(five times) and 039 (once).
+
+For a statement on a busy table, wrap it in a `DO` block that checks the catalog
+(`pg_attrdef`, `pg_attribute`, `pg_constraint` with `pg_get_constraintdef`,
+`pg_trigger`, `pg_class`) and skips only when the effect is already exactly in
+place. Otherwise the original statement runs unchanged. Migrations 025, 039,
+046, 093, 117 (the `consent_audit` trigger) and 172 follow this pattern. Replay
+writes no ledger rows, so editing a file this way leaves nothing to re-verify.
+In `ledger` mode, any checksum a baseline recorded would need the baseline
+procedure again.
+
+When a lock times out, the runner logs the relation and lock mode it waited for.
+It also logs each blocking session's pid, `application_name`, state, wait event,
+and transaction and query ages. It samples these from a second pool connection
+while the statement waits. It never reads another session's query text.
+
 ## UAT Zero-Loss Baseline Gate
 
 Before establishing a UAT baseline:

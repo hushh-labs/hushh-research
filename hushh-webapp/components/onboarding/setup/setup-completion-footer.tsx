@@ -113,7 +113,7 @@ export function SetupCompletionFooter({
             {supportingText}
           </p>
         ) : null}
-        <div className="mx-auto w-full">
+        <div className="mx-auto w-full sm:w-80">
           <Button
             type="button"
             onClick={onComplete}

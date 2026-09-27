@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import time
 from pathlib import Path
 
@@ -581,3 +583,141 @@ async def test_failed_attempt_duration_consumes_run_retry_budget(tmp_path, no_sl
         await apply_manifest_entries(conn, _entries(tmp_path), mode=MigrationMode.REPLAY)
     assert conn.attempts == 1
     assert no_sleep == []
+
+
+class _ProbeConnection:
+    """The second connection the lock probe reads from. Answers only the two
+    read-only catalog queries it is allowed to send."""
+
+    def __init__(self, blockers: list[dict]) -> None:
+        self.blockers = blockers
+        self.sql: list[str] = []
+
+    async def fetch(self, sql: str, *_args):
+        self.sql.append(sql)
+        assert "pg_blocking_pids" in sql
+        return self.blockers
+
+    async def fetchrow(self, sql: str, *_args):
+        self.sql.append(sql)
+        assert "pg_locks" in sql
+        return {"relation": "consent_audit", "mode": "AccessExclusiveLock"}
+
+
+class _ProbePool:
+    def __init__(self, probe_conn: _ProbeConnection) -> None:
+        self.probe_conn = probe_conn
+        self.acquired = 0
+
+    def acquire(self, *, timeout: float | None = None):
+        pool = self
+
+        class _Ctx:
+            async def __aenter__(self_inner):
+                pool.acquired += 1
+                return pool.probe_conn
+
+            async def __aexit__(self_inner, *_exc):
+                return False
+
+        return _Ctx()
+
+
+_BLOCKER_ROW = {
+    "pid": 4242,
+    "application_name": "consent api\n'; DROP TABLE x; --",
+    "state": "idle in transaction",
+    "wait_event_type": "Client",
+    "wait_event": "ClientRead",
+    "xact_age_s": 42,
+    "query_age_s": 40,
+}
+
+
+# Captured at import, before any test's no_sleep fixture replaces asyncio.sleep.
+_real_sleep = asyncio.sleep
+
+
+class WaitingContention(ContendingConnection):
+    """Like ContendingConnection, but the contended statement actually waits
+    before timing out, the way Postgres does, so the probe has time to look."""
+
+    def get_server_pid(self) -> int:
+        return 777
+
+    async def execute(self, sql: str, *args):
+        if self.target_sql in sql and "lock_timeout" not in sql:
+            await _real_sleep(0.05)
+        return await super().execute(sql, *args)
+
+
+@pytest.mark.asyncio
+async def test_lock_contention_names_the_blocking_session(tmp_path: Path, monkeypatch, capsys):
+    """Six UAT deploys died on 55P03 with nothing saying WHO held the lock.
+    The retry line and the final failure must now name the blocker."""
+    monkeypatch.setattr("db.migration_authority._LOCK_PROBE_MAX_INTERVAL_S", 0.005)
+    monkeypatch.setattr("db.migration_authority._LOCK_RETRY_BASE_DELAY_S", 0.001)
+    probe_conn = _ProbeConnection([_BLOCKER_ROW])
+    conn = WaitingContention("SELECT 115", fail_times=99)
+
+    with pytest.raises(_LockTimeout):
+        await apply_manifest_entries(
+            conn,
+            _entries(tmp_path),
+            mode=MigrationMode.REPLAY,
+            lock_probe_pool=_ProbePool(probe_conn),
+        )
+
+    err = capsys.readouterr().err
+    assert "waiting for AccessExclusiveLock on consent_audit" in err
+    assert "blocked by pid=4242" in err
+    assert "state=idle_in_transaction" in err
+    assert "xact_age=42s query_age=40s" in err
+    assert "gave up after 4 lock attempts; waiting for" in err
+    # application_name is client-controlled free text: bounded and defanged.
+    assert "app=consent_api____DROP_TABLE_x__--" in err
+
+
+def test_the_blocker_probe_never_reads_query_text():
+    """Another session's SQL can carry personal information. The probe may
+    read pid, application_name, state, wait event and ages -- never ``query``."""
+    from db import migration_authority
+
+    for sql in (migration_authority._BLOCKERS_SQL, migration_authority._WAITING_ON_SQL):
+        assert not re.search(r"\bquery\b(?!_start)", sql), sql
+        assert not re.search(r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|LOCK)\b", sql, re.I), sql
+
+
+@pytest.mark.asyncio
+async def test_a_fast_migration_never_touches_the_probe_connection(tmp_path: Path):
+    """The probe starts after its first interval, so the ordinary millisecond
+    migration costs nothing -- not even a second connection."""
+    pool = _ProbePool(_ProbeConnection([]))
+    conn = WaitingContention("SELECT never-matches", fail_times=0)
+
+    applied = await apply_manifest_entries(
+        conn, _entries(tmp_path), mode=MigrationMode.REPLAY, lock_probe_pool=pool
+    )
+
+    assert len(applied) == 2
+    assert pool.acquired == 0
+
+
+@pytest.mark.asyncio
+async def test_a_broken_probe_never_changes_the_migration_outcome(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.setattr("db.migration_authority._LOCK_PROBE_MAX_INTERVAL_S", 0.005)
+    monkeypatch.setattr("db.migration_authority._LOCK_RETRY_BASE_DELAY_S", 0.001)
+
+    class _BrokenPool:
+        def acquire(self, *, timeout: float | None = None):
+            raise TimeoutError("pool exhausted")
+
+    conn = WaitingContention("SELECT 115", fail_times=1)
+    applied = await apply_manifest_entries(
+        conn, _entries(tmp_path), mode=MigrationMode.REPLAY, lock_probe_pool=_BrokenPool()
+    )
+
+    assert "20260721_ABC_new.sql" in applied, "the retry still succeeds"
+    assert "blocker probe unavailable [TimeoutError]" in capsys.readouterr().err

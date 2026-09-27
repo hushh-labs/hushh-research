@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -207,8 +207,9 @@ vi.mock("@/components/ui/alert-dialog", () => ({
       {children}
     </button>
   ),
+  // Radix's AlertDialogContent carries role="alertdialog"; mirror it.
   AlertDialogContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+    <div role="alertdialog">{children}</div>
   ),
   AlertDialogDescription: ({ children }: { children: React.ReactNode }) => (
     <p>{children}</p>
@@ -620,9 +621,16 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("starts Gmail sync in the background", async () => {
+    // Sync lives in the receipts orientation for a connected workspace; the
+    // header Sync action is onboarding-only since #7105.
+    window.localStorage.removeItem(
+      "hushh.gmail.receipts.onboarding.v1:user-123",
+    );
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    const button = screen.getByRole("button", { name: /sync receipts/i });
+    const button = await screen.findByRole("button", {
+      name: "Start receipt sync",
+    });
     expect(button.disabled).toBe(false);
 
     fireEvent.click(button);
@@ -1657,11 +1665,17 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+    // Disconnect lives on the Mail overview tab since #7105/#7106.
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^disconnect mail$/i }),
+    );
     expect(screen.getByText("Disconnect Mail?")).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /^disconnect mail$/i }),
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: /^disconnect mail$/i,
+      }),
     );
 
     await waitFor(() => {

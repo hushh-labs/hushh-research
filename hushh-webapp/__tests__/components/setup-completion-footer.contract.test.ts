@@ -15,10 +15,11 @@ describe("setup completion footer contract", () => {
 
     expect(source).not.toContain("var(--onboarding-agent-bar-clearance)");
     // Trailing clearance prefers the shared scroll-root token and falls back
-    // to the app bottom inset, so the CTA never hides under fixed chrome even
-    // on routes without the onboarding scroll root.
+    // to the onboarding agent-bar clearance, so the CTA never hides under the
+    // persistent agent bar even on routes without the onboarding scroll root
+    // (#7125).
     expect(source).toContain(
-      "var(--app-scroll-bottom-pad,var(--app-bottom-inset))",
+      "var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))",
     );
     expect(source).toContain('size="prominent"');
     expect(source).toContain("bg-transparent");

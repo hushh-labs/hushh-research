@@ -1,11 +1,23 @@
-# Cloud Build configuration for Next.js frontend
-# Deploy to: Cloud Run (service name configurable via substitutions)
+# Build and push the frontend (One web) image without creating a Cloud Run revision.
 #
-# Two modes, mirroring deploy/backend.cloudbuild.yaml:
-#   _SKIP_IMAGE_BUILD=false (default): build the image here, then deploy it by tag.
-#   _SKIP_IMAGE_BUILD=true: the lane already built the image with
-#     deploy/frontend-image.cloudbuild.yaml and pinned it; Step 2 builds nothing
-#     and Step 3 deploys exactly _IMAGE_REFERENCE (<repo>@sha256:...).
+# Deploy lanes start this build at the same moment as the backend image build,
+# so the ~4-minute web build overlaps the backend build, the migration fence and
+# the backend candidate checks instead of running after them. The lane then
+# resolves the pushed tag to an immutable sha256 digest, and the later deploy
+# (deploy/frontend.cloudbuild.yaml with _SKIP_IMAGE_BUILD=true and
+# _IMAGE_REFERENCE=<repo>@sha256:...) consumes exactly that digest; it never
+# rebuilds or re-resolves a mutable tag. This mirrors
+# deploy/backend-image.cloudbuild.yaml.
+#
+# The two steps below are byte-identical to steps 1 and 2 of
+# deploy/frontend.cloudbuild.yaml (minus that file's Cloud Run sizing checks and
+# its prebuilt-image guard). consent-protocol/tests/test_frontend_prebuilt_image_contract.py
+# fails if they drift, so a build-time gate added in one place is enforced in both.
+#
+# The image is environment-specific: NEXT_PUBLIC_* values (Firebase project,
+# backend URL, analytics id, passkey RP ID, app env) are compiled into the
+# bundle from $PROJECT_ID's Secret Manager. It must only be deployed in the
+# project that built it; it is never promoted across environments.
 
 steps:
   # Step 1: Resolve the environment-specific Google Contacts browser client.
@@ -20,32 +32,6 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-
-        require_non_negative_int() {
-          local name="$1"
-          local value="$2"
-          if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
-            echo "${name} must be a non-negative integer, got '${value}'." >&2
-            exit 1
-          fi
-        }
-        require_positive_int() {
-          local name="$1"
-          local value="$2"
-          require_non_negative_int "${name}" "${value}"
-          if [[ "${value}" -lt 1 ]]; then
-            echo "${name} must be at least 1, got '${value}'." >&2
-            exit 1
-          fi
-        }
-        require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
-        require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
-        require_positive_int "_CLOUD_RUN_CONCURRENCY" "${_CLOUD_RUN_CONCURRENCY}"
-        require_positive_int "_CLOUD_RUN_TIMEOUT_SECONDS" "${_CLOUD_RUN_TIMEOUT_SECONDS}"
-        if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
-          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
-          exit 1
-        fi
 
         passkey_rp_id_file="/workspace/.passkey-rp-id"
         : > "$${passkey_rp_id_file}"
@@ -129,28 +115,12 @@ steps:
       - "APP_FRONTEND_ORIGIN_VAL"
 
   # Step 2: Build Docker image with runtime-specific environment variables (using Secrets)
-  #
-  # With _SKIP_IMAGE_BUILD=true this step only verifies that the deploy was handed
-  # an immutable digest, then exits without building. Everything after that guard
-  # is kept byte-identical to deploy/frontend-image.cloudbuild.yaml.
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:
       - "-c"
       - |
         set -euo pipefail
-        if [[ "${_SKIP_IMAGE_BUILD}" == "true" ]]; then
-          if [[ -z "${_IMAGE_REFERENCE}" || "${_IMAGE_REFERENCE}" != *"@sha256:"* ]]; then
-            echo "_SKIP_IMAGE_BUILD=true requires an immutable _IMAGE_REFERENCE digest." >&2
-            exit 1
-          fi
-          echo "Using prebuilt immutable frontend image (digest verified)."
-          exit 0
-        fi
-        if [[ "${_SKIP_IMAGE_BUILD}" != "false" ]]; then
-          echo "_SKIP_IMAGE_BUILD must be true or false." >&2
-          exit 1
-        fi
         required_vars=(
           NEXT_PUBLIC_FIREBASE_API_KEY_VAL
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_VAL
@@ -277,138 +247,21 @@ steps:
     ]
     id: "build-frontend-image"
 
-  # Step 3: Deploy to Cloud Run
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        set -euo pipefail
+# NOTE: no top-level `images:` block. `docker buildx build --push` already pushes
+# every tag; listing images here would make Cloud Build re-push from the empty
+# local daemon under the buildx docker-container driver, and fail.
 
-        secrets="BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
-
-        if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then
-          if ! gcloud secrets describe "${_RATE_LIMIT_STORAGE_URI_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Missing required shared rate-limit secret ${_RATE_LIMIT_STORAGE_URI_SECRET}."
-            exit 1
-          fi
-          secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
-        fi
-
-        # `hushh-mail-api` key for One's lifecycle mail. Optional on purpose, the
-        # same way backend.cloudbuild.yaml treats its add-on secrets: binding a
-        # secret that does not exist yet would fail the whole deploy. While it is
-        # absent the webapp reports `not_configured` and sign-in is unaffected.
-        if gcloud secrets describe MAIL_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
-          secrets="${secrets},MAIL_API_KEY=MAIL_API_KEY:latest"
-        else
-          echo "Skipping optional secret MAIL_API_KEY; not found in project ${PROJECT_ID}."
-        fi
-
-        image_reference="${_IMAGE_REFERENCE}"
-        if [[ -z "${image_reference}" ]]; then
-          image_reference="gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
-        fi
-        if [[ "${_SKIP_IMAGE_BUILD}" == "true" && "${image_reference}" != *"@sha256:"* ]]; then
-          echo "Prebuilt frontend deploy requires an immutable sha256 image digest." >&2
-          exit 1
-        fi
-
-        cmd=(
-          gcloud run deploy "${_FRONTEND_SERVICE}"
-          "--image=${image_reference}"
-          "--region=${_REGION}"
-          "--platform=managed"
-          "--allow-unauthenticated"
-          "--port=8080"
-          "--memory=${_CLOUD_RUN_MEMORY}"
-          "--cpu=1"
-          "--timeout=${_CLOUD_RUN_TIMEOUT_SECONDS}"
-          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
-          "--max=${_CLOUD_RUN_MAX_INSTANCES}"
-          "--min=${_CLOUD_RUN_MIN_INSTANCES}"
-          "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
-          "--min-instances=0"
-          "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},github-run-attempt=${_GITHUB_RUN_ATTEMPT},account-deletion-contract=v201"
-          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},HUSSH_TECH_CLIENT_ENABLED=${_HUSHH_TECH_CLIENT_ENABLED},HUSSH_TECH_PROXY_AUDIENCE=${_HUSHH_TECH_PROXY_AUDIENCE},HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
-          "--set-secrets=${secrets}"
-        )
-
-        if [[ -n "${_VPC_CONNECTOR}" ]]; then
-          cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
-        fi
-        if [[ -n "${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}" ]]; then
-          cmd+=("--service-account=${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}")
-        fi
-
-        if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
-          cmd+=("--no-traffic")
-        fi
-
-        "${cmd[@]}"
-    id: "deploy-frontend"
-
-# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 2) already
-# pushes every tag. Listing images here would make Cloud Build re-push from the local
-# daemon, which is empty under the buildx docker-container driver, and fail.
-
-# Build timeout: 1800s headroom for the one-time cold seeding build; cached builds are minutes.
+# Build timeout: 1800s headroom for a cold cache seeding build; cached builds are minutes.
 timeout: "1800s"
 
 substitutions:
-  _FRONTEND_SERVICE: hushh-webapp
-  _FRONTEND_RUNTIME_SERVICE_ACCOUNT: ""
-  _REGION: us-central1
   _APP_ENV: production
-  # The browser RP ID is derived from APP_FRONTEND_ORIGIN in the Cloud SDK
-  # step. Keeping it out of substitutions prevents one lane's domain from
-  # silently shipping in another lane's frontend image.
-  # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
-  # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
   _ONE_WALLET_CARD_ENABLED: "false"
-  # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
-  # the backend ONE_WALLET_ENABLED flag still decides whether agent_wallet exists.
   _ONE_WALLET_ENABLED: "false"
-  # Offers nearby check-in in a production build. Default off: the check-in
-  # point is client-supplied and unattestable, so the backend admits production
-  # callers by cohort and this only avoids collecting a location for a flow that
-  # would then be refused. Turning this on alone changes nothing server-side.
   _ONE_LOCATION_NEARBY_CHECK_IN: "false"
-  # Shows the operator preview of fifty fictional people on the location map
-  # (`?demo=people`). Default off, and the UAT web lane is the only caller that
-  # turns it on. `isLocationMapDemoAvailable()` keeps a hard production floor
-  # underneath this, so the flag can only ever widen a non-production build.
-  #
-  # This is an explicit opt-in rather than an `APP_ENV != "production"` check
-  # because the App Store and Play Store binaries are stamped
-  # `NEXT_PUBLIC_APP_ENV=uat` — they ship against the UAT backend — so an
-  # environment-shaped gate reads every store install as non-production and
-  # hands real users a map of fabricated people.
   _LOCATION_MAP_DEMO: "false"
-  _HUSHH_TECH_CLIENT_ENABLED: "false"
-  _HUSHH_TECH_PROXY_AUDIENCE: ""
-  _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"
-  _RATE_LIMIT_STORAGE_URI_SECRET: ""
-  _VPC_CONNECTOR: ""
-  # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
-  # single endpoint serves UAT and production.
-  _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
-  _CLOUD_RUN_NO_TRAFFIC: "false"
-  _CLOUD_RUN_MEMORY: "512Mi"
-  _CLOUD_RUN_TIMEOUT_SECONDS: "120"
-  _CLOUD_RUN_CONCURRENCY: "80"
-  _CLOUD_RUN_MIN_INSTANCES: "1"
-  _CLOUD_RUN_MAX_INSTANCES: "10"
-  _IMAGE_TAG: v2.1.2
-  # Prebuilt-image mode (see the header). Default keeps the combined
-  # build-and-deploy path for callers that do not pin a digest first.
-  _SKIP_IMAGE_BUILD: "false"
-  _IMAGE_REFERENCE: ""
+  _IMAGE_TAG: manual-build
   _DEPLOY_ENV: manual
-  _DEPLOY_SOURCE: manual
-  _DEPLOY_SHA: unknown
-  _GITHUB_RUN_ID: unknown
-  _GITHUB_RUN_ATTEMPT: "1"
 
 # Secrets to fetch
 availableSecrets:
@@ -440,10 +293,8 @@ availableSecrets:
     - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/versions/latest
       env: "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
 
-# Options
-# dynamicSubstitutions lets trigger-provided substitution values reference
-# built-ins (the dev auto-deploy trigger passes _IMAGE_TAG=dev-${COMMIT_SHA});
-# literal values from the GitHub Actions lanes are unaffected.
+# Options: identical to deploy/frontend.cloudbuild.yaml so the shared step
+# bodies above are substituted exactly the same way in both files.
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: "E2_HIGHCPU_8"

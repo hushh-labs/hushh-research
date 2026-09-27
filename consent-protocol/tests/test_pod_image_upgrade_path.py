@@ -27,6 +27,7 @@ assertions are about the ORDER and CONTENT of those calls, because that is where
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from typing import Any, Optional
 
 import pytest
@@ -273,6 +274,7 @@ async def test_upgrade_keeps_the_memory_bucket_identity_and_service_account(copy
     run = FakeRun(name, existing_digest=OLD)
     backend = _backend(run)
     born_with = backend.render_deploy_config(_spec(), image_digest=OLD)
+    run.services[name]["spec"] = copy.deepcopy(born_with["spec"])
 
     await backend.upgrade(_spec())
 
@@ -290,6 +292,55 @@ async def test_upgrade_keeps_the_memory_bucket_identity_and_service_account(copy
     # Everything except the image is byte-identical between the two renders.
     assert {k: v for k, v in after.items()} == {k: v for k, v in before.items()}
     assert _image_of(born_with).endswith(f"@{OLD}") and _image_of(upgraded).endswith(f"@{NEW}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_policy", [False, True])
+async def test_image_update_preserves_observed_policy_despite_registry_drift(
+    copy_log, monkeypatch, explicit_policy
+):
+    name = ugb._service_name(HUSHH_ID)
+    run = FakeRun(name, existing_digest=OLD)
+    backend = _backend(run)
+    spec = replace(_spec(), resource_tier="warm")
+    existing = backend.render_deploy_config(spec, image_digest=OLD)
+    old = existing["spec"]["template"]
+    old["metadata"]["annotations"].update(
+        {"autoscaling.knative.dev/minScale": "0", "run.googleapis.com/cpu-throttling": "true"}
+    )
+    old["spec"]["timeoutSeconds"] = 300
+    policy = {
+        "POD_MEMORY_BACKEND": "commit_log",
+        "POD_MEMORY_BANK_LOCATION": "owner-region",
+        "POD_LOCAL_PKM_ENABLED": "false",
+        "HUSSH_POD_MIGRATION_ENABLED": "false",
+    }
+    env = old["spec"]["containers"][0]["env"]
+    env[:] = [e for e in env if e["name"] not in {*policy, "CORS_ALLOWED_ORIGINS"}]
+    env.append({"name": "CORS_ALLOWED_ORIGINS", "value": "https://dev.example.test"})
+    if explicit_policy:
+        env.extend({"name": key, "value": value} for key, value in policy.items())
+    run.services[name]["spec"] = copy.deepcopy(existing["spec"])
+    observed = copy.deepcopy(run.services[name])
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://different.example.test")
+    monkeypatch.setenv("POD_LOCAL_PKM_ENABLED", "true")
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "true")
+
+    handle = await backend.upgrade(spec)
+
+    updated = run.replaced[0]
+    after = _env_of(updated)
+    assert after["CORS_ALLOWED_ORIGINS"] == "https://dev.example.test"
+    assert {key: after[key] for key in policy if key in after} == (
+        policy if explicit_policy else {}
+    )
+    actual = updated["spec"]["template"]
+    assert actual["spec"]["timeoutSeconds"] == 300
+    for key in ("autoscaling.knative.dev/minScale", "run.googleapis.com/cpu-throttling"):
+        assert actual["metadata"]["annotations"][key] == old["metadata"]["annotations"][key]
+    assert handle.backend_metadata["livenessMode"] == "economy"
+    assert _image_of(updated).endswith(NEW)
+    assert observed["spec"] == existing["spec"]
 
 
 @pytest.mark.asyncio

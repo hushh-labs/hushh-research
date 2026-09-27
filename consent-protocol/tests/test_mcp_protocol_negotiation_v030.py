@@ -19,13 +19,24 @@ EXPECTED_TOOLS = [
 ]
 
 
+def _stopped_server_diagnostics(process: subprocess.Popen[str]) -> str:
+    # Reading stderr from a live stdio server can wait forever for EOF. Stop
+    # this test-owned child before collecting bounded timeout diagnostics.
+    process.terminate()
+    try:
+        _, stderr = process.communicate(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _, stderr = process.communicate(timeout=2)
+    return (stderr or "")[:2000]
+
+
 def _read_json_line(process: subprocess.Popen[str], timeout: float = 10.0) -> dict:
     ready, _, _ = select.select([process.stdout], [], [], timeout)
     if not ready or process.stdout is None:
-        stderr = process.stderr.read(2000) if process.stderr else ""
-        raise AssertionError(f"MCP server did not respond: {stderr}")
+        raise AssertionError(f"MCP server did not respond: {_stopped_server_diagnostics(process)}")
     line = process.stdout.readline()
-    assert line, process.stderr.read(2000) if process.stderr else ""
+    assert line, _stopped_server_diagnostics(process)
     return json.loads(line)
 
 

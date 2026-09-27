@@ -63,7 +63,11 @@ from either serving service.
 `.github/workflows/deploy-production.yml` runs the same controls as UAT. Every
 backend deploy does these steps in order:
 
-1. Build the backend image once and pin its exact linux/amd64 digest.
+1. Build the backend image once and pin its exact linux/amd64 digest. With
+   `backend_image_source=promote-from-uat`, copy the digest UAT verified for
+   this SHA into the production registry instead of rebuilding (see
+   [CI: deploy image pipeline](./ci.md#deploy-image-pipeline)); the pin and every
+   later check are unchanged.
 2. Install the deletion fence on `hushh-pda:us-central1:hushh-vault-db`
    (database `hushh_vault`).
 3. Install the fence again, run the production release migrations, then verify

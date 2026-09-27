@@ -19,7 +19,7 @@ import path from "node:path";
  *   2. The CONDITIONAL EXPRESSIONS themselves. `gateExpression` is the literal
  *      source text of the guard that decides whether One's cloud model picker
  *      renders, and the fixture EXECUTES it with `isPuppySurface` bound. Delete
- *      the guard, invert it, or move it onto the slot around it, and the
+ *      the guard, invert it, or reorder the actions around it, and the
  *      fixture's screen changes with the product's.
  *
  * Every extraction is anchored and asserted. A rename this file cannot follow
@@ -121,10 +121,23 @@ const headerContainerClass = one(
   WORKSPACE_PATH,
 )[1];
 
+/**
+ * The header is three flex regions and only the middle one may give way:
+ * history (fixed), identity (flex-1, clips), actions (shrink-0). The identity
+ * region carries a data attribute so this anchor names the region, not a
+ * styling that may change under it.
+ */
 const identityClass = one(
   header,
-  /<div className="(flex min-w-0 items-center gap-3)">/,
-  "identity cluster class",
+  /data-agent-chat-header-region="identity"\s+className="([^"]+)"/,
+  "identity region class",
+  WORKSPACE_PATH,
+)[1];
+
+const brandTileClass = one(
+  header,
+  /data-agent-chat-brand-tile\s+className="([^"]+)"/,
+  "brand tile class",
   WORKSPACE_PATH,
 )[1];
 
@@ -135,22 +148,28 @@ const nameMatch = one(
   WORKSPACE_PATH,
 );
 
+/**
+ * The subtitle is `ChatAgentSubtitle`, defined above the component, so its
+ * class is read from the whole file. It also carries One's live status (the
+ * running tool, or the stream's status text) in place of a separate status
+ * slot. That half is runtime state no fixture can hold, so the fixture renders
+ * the idle subtitle: the Puppy literal and One's resting fallback, both read
+ * from the shipped ternary.
+ */
 const subtitleClass = one(
   workspace,
-  /<p aria-live="polite" className="([^"]+)">/,
+  /function ChatAgentSubtitle[\s\S]*?<p aria-live="polite" className="([^"]+)">/,
   "agent subtitle class",
   WORKSPACE_PATH,
 )[1];
 
-// The shipped subtitle can show tool activity during a turn. This static
-// layout fixture measures the resting labels for the two agent modes.
-const subtitleLabels = one(
+const subtitleMatch = one(
   header,
-  /<ChatAgentSubtitle text=\{isPuppySurface\s*\?\s*"([^"]+)"\s*:[\s\S]*?:\s*(?:statusText\s*\|\|\s*)?"([^"]+)"\}\s*\/>/,
-  "agent subtitle mode labels",
+  /<ChatAgentSubtitle text=\{\s*isPuppySurface\s*\?\s*("[^"]*")\s*:[\s\S]*?statusText \|\| ("[^"]*")\s*\}\s*\/>/,
+  "agent subtitle expression",
   WORKSPACE_PATH,
 );
-const subtitleExpression = `isPuppySurface ? "${subtitleLabels[1]}" : "${subtitleLabels[2]}"`;
+const subtitleExpression = `isPuppySurface ? ${subtitleMatch[1]} : ${subtitleMatch[2]}`;
 
 const clusterClass = one(
   header,
@@ -176,27 +195,51 @@ const toggleOptionsLiteral = one(
 if (/[(`;]/.test(toggleOptionsLiteral)) {
   fail("a plain toggle-options literal", WORKSPACE_PATH);
 }
+// The options name lucide icons (`icon: Cloud`); bound here to their names,
+// which the fixture renders as an icon-sized placeholder.
 const toggleOptions = new Function(
+  "Cloud",
+  "Laptop",
   `"use strict"; return (${toggleOptionsLiteral});`,
-)() as Array<{ value: string; label: string; accessibleLabel?: string }>;
+)("Cloud", "Laptop") as Array<{
+  value: string;
+  label: string;
+  icon?: string;
+  accessibleLabel?: string;
+}>;
+
+const toggleIconClass = one(
+  header,
+  /<SegmentedControl[\s\S]*?iconClassName="([^"]*)"/,
+  "toggle icon class",
+  WORKSPACE_PATH,
+)[1];
+
+const toggleLabelClass = one(
+  header,
+  /<SegmentedControl[\s\S]*?labelClassName="([^"]*)"/,
+  "toggle label class",
+  WORKSPACE_PATH,
+)[1];
+
+const profileClass = one(
+  header,
+  /data-testid="profile-open-button"[\s\S]*?className="([^"]+)"/,
+  "profile button class",
+  WORKSPACE_PATH,
+)[1];
 
 /**
- * The slot the picker sits in, and the guard on the picker itself.
+ * The guard on the picker, and the order of the header's actions.
  *
- * These are two different conditions on purpose. The slot is reserved for
- * anyone who HAS a picker, in either mode, so the toggle beside it cannot slide
- * out from under the thumb that just pressed it; the picker inside it is what
- * the mode gates. A "fix" that merges them by adding `&& !isPuppySurface` to
- * the slot passes a presence check and reintroduces the jump, which is why the
- * spec measures the toggle's edge as well as the picker's absence.
+ * The picker is gated on the surface: it must not exist on Puppy One's screen.
+ * What keeps the toggle from sliding when it comes and goes is ORDER, not a
+ * reserved slot: picker, toggle, profile, with the toggle anchored to the
+ * profile button at the right edge, so the picker appears and leaves on the far
+ * side of the toggle. The order is read from the source and the fixture renders
+ * the actions in it, so a reorder that puts the picker between the toggle and
+ * its anchor moves the toggle here as well, and the spec measures that.
  */
-const slotMatch = one(
-  header,
-  /\{\s*([^{}\n]+?)\s*\?\s*\(\s*<span className="([^"]+)">/,
-  "the picker slot",
-  WORKSPACE_PATH,
-);
-
 const pickerGateMatch = one(
   header,
   /\{\s*([^{}\n]+?)\s*\?\s*\(\s*<Select\b/,
@@ -224,6 +267,16 @@ const profileButton = one(
   "the profile button",
   WORKSPACE_PATH,
 );
+const actionAnchors = {
+  picker: header.indexOf("<Select\n"),
+  toggle: header.indexOf("<SegmentedControl"),
+  profile: header.indexOf('data-testid="profile-open-button"'),
+};
+if (Object.values(actionAnchors).some((at) => at < 0)) {
+  fail("the header actions (picker, toggle, profile)", WORKSPACE_PATH);
+}
+const actionOrder = (Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>)
+  .sort((a, b) => actionAnchors[a] - actionAnchors[b]);
 
 /**
  * The two `hidden` guards below the header, read from the whole file because
@@ -326,7 +379,7 @@ if (/[(`;]/.test(segmentedSmLiteral)) {
 }
 const segmentedSm = new Function(
   `"use strict"; return (${segmentedSmLiteral});`,
-)() as { container: string; segment: string };
+)() as { container: string; segment: string; icon: string };
 
 const segmentedGroupClasses = [
   ...one(
@@ -348,7 +401,11 @@ export const AGENT_SURFACE_SOURCE = {
   header: {
     containerClass: headerContainerClass,
     identityClass,
+    brandTileClass,
     clusterClass,
+    /** Source order of the actions, e.g. ["picker", "toggle", "profile"]. */
+    actionOrder,
+    profileClass,
     nameClass: nameMatch[1],
     /** `isPuppySurface ? "Puppy One" : "One"`, run by the fixture. */
     nameExpression: flatten(nameMatch[2]),
@@ -365,11 +422,10 @@ export const AGENT_SURFACE_SOURCE = {
     options: toggleOptions,
     containerClass: [...segmentedGroupClasses, segmentedSm.container].join(" "),
     segmentClass: `${segmentedSegmentBase} ${segmentedSm.segment} flex-1`,
+    iconClass: `${segmentedSm.icon} ${toggleIconClass}`,
+    labelClass: `whitespace-nowrap ${toggleLabelClass}`,
   },
   cloudPicker: {
-    /** The guard on the reserved slot. Must NOT depend on the surface. */
-    slotExpression: flatten(slotMatch[1]),
-    slotClass: slotMatch[2],
     /** The guard on the control itself. This is the reported defect's fix. */
     gateExpression: flatten(pickerGateMatch[1]),
     testId: triggerMatch[1],

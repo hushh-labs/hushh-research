@@ -22,6 +22,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Cloud,
   Copy,
   FileText,
   KeyRound,
@@ -6556,18 +6557,39 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            <div className="flex min-w-0 items-center gap-3">
-              <ShellActionSurface
-                variant="icon"
-                ref={historyDrawerFallbackRef}
-                onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
-                aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
-                title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
-                className="relative z-[540]"
+            {/*
+              Three flex regions, and only the middle one may give way:
+              [history] [identity: flex-1, clips] [actions: shrink-0].
+              The identity region used to share a group with the history
+              button and carried no clip, so on a 390px phone the actions
+              (then 281px, with a fixed-width picker slot) squeezed it below
+              its own minimum and the brand tile painted under the One | Puppy
+              toggle while the agent's name collapsed to zero width. Clipping
+              the identity horizontally makes that overlap impossible by
+              construction: whatever does not fit is cut at its own edge and
+              truncates, it never slides under a control.
+            */}
+            <ShellActionSurface
+              variant="icon"
+              ref={historyDrawerFallbackRef}
+              onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
+              aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+              title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+              className="relative z-[540]"
+            >
+              <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
+            </ShellActionSurface>
+            <div
+              data-agent-chat-header-region="identity"
+              className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
+            >
+              {/* Hidden on phones: the title beside it and the toggle's active
+                  segment already say which agent is on screen, and the 48px
+                  this tile costs is better spent on the agent's name. */}
+              <div
+                data-agent-chat-brand-tile
+                className="grid h-9 w-9 shrink-0 place-items-center max-sm:hidden"
               >
-                <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
-              </ShellActionSurface>
-              <div className="grid h-9 w-9 shrink-0 place-items-center">
                 {isPuppySurface ? (
                   <Laptop
                     className="h-5 w-5 text-[color:var(--app-accent-deep)]"
@@ -6584,7 +6606,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   <span
                     aria-label="One"
                     role="img"
-                    className="hushh-brand-mark select-none text-[24px] leading-none max-sm:text-[30px]"
+                    className="hushh-brand-mark select-none text-[24px] leading-none"
                   >
                     🤫
                   </span>
@@ -6606,63 +6628,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
             <div className="flex shrink-0 items-center gap-2">
               {/*
-                The compact segmented control at header scale. The full-width
-                filter primitive was tried here first and stood ~44px tall
-                against 36px icon buttons, so the header stopped lining up.
-                This one is h-8. It has NO sliding thumb: the active segment is
-                a per-button background that cross-fades, and a comment here
-                used to claim a slide the code never had. `SegmentedPill` is
-                the primitive that ships the translateX indicator, with its own
-                theme hooks and reduced-motion guard; the day this header wants
-                that animation it should move to that component rather than
-                grow a second implementation of it.
+                Order is picker, toggle, profile, and it is load-bearing. The
+                toggle is anchored to the profile button at the right edge, so
+                the picker appearing (its async load on every One mount) or
+                disappearing (it is One-only) cannot slide the toggle out from
+                under the thumb that just pressed it. That used to be held by a
+                fixed-width slot reserved for the picker, which cost ~70px of
+                dead space beside the toggle at every width and, on a phone,
+                was the width that pushed the identity under the toggle.
               */}
-              <SegmentedControl
-                variant="compact"
-                size="sm"
-                ariaLabel="Agent"
-                value={agentSurface}
-                onValueChange={(next) => {
-                  const surface = next as AgentChatSurface;
-                  if (surface === "puppy") {
-                    enterPuppySurface();
-                    return;
-                  }
-                  setAgentSurface(surface);
-                }}
-                options={[
-                  {
-                    value: "one",
-                    label: "One",
-                    accessibleLabel: "One, your cloud agent",
-                  },
-                  {
-                    value: "puppy",
-                    label: "Puppy",
-                    accessibleLabel:
-                      "Puppy One, on your machine, with its own conversation",
-                  },
-                ]}
-                className="w-auto shrink-0"
-              />
-              {/* A fixed slot, present whenever this person HAS a picker,
-                  so switching surfaces cannot slide the toggle sideways under
-                  the thumb that just pressed it. This is the same jump the
-                  status slot below was widened to stop, and the picker is the
-                  higher-frequency control of the two: it also pops in after
-                  the async load on every One mount. An explicit width, because
-                  a spacer carrying only max-w collapses to zero; and no slot
-                  at all for someone with a single model, so the header does
-                  not reserve space for a control they never see. */}
-              {canPickOneModel && modelPreference ? (
-              <span className="flex w-[7.5rem] shrink-0 justify-end sm:w-[9.5rem]">
               {/* One's model picker names the CLOUD model and writes One's
                   preference. In Puppy One it would assert a Gemini is running
                   on the owner's machine, and choosing an item would silently
                   rewrite the other agent's model with no visible consequence
                   on the screen being looked at. Gated, not merely hidden: the
                   write must not stay reachable from the on-device surface. */}
-              {!isPuppySurface ? (
+              {canPickOneModel && modelPreference && !isPuppySurface ? (
                 <Select
                   value={modelPreference.effective_model}
                   onValueChange={(nextModel) => {
@@ -6690,7 +6671,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-full shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground"
+                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
                     {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
@@ -6718,8 +6699,55 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </SelectContent>
                 </Select>
               ) : null}
-              </span>
-              ) : null}
+              {/*
+                The compact segmented control at header scale. The full-width
+                filter primitive was tried here first and stood ~44px tall
+                against 36px icon buttons, so the header stopped lining up.
+                This one is h-8. It has NO sliding thumb: the active segment is
+                a per-button background that cross-fades, and a comment here
+                used to claim a slide the code never had. `SegmentedPill` is
+                the primitive that ships the translateX indicator, with its own
+                theme hooks and reduced-motion guard; the day this header wants
+                that animation it should move to that component rather than
+                grow a second implementation of it.
+
+                On a phone it is icon-only (cloud: One, laptop: Puppy), which
+                takes it from 113px to 84px at the same h-8. Each segment keeps
+                its spoken name through `accessibleLabel`, so hiding the visible
+                word removes nothing from a screen reader.
+              */}
+              <SegmentedControl
+                variant="compact"
+                size="sm"
+                ariaLabel="Agent"
+                value={agentSurface}
+                onValueChange={(next) => {
+                  const surface = next as AgentChatSurface;
+                  if (surface === "puppy") {
+                    enterPuppySurface();
+                    return;
+                  }
+                  setAgentSurface(surface);
+                }}
+                options={[
+                  {
+                    value: "one",
+                    label: "One",
+                    icon: Cloud,
+                    accessibleLabel: "One, your cloud agent",
+                  },
+                  {
+                    value: "puppy",
+                    label: "Puppy",
+                    icon: Laptop,
+                    accessibleLabel:
+                      "Puppy One, on your machine, with its own conversation",
+                  },
+                ]}
+                iconClassName="sm:hidden"
+                labelClassName="max-sm:hidden"
+                className="w-auto shrink-0"
+              />
               <ShellActionSurface
                 variant="icon"
                 data-testid="profile-open-button"

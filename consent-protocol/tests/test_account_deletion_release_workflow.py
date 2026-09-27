@@ -768,6 +768,9 @@ def test_production_build_step_pins_executable_manifest(tmp_path: Path) -> None:
     environment = os.environ.copy()
     environment.pop("BASH_ENV", None)
     environment["GITHUB_OUTPUT"] = output_path.as_posix()
+    # The default dispatch input: rebuild from source at the SHA (today's path).
+    environment["BACKEND_IMAGE_SOURCE"] = "build-from-source"
+    environment.pop("UAT_VERIFIED_IMAGE_REFERENCE", None)
     bash = shutil.which("bash")
     assert bash is not None, "Bash is required for the workflow behavior test"
     result = subprocess.run(  # noqa: S603 - trusted workflow, fixed inputs, guarded cloud commands
@@ -781,7 +784,10 @@ def test_production_build_step_pins_executable_manifest(tmp_path: Path) -> None:
     )
     assert "UNEXPECTED_" not in result.stdout + result.stderr
     assert result.returncode == 0, result.stdout + result.stderr
-    assert output_path.read_text().strip() == f"image_reference={repository}@{child_digest}"
+    assert output_path.read_text().splitlines() == [
+        f"image_reference={repository}@{child_digest}",
+        "image_source=build-from-source",
+    ]
 
 
 def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -> None:

@@ -86,10 +86,12 @@ identity. Keep `GOOGLE_CLOUD_PROJECT` owner-local; do not copy the hub's
 `GENAI_GOOGLE_CLOUD_PROJECT` into pod configuration or grant the pod access to
 the hub's model bridge. Memory Bank, storage and encryption remain owner-local.
 
-The dev hub uses `hushh-vertex-personal54` only for Gemini/Vertex model calls.
-Its native project and billing linkage remain unchanged. Verify model routing
-and prediction access separately for hub and pod; a working hub bridge does not
-prove that the owner's Vertex project is ready.
+The dev hub's model project is selected by the governed build's
+`_GENAI_PROJECT_ID` setting and cross-project allowlist in
+`deploy/backend.cloudbuild.yaml`; the current dev default is `hushh-pda-uat`.
+Its native project and billing linkage remain separate. Verify the serving
+revision's model routing and prediction access independently for hub and pod;
+a configured bridge or enabled billing does not prove provider access.
 
 ### One-time legacy bootstrap exception
 

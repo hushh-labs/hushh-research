@@ -97,6 +97,8 @@ for (const width of [320, 393, 768, 1440]) {
       const subBox = (await subtitle.boundingBox())!;
       const cardBox = (await card.boundingBox())!;
       const buttonBox = (await finish.boundingBox())!;
+      expect(buttonBox.width).toBeCloseTo(width >= 640 ? 320 : cardBox.width, 0);
+      expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(cardBox.x + cardBox.width / 2, 0);
       expect(cardBox.y - subBox.y - subBox.height).toBeCloseTo(24, 0);
       expect(buttonBox.y - cardBox.y - cardBox.height).toBeCloseTo(16, 0);
       await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");

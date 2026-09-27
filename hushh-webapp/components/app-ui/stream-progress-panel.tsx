@@ -101,7 +101,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
                     </span>
                   ) : null}
                   {typeof item.durationMs === "number" && Number.isFinite(item.durationMs) && status !== "running" ? (
-                    <span className="ml-2 font-normal tabular-nums text-muted-foreground" data-operation-timing={status}>
+                    <span className="font-normal tabular-nums text-muted-foreground" data-operation-timing={status}>
                       {(Math.max(0, item.durationMs) / 1000).toFixed(1)}s
                     </span>
                   ) : null}

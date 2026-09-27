@@ -503,7 +503,7 @@ def test_prepare_turn_seals_title_and_message_and_excludes_legacy_rows() -> None
 def test_no_chat_store_can_reach_the_platform_key() -> None:
     for relative in (
         "hushh_mcp/services/agent_chat_service.py",
-        "hushh_mcp/one_adk/encrypted_session_service.py",
+        "hushh_mcp/one_adk/adk_session_repository.py",
         "hushh_mcp/services/command_checkpoints.py",
         "hushh_mcp/services/chat_key.py",
     ):
@@ -677,15 +677,15 @@ async def test_stream_maps_a_stringified_key_error_to_the_recovery_message(monke
 
 
 def test_only_the_chat_stores_touch_chat_ciphertext_columns() -> None:
-    """Migration 249 replays on every deploy and deletes any unmarked chat row.
+    """The history cutover deletes unmarked legacy chat rows when activated.
 
     A new writer that bypassed ChatCipher would therefore be wiped silently on the
-    next deploy. Keep every write to these columns inside the three chat stores.
+    cutover. Keep these columns in the chat stores and their sealed-record adapter.
     """
     import re as _re
 
     allowed = {
-        "hushh_mcp/one_adk/encrypted_session_service.py",
+        "hushh_mcp/one_adk/adk_session_repository.py",
         "hushh_mcp/services/agent_chat_service.py",
         "hushh_mcp/services/command_checkpoints.py",
     }

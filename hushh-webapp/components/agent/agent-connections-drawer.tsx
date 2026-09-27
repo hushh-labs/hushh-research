@@ -204,7 +204,9 @@ export function AgentConnectionsDrawer({
       <div
         aria-hidden="true"
         className={cn(
-          "fixed inset-0 bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          // Anchored below the chat header like the drawer panel, so the dim layer never
+          // covers the header controls (agent toggle, close) above it.
+          "absolute inset-x-0 bottom-0 top-[var(--agent-chat-header-height)] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
           "z-(--z-sheet-overlay)",
           historyOpen ? "opacity-100" : "pointer-events-none opacity-0",
         )}

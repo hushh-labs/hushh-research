@@ -64,6 +64,10 @@ Verification:
 2. Prefer this ladder: static inspection, typecheck or lint, focused unit test, integration test, runtime or browser verification, build or deploy smoke check.
 3. Do not claim certainty without saying what was verified.
 4. State remaining risks or unverified areas clearly.
+5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
+6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
+7. Before a push, run the local core mirror `scripts/ci/orchestrate.sh core` (secret, governance, protocol and web-core in parallel, then mcp-package and integration). GitHub Actions is the authority for the browser layout packs and the full web suite; do not rerun every CI stage locally before each push.
+8. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
 Communication:
 

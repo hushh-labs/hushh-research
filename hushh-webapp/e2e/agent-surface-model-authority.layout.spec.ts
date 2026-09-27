@@ -38,7 +38,7 @@ import {
  * expressions that decide whether One's picker renders are extracted from
  * `agent-chat-workspace.tsx` by `e2e/fixtures/agent-surface-source.ts` and
  * EXECUTED here with `isPuppySurface` bound. Delete the guard, invert it, or
- * fold it into the slot around it, and the fixture's screen changes with the
+ * reorder the actions around it, and the fixture's screen changes with the
  * product's. A stale copy of any of it fails at build time, loudly, by name.
  *
  * WHY A NAIVE VERSION OF THIS TEST WOULD LIE
@@ -48,7 +48,7 @@ import {
  *     is the symptom, not the selector: no cloud model name may reach the
  *     reader in Puppy mode, by visible text, `title` or accessible name.
  *   - Asserting only "the picker is gone" would pass against a fix that drops
- *     the reserved slot with it, sliding the mode toggle sideways under the
+ *     the toggle's anchor with it, sliding the mode toggle sideways under the
  *     thumb that just pressed it. The toggle's own edge is measured across the
  *     switch, at six widths.
  *   - Asserting "One's composer is not visible" with a DOM query would pass
@@ -100,13 +100,13 @@ interface Variant {
   /** Whether this person has more than one cloud model to choose between. */
   canPickOneModel: boolean;
   /**
-   * `false` reproduces the header AS REPORTED: no reserved slot, and One's
-   * picker gated only on `modelPreference && modelPreference.choices.length > 1`.
+   * `false` reproduces the header AS REPORTED: One's picker gated only on
+   * `modelPreference && modelPreference.choices.length > 1`.
    *
    * That condition is retyped here on purpose, from the defect's own diff, and
    * is the only retyped condition in this file. It has to be: it no longer
    * exists in the shipped source to extract, and pinning the negative control
-   * to today's slot markup would make it fail for reasons that have nothing to
+   * to today's header markup would make it fail for reasons that have nothing to
    * do with the defect it exists to reproduce.
    */
   applyShippedGate: boolean;
@@ -135,20 +135,14 @@ function decide(mode: Mode, variant: Variant) {
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
   };
-  const slotted = variant.applyShippedGate
-    ? Boolean(evaluateShippedExpression(SRC.cloudPicker.slotExpression, scope))
-    : // The defect had no reserved slot; the picker sat in the cluster bare.
-      false;
   const showPicker = variant.applyShippedGate
-    ? slotted &&
-      Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
+    ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
     : MODEL_PREFERENCE.choices.length > 1;
   return {
     name: String(evaluateShippedExpression(SRC.header.nameExpression, scope)),
     subtitle: String(
       evaluateShippedExpression(SRC.header.subtitleExpression, scope),
     ),
-    showSlot: slotted,
     showPicker,
     oneHidden: String(
       evaluateShippedExpression(SRC.visibility.oneHiddenExpression, scope) || "",
@@ -190,7 +184,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
       return `<button type="button" role="radio" data-mode="${option.value}"
         aria-checked="${active}" aria-label="${escapeHtml(option.accessibleLabel ?? option.label)}"
         class="${SRC.toggle.segmentClass}${active ? " bg-background text-foreground shadow-sm" : " text-muted-foreground"}"
-      >${escapeHtml(option.label)}</button>`;
+      >${option.icon ? `<span aria-hidden="true" class="inline-block ${SRC.toggle.iconClass}"></span>` : ""}<span class="${SRC.toggle.labelClass}">${escapeHtml(option.label)}</span></button>`;
     })
     .join("");
 
@@ -203,29 +197,28 @@ function renderScreen(mode: Mode, variant: Variant): string {
        ><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
     : "";
 
-  // The shipped header wraps the picker in a reserved slot. The header as
-  // reported had no slot, so the picker hangs in the cluster on its own.
-  const slot = plan.showSlot
-    ? `<span class="${SRC.cloudPicker.slotClass}">${picker}</span>`
-    : picker;
+  const toggle = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
+             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
+  const profile = `<button type="button" data-testid="${SRC.header.profileButton.testId}"
+             aria-label="${escapeHtml(SRC.header.profileButton.ariaLabel)}"
+             class="${SRC.header.profileButton.className}"><span class="h-8 w-8">P</span></button>`;
+  // Rendered in the shipped source order, so the toggle's anchor is whatever
+  // the product anchors it to.
+  const actions = SRC.header.actionOrder
+    .map((action) => ({ picker, toggle, profile })[action])
+    .join("");
 
   const header = `
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
-      <div class="${SRC.header.identityClass}">
-        <div class="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)]"></div>
+      <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
+      <div data-testid="agent-identity" class="${SRC.header.identityClass}">
+        <div class="${SRC.header.brandTileClass}"></div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           <p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>
         </div>
       </div>
-      <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">
-        <div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>
-        ${slot}
-        <button type="button" data-testid="${SRC.header.profileButton.testId}"
-          aria-label="${escapeHtml(SRC.header.profileButton.ariaLabel)}"
-          class="${SRC.header.profileButton.className}"><span class="h-8 w-8">P</span></button>
-      </div>
+      <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
     </div>`;
 
   /*
@@ -590,17 +583,19 @@ test.describe("Agent Chat: which agent is answering", () => {
         header: await box(page, "agent-header"),
       };
 
-      // The reserved slot is why this holds: it is guarded on whether this
-      // person HAS a picker, never on which surface is showing. Fold the mode
-      // into that guard and the slot collapses, dragging the toggle sideways
-      // out from under the thumb that just pressed it.
-      expect(SRC.cloudPicker.slotExpression).not.toContain("isPuppySurface");
+      // Order is why this holds: the picker leaves on the far side of the
+      // toggle, which is anchored to the profile button at the right edge. Put
+      // the picker between them and its exit drags the toggle sideways out
+      // from under the thumb that just pressed it.
       expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(0.5);
       expect(Math.abs(after.toggle.width - before.toggle.width)).toBeLessThanOrEqual(0.5);
       expect(Math.abs(after.toggle.y - before.toggle.y)).toBeLessThanOrEqual(0.5);
 
-      // The whole right-hand cluster keeps its box, and stays on the page.
-      expect(Math.abs(after.cluster.width - before.cluster.width)).toBeLessThanOrEqual(0.5);
+      // The right-hand cluster keeps its right edge (it narrows by exactly the
+      // picker it lost), and stays on the page.
+      expect(
+        Math.abs(after.cluster.x + after.cluster.width - (before.cluster.x + before.cluster.width)),
+      ).toBeLessThanOrEqual(0.5);
       expect(after.cluster.x + after.cluster.width).toBeLessThanOrEqual(width + 0.5);
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
@@ -608,15 +603,26 @@ test.describe("Agent Chat: which agent is answering", () => {
       // is three times "One", and the identity block it sits in is the half
       // that is allowed to shrink.
       expect(Math.abs(after.header.height - before.header.height)).toBeLessThanOrEqual(0.5);
+
+      // Nothing slides under a control: the identity region ends before the
+      // actions begin, in both modes. This is the 390px defect where the brand
+      // tile painted under the toggle and the name collapsed to zero width.
+      for (const mode of ["puppy", "one"] as const) {
+        if (mode === "one") await switchTo(page, "one");
+        const identity = await box(page, "agent-identity");
+        const cluster = await box(page, "agent-header-cluster");
+        expect(identity.x + identity.width).toBeLessThanOrEqual(cluster.x + 0.5);
+        expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
+      }
     });
   }
 
-  test("a person with a single cloud model gets no reserved slot, and the toggle still holds still", async ({
+  test("a person with a single cloud model gets no picker, and the toggle still holds still", async ({
     page,
   }) => {
-    // The slot is reserved only for someone who HAS a picker; the header must
-    // not hold space for a control they never see. That is a second shape the
-    // stability property has to survive.
+    // No picker in either mode: the header holds no space for a control this
+    // person never sees. That is a second shape the stability property has to
+    // survive.
     await openFixture(page, SINGLE_MODEL, 390);
     await expect(page.getByTestId(SRC.cloudPicker.testId)).toHaveCount(0);
     const before = await box(page, "agent-toggle");

@@ -274,6 +274,14 @@ def test_auto_missing_deployed_sha_falls_back_to_all() -> None:
     assert decision.reason == "auto:fallback_missing_deployed_sha"
 
 
+def test_frontend_image_build_config_is_frontend_scoped() -> None:
+    resolver = load_module()
+    # The build-only web config compiles the frontend image and nothing else;
+    # changing it must not force a backend deploy (and its migration fence).
+    assert resolver.classify_path("deploy/frontend-image.cloudbuild.yaml") == "frontend"
+    assert resolver.classify_path("deploy/frontend.cloudbuild.yaml") == "frontend"
+
+
 def main() -> int:
     tests = [
         test_explicit_scope_overrides_paths,
@@ -287,6 +295,7 @@ def main() -> int:
         test_auto_neutral_workflow_plus_frontend_stays_frontend,
         test_auto_missing_deployed_sha_falls_back_to_all,
         test_auto_single_surface_lifecycle_change_deploys_both,
+        test_frontend_image_build_config_is_frontend_scoped,
     ]
     for test in tests:
         test()

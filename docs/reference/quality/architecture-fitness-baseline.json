@@ -1,5 +1,5 @@
 {
-  "finding_count": 1888,
+  "finding_count": 1889,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -179,7 +179,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "UserGcpBackend",
-      "value": 1534
+      "value": 1536
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1376,7 +1376,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_personal_agent_renewal_authority.py",
       "symbol": "test_erasure_memory_binding_is_append_only_and_attempt_bound",
-      "value": 1236
+      "value": 1241
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2744,7 +2744,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "upgrade",
-      "value": 203
+      "value": 205
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3095,7 +3095,7 @@
       "limit": 80,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": "apply_manifest_entries",
-      "value": 183
+      "value": 192
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10502,7 +10502,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 8119
+      "value": 8147
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11132,7 +11132,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_renewal_authority.py",
       "symbol": null,
-      "value": 2074
+      "value": 2191
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11276,7 +11276,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migrate.py",
       "symbol": null,
-      "value": 1852
+      "value": 1856
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11321,7 +11321,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": null,
-      "value": 1800
+      "value": 1802
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11420,7 +11420,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 1681
+      "value": 1695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11510,7 +11510,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_image_upgrade_path.py",
       "symbol": null,
-      "value": 1612
+      "value": 1663
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11870,7 +11870,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_location_command_postgres.py",
       "symbol": null,
-      "value": 1364
+      "value": 1365
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13247,7 +13247,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_deletion_release_workflow.py",
       "symbol": null,
-      "value": 918
+      "value": 924
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14858,7 +14858,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 656
+      "value": 662
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15200,7 +15200,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 628
+      "value": 745
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15326,7 +15326,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 618
+      "value": 626
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15794,7 +15794,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
-      "value": 583
+      "value": 723
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16992,6 +16992,15 @@
       "path": "consent-protocol/api/routes/account.py",
       "symbol": "revoke_trusted_device",
       "value": 92
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_production_image_promotion_contract.py|_preflight|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_production_image_promotion_contract.py",
+      "symbol": "_preflight",
+      "value": 81
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -17636,6 +17645,90 @@
       "scope": "Nineteen individually reviewed imported size findings; no budget or authority rule relaxed. 162 backend and 140 frontend tests pass; live acceptance remains separate.",
       "source": "51296b7b1"
     },
+    "main_refresh_20260926": {
+      "accepted_findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/db/migration_authority.py|apply_manifest_entries|function exceeds the advisory gene budget",
+          "previous_value": 183,
+          "reason": "Incoming migration replay guards and bounded lock diagnostics with their regression fixtures; release249 remains public-profile and cleanup250 remains parked.",
+          "value": 192
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/tests/test_production_image_promotion_contract.py|_preflight|function exceeds the advisory gene budget",
+          "previous_value": null,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 81
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+          "previous_value": 8119,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 8147
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/db/migrate.py||module exceeds the advisory operon budget",
+          "previous_value": 1852,
+          "reason": "Incoming migration replay guards and bounded lock diagnostics with their regression fixtures; release249 remains public-profile and cleanup250 remains parked.",
+          "value": 1856
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+          "previous_value": 1681,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 1695
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/services/test_location_command_postgres.py||module exceeds the advisory operon budget",
+          "previous_value": 1364,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 1365
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+          "previous_value": 918,
+          "reason": "Incoming migration replay guards and bounded lock diagnostics with their regression fixtures; release249 remains public-profile and cleanup250 remains parked.",
+          "value": 924
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+          "previous_value": 628,
+          "reason": "Incoming migration replay guards and bounded lock diagnostics with their regression fixtures; release249 remains public-profile and cleanup250 remains parked.",
+          "value": 745
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+          "previous_value": 583,
+          "reason": "Incoming migration replay guards and bounded lock diagnostics with their regression fixtures; release249 remains public-profile and cleanup250 remains parked.",
+          "value": 723
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+          "previous_value": 656,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 662
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+          "previous_value": 618,
+          "reason": "Reviewed incoming main test or layout composition: preserve setup prerequisites, pod status, owner approval, source-derived geometry and BYOK fixture authority; no authority relocation.",
+          "value": 626
+        }
+      ],
+      "incoming_main": "5a35a0993eb0e7725ec11b22b34200c58349e579",
+      "policy": "Only reviewed incoming/composed size debt; thresholds and non-size findings unchanged.",
+      "source_revision": "100b489c5b2c61b4057c1bfc9ada9d5bacbe9530"
+    },
     "pod_replacement_observation_20260926": {
       "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#crash-recovery-and-continued-verification--2026-09-26",
       "findings": [
@@ -18247,6 +18340,47 @@
       "verification": "Independent retained_recovery_verification review; PostgreSQL concurrency, issued-ceiling and UI boundary checks. Complete CI required."
     },
     "scope": "Frozen main/ADK plus Files integration after compatibility-preserving extractions; no budget, dependency or import-initialization rules relaxed.",
+    "update_erasure_20260927": {
+      "accepted_findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "class_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|UserGcpBackend|class exceeds the advisory operon budget",
+          "previous_value": 1534,
+          "value": 1536
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/tests/test_personal_agent_renewal_authority.py|test_erasure_memory_binding_is_append_only_and_attempt_bound|function exceeds the advisory gene budget",
+          "previous_value": 1236,
+          "value": 1241
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|upgrade|function exceeds the advisory gene budget",
+          "previous_value": 203,
+          "value": 205
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_personal_agent_renewal_authority.py||module exceeds the advisory operon budget",
+          "previous_value": 2074,
+          "value": 2191
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py||module exceeds the advisory operon budget",
+          "previous_value": 1800,
+          "value": 1802
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_pod_image_upgrade_path.py||module exceeds the advisory operon budget",
+          "previous_value": 1612,
+          "value": 1663
+        }
+      ],
+      "reason": "Image-only policy is extracted into a bounded helper; existing facade adds only its call/import. Existing authority integration fixtures exercise migration 942 forward/down/replay; focused equivalence cases preserve malformed-predecessor refusal. No thresholds or non-size gates changed."
+    },
     "writer_voice_20260926": {
       "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#compatibility-validation-and-next-stage-guards--2026-09-26",
       "changes": [

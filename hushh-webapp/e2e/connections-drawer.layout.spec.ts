@@ -226,6 +226,7 @@ for (const width of [320, 390, 768, 1440])
     const original = await draft.elementHandle();
     const receipt = page.getByRole("region", { name: "Mail read details" });
     await expect(receipt).toHaveText(/Reconnect Mail to continue/);
+    // The receipt names the connector and what the person will do there.
     const button = receipt.getByRole("button", { name: "Review Gmail access" });
     const bounds = (await button.boundingBox())!;
     expect(bounds.height).toBeGreaterThanOrEqual(44);
@@ -541,7 +542,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   );
 });
 
-test("real popup ignores forged settlement and closing alone grants no access", async ({
+test("real popup ignores forged settlement and stays revoked when sign-in is cancelled", async ({
   page,
   context,
 }) => {
@@ -606,12 +607,19 @@ test("real popup ignores forged settlement and closing alone grants no access", 
   );
   expect(popup.isClosed()).toBe(false);
   expect(statusReads).toBe(before);
+  // Closing the window is not a completion signal: Google's COOP can sever the
+  // popup's WindowProxy, so `popup.closed` can read true for a live consent
+  // screen. The attempt stays pending until the callback settles it or the
+  // person cancels it explicitly.
   await popup.close();
-  await page.getByRole("button", { name: "Cancel sign-in" }).click();
+  await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
+  await expect(page.getByText("Drive connection cancelled.")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Connect Drive", exact: true }),
   ).toBeEnabled();
-  // Closing a window did not imply successful authorization; server still says revoked.
+  expect(statusReads).toBe(before);
+  // Neither the forged message nor the cancelled window implied authorization;
+  // the server still says revoked.
   await expect(
     page.getByRole("button", { name: "Disconnect Drive", exact: true }),
   ).toHaveCount(0);

@@ -945,7 +945,7 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
             </div>
-            <div>
+            <div className="mx-auto w-full sm:w-80">
               <Button
                 type="button"
                 variant="blue"

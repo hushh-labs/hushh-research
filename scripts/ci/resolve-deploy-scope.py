@@ -23,6 +23,7 @@ BACKEND_PREFIXES = (
 )
 FRONTEND_EXACT_PATHS = {
     "deploy/frontend.cloudbuild.yaml",
+    "deploy/frontend-image.cloudbuild.yaml",
     "scripts/ops/sync_frontend_runtime_secrets.py",
 }
 BACKEND_EXACT_PATHS = {

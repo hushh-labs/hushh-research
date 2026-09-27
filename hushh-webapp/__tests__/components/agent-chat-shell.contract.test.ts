@@ -49,6 +49,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
+    expect(history).toContain("bg-background/90 backdrop-blur-2xl");
     expect(history).toContain("ShellActionSurface");
     expect(history).not.toContain('"border-r border-border/70');
   });
@@ -171,17 +172,16 @@ describe("private-agent chat shell contract", () => {
     const anchor = workspace.indexOf('data-testid="agent-chat-model-picker"');
     expect(anchor).toBeGreaterThan(0);
     const pickerBlock = workspace.slice(anchor - 1600, anchor);
-    expect(pickerBlock).toContain("{!isPuppySurface ? (");
+    expect(pickerBlock).toContain("modelPreference && !isPuppySurface ? (");
     // The ungated form the defect shipped as.
     expect(workspace).not.toContain(
       "{modelPreference && modelPreference.choices.length > 1 ? (",
     );
-    // The slot the picker sits in keeps its width when the picker is gone, so
-    // the "Puppy" chip does not slide out from under the thumb that pressed
-    // it. This is the same jump the status slot beside it was widened to stop.
-    expect(workspace).toContain(
-      'className="flex w-[7.5rem] shrink-0 justify-end sm:w-[9.5rem]"',
-    );
+    // The picker disappearing must not slide the "Puppy" chip out from under
+    // the thumb that pressed it. That is now held by order (picker, toggle,
+    // profile: the toggle is anchored to the right edge), not by a reserved
+    // fixed-width slot; agent-chat-header-layout.contract.test.ts pins it.
+    expect(workspace).not.toContain("w-[7.5rem] shrink-0 justify-end");
     // And the control names the agent it configures, not just "Model".
     expect(workspace).toContain('aria-label="One\'s model"');
   });
