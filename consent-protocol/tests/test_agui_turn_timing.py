@@ -566,3 +566,164 @@ def test_agent_chat_route_bounds_the_execution_registry():
     # Cold, locally pinned Drive retrieval is bounded by its own 160s gate;
     # One leaves a narrow orchestration margin without the bridge's 600s default.
     assert 160 < agent_chat._EXECUTION_TIMEOUT_SECONDS <= 200
+
+
+@pytest.mark.parametrize("terminal", ["finished", "error", "disconnect"])
+async def test_pod_drain_waits_for_final_background_save_or_disconnect_cleanup(
+    monkeypatch, terminal
+):
+    from contextlib import contextmanager
+    from contextvars import ContextVar
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.services.chat_key import (
+        RequestChatKey,
+        bind_request_chat_key,
+        request_has_chat_key,
+    )
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    monkeypatch.setattr(pod, "ADMISSION", admission)
+    monkeypatch.setattr(pod, "pod_incarnation", lambda: "incarnation")
+    runtime = ContextVar("synthetic_pod_runtime", default=False)
+    started, finish, saved = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    holder = RequestChatKey(b"s" * 32)
+    holder.bind_owner("owner")
+
+    @contextmanager
+    def runtime_scope():
+        token = runtime.set(True)
+        try:
+            yield
+        finally:
+            runtime.reset(token)
+
+    async def background(self, *args, **kwargs):
+        started.set()
+        try:
+            await finish.wait()
+        finally:
+            assert runtime.get()
+            assert request_has_chat_key("owner")
+            from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
+
+            assert current_mcp_turn() is self._pod_mcp_scope
+            assert (await admission.status(incarnation="incarnation"))["activeWork"] == 1
+            saved.set()
+
+    async def stream(self, input):
+        async with self._mcp_turn_resources(input.thread_id, owner_id="owner", configurations=[]):
+            asyncio.create_task(self._run_adk_in_background())
+            await started.wait()
+            if terminal == "finished":
+                yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+            elif terminal == "error":
+                yield RunErrorEvent(message="Execution timed out", code="EXECUTION_TIMEOUT")
+            else:
+                yield RunStartedEvent(thread_id=input.thread_id, run_id=input.run_id)
+                await asyncio.Event().wait()
+
+    monkeypatch.setattr(ADKAgent, "_run_adk_in_background", background)
+    monkeypatch.setattr(TimedADKAgent, "run", stream)
+    agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    agent.close = AsyncMock()
+    agent.configure_pod_turn(
+        require_access=AsyncMock(),
+        runtime_scope=runtime_scope,
+        mcp_owner_admission=AsyncMock(return_value=True),
+    )
+    yielded = asyncio.Event()
+
+    async def consume():
+        iterator = agent.run(_input())
+        await anext(iterator)
+        yielded.set()
+        await iterator.aclose()
+
+    with bind_request_chat_key(holder):
+        closing = asyncio.create_task(consume())
+        await started.wait()
+        if terminal == "finished":
+            # Success is withheld until the actual final save finishes.
+            assert not yielded.is_set()
+            assert (await admission.status(incarnation="incarnation"))["activeWork"] == 1
+            finish.set()
+        await asyncio.wait_for(yielded.wait(), 2)
+    await asyncio.wait_for(closing, 2)
+    assert saved.is_set()
+    assert (await admission.status(incarnation="incarnation"))["activeWork"] == 0
+    assert not holder.bound
+    agent.close.assert_awaited_once()
+    assert agent._pod_mcp_scope._closed
+
+
+async def test_pod_final_write_failure_cannot_report_success(monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    monkeypatch.setattr(pod, "ADMISSION", PodUpgradeAdmission(log_resolver=lambda: None))
+    monkeypatch.setattr(pod, "pod_incarnation", lambda: "synthetic")
+    agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    agent.close = AsyncMock()
+    agent.configure_pod_turn(require_access=AsyncMock(), runtime_scope=nullcontext)
+    agent._request_state_service = SimpleNamespace(get_session=AsyncMock(return_value=None))
+
+    async def sdk(self, input):
+        # The installed SDK swallows the final LRO persistence error.
+        try:
+            await self._store_lro_id_remap({}, input.thread_id, "one", USER_ID)
+        except RuntimeError:
+            pass
+        yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+
+    monkeypatch.setattr(TimedADKAgent, "run", sdk)
+    events = [event async for event in agent.run(_input())]
+    assert len(events) == 1
+    assert events[0].code == "POD_CHAT_RECOVERY_FAILED"
+    assert THREAD_ID not in pod._ACTIVE_THREADS
+
+
+async def test_pod_disconnect_retains_admission_until_memory_acknowledgement(monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    monkeypatch.setattr(pod, "ADMISSION", admission)
+    monkeypatch.setattr(pod, "pod_incarnation", lambda: "synthetic")
+    started, acknowledge = asyncio.Event(), asyncio.Event()
+
+    async def commit(input):
+        started.set()
+        await acknowledge.wait()
+
+    async def sdk(self, input):
+        yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+
+    monkeypatch.setattr(TimedADKAgent, "run", sdk)
+    agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    agent.close = AsyncMock()
+    agent.configure_pod_turn(
+        require_access=AsyncMock(), runtime_scope=nullcontext, after_run=commit
+    )
+
+    async def consume():
+        return [event async for event in agent.run(_input())]
+
+    consumer = asyncio.create_task(consume())
+    await started.wait()
+    consumer.cancel()
+    await asyncio.sleep(0)
+    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 1
+    assert not consumer.done()
+    acknowledge.set()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 0

@@ -311,3 +311,37 @@ def test_the_persisted_record_carries_its_kind_outside_the_seal():
     assert SealedMemory.from_payload(_key(), payload).is_fact
     legacy = {k: v for k, v in payload.items() if k != "kind"}
     assert SealedMemory.from_payload(_key(), legacy).kind == "raw"
+
+
+async def test_private_chat_memory_maps_only_verified_owner_and_commits_new_events():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from google.adk.events import Event
+    from google.adk.sessions import Session
+
+    from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
+
+    original = Session(
+        id="synthetic-chat",
+        app_name="one",
+        user_id="firebase-owner",
+        events=[Event(id="prior", author="user"), Event(id="new", author="model")],
+    )
+    service = SimpleNamespace(add_session_to_memory=AsyncMock(), search_memory=AsyncMock())
+    context = SimpleNamespace(
+        owner="firebase-owner",
+        hushh_id="ha1_owner",
+        require_access=AsyncMock(),
+        sessions=SimpleNamespace(get_session=AsyncMock(return_value=original)),
+    )
+    memory = PodChatMemory(context, service)
+    memory._prior_event_ids = {"prior"}
+    await memory.commit(SimpleNamespace(thread_id="synthetic-chat"))
+    stored = service.add_session_to_memory.call_args.args[0]
+    assert stored.user_id == "ha1_owner"
+    assert [event.id for event in stored.events] == ["new"]
+    assert original.user_id == "firebase-owner" and len(original.events) == 2
+    with pytest.raises(PermissionError):
+        await memory.search_memory(app_name="one", user_id="foreign-owner", query="synthetic")
+    service.search_memory.assert_not_awaited()

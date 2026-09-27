@@ -973,6 +973,27 @@ class PodCommitLog:
         next_cursor = PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
         return records, next_cursor
 
+    async def fold_since(self, cursor, visit_reverse) -> PodLogCursor | None:
+        """Fold verified records with bounded memory, including long idle tails.
+
+        The visitor is provisional: it must retain results privately until this
+        method returns after complete ancestry and erasure verification.
+        """
+        if cursor is not None:
+            self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
+        raw, _ = await self._store.get_with_generation(self.HEAD)
+        head = self._read_head(raw)
+        await replay_chain(
+            head,
+            read_record=self._store.get,
+            unseal=self._unseal,
+            record_sha=_record_sha,
+            cursor=cursor,
+            visit_reverse=visit_reverse,
+        )
+        await self.require_open()
+        return PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
+
     async def _replay_head(
         self,
         head: Optional[dict[str, Any]],

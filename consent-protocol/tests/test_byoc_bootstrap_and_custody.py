@@ -931,6 +931,38 @@ def test_no_resource_is_created_until_the_enablement_operation_reports_done() ->
     assert first_create > last_poll
 
 
+@pytest.mark.parametrize("operation_error", [False, True])
+def test_files_identity_waits_for_its_exact_service_usage_operation(monkeypatch, operation_error):
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, image, service = legacy_files_fixture()
+    plan = plan_from_observation(row, image, service)
+    operation = "operations/files-identity"
+    terminal = {"name": operation, "done": True}
+    terminal.update({"error": {"code": 7}} if operation_error else {"response": {}})
+    session = _Session([_Response(200, {"name": operation}), _Response(200, terminal)])
+    bootstrap = FilesCapabilityBootstrap(
+        capability=plan,
+        token=BORROWED,
+        session=session,
+        sleep=_no_sleep,
+    )
+    call = next(
+        c
+        for c in bootstrap.plan_calls(plan.substrate_plan())
+        if c["step"] == "generate_files_task_identity"
+    )
+    monkeypatch.setattr(bootstrap, "plan_calls", lambda _: [call])
+    result = bootstrap.apply(plan.substrate_plan(), dry_run=False)
+    assert result["ok"] is (not operation_error)
+    assert [(c["method"], c["url"]) for c in session.calls] == [
+        ("POST", call["url"]),
+        ("GET", "https://serviceusage.googleapis.com/v1beta1/" + operation),
+    ]
+
+
 def test_a_tolerated_409_on_an_awaited_step_stays_green() -> None:
     """`artifact_repo` is the FIRST step that is both awaited AND tolerant. On a
     re-provision it 409s (already exists). The await must be gated on a genuine create

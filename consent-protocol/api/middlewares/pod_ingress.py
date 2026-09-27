@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Callable, Optional
 
 from hushh_mcp.services.scheduler_identity import (
@@ -81,6 +82,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
+        "/api/one/pod/agent-chat",
+        "/api/one/pod/agent-chat/capabilities",
         "/api/one/puppy/relay",
         # The owner's memory doors (api/routes/one/pod_memory.py). Each is named
         # here one at a time rather than by a `/memory/` prefix, so a later memory
@@ -127,6 +130,10 @@ def is_app_surface(path: str) -> bool:
     if clean != "/" and clean.endswith("/"):
         clean = clean.rstrip("/")
     if clean in APP_SURFACE_EXACT:
+        return True
+    if re.fullmatch(
+        r"/api/one/pod/agent-chat/(?:history|conversations)/[A-Za-z0-9_-]{1,256}", clean
+    ):
         return True
     if clean.startswith(APP_SURFACE_PREFIXES):
         # The conversation prefix admits only the close verb; anything else under

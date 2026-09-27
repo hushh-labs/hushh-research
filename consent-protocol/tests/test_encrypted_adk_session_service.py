@@ -366,13 +366,21 @@ async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_databas
 async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access(
     tmp_path, monkeypatch
 ):
+    from hushh_mcp.one_adk import pod_adk_checkpoint
     from hushh_mcp.one_adk.pod_adk_session_repository import (
         PodAdkSessionProjection,
         PodAdkSessionRepository,
         PodAdkSessionUnavailable,
     )
     from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
-    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog, PodLogFenced
+    from hushh_mcp.services.pod_commit_log import (
+        LocalObjectStore,
+        PodCommitLog,
+        PodLogFenced,
+        PodLogTampered,
+    )
+
+    monkeypatch.setattr(pod_adk_checkpoint, "INTERVAL", 1)
 
     monkeypatch.setattr(
         "hushh_mcp.one_adk.encrypted_session_service.get_db",
@@ -410,6 +418,15 @@ async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked
     assert restored.state["fixture"] == "synthetic private text"
     assert len(restored.events) == 1
     assert "synthetic private text" not in repr(restarted_repo._projection._entries)
+    # Once checkpointed, cold recovery reads no historic record objects.
+    with monkeypatch.context() as patch:
+
+        async def no_history_read(_key):
+            pytest.fail("checkpoint recovery replayed old records")
+
+        patch.setattr(log._store, "get", no_history_read)
+        cold = EncryptedAdkSessionService(static_chat_cipher(), repository=repository())
+        assert len((await cold.get_session(**identity)).events) == 1
     coords = {
         "app": "hussh_one",
         "user": "owner",
@@ -438,6 +455,70 @@ async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked
         )
         is None
     )
+    blob, generation = await log._store.get_with_generation(pod_adk_checkpoint.KEY)
+    assert b"synthetic message" not in blob
+    # A stale cache publisher cannot replace the current encrypted checkpoint.
+    assert await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, generation - 1) is None
+    corrupted_generation = await log._store.put_if_generation(
+        pod_adk_checkpoint.KEY, blob[:-1] + bytes([blob[-1] ^ 1]), generation
+    )
+    with pytest.raises(PodLogTampered):
+        await repository().get(**coords)
+    await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, corrupted_generation)
     await log.fence_for_erasure(owner_id="HA1fixture", attempt_id="fixture-erasure")
     with pytest.raises(PodLogFenced):
         await restarted.get_session(**identity)
+
+
+@pytest.mark.asyncio
+async def test_pod_chat_recovers_across_more_than_ten_thousand_unrelated_commits():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk.pod_adk_session_repository import PodAdkSessionProjection
+    from hushh_mcp.services.pod_commit_log import PodCommitLog, _canonical, _record_sha
+
+    objects = {}
+    store = SimpleNamespace(
+        get=AsyncMock(side_effect=lambda key: objects.get(key)),
+        get_with_generation=AsyncMock(side_effect=lambda key: (objects.get(key), 1)),
+        put_if_generation=AsyncMock(return_value=2),
+    )
+    log = PodCommitLog(store, b"k" * 32, owner_id="HA1fixture")
+    previous_key = previous_sha = None
+    for seq in range(1, 10002):
+        kind, payload = "unrelated", {}
+        if seq == 1:
+            kind = "pod.adk.session.v1"
+            payload = {
+                "format": 1,
+                "owner": "owner",
+                "hushhId": "HA1fixture",
+                "app": "one",
+                "session": "fixture",
+                "previous": 0,
+                "operation": "delete",
+            }
+        digest = _record_sha(seq, kind, payload, previous_sha)
+        key = f"records/{seq:012d}-abcdef12.bin"
+        objects[key] = log._seal(
+            {
+                "seq": seq,
+                "kind": kind,
+                "payload": payload,
+                "prev_key": previous_key,
+                "prev_sha": previous_sha,
+                "sha": digest,
+            }
+        )
+        previous_key, previous_sha = key, digest
+    objects[log.HEAD] = _canonical({"seq": seq, "key": key, "sha": digest})
+    projection = PodAdkSessionProjection(owner_id="owner", hushh_id="HA1fixture", log=log)
+    observed_seq, entries = await projection.snapshot()
+    assert observed_seq == 10001
+    assert entries == {
+        ("one", "fixture"): {"revision": 1, "deleted": True, "session_id": "fixture"}
+    }
+    assert (
+        store.get.await_count == 10001
+    )  # Verification visits every link without retaining the chain.

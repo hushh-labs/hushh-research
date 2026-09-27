@@ -401,6 +401,13 @@ async def _propose(
     payload: dict[str, Any],
     tool_context: ToolContext,
 ) -> dict[str, Any]:
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        return {
+            "status": "runtime_unavailable",
+            "message": "Prepare and confirm calendar changes in the owner app.",
+        }
     try:
         proposal = await get_google_calendar_service().propose(
             user_id=_user_id(tool_context), action=action, payload=payload

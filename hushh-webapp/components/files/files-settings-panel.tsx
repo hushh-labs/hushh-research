@@ -126,9 +126,13 @@ export function FilesSettingsPanel({
           <h2 className="font-semibold">Files Agent</h2>
           <p className="text-sm text-muted-foreground">
             Allow your private agent to read and organize this library.
-            Interactive requests use your selected model provider. Background
-            organization uses Google Vertex AI in your own cloud project. You
-            can pause analysis at any time.
+            Interactive requests use your selected model provider. You can pause
+            analysis at any time.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {settings.backgroundAvailable && settings.backgroundProvider
+              ? `Background organization uses ${settings.backgroundProvider}.`
+              : "Background organization is unavailable until its cloud configuration is verified."}
           </p>
           <label className="flex items-center gap-3 text-sm">
             <input

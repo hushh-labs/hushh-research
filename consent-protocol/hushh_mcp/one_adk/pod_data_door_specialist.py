@@ -32,6 +32,7 @@ import logging
 from typing import Any
 
 from hushh_mcp.one_adk.agent_tree import STATE_DATA_DOOR_GRANTS
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ async def serve_specialist_via_data_door(
         return None
 
     grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS) or {}
-    scope_token = str(grants.get(door_name) or "") if isinstance(grants, dict) else ""
+    scope_token = resolve_request_secret(grants.get(door_name)) if isinstance(grants, dict) else ""
     if not scope_token:
         # No grant couriered -> the door is off for this turn. Fall through.
         return None

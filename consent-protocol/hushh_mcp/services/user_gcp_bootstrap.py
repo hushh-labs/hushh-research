@@ -1064,7 +1064,11 @@ class UserGcpBootstrap:
         if call["step"] == "artifact_repo":
             prefix = f"projects/{self._project}/locations/{self._region}/operations/"
             base = "https://artifactregistry.googleapis.com/v1/"
-        elif call["step"] in {"enable_services", "generate_run_service_identity"}:
+        elif call["step"] in {
+            "enable_services",
+            "generate_run_service_identity",
+            "generate_files_task_identity",
+        }:
             prefix = "operations/"
             version = "v1" if call["step"] == "enable_services" else "v1beta1"
             base = f"https://serviceusage.googleapis.com/{version}/"

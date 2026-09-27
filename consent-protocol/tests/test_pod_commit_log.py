@@ -1412,6 +1412,14 @@ async def test_incremental_replay_bounds_recovery_and_keeps_erasure_closed(tmp_p
     assert len((await log.replay_since(cursor, max_records=1))[0]) == 1
     with pytest.raises(PodLogConflict, match="byte limit"):
         await log.replay_since(cursor, max_bytes=1)
+    folded = []
+    assert (
+        await log.fold_since(cursor, lambda record: folded.append(record["seq"]))
+        == (await log.replay_since(cursor))[1]
+    )
+    assert folded == [2]
     await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
     with pytest.raises(PodLogFenced):
         await log.replay_since(cursor)
+    with pytest.raises(PodLogFenced):
+        await log.fold_since(cursor, lambda _: pytest.fail("fenced history released"))

@@ -3510,6 +3510,17 @@ export class ApiService {
     throw new Error("ONE_LIVE_RETIRED: use Talk to One commands.");
   }
 
+  /** Route private chat only to its admitted pod; unknown hosting never grants Shared. */
+  static async agentChatRequest(path: string, init: RequestInit, streaming = false,
+    onChatAdmission?: (hushhId: string) => void): Promise<Response> {
+    const access = await import("./pod-app-access");
+    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
+    return access.agentChatRequest(path, init, {
+      hosting: () => this.getPersonalAgentStatus(), fetch: fetcher,
+      direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission),
+    });
+  }
+
   static async listAgentChatConversations(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -3520,7 +3531,7 @@ export class ApiService {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return apiFetch(
+    return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
       {
         method: "GET",
@@ -3542,7 +3553,7 @@ export class ApiService {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return apiFetch(
+    return ApiService.agentChatRequest(
       `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
       {
         method: "GET",
@@ -3561,7 +3572,7 @@ export class ApiService {
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
   }): Promise<Response> {
-    return apiFetch(
+    return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "PATCH",
@@ -3578,7 +3589,7 @@ export class ApiService {
     conversationId: string;
     vaultOwnerToken: string;
   }): Promise<Response> {
-    return apiFetch(
+    return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "DELETE",
@@ -3607,6 +3618,7 @@ export class ApiService {
   }
 
   static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<{
+    filesActivationAvailable?: boolean;
     state?: string | null;
     featureEnabled?: boolean;
     hushhId?: string | null;
@@ -3657,6 +3669,7 @@ export class ApiService {
   static async approvePersonalAgentUpdate(input: {
     releaseId: string;
     idempotencyKey: string;
+    capabilityPlanDigest?: string;
   }): Promise<{ operationId: string; releaseId: string; status: "scheduled" }> {
     return ApiService.postPersonalAgentUpdate("approve", input);
   }
@@ -3669,7 +3682,7 @@ export class ApiService {
 
   private static async postPersonalAgentUpdate(
     action: "approve" | "defer",
-    input: { releaseId: string; idempotencyKey?: string },
+    input: { releaseId: string; idempotencyKey?: string; capabilityPlanDigest?: string },
   ): Promise<any> {
     const token = await ApiService.getFirebaseToken();
     const response = await ApiService.apiFetch(`/api/one/personal-agent/update/${action}`, {
@@ -3681,9 +3694,22 @@ export class ApiService {
       body: JSON.stringify({
         releaseId: input.releaseId,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+        ...(input.capabilityPlanDigest ? { capabilityPlanDigest: input.capabilityPlanDigest } : {}),
       }),
     });
     if (!response.ok) throw new Error(`AGENT_UPDATE_${action.toUpperCase()}_FAILED:${response.status}`);
+    return response.json();
+  }
+
+  static async getPersonalAgentFilesPlan(): Promise<{
+    releaseId: string; capabilityPlanDigest: string; summary: string;
+    changes: string[]; modelProcessing: string;
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/update/files-plan", {
+      method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`FILES_ACTIVATION_UNAVAILABLE:${response.status}`);
     return response.json();
   }
 
@@ -4067,9 +4093,11 @@ export class ApiService {
   }
 
   /** Exact app routes only; content never falls back to the shared hub. */
-  static async ownerPodRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
+    onChatAdmission?: (hushhId: string) => void): Promise<Response> {
     const access = await import("./pod-app-access");
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: apiFetch });
+    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission });
   }
 
   static async reconnectOwnerPod(): Promise<void> {

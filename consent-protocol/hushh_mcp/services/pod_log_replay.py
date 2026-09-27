@@ -37,6 +37,7 @@ async def replay_chain(
     cursor: PodLogCursor | None = None,
     max_records: int | None = None,
     max_bytes: int | None = None,
+    visit_reverse: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     if head is None:
         if cursor is not None:
@@ -73,13 +74,15 @@ async def replay_chain(
         )
         if recomputed != record.get("sha") or recomputed != expected_sha:
             raise PodLogTampered(f"hash chain broke at seq {record.get('seq')}")
-        records.append(record)
+        if visit_reverse is None:
+            records.append(record)
+        else:
+            visit_reverse(record)
         key = record.get("prev_key")
         expected_sha = record.get("prev_sha")
     records.reverse()
-    if expected_seq != anchor_seq or [r["seq"] for r in records] != list(
-        range(anchor_seq + 1, head["seq"] + 1)
-    ):
+    # Each record was checked against the descending expected sequence above.
+    if expected_seq != anchor_seq:
         raise PodLogTampered("the chain's sequence numbers are not contiguous")
     if cursor is not None:
         if key != cursor.key or expected_sha != cursor.sha:

@@ -9,15 +9,12 @@ What a verified pod identity proves, precisely
 ----------------------------------------------
 The credential is a Google ID token minted from the instance metadata server,
 audience-bound to this hub. Verifying it establishes that the caller holds the pod
-runtime service account. It does NOT establish WHICH user's pod is calling: every
-pod in the fleet runs as that same account, which is exactly what lets the account
-hold no project roles at all. The pod therefore asserts its own ``HUSSH_ID`` in a
-header, and that assertion is trustworthy only as far as the pod is.
-
-That is the ``logical`` tier's stated trust level, and it is why acceptance is
-gated OFF by default (``pod_hub_identity_auth_enabled``). Turned on where pods hold
-real holdings, one compromised pod could speak for another user's HusshID.
-Cryptographic per-pod identity is the attested ``dedicated`` tier (M5).
+runtime service account. BYOC additionally matches that account to the registry's
+runtime identity for the asserted HusshID. The managed/simulation path instead
+accepts a configured shared fleet account: there the header remains an assertion,
+not independent owner proof. Neither path establishes workload attestation or
+information/action permission; callers retain those route-specific checks.
+Acceptance is gated by ``pod_hub_identity_auth_enabled``.
 """
 
 from __future__ import annotations

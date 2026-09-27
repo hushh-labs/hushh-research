@@ -297,16 +297,14 @@ async def _organize(file_id: str) -> OrganizationResult:
     from hushh_mcp.one_adk.files_agent import build_files_agent
 
     manifest = _load_product_agent_manifest("agent_files")
-    # Provisioning pins Vertex ADC to the owner's project. No user-cloud project, no call.
-    if (
-        os.getenv("HUSSH_POD_USER_ADC_ENABLED", "").lower() not in {"1", "true"}
-        or not os.getenv("GOOGLE_CLOUD_PROJECT")
-        or not os.getenv("POD_FILES_TASK_QUEUE", "").startswith(
-            f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT')}/"
-        )
-    ):
-        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
-    agent = build_files_agent(manifest, output_schema=OrganizationResult)
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.services.pod_files.model_binding import organization_model_binding
+
+    binding = organization_model_binding()
+    model = binding.build_adk_model(
+        resolve_fleet_model_name(manifest.model_config_for_runtime().name)
+    )
+    agent = build_files_agent(manifest, model=model, output_schema=OrganizationResult)
     sessions = InMemorySessionService()
     app, user, session_id = "files_organization", "private_job", uuid4().hex
     await sessions.create_session(app_name=app, user_id=user, session_id=session_id)

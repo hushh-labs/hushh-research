@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 
 from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_files.library import CHUNK_BYTES, FilesRefused
+from hushh_mcp.services.pod_files.model_binding import (
+    organization_model_binding,
+    organization_model_status,
+)
 from hushh_mcp.services.pod_files.runtime import files_access, operation, require_files_access
 from hushh_mcp.services.pod_session_authority import ROLE_APP, PodSessionRefused
 
@@ -172,11 +176,7 @@ async def read_settings(owner: Owner):
             settings = await library.settings()
             return {
                 **settings,
-                "backgroundAvailable": bool(
-                    os.getenv("POD_FILES_TASK_QUEUE")
-                    and os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT")
-                ),
-                "backgroundProvider": "Google Vertex AI in your cloud project",
+                **organization_model_status(),
                 "retention": await library.store.verify_bucket(os.getenv("HUSSH_POD_KMS_KEY", "")),
             }
     except FilesRefused as exc:
@@ -185,13 +185,9 @@ async def read_settings(owner: Owner):
 
 @router.put("/settings")
 async def update_settings(body: AnalysisSettings, owner: Owner):
-    import os
-
     try:
-        if body.automatic and not (
-            os.getenv("POD_FILES_TASK_QUEUE") and os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT")
-        ):
-            raise FilesRefused("FILES_BACKGROUND_NOT_CONFIGURED", 503)
+        if body.automatic:
+            organization_model_binding()
         async with operation(mutation=True) as library:
             return await library.configure(**body.model_dump())
     except FilesRefused as exc:

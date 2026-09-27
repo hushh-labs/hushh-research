@@ -6,8 +6,9 @@
 flowchart LR
   manifest["AgentManifestV2"] --> roster["One ADK roster"]
   registry["Owner connector registry"] --> roster
-  roster --> review["Exact-call review authority"]
-  review --> mcp["Native MCP invocation"]
+  roster --> authority["Owner and connection authority"]
+  authority --> mcp["Owner MCP invocation: no exact-call review"]
+  authority --> review["First-party changes: app confirmation"]
   mcp --> projection["Private wire and history projection"]
 ```
 
@@ -25,7 +26,7 @@ This report records revision-bound evidence; it does not establish deployment ac
 ## Active pod completion plan — 2026-09-27 UTC
 
 **Branch:** `claude/hushh-infrastructure-analysis-7o991c`. Evidence base
-`5ee902e92` contains the clean local ADK worktree at `b45d15f48`. Preserve concurrent
+`b13e617bc` integrates the frozen local ADK worktree at `52045f802`. Preserve concurrent
 PDF work and independently active worktrees. Freeze this implementation baseline;
 recheck ADK once before the combined candidate is submitted, integrating any
 new delta deliberately rather than restarting the work after every upstream edit.
@@ -63,7 +64,7 @@ dev deployment. No application merge to main, UAT/production deployment, stable
 release or unrelated owner upgrade is part of this pass.
 
 **Current progress:** ADK synchronization is source-verified. The encrypted ADK
-repository is implemented but unmounted. The Nav/model correction below is locally
+repository is mounted in the local direct AG-UI implementation; dev still serves the earlier candidate. The Nav/model correction below is locally
 verified; it is not proof that all specialists or complete private chat are ready.
 Existing-owner Files activation and the combined update journey remain unfinished.
 
@@ -1867,3 +1868,115 @@ Bounded Gmail message/thread reads now use the pod's existing signed observation
 The incoming ADK policy intentionally removes exact-call review for the owner's private MCP connectors, including subsequent calls after a read. Owner/connection authority and credential redaction remain; this is not evidence of deterministic protection against instructions in third-party content. One's instructions now describe that policy consistently. Drive sharing/trash and Gmail mailbox changes retain their respective app review.
 
 Focused evidence: Gmail metadata/mailbox tests (76 passed), pod specialist tests (30 passed), One roster tests (208 passed, 73 pre-existing skips), followed by 265 passing affected pod-read/MCP/Drive/route checks after correcting bounded-request validation; frontend delivery boundary tests (10 passed). These are synthetic/source checks, not live pod acceptance. Private rich-chat mounting and existing-owner Files activation remain implementation work.
+
+### Direct AG-UI local implementation — 2026-09-27
+
+Evidence base: `b13e617bc` plus this source change. The app routes private rich chat
+and encrypted history to an admitted owner pod, reusing the authored One roster,
+selected owner model, AG-UI bridge and encrypted session repository. Shared routing
+requires an explicit Shared hosting result. A failed private request never becomes
+a shared request. Unsupported authority-dependent actions refuse explicitly.
+
+The bodyless hub chat-grants endpoint supplies the existing owner-visible, revocable
+specialist grants; conversation content, model keys and chat keys remain on the
+direct path. Grants retain their existing standing-scope semantics. Endpoint
+signatures and assignment checks do not turn these tokens into incarnation-bound
+or turn-bound grants. Hub loss permits already-admitted private chat without new
+specialist grants. Durable erasure fencing is checked before each stream emission;
+its cloud-read cost still requires measurement rather than a weaker cached check.
+
+Update admission lasts through SDK final recovery writes and memory acknowledgement,
+including interrupted streams. A failed final history write cannot emit successful
+completion. Memory maps the verified Firebase chat owner to the same pod HusshID
+and submits only newly committed events. Admitted private streams retain the existing close-triggered memory review
+callback; next-turn catch-up covers a lost close request.
+
+Focused checks passed for direct transport, isolation, history recovery and timeout
+cleanup (103 backend and 74 frontend), then memory/upgrade/calendar contracts (69)
+and the expanded grant-transport suite (15). Frontend typecheck passed. These are
+local synthetic checks, not a live model, device, update or deployment acceptance.
+Existing-owner Files activation, remaining connector/action authority ports, bounded
+chat-log retention and the final combined/dev acceptance remain open.
+
+### Files activation and private MCP continuation — 2026-09-27
+
+Evidence base remains `b13e617bc` plus the local implementation. Per the execution
+decision, ongoing ADK changes will be integrated once after pod implementation,
+before final checks and dev deployment. No new ADK merge, push, deployment or owner
+update is established by this entry.
+
+Existing-owner Files activation now uses a separately approved resource/configuration
+plan within the existing image-update operation. Settings exposes review, explicit
+approval and outcome toasts. The plan binds the owner, incarnation, observed template,
+image, storage/KMS identity and model project. Same-image activation is supported;
+compute sizing and existing custody remain preserved. The dev Vertex bridge requires
+an explicit exact-project configuration; model-project overrides cannot silently
+change the processing authority.
+
+Mandatory checkpoints retain intent and qualified resource/IAM observations. Dev-only
+migration 943 adds bounded late-receipt retention after erasure admission and preserves
+the existing composed guard. Publication compares checkpoint advancement so stale
+recovery cannot clear a live operation. Files activation cannot invoke the image-only
+whole-substrate repair. A lost replacement acknowledgement can be rediscovered through
+the exact provider attempt marker and then reconciled without a second replacement.
+Partial or uncertain resource work remains held; terminal resource reconciliation and
+explicit retry still need completion. Migration 943 has not been applied live.
+
+Private rich chat now admits memory-only owner connector configurations through the
+existing MCP validator and governed toolset. The pod uses its admitted owner session
+and supplied catalog, with no hub connector registry or approval-store fallback.
+Curated connectors, legacy approval resumes and review-required calls remain refused
+until their owning authority ports are supplied. Tool calls preserve per-call owner
+checks, credential expiry, schema/catalog checks and transport restrictions. Local pod
+session credentials cannot be supplied as external connector credentials. Cleanup
+retains the MCP scope until background producers settle.
+
+Focused Files/update verification passed 133 cases; two reservation regressions were
+then corrected and their reruns plus two recovery cases passed (4). The exact Files
+approval route also passed. Private MCP/chat verification passed 162 cases; the new
+forced-review negative control was corrected to use an admitted policy change and its
+two shared/private variants passed. These are local synthetic checks, including actual
+PostgreSQL migration/rollback and stale-publication checks, not live cloud acceptance.
+Remaining integration work includes review/action ports, partial Files provisioning
+reconciliation, recovery/retention limits, final ADK synchronization and exact-candidate
+CI followed by governed dev and reviewer/device verification.
+
+Files settings now derive background availability and the provider disclosure from
+the same validated model binding used by the worker. Automatic analysis refuses an
+invalid binding; ordinary file access remains available. The focused model/settings
+and Files route checks passed (4), as did changed Python lint and Files settings
+frontend lint. Separate preserved PDF edits retain their recorded hashes.
+Frontend typecheck passed after retaining the typed Files-plan promise through the
+toast wrapper. `git diff --check` passed. The local implementation is uncommitted;
+complete-core and GitHub validation remain the final combined-candidate gates.
+
+
+### Existing-pod completion corrections — 2026-09-27 UTC
+
+Source base `b13e617bc`, local implementation pending final ADK integration.
+The real bootstrap executor now awaits the Cloud Tasks service-identity operation
+through Service Usage v1beta1. The Files approval explicitly includes and discloses
+queue-management permission for the existing bootstrap account. Migration 943
+retains that exact IAM observation against the approved account, project and lease.
+The focused provider success/failure controls and the activation/real-Postgres
+retention tests passed (four tests). Uncertain partial provider work stays held;
+Settings suppresses another setup offer and requests reconciliation.
+
+Private chat now keeps a sealed projection checkpoint in the existing recovery
+prefix. It contains only owner-encrypted rows, revision coordinates and tombstones;
+the current log must descend from its authenticated anchor before history is used.
+Long tails are verified with a bounded-memory reverse fold, including unrelated
+records; a 10,001-record regression passes without truncation. Restart, stale
+revision, revoked admission, tampered checkpoint and erasure controls pass.
+Checkpoint writes use object-generation CAS. They do not establish physical history
+erasure or detect coordinated rollback of both the log and checkpoint. Existing
+session-count and ciphertext-size bounds remain; a large cold catch-up still incurs
+object reads. No new store, hub history copy or action ledger was introduced.
+
+Location directives enter the existing command preparation flow directly, leaving
+its ledger-bound confirmation as the single review. Ordinary private owner MCP
+uses request-scoped configurations. Forced MCP review and specialist adapters not
+yet supplied remain explicitly unavailable; this is not complete shared/pod parity.
+The dev bridge runbook now matches the explicit dev-only model-project choice;
+configuration alone is not live prediction evidence. No dev deployment, normal
+owner update or real-device acceptance is established by this source checkpoint.

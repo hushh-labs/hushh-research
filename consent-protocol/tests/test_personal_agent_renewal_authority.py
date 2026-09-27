@@ -433,6 +433,128 @@ def provision_pg(pg):
     return pg
 
 
+def test_late_files_upgrade_receipt_preserves_inventory_without_reopening_erasure(provision_pg):
+    from copy import deepcopy
+
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.pod_files.capability_checkpoint import extend_inventory
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+    from hushh_mcp.services.pod_files.provisioning import queue_creation_observation
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    pg = provision_pg
+    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
+    for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
+        if 918 <= int(path.name.split("_", 1)[0]) <= 943:
+            pg.apply_file(path)
+    rollback = (
+        ROOT / "db/migrations/rollback/943_personal_agent_files_upgrade_evidence.rollback.sql"
+    )
+    pg.apply_file(rollback)
+    assert (
+        pg.execute("SELECT to_regprocedure('public.files_upgrade_admission_ready()')")[0][0] is None
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/943_personal_agent_files_upgrade_evidence.sql")
+    assert pg.execute("SELECT files_upgrade_admission_ready()")[0][0] is True
+    row, image, service = legacy_files_fixture()
+    plan = plan_from_observation(row, image, service)
+    calls = FilesCapabilityBootstrap(capability=plan).plan_calls(plan.substrate_plan())
+    queue_index = next(i for i, call in enumerate(calls) if call["step"] == "files_queue")
+    prefix = [{"step": call["step"], "status": 200, "ok": True} for call in calls[:queue_index]]
+    intent = {
+        "version": 1,
+        "planDigest": plan.digest,
+        "operationId": "op-one",
+        "attemptId": hashlib.sha256(b"synthetic-lease").hexdigest(),
+        "phase": "intent",
+        "step": "files_queue",
+        "completed": prefix,
+    }
+    queue = calls[queue_index]["body"]
+    resource = {
+        "type": "cloud_tasks_queue",
+        "id": queue["name"].rsplit("/", 1)[-1],
+        "disposition": "created",
+        "identity": queue_creation_observation(queue, queue["name"]),
+    }
+    observation = {
+        **intent,
+        "phase": "observed",
+        "completed": [
+            *prefix,
+            {"step": "files_queue", "status": 200, "ok": True, "resourceObservation": resource},
+        ],
+    }
+    inventory = extend_inventory(row["backend_metadata"]["substrateReceipt"], plan, prefix)
+    row["backend_metadata"].update(
+        substrateReceipt=inventory,
+        upgradeLease="synthetic-lease",
+        filesUpgradeCheckpoint=intent,
+        upgradeApproval={
+            "capabilityPlan": plan.model_dump(),
+            "capabilityPlanDigest": plan.digest,
+            "operationId": "op-one",
+            "targetImage": image,
+        },
+    )
+    reservation = {
+        "ownerId": row["user_id"],
+        "hushhId": row["hushh_id"],
+        "attemptId": "erase-one",
+        "registrySnapshot": row,
+        "phase": "reserved",
+        "version": 1,
+    }
+
+    def valid(value):
+        return pg.execute(
+            "SELECT valid_erasure_files_upgrade_observation(%s::jsonb,%s::jsonb)",
+            (json.dumps(reservation), json.dumps(value)),
+        )[0][0]
+
+    assert valid(observation) is True
+    for altered in (
+        {**observation, "attemptId": "0" * 64},
+        {**observation, "completed": observation["completed"] * 2},
+        {**observation, "extra": "not permitted"},
+    ):
+        assert valid(altered) is False
+    foreign = deepcopy(observation)
+    foreign["completed"][-1]["resourceObservation"]["identity"]["name"] += "-foreign"
+    assert valid(foreign) is False
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,backend_metadata) VALUES (%s,%s,'suspended',%s::jsonb)",
+        (row["user_id"], row["hushh_id"], json.dumps({"erasure": reservation})),
+    )
+
+    def retain(value):
+        return pg.execute(
+            "SELECT retain_erasure_files_upgrade_observation(%s,%s,%s::jsonb)",
+            (row["user_id"], "synthetic-lease", json.dumps(value)),
+        )[0][0]
+
+    assert retain(observation) is True
+    assert retain(observation) is True
+    assert retain(foreign) is False
+    kept = pg.execute(
+        "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s",
+        (row["user_id"],),
+    )[0][0]
+    assert kept["registrySnapshot"] == row
+    effective = pg.execute(
+        "SELECT effective_erasure_substrate_inventory(%s::jsonb)", (json.dumps(kept),)
+    )[0][0]
+    assert resource in effective["resourceObservations"]
+    assert effective["applied"] is False
+    assert effective["plannedResources"] == inventory["plannedResources"]
+    assert not pg.execute(
+        "SELECT valid_erasure_substrate_inventory(%s::jsonb,%s::jsonb)",
+        (json.dumps(kept), json.dumps(effective)),
+    )[0][0]
+    with pytest.raises(psycopg2.Error):
+        pg.apply_file(rollback)
+
+
 def claim_provision(pg, *, attempt="a" * 32, observed=None, owner="synthetic-owner"):
     return pg.execute(
         "SELECT claim_personal_agent_provision(%s,%s,%s::jsonb,%s::jsonb)",

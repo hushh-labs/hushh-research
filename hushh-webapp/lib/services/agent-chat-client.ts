@@ -465,6 +465,9 @@ const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  if (code === "POD_CHAT_BUSY") return "Your private agent is finishing active work. Try again shortly.";
+  if (code === "POD_CHAT_RECOVERY_FAILED") return "This answer could not be saved safely. Reconnect to your private agent before continuing.";
+  if (code === "POD_CHAT_AUTHORITY_UNAVAILABLE") return "This action is not available through your private agent yet.";
   // Chat history is sealed with a key derived from the vault. These refusals are
   // recoverable, so say how; the raw server text is never shown.
   const chatKeyCode = code && code in CHAT_KEY_REFUSAL_MESSAGES
@@ -617,7 +620,17 @@ export async function streamAgentChat(input: {
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
+    fetch: (_url, init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
+      (hushhId) => {
+        // Keep the existing close/catch-up lifecycle for admitted private chat.
+        // This transport uses the pod's configured model identity; no hub key.
+        if (!mcpSessionCurrent()) return;
+        lastPodConversation = {
+          hushhId, conversationId: threadId, runtimeCredential: null,
+          runtimeCredentialTransport: null, runtimeProvider: null, puppyDeviceId: null,
+          vertexProject: null, vertexLocation: null,
+        };
+      }),
   });
   let text = "";
   let failure: Error | null = null;
@@ -1297,7 +1310,7 @@ export async function recordAgentChatInformationRequest(input: {
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentStructuredExperience> {
-  const response = await ApiService.apiFetch(
+  const response = await ApiService.agentChatRequest(
     `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
     {
       method: "POST",

@@ -39,6 +39,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
+from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler  # noqa: E402
 from api.middlewares.observability import (  # noqa: E402
     configure_opentelemetry,
     observability_middleware,
@@ -49,6 +50,7 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
@@ -63,6 +65,7 @@ from hushh_mcp.runtime_settings import (  # noqa: E402
     pod_heartbeat_interval_seconds,
     pod_mode,
 )
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS  # noqa: E402
 from hushh_mcp.services.pod_hub_client import (  # noqa: E402
     PodHubClient,
     PodHubUnavailable,
@@ -112,6 +115,7 @@ _POD_ROUTERS = (
     # The turn route: this is what makes a pod run Agent One rather than merely
     # host its prompt. Flag-gated off and pod-mode-only; see api/routes/one/pod_turn.py.
     pod_turn_router,
+    pod_agent_chat_router,
     # The learning loop's doors: conversation close (review on the conversation's
     # model), owner revoke, provider consent and memory status. Same admission as
     # the turn route; see api/routes/one/pod_memory.py.
@@ -168,6 +172,11 @@ app.state.runtime_topology = "private_pod"
 # emits its `request.summary` line; CORS sits between so a browser preflight is
 # answered before the wall sees it.
 app.add_middleware(PodIngressPolicy)
+
+
+app.add_middleware(ChatKeyMiddleware)
+for _chat_error in CHAT_KEY_ERRORS:
+    app.add_exception_handler(_chat_error, chat_key_error_handler)
 
 
 def _pod_cors_origins() -> list[str]:

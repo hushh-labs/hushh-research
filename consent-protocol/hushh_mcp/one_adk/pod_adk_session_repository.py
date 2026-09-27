@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from hushh_mcp.one_adk import pod_adk_checkpoint as checkpoint
 from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
 from hushh_mcp.services.pod_commit_log import PodCommitLog, PodLogConflict, PodLogCursor
 
@@ -37,8 +38,9 @@ class PodAdkSessionProjection:
 
     Deletion is logical: tombstones prevent read/list/resurrection, while earlier
     ciphertext remains in the recovery chain until whole-pod erasure. This is not
-    a physical conversation-erasure receipt. Recovery is bounded and refuses an
-    oversized chain rather than silently losing history.
+    a physical conversation-erasure receipt. Sealed checkpoints accelerate
+    restart; long tails fold with bounded memory and verified revision ancestry.
+    Session count and ciphertext projection size remain explicit capacity limits.
     """
 
     def __init__(self, *, owner_id: str, hushh_id: str, log: PodCommitLog) -> None:
@@ -48,64 +50,72 @@ class PodAdkSessionProjection:
         self._cursor: PodLogCursor | None = None
         self._entries: dict[tuple[str, str], dict] = {}
         self._lock = asyncio.Lock()
+        self._loaded = False
+        self._checkpoint_generation = 0
+        self._checkpoint_seq = 0
 
     async def snapshot(self) -> tuple[int, dict[tuple[str, str], dict]]:
         async with self._lock:
-            records, cursor = await self.log.replay_since(self._cursor, max_records=10000)
-            entries = self._apply(records)
-            # Do not publish either half of a failed projection refresh.
+            from hushh_mcp.one_adk.pod_adk_projection import SessionFold
+
+            baseline, anchor = self._entries, self._cursor
+            generation = self._checkpoint_generation
+            checkpoint_seq = self._checkpoint_seq
+            if not self._loaded:
+                anchor, rows, generation = await checkpoint.load(
+                    self.log, owner=self.owner_id, hushh_id=self.hushh_id
+                )
+                baseline = self._checkpoint_entries(rows, anchor)
+                checkpoint_seq = anchor.seq if anchor else 0
+            fold = SessionFold(owner=self.owner_id, hushh_id=self.hushh_id, baseline=baseline)
+            cursor = await self.log.fold_since(anchor, fold.visit)
+            entries = fold.finish()
+            if cursor and cursor.seq - checkpoint_seq >= checkpoint.INTERVAL:
+                saved = await checkpoint.save(
+                    self.log,
+                    owner=self.owner_id,
+                    hushh_id=self.hushh_id,
+                    cursor=cursor,
+                    entries=entries,
+                    generation=generation,
+                )
+                if saved is None:
+                    # Reload the winning CAS before our next refresh.
+                    self._loaded = False
+                    return cursor.seq, dict(entries)
+                generation, checkpoint_seq = saved, cursor.seq
             self._entries, self._cursor = entries, cursor
+            self._checkpoint_generation, self._checkpoint_seq = generation, checkpoint_seq
+            self._loaded = True
             return cursor.seq if cursor else 0, dict(entries)
 
-    def _apply(self, records: list[dict]) -> dict[tuple[str, str], dict]:
-        entries = dict(self._entries)
-        for record in records:
-            if record.get("kind") != _KIND:
-                continue
-            p = record.get("payload")
+    @staticmethod
+    def _checkpoint_entries(rows: list, cursor) -> dict:
+        entries = {}
+        for item in rows:
+            if not isinstance(item, list) or len(item) != 3:
+                raise PodAdkSessionUnavailable("Pod conversation checkpoint invalid.")
+            app, session, row = item
+            PodAdkSessionRepository._validate_identity(app, session)
             if (
-                not isinstance(p, dict)
-                or type(p.get("format")) is not int
-                or p.get("format") != 1
-                or type(p.get("previous")) is not int
-                or p["previous"] < 0
-                or p.get("owner") != self.owner_id
-                or p.get("hushhId") != self.hushh_id
-                or not isinstance(p.get("app"), str)
-                or not p["app"]
-                or not isinstance(p.get("session"), str)
-                or not p["session"]
+                not cursor
+                or (app, session) in entries
+                or not isinstance(row, dict)
+                or row.get("session_id") != session
+                or type(row.get("revision")) is not int
+                or not 0 < row["revision"] <= cursor.seq
             ):
-                raise PodAdkSessionUnavailable("Pod conversation record invalid.")
-            PodAdkSessionRepository._validate_identity(p["app"], p["session"])
-            key = p["app"], p["session"]
-            previous = entries.get(key)
-            if previous and previous.get("deleted"):
-                raise PodAdkSessionUnavailable("Pod conversation is deleted.")
-            if p.get("previous") != (previous["revision"] if previous else 0):
-                raise PodAdkSessionUnavailable("Pod conversation revision invalid.")
-            if p.get("operation") == "delete":
-                entries[key] = {
-                    "revision": p["previous"] + 1,
-                    "deleted": True,
-                    "session_id": p["session"],
-                }
-            elif p.get("operation") == "write":
-                row = p.get("record")
-                if (
-                    not isinstance(row, dict)
-                    or type(row.get("revision")) is not int
-                    or row.get("revision") != p["previous"] + 1
-                ):
-                    raise PodAdkSessionUnavailable("Pod conversation record invalid.")
-                if row.get("session_id") != p["session"]:
-                    raise PodAdkSessionUnavailable("Pod conversation identity invalid.")
+                raise PodAdkSessionUnavailable("Pod conversation checkpoint invalid.")
+            if row.get("deleted") is not True:
+                if type(row.get("_sequence")) is not int or not 0 < row["_sequence"] <= cursor.seq:
+                    raise PodAdkSessionUnavailable("Pod conversation checkpoint invalid.")
                 PodAdkSessionRepository._validate_payload(
-                    {k: row.get("payload_" + k) for k in ("ciphertext", "iv", "tag", "algorithm")}
+                    {
+                        key: row.get("payload_" + key)
+                        for key in ("ciphertext", "iv", "tag", "algorithm")
+                    }
                 )
-                entries[key] = {**row, "_sequence": record["seq"]}
-            else:
-                raise PodAdkSessionUnavailable("Pod conversation operation invalid.")
+            entries[app, session] = row
         if (
             len(entries) > _MAX_SESSIONS
             or len(json.dumps(list(entries.values())).encode()) > _MAX_PROJECTION_BYTES
@@ -138,7 +148,7 @@ class PodAdkSessionRepository:
         return result
 
     @staticmethod
-    def _validate_identity(app: str, session: str) -> None:
+    def _validate_identity(app: Any, session: Any) -> None:
         if (
             not isinstance(app, str)
             or not 1 <= len(app) <= 128
@@ -148,7 +158,7 @@ class PodAdkSessionRepository:
             raise PodAdkSessionUnavailable("Pod conversation identity invalid.")
 
     @staticmethod
-    def _validate_payload(payload: dict[str, str]) -> None:
+    def _validate_payload(payload: dict[str, Any]) -> None:
         if (
             set(payload) != {"ciphertext", "iv", "tag", "algorithm"}
             or not all(isinstance(v, str) and v for v in payload.values())

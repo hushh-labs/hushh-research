@@ -136,6 +136,19 @@ async def pod(tmp_path, monkeypatch, hub_key):
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.include_router(pod_session.router)
+    from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler
+    from api.routes.one.pod_agent_chat import router as chat_router
+    from hushh_mcp.one_adk import pod_agui_context
+    from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
+
+    monkeypatch.setenv("HUSSH_ID", OWNER)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_POD_TURN_ENABLED", "true")
+    monkeypatch.setattr(pod_agui_context, "_projection", None)
+    app.include_router(chat_router)
+    app.add_middleware(ChatKeyMiddleware)
+    for error in CHAT_KEY_ERRORS:
+        app.add_exception_handler(error, chat_key_error_handler)
     app.add_middleware(PodIngressPolicy)
     client = TestClient(app, raise_server_exceptions=False)
     yield {"client": client, "authority": authority, "log": log, "store": store}
@@ -316,3 +329,65 @@ def test_the_wall_passes_the_app_surface_and_walls_the_rest(pod):
     client = pod["client"]
     assert client.get("/api/one/pod/status").status_code == 401  # the route answered
     assert client.get("/pod/info").status_code == 404  # the wall answered
+
+
+async def test_private_chat_recovers_with_owner_key_and_refuses_device_or_other_owner(pod):
+    from google.adk.events import Event
+    from google.genai import types
+
+    from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
+    from hushh_mcp.one_adk.pod_agui_context import PodChatContext
+    from hushh_mcp.services.chat_key import RequestChatKey, bind_request_chat_key
+
+    client = pod["client"]
+    app = _admit(client, Subject("tdv_chat_app", "web"))
+    device = _admit(client, Subject("tdv_chat_device", "macos"))
+    authorization = f"Bearer {app['session']}"
+    with bind_request_chat_key(RequestChatKey(b"c" * 32)):
+        owner = PodChatContext(authorization)
+        session = await owner.sessions.create_session(
+            app_name=ONE_APP_NAME, user_id=USER, session_id="synthetic-chat"
+        )
+        await owner.sessions.append_event(
+            session,
+            Event(
+                author="user",
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part(text="Synthetic private note")],
+                ),
+            ),
+        )
+    headers = {"Authorization": authorization, "X-Hussh-Chat-Key": "hck1." + (b"c" * 32).hex()}
+    path = "/api/one/pod/agent-chat/history/synthetic-chat"
+    response = client.get(path, headers=headers)
+    assert response.status_code == 200, response.text
+    assert "Synthetic private note" in response.text
+    # A cold request has its own key lifetime. Neither the previous session nor
+    # the ciphertext cache can authorize a locked, wrong-key or device request.
+    assert client.get(path, headers={"Authorization": authorization}).status_code == 403
+    assert (
+        client.get(
+            path, headers={**headers, "X-Hussh-Chat-Key": "hck1." + (b"x" * 32).hex()}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            path, headers={**headers, "Authorization": f"Bearer {device['session']}"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/api/one/pod/agent-chat/conversations/another-owner", headers=headers
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/api/one/pod/agent-chat/history/synthetic-chat/admin", headers=headers
+        ).status_code
+        == 404
+    )
+    assert client.get(path, headers=headers).status_code == 200

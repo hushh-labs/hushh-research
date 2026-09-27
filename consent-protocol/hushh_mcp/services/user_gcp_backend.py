@@ -1444,6 +1444,13 @@ class UserGcpBackend:
         digest = image.rsplit("@", 1)[-1] if "@" in image else None
         if not digest or not digest.startswith("sha256:"):
             raise RuntimeError("upgrade recovery image unverified")
+        files_metadata = {}
+        if ready and spec.files_upgrade_plan is not None:
+            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+
+            plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+            plan.require_installed(service)
+            files_metadata = {"filesCapability": {"planDigest": plan.digest, "status": "enabled"}}
         return BackendHandle(
             external_agent_id=name,
             a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
@@ -1454,8 +1461,51 @@ class UserGcpBackend:
                 "image_digest": digest,
                 "source_image": receipt["targetImage"],
                 "url": GcpRunClient.service_url(service) or "",
+                **files_metadata,
             },
         )
+
+    async def discover_files_upgrade_ack(self, spec: PodSpec) -> Optional[dict]:
+        """Recover a lost replacement response using its exact attempt nonce.
+
+        This reads provider state only. Absence or a different nonce never proves
+        that a timed-out request stopped, and never authorizes another PUT.
+        """
+        if not spec.files_upgrade_plan or not spec.upgrade_attempt_id:
+            return None
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+
+        plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+        observed = await self.inspect_files_capability(spec)
+        try:
+            receipt = GcpRunClient.upgrade_acknowledgement(
+                observed,
+                name=plan.service,
+                expected_uid=plan.serviceUid,
+                attempt_id=spec.upgrade_attempt_id,
+            )
+            plan.require_installed(observed)
+        except (RuntimeError, ValueError):
+            return None
+        if receipt["image"].rsplit("@", 1)[-1] != plan.targetImage.rsplit("@", 1)[-1]:
+            return None
+        return receipt
+
+    async def inspect_files_capability(self, spec: PodSpec) -> dict:
+        """Observe the same service an update would mutate; no cloud writes."""
+        import asyncio
+
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        if not self._live or not spec.expected_service_uid:
+            raise ValueError("Files requires a live, verified pod incarnation")
+        client = await asyncio.to_thread(self._client)
+        existing = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
+        if existing is None:
+            raise ValueError("The existing pod service is unavailable")
+        GcpRunClient.require_service_uid(existing, spec.expected_service_uid)
+        return existing
 
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
         """Move THIS person's running pod onto the hub's current image, in place.
@@ -1512,6 +1562,30 @@ class UserGcpBackend:
                 "provision (or adopt) it instead"
             )
         GcpRunClient.require_service_uid(existing, expected_uid)
+        files_capability = None
+        if spec.files_upgrade_plan is not None:
+            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+
+            files_capability = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+            if (
+                not spec.upgrade_operation_id
+                or not spec.upgrade_attempt_id
+                or spec.on_files_upgrade_checkpoint is None
+                or files_capability.hushhId != spec.hushh_id
+                or files_capability.serviceUid != expected_uid
+                or files_capability.project != self._user_project
+                or files_capability.targetImage != spec.upgrade_target_image
+                or files_capability.bootstrapAccount != self._bootstrap_sa
+            ):
+                raise ValueError("Files activation is missing its approved operation")
+            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+
+            try:
+                files_capability.require_observation(existing)
+            except ValueError:
+                raise FilesCapabilityChanged(
+                    "Pod configuration changed. Review Files setup again."
+                ) from None
         observed_runtime = (
             existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
         )
@@ -1568,7 +1642,25 @@ class UserGcpBackend:
             )
 
             preserve_image_upgrade_configuration(existing, config)
-            changed = image_digest != previous_digest
+            if files_capability is not None:
+                from hushh_mcp.services.pod_files.capability_bootstrap import (
+                    FilesCapabilityBootstrap,
+                )
+                from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+                token = await asyncio.to_thread(
+                    mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa
+                )
+                bootstrap = FilesCapabilityBootstrap(capability=files_capability, token=token)
+                await asyncio.to_thread(
+                    bootstrap.apply_delta, checkpoint=spec.on_files_upgrade_checkpoint
+                )
+                # Re-observe immediately before replacement; resource provisioning
+                # does not authorize overwriting an independently edited service.
+                latest = await asyncio.to_thread(client.get_service, name)
+                files_capability.require_observation(latest)
+                files_capability.apply_configuration(existing=existing, desired=config)
+            changed = image_digest != previous_digest or files_capability is not None
             svc: Optional[dict[str, Any]] = existing
             if changed:
                 replacement_submitted = True
@@ -1638,6 +1730,8 @@ class UserGcpBackend:
                     logger.info("user_gcp_backend.handoff_release_failed", exc_info=True)
             raise
         url = client.service_url(svc)
+        if files_capability is not None:
+            files_capability.require_installed(svc)
         logger.info(
             "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
             name,
@@ -1667,6 +1761,16 @@ class UserGcpBackend:
                 "credential": "impersonated bootstrap SA, 15-minute token",
                 "runtime_service_account": self._pod_service_account(spec),
                 "livenessMode": _liveness_mode(_rendered_min_scale(config)),
+                **(
+                    {
+                        "filesCapability": {
+                            "planDigest": files_capability.digest,
+                            "status": "enabled",
+                        }
+                    }
+                    if files_capability is not None
+                    else {}
+                ),
             },
         )
 

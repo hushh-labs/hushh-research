@@ -22,6 +22,11 @@ def _blocked_update(row: Optional[dict]) -> dict:
     ):
         return {}
     message = "The update outcome could not be verified. Check again while recovery continues."
+    if approval.get("capabilityPlan") and metadata.get("filesUpgradeCheckpoint"):
+        message = (
+            "Files setup could not be verified. Existing information is preserved. "
+            "Setup needs reconciliation before another update can start."
+        )
     return {
         "updateFailed": True,
         "updateOfferable": False,

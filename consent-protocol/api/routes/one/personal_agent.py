@@ -35,6 +35,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     _lease_is_fresh,
     image_digest,
     is_immutable_image_reference,
+    upgrade_approval_matches,
     upgrade_release_id,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
@@ -91,6 +92,9 @@ class UpgradeApprovalRequest(BaseModel):
 
     release_id: str = Field(..., alias="releaseId", min_length=8, max_length=128)
     idempotency_key: str = Field(..., alias="idempotencyKey", min_length=8, max_length=128)
+    capability_plan_digest: str | None = Field(
+        default=None, alias="capabilityPlanDigest", pattern=r"^[0-9a-f]{64}$"
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -108,7 +112,9 @@ def _require_enabled() -> None:
         raise HTTPException(status_code=404, detail="personal agent is not available")
 
 
-async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict, str, str, dict]:
+async def _upgrade_offer(
+    user_id: str, *, capability: bool = False
+) -> tuple[PersonalAgentRegistryRepo, dict, str, str, dict]:
     repo = PersonalAgentRegistryRepo()
     row = await repo.get(user_id)
     if row is None or str(row.get("status") or "") != "provisioned":
@@ -121,7 +127,7 @@ async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict,
         # between the owner's click and the worker's installation.
         raise HTTPException(status_code=409, detail="software update is not yet verified")
     update = describe_pod_update(row, target_image=target_reference)
-    if update.get("updateAvailable") is not True:
+    if update.get("updateAvailable") is not True and not capability:
         detail = (
             "your private agent is already up to date"
             if update.get("updateAvailable") is False
@@ -133,7 +139,10 @@ async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict,
     installed_image = (
         metadata.get("image_digest") or metadata.get("image") or metadata.get("source_image")
     )
-    if release_metadata is None or not upgrade_is_supported(release_metadata, installed_image):
+    if release_metadata is None or not (
+        upgrade_is_supported(release_metadata, installed_image)
+        or (capability and image_digest(installed_image) == image_digest(target_reference))
+    ):
         raise HTTPException(
             status_code=409, detail="compatibility for this software update is not verified"
         )
@@ -380,7 +389,17 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     approval = metadata.get("upgradeApproval")
     service_uid = metadata.get("serviceUid")
     approved_target = str(approval.get("targetImage") or "") if isinstance(approval, dict) else ""
-    installed_release_id = upgrade_release_id(row, approved_target) if approved_target else None
+    try:
+        installed_release_id = (
+            upgrade_release_id(
+                row, approved_target, capability_digest=(approval or {}).get("capabilityPlanDigest")
+            )
+            if approved_target
+            else None
+        )
+    except (TypeError, ValueError):
+        # An invalid retained approval is not evidence of a verified update.
+        installed_release_id = None
     if (
         installed_digest
         and not version_drift
@@ -391,6 +410,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         and acknowledgement.get("podIncarnation") == service_uid
         and image_digest(acknowledgement.get("image")) == installed_digest
         and acknowledgement.get("targetDigest") == installed_digest
+        and installed_release_id is not None
         and acknowledgement.get("releaseId") == installed_release_id
         and isinstance(approval, dict)
         and image_digest(approved_target) == installed_digest
@@ -422,6 +442,13 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
             return out
         out["updateAvailable"] = running != target
     release = upgrade_release_id(row, target_reference or target)
+    if (
+        isinstance(approval, dict)
+        and approval.get("capabilityPlanDigest")
+        and upgrade_approval_matches(row, target_reference or target)
+    ):
+        out["updateAvailable"] = True
+        release = approval["releaseId"]
     if out["updateAvailable"]:
         out.update(_update_offer(metadata, release, release_metadata, installed_digest))
     marker = metadata.get("upgrade")
@@ -575,6 +602,14 @@ async def resolve_personal_agent_status(
     metadata = (row or {}).get("backend_metadata")
     if isinstance(metadata, dict) and metadata.get("ready") is not None:
         result["hostReady"] = bool(metadata.get("ready"))
+    result["filesActivationAvailable"] = bool(
+        result.get("hostingMode") == "byoc"
+        and state == "active"
+        and (metadata or {}).get("upgradeLease") is None
+        and os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true"}
+        and ((metadata or {}).get("filesCapability") or {}).get("status") != "enabled"
+        and not ((metadata or {}).get("filesSetup") or {}).get("enabled")
+    )
 
     # The installed-version half of "an upgrade is a software update at login".
     # Only meaningful once there is a serving pod to be behind.
@@ -609,6 +644,23 @@ async def personal_agent_status_route(
     return await resolve_personal_agent_status(user_id=user_id)
 
 
+@router.post("/update/files-plan")
+async def plan_personal_agent_files_update(user_id: str = Depends(require_firebase_auth)) -> dict:
+    """Inspect a capability offer; this neither approves nor provisions resources."""
+    _require_enabled()
+    repo, row, target, _, _ = await _upgrade_offer(user_id, capability=True)
+    from hushh_mcp.services.pod_files.update_offer import inspect_files_offer, public_files_offer
+
+    try:
+        plan = await inspect_files_offer(repo, row, target)
+    except (ValueError, RuntimeError):
+        raise HTTPException(
+            409, detail="Files setup cannot be verified for this pod yet."
+        ) from None
+    offer: dict = public_files_offer(plan)
+    return offer
+
+
 @router.post("/update/approve")
 async def approve_personal_agent_update(
     payload: UpgradeApprovalRequest = Body(...),
@@ -616,7 +668,45 @@ async def approve_personal_agent_update(
 ) -> dict:
     """Approve one exact release; reconciliation performs the later mutation."""
     _require_enabled()
-    repo, row, target_reference, release_id, release_metadata = await _upgrade_offer(user_id)
+    repo, row, target_reference, release_id, release_metadata = await _upgrade_offer(
+        user_id, capability=payload.capability_plan_digest is not None
+    )
+    plan = None
+    if payload.capability_plan_digest is not None:
+        existing = (row.get("backend_metadata") or {}).get("upgradeApproval")
+        if (
+            isinstance(existing, dict)
+            and existing.get("releaseId") == payload.release_id
+            and existing.get("capabilityPlanDigest") == payload.capability_plan_digest
+        ):
+            from hushh_mcp.services.personal_agent_registry_repo import _validate_upgrade_approval
+            from hushh_mcp.services.pod_update_identity import approved_files_plan
+
+            try:
+                _validate_upgrade_approval(existing, user_id=user_id)
+                approved_files_plan(existing).require_owner(row, target_reference)
+            except (ValueError, TypeError):
+                raise HTTPException(409, detail="Files setup authority changed.") from None
+            if not compare_digest(existing["idempotencyKey"], payload.idempotency_key):
+                raise HTTPException(
+                    409, detail="This update already has a different operation key."
+                )
+            return {
+                "operationId": existing["operationId"],
+                "releaseId": existing["releaseId"],
+                "status": existing.get("operationState") or "scheduled",
+            }
+        from hushh_mcp.services.pod_files.update_offer import inspect_files_offer
+
+        try:
+            plan = await inspect_files_offer(repo, row, target_reference)
+        except (ValueError, RuntimeError):
+            raise HTTPException(
+                409, detail="Files setup changed. Review the current plan."
+            ) from None
+        if not compare_digest(payload.capability_plan_digest, plan.digest):
+            raise HTTPException(409, detail="Files setup changed. Review the current plan.")
+        release_id = upgrade_release_id(row, target_reference, capability_digest=plan.digest)
     if not compare_digest(payload.release_id, release_id):
         raise HTTPException(status_code=409, detail="this software update is no longer current")
     existing = (row.get("backend_metadata") or {}).get("upgradeApproval")
@@ -654,6 +744,11 @@ async def approve_personal_agent_update(
         "targetImage": target_reference,
         "releaseMetadata": release_metadata,
         "approvedAt": now,
+        **(
+            {"capabilityPlan": plan.model_dump(), "capabilityPlanDigest": plan.digest}
+            if plan
+            else {}
+        ),
     }
     stored = await repo.record_upgrade_approval(user_id=user_id, approval=approval)
     if not isinstance(stored, dict) or stored.get("releaseId") != release_id:

@@ -16,11 +16,14 @@ const capacitorMocks = vi.hoisted(() => ({
 }));
 
 const ownerPodMocks = vi.hoisted(() => ({
+  verifyHubSignature: vi.fn(),
   loadPinnedEndpoint: vi.fn(),
   refreshEndpointFromHub: vi.fn(),
   currentPodSession: vi.fn(),
   revokeAtPod: vi.fn(),
 }));
+
+vi.mock("@/lib/services/owner-pod-crypto", () => ({ verifyHubSignature: ownerPodMocks.verifyHubSignature }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -28,6 +31,7 @@ vi.mock("@capacitor/core", () => ({
     getPlatform: capacitorMocks.getPlatform,
   },
   CapacitorHttp: { request: capacitorMocks.request },
+  registerPlugin: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -134,6 +138,57 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it.each([false, true])("routes chat/history through pod admission without hub fallback (stream=%s)", async (streaming) => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response("stream"));
+    mockFetch.mockResolvedValue(json({ conversations: [] }));
+    if (streaming) mockFetch.mockResolvedValue(json({}, 503));
+    const path = streaming ? "/api/one/agent-chat" : "/api/one/agent-chat/conversations/uid-owner";
+    await ApiService.agentChatRequest(path, {
+      body: streaming ? JSON.stringify({ messages: [], forwardedProps: {} }) : undefined,
+      method: streaming ? "POST" : "GET", headers: { Authorization: "Bearer hub-owner", "X-Hussh-Chat-Key": "synthetic-derived" },
+    }, streaming);
+    const calls = streaming ? stream.mock.calls : mockFetch.mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(`${POD_URL}${path.replace("/api/one/", "/api/one/pod/")}`);
+    const headers = new Headers(calls[0][1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer pst1.claims.mac");
+    expect(headers.get("X-Hussh-Chat-Key")).toBe("synthetic-derived");
+    expect(ApiService.getPersonalAgentStatus).not.toHaveBeenCalled();
+    ownerPodMocks.currentPodSession.mockRejectedValueOnce(new Error("Pod offline"));
+    await expect(ApiService.agentChatRequest(path, {}, streaming)).rejects.toThrow("Pod offline");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("sends only a bodyless grant request to the hub and refuses a changed signed endpoint", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    ownerPodMocks.verifyHubSignature.mockResolvedValue(undefined);
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response("stream"));
+    mockFetch.mockResolvedValue(json({ endpoint: PIN, dataDoorGrants: { email: "scoped-synthetic" } }));
+    const init = { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "private synthetic" }], forwardedProps: { runtimeCredential: "synthetic-private-key" } }) };
+    await ApiService.agentChatRequest("/api/one/agent-chat", init, true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain("/api/one/u/ha1_owner/chat-grants");
+    expect(mockFetch.mock.calls[0][1].body).toBeUndefined();
+    expect(JSON.parse(String(stream.mock.calls[0][1]?.body))).toMatchObject({ forwardedProps: { dataDoorGrants: { email: "scoped-synthetic" }, runtimeCredential: "synthetic-private-key" } });
+    expect(ownerPodMocks.verifyHubSignature).toHaveBeenCalled();
+    mockFetch.mockResolvedValue(json({ endpoint: { ...PIN, podKeyId: "replacement" }, dataDoorGrants: {} }));
+    await expect(ApiService.agentChatRequest("/api/one/agent-chat", init, true)).rejects.toThrow("POD_ASSIGNMENT_CHANGED");
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires explicit Shared authority when no admitted pod is pinned", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValueOnce({ hostingMode: "unknown" });
+    await expect(ApiService.agentChatRequest("/api/one/agent-chat", {})).rejects.toThrow("AGENT_PRIVATE_RUNTIME_REQUIRED");
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockFetch.mockResolvedValue(json({}));
+    await ApiService.agentChatRequest("/api/one/agent-chat", {});
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/one/agent-chat");
   });
 
   it("dials the pinned pod with the pod session and never touches the hub", async () => {

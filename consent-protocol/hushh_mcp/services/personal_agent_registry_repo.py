@@ -15,7 +15,6 @@ never the raw phone number and never a private key.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import uuid
@@ -101,14 +100,15 @@ def _validate_upgrade_approval(approval: object, *, user_id: str) -> dict[str, A
         raise ValueError("upgrade approval requires a verified pod incarnation")
     if not _IMMUTABLE_IMAGE_RE.fullmatch(approval["targetImage"].strip()):
         raise ValueError("upgrade approval requires an immutable image digest")
-    release_payload = "|".join(
-        (
-            approval["hushhId"].strip(),
-            approval["podIncarnation"].strip(),
-            approval["targetImage"].strip(),
-        )
+    from hushh_mcp.services.pod_update_identity import approved_files_plan, release_identity
+
+    capability = approved_files_plan(approval)
+    expected_release = release_identity(
+        approval["hushhId"],
+        approval["podIncarnation"],
+        approval["targetImage"],
+        capability_digest=capability.digest if capability else None,
     )
-    expected_release = "rel_" + hashlib.sha256(release_payload.encode("utf-8")).hexdigest()[:32]
     if approval["releaseId"].strip() != expected_release:
         raise ValueError("upgrade approval release is not bound to its image and incarnation")
     if approval.get("status") not in {
@@ -165,6 +165,7 @@ _UPGRADE_HOST_METADATA_KEYS = (
     "tenancy",
     "ingress",
     "substrateReceipt",
+    "filesUpgradeCheckpoint",
 )
 
 
@@ -314,6 +315,32 @@ class PersonalAgentRegistryRepo:
             {"owner": user_id, "lease": lease, "receipt": json.dumps(receipt)},
         )
         return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_files_upgrade_observation(
+        self, *, user_id: str, lease: str, observation: dict
+    ) -> bool:
+        """Preserve the last Files result without reopening the reserved owner."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_files_upgrade_observation(:owner,:lease,CAST(:receipt AS jsonb)) AS retained",
+            {"owner": user_id, "lease": lease, "receipt": json.dumps(observation)},
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def files_upgrade_admission_ready(self) -> bool:
+        available = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT to_regprocedure('public.files_upgrade_admission_ready()') IS NOT NULL AS ready",
+            {},
+        )
+        if not (available.data and available.data[0].get("ready") is True):
+            return False
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.files_upgrade_admission_ready() AS ready",
+            {},
+        )
+        return bool(result.data and result.data[0].get("ready") is True)
 
     async def retain_erasure_memory_binding(
         self, *, user_id: str, reservation: dict, receipt: dict
@@ -1683,6 +1710,11 @@ class PersonalAgentRegistryRepo:
                 "backend",
                 "backend_metadata",
                 "deployment_target",
+                "external_agent_id",
+                "user_cloud_project",
+                "user_cloud_region",
+                "user_cloud_bootstrap_sa",
+                "user_cloud_authorized_at",
             )
             .eq("status", "provisioned")
             .limit(limit)

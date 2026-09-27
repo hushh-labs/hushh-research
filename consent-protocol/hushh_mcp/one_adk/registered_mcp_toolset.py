@@ -12,11 +12,9 @@ from copy import copy
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 
-from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.governed_mcp_toolset import native_registration_admitted
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
-from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
@@ -43,8 +41,7 @@ async def inspect_private_connectors(tool_context: ToolContext) -> dict:
             return {"status": "blocked", "message": "The conversation changed. Try again."}
         if not scope.has_vault_configurations:
             return {"status": "unavailable", "message": "Unlock your vault to manage connectors."}
-        token = resolve_request_secret(state.get("hussh:consent_token"))
-        if not await validate_first_party_owner_token(owner, token):
+        if not await scope.owner_is_admitted(tool_context):
             return {"status": "blocked", "message": "Connectors are unavailable in this session."}
         return {
             "status": "setup_available",
@@ -57,14 +54,20 @@ async def inspect_private_connectors(tool_context: ToolContext) -> dict:
         return {"status": "unavailable", "message": "Could not check connectors. Try again."}
 
 
+async def refuse_unavailable_pod_review(*_args, **_kwargs) -> dict:
+    """Review-dependent calls need the owning hub action port, never a local ledger."""
+    return {"status": "blocked", "error": "POD_MCP_REVIEW_UNAVAILABLE", "retryable": False}
+
+
 class RegisteredMcpToolset(BaseToolset):
     """Context-free root registration; owner-scoped tools resolved on each turn."""
 
-    def __init__(self):
+    def __init__(self, *, authorize_call=None):
         super().__init__()
         # Installed ADK caches only by invocation ID, not owner/generation.
         # Our task-local scope owns reuse and each call revalidates credentials.
         self._use_invocation_cache = False
+        self._authorize_call = authorize_call
 
     def clear_invocation_catalog(self):
         # ADK still assigns this field even when lookup caching is disabled.
@@ -101,9 +104,13 @@ class RegisteredMcpToolset(BaseToolset):
             raise ExternalMcpError("Connector turn changed.", code="MCP_TURN_UNAVAILABLE")
         scope.track_catalog_view(self)
         async with asyncio.timeout(20):
-            definitions = await get_external_connector_registry_service().list_active_connectors(
-                user_id=None if scope.has_vault_configurations else context.user_id
-            )
+            definitions = []
+            if not scope.vault_only:
+                definitions = (
+                    await get_external_connector_registry_service().list_active_connectors(
+                        user_id=None if scope.has_vault_configurations else context.user_id
+                    )
+                )
             admitted = [
                 (item.connector_id, item.display_name)
                 for item in definitions
@@ -121,7 +128,9 @@ class RegisteredMcpToolset(BaseToolset):
                 async with semaphore:
                     try:
                         toolset = await scope.acquire(
-                            context, connector_id, authorize_call=review_or_resume_call
+                            context,
+                            connector_id,
+                            authorize_call=self._authorize_call or review_or_resume_call,
                         )
                         tools = await toolset.get_tools(context)
                         labeled_tools = []

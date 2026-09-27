@@ -12,14 +12,12 @@ secret is stored in the pod, nothing to rotate, nothing to leak from the deploy
 artifact. It matches how BYOC-USER-GCP.md wants a user-hosted pod to authenticate,
 so the same client works when the pod runs in the user's own project.
 
-**What the token proves, and what it does not.** Every pod runs as the SAME service
-account, which is what lets that account hold no roles. So an ID token proves "this
-caller is a hussh pod"; it does NOT prove WHICH user's pod. The pod therefore asserts
-its own ``HUSSH_ID`` alongside the token, and that assertion is only as trustworthy as
-the pod itself -- which is precisely the ``logical`` tier's stated trust level.
-Cryptographic per-pod identity is what the attested ``dedicated`` tier (Confidential
-Space, M5) is for. The hub-side acceptance of this identity is flag-gated OFF for that
-reason; see ``pod_hub_identity_auth_enabled()``.
+**Identity depends on deployment.** BYOC uses the owner's runtime service account;
+the hub verifies its Google identity and binds that account to the registry entry
+for the asserted ``HUSSH_ID``. The managed/simulation path accepts the configured
+fleet account, which does not independently distinguish owners. Neither path alone
+proves workload attestation. Hub acceptance remains flag-gated; each protected route
+must also enforce its own current assignment and information/action authority.
 """
 
 from __future__ import annotations

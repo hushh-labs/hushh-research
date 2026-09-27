@@ -204,7 +204,7 @@ def test_status_fails_safe_to_none(monkeypatch):
     assert resp.json()["state"] == "none"
 
 
-def _update_client(monkeypatch):
+def _update_client(monkeypatch, *, row_override=None):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
     monkeypatch.setenv(
         "HUSSH_ONE_POD_IMAGE",
@@ -227,6 +227,8 @@ def _update_client(monkeypatch):
         },
     }
     calls: dict[str, dict] = {}
+    if row_override is not None:
+        row = row_override
 
     class FakeRepo:
         async def get(self, user_id):
@@ -263,6 +265,46 @@ def test_update_approval_is_bound_and_idempotent(monkeypatch):
     assert first.json() == second.json()
     assert calls["approval"]["targetImage"].endswith("@sha256:" + "b" * 64)
     assert calls["approval"]["hushhId"] == "ha1_owner"
+
+
+def test_files_approval_rechecks_plan_and_reuses_operation_after_lost_response(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_files import update_offer
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, installed, observed = legacy_files_fixture()
+    row["user_id"] = "uid1"
+    row["backend_metadata"]["source_image"] = installed
+    client, calls = _update_client(monkeypatch, row_override=row)
+    target = "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new@sha256:" + "b" * 64
+    plan = plan_from_observation(row, target, observed)
+    inspect = AsyncMock(return_value=plan)
+    monkeypatch.setattr(update_offer, "inspect_files_offer", inspect)
+    offer = client.post("/api/one/personal-agent/update/files-plan")
+    assert offer.status_code == 200
+    payload = {
+        **{key: offer.json()[key] for key in ("releaseId", "capabilityPlanDigest")},
+        "idempotencyKey": "files-approved-one",
+    }
+    inspect.return_value = plan.model_copy(update={"serviceGeneration": "8"})
+    assert client.post("/api/one/personal-agent/update/approve", json=payload).status_code == 409
+    assert "approval" not in calls
+    inspect.return_value = plan
+    first = client.post("/api/one/personal-agent/update/approve", json=payload)
+    assert first.status_code == 200
+    assert calls["approval"]["capabilityPlan"] == plan.model_dump()
+    row["backend_metadata"]["upgradeLease"] = "already-running"
+    inspect.reset_mock()
+    retry = client.post("/api/one/personal-agent/update/approve", json=payload)
+    assert retry.status_code == 200 and retry.json() == first.json()
+    inspect.assert_not_awaited()
+    conflicting = client.post(
+        "/api/one/personal-agent/update/approve",
+        json={**payload, "idempotencyKey": "files-approved-two"},
+    )
+    assert conflicting.status_code == 409
 
 
 def test_update_approval_rejects_conflicting_idempotency_key(monkeypatch):

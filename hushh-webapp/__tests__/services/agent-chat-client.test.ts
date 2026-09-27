@@ -59,6 +59,7 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
+    agentChatRequest: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
     renameAgentChatConversation: vi.fn(),
@@ -114,12 +115,12 @@ describe("One chat key transport", () => {
   });
 
   it("sends the chat key when recording a submitted request into history", async () => {
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response("{}", { status: 200 }));
     await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "a", bundleId: "b",
       idempotencyKey: "c", vaultOwnerToken: "owner-token",
     }).catch(() => undefined);
-    const init = vi.mocked(ApiService.apiFetch).mock.calls.at(-1)?.[1] as RequestInit;
+    const init = vi.mocked(ApiService.agentChatRequest).mock.calls.at(-1)?.[1] as RequestInit;
     expect(new Headers(init.headers).get("X-Hussh-Chat-Key")).toBe(TEST_CHAT_KEY);
     expect(String(init.body)).not.toContain(TEST_CHAT_KEY);
   });
@@ -253,20 +254,20 @@ describe("AG-UI Agent One client", () => {
       fields: [{ requestId: "request_12345678", label: "Professional Domain",
         domain: "Information", sensitivity: "standard", status: "pending" }],
     } };
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
     const result = await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "discover-call",
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     });
     expect(result.type).toBe("one.information_request_review.v1");
-    expect(ApiService.apiFetch).toHaveBeenCalledWith(
+    expect(ApiService.agentChatRequest).toHaveBeenCalledWith(
       "/api/one/agent-chat/history/thread-1/information-requests",
       expect.objectContaining({ method: "POST", body: JSON.stringify({
         source_activity_id: "discover-call", bundle_id: bundleId,
         idempotency_key: "synthetic-receipt-key",
       }) }),
     );
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(JSON.stringify({
       descriptor: { ...descriptor, content: { ...descriptor.content, bundleId: "other-bundle" } },
     }), { status: 200 }));
     await expect(recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,

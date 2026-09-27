@@ -2221,6 +2221,7 @@ def _one_roster_tools(
     specialist_model: Any | None = None,
     tool_mode: str = "full",
     allow_workspace_tools: bool = False,
+    allow_private_mcp: bool = False,
 ) -> list:
     """The /one specialist roster, shared by every One head.
 
@@ -2317,6 +2318,15 @@ def _one_roster_tools(
                 RegisteredMcpToolset(),
             ]
         )
+    if pod_mode() and allow_private_mcp:
+        from hushh_mcp.one_adk.registered_mcp_toolset import refuse_unavailable_pod_review
+
+        tools.extend(
+            [
+                inspect_private_connectors,
+                RegisteredMcpToolset(authorize_call=refuse_unavailable_pod_review),
+            ]
+        )
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
 
@@ -2336,6 +2346,7 @@ def build_one_text_agent(
     *,
     model: Any | None = None,
     allow_workspace_tools: bool = False,
+    allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
@@ -2357,6 +2368,7 @@ def build_one_text_agent(
         tools=_one_roster_tools(
             specialist_model=text_model,
             allow_workspace_tools=allow_workspace_tools,
+            allow_private_mcp=allow_private_mcp,
         ),
         before_tool_callback=before_external_read_tool,
         before_model_callback=timed_one_before_model,

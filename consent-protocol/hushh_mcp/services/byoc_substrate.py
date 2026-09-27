@@ -238,6 +238,7 @@ def _secret_creation_identity(
 
 def _binding_observation(value: Any) -> dict[str, str] | None:
     """Bounded policy-write provenance; never exclusive ownership or revoke authority."""
+    import re
     from urllib.parse import urlsplit
 
     fields = ("step", "policyResource", "role", "member", "disposition", "beforeEtag", "afterEtag")
@@ -252,20 +253,25 @@ def _binding_observation(value: Any) -> dict[str, str] | None:
         return None
     if (
         url.scheme != "https"
-        or url.netloc
-        not in {
-            "cloudkms.googleapis.com",
-            "storage.googleapis.com",
-            "iam.googleapis.com",
-            "cloudresourcemanager.googleapis.com",
-            "artifactregistry.googleapis.com",
-            "secretmanager.googleapis.com",
-            "pubsub.googleapis.com",
-        }
+        or (
+            url.netloc
+            not in {
+                "cloudkms.googleapis.com",
+                "storage.googleapis.com",
+                "iam.googleapis.com",
+                "cloudresourcemanager.googleapis.com",
+                "artifactregistry.googleapis.com",
+                "secretmanager.googleapis.com",
+                "pubsub.googleapis.com",
+                "cloudtasks.googleapis.com",
+            }
+            and re.fullmatch(r"[a-z]+-[a-z]+[0-9]+-run\.googleapis\.com", url.netloc) is None
+        )
         or url.query
         or url.fragment
         or not url.path.startswith("/v1/")
         and not url.path.startswith("/storage/v1/")
+        and not (url.netloc == "cloudtasks.googleapis.com" and url.path.startswith("/v2/"))
         or value["disposition"] not in {"added", "already_present"}
         or not value["role"].startswith(("roles/", "projects/", "organizations/"))
         or not value["member"].startswith("serviceAccount:")

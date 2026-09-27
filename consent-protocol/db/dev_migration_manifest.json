@@ -54,6 +54,7 @@
     "936_personal_agent_stale_erasure_recovery.sql",
     "940_personal_agent_erasure_guard_composition.sql",
     "941_personal_agent_files_erasure.sql",
-    "942_personal_agent_erasure_validation_cost.sql"
+    "942_personal_agent_erasure_validation_cost.sql",
+    "943_personal_agent_files_upgrade_evidence.sql"
   ]
 }

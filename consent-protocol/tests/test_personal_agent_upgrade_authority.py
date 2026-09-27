@@ -159,6 +159,104 @@ class _ObservingBackend:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("complete", [False, True])
+async def test_files_recovery_requires_completed_resources_and_persists_discovered_replacement(
+    complete,
+):
+    from hushh_mcp.services.compute_backend import PodSpec
+    from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, image, observed_service = legacy_files_fixture()
+    plan = plan_from_observation(row, image, observed_service)
+    lease = "files-recovery-lease"
+    attempt = hashlib.sha256(lease.encode()).hexdigest()
+    approval = {
+        **_approval(row, image, status="blocked"),
+        "ownerId": plan.ownerId,
+        "hushhId": plan.hushhId,
+        "podIncarnation": plan.serviceUid,
+        "capabilityPlan": plan.model_dump(),
+        "capabilityPlanDigest": plan.digest,
+        "releaseId": upgrade_release_id(row, image, capability_digest=plan.digest),
+    }
+    checkpoint = FilesUpgradeCheckpoint(
+        plan=plan,
+        operation_id=approval["operationId"],
+        attempt_id=attempt,
+        original_inventory=row["backend_metadata"]["substrateReceipt"],
+    )
+    completed = []
+    for call in checkpoint.calls if complete else checkpoint.calls[:1]:
+        intent, _ = checkpoint.prepare("intent", call["step"], completed)
+        checkpoint.acknowledge(intent)
+        completed.append({"step": call["step"], "status": 200, "ok": True})
+        observation, inventory = checkpoint.prepare("observed", call["step"], completed)
+        checkpoint.acknowledge(observation)
+    row["backend_metadata"].update(
+        upgradeApproval=approval,
+        upgradeLease=lease,
+        filesUpgradeCheckpoint=checkpoint.previous,
+        substrateReceipt=inventory,
+    )
+    registry = _RecoveryRegistry(row)
+
+    class RecoveringBackend(_ObservingBackend):
+        discoveries = 0
+
+        async def discover_files_upgrade_ack(self, spec):
+            self.discoveries += 1
+            assert spec.upgrade_attempt_id == attempt
+            return {
+                "version": 1,
+                "attemptId": attempt,
+                "serviceUid": plan.serviceUid,
+                "service": plan.service,
+                "generation": 8,
+                "image": image,
+            }
+
+    backend = RecoveringBackend(
+        BackendHandle(
+            external_agent_id=plan.service,
+            a2a_route="/synthetic",
+            status="live",
+            backend="fake",
+            backend_metadata={
+                "image": image,
+                "filesCapability": {"planDigest": plan.digest, "status": "enabled"},
+            },
+        )
+    )
+    spec = PodSpec(
+        hushh_id=plan.hushhId,
+        phone_e164_hash="opaque",
+        pod_pubkey="public",
+        expected_service_uid=plan.serviceUid,
+        upgrade_operation_id=approval["operationId"],
+        upgrade_target_image=image,
+        files_upgrade_plan=plan.model_dump(),
+    )
+    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
+    result = await service._reconcile_image_upgrade(
+        user_id=plan.ownerId,
+        row=row,
+        spec=spec,
+        backend=backend,
+        lease=lease,
+    )
+    if complete:
+        assert result["upgraded"] is True and backend.discoveries == 1
+        assert len(registry.writes) == 2 and registry.writes[0]["retain_lease"] is True
+        assert registry.row["backend_metadata"]["upgradeAcknowledgement"]["outcome"] == "ready"
+        assert "upgradeLease" not in registry.row["backend_metadata"]
+    else:
+        assert result["skipped"] == "in_progress" and not backend.discoveries
+        assert not registry.writes and not backend.observed
+
+
+@pytest.mark.asyncio
 async def test_blocked_operation_reconciles_even_when_a_newer_target_is_offered(monkeypatch):
     from hushh_mcp.services import personal_agent_provisioning_service as pas
 

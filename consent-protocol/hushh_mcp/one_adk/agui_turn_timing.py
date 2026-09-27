@@ -397,6 +397,9 @@ class TimedADKAgent(ADKAgent):
         instance.head = head
         return instance
 
+    def _mcp_turn_resources(self, conversation_id: str, *, owner_id, configurations):
+        return mcp_turn_scope(conversation_id, owner_id=owner_id, configurations=configurations)
+
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         timing = TurnTiming(head=self.head, run=run_label(input), started_at=time.perf_counter())
         timing_context = _CURRENT_TURN.set(timing)
@@ -416,7 +419,7 @@ class TimedADKAgent(ADKAgent):
             )
             async with (
                 pending_resume_scope(state.get("temp:hussh:mcp_approval")),
-                mcp_turn_scope(
+                self._mcp_turn_resources(
                     input.thread_id,
                     owner_id=str(state.get("hussh:user_id") or "") or None,
                     configurations=configurations,

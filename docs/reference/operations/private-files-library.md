@@ -1,6 +1,6 @@
 # Private Files library
 
-**Source status — 2026-09-25:** implementation on the infrastructure branch, behind
+**Source status — 2026-09-27:** implementation on the infrastructure branch, behind
 owner setup and Files gates. This is not evidence of a deployed library. Read the
 [readiness audit](../quality/adk-orchestration-docs-audit.md#files-continuation-evidence--2026-09-25)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
@@ -40,6 +40,8 @@ flowchart LR
     Q -->|"OIDC: exact worker route"| P
     P -->|"consented bounded text"| V
   end
+  DEV["Explicit dev Vertex AI bridge<br/>dev only, exact project approved"]
+  P -.->|"optional dev analysis configuration"| DEV
   H -->|"signed owner / device / pod binding"| B
   H -->|"binding and metadata wake hint"| D
   B -->|"HTTPS: scoped app session"| P
@@ -79,6 +81,8 @@ Analysis requires opt-in. Pausing or excluding a folder applies to its descendan
 Automatic organization applies only to uploads created under the current opt-in;
 existing files require an explicit request. Interactive analysis uses the selected
 model provider. Background jobs disclose and use Vertex AI in the owner's project.
+Dev may use the explicitly configured Vertex AI bridge when its exact project is
+included in the owner-approved Files activation. Production cannot use this exception.
 Model failure preserves the original upload and records a failed or pending outcome.
 
 An encrypted outbox precedes a named Cloud Task. Only job and delivery identifiers
@@ -94,6 +98,21 @@ New owner-selected Files setup requires the dev Files erasure contract (migratio
 941, composed with 940), the rollout gate, signed setup selection and a current
 project/bootstrap-bound setup job. The fleet flag alone cannot enable an owner's
 library. Queue and worker resources join the existing recovery and teardown inventory.
+
+Existing owners review Files setup in Hosting or Software updates. This is a distinct
+approval bound to the owner, pod incarnation, observed configuration, immutable image
+and resource plan; approving an image alone cannot activate Files. The existing update
+operation records each cloud step before and after execution, preserves compute and
+custody settings, and verifies installed configuration before reporting completion.
+Its dev recovery contract additionally requires migration 943. No queue payload,
+file content or provider credential belongs in these update receipts.
+
+A lost replacement response can be recovered by observing the exact attempt marker,
+pod identity, image and Files configuration after all resource checkpoints completed.
+An incomplete or uncertain cloud step stays reserved for reconciliation. The worker
+does not replay whole-pod bootstrap or clear its reservation on a timeout. Partial
+resource reconciliation and retry acceptance still require completion before broad
+rollout; neither a visible setup control nor these source checks proves live acceptance.
 
 The opt-in economy configuration uses 1 vCPU, 1 GiB, minimum zero, maximum one,
 one worker and request concurrency eight. Existing owners retain their chosen shape.

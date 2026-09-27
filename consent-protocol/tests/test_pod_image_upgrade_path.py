@@ -217,6 +217,112 @@ def _env_of(body: dict) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("configuration_changed", [False, True])
+async def test_files_activation_replaces_same_image_only_after_bound_checkpoints(
+    monkeypatch, configuration_changed
+):
+    from unittest.mock import Mock
+
+    from hushh_mcp.services import pod_upgrade_handoff, user_gcp_bootstrap
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
+    from hushh_mcp.services.pod_files.capability_update import (
+        FilesCapabilityChanged,
+        plan_from_observation,
+    )
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, image, existing = legacy_files_fixture()
+    existing["spec"]["template"]["spec"]["containers"][0]["image"] = image
+    existing["status"] = {"url": "https://synthetic.run.app", "latestReadyRevisionName": "old"}
+    plan = plan_from_observation(row, image, existing)
+    events, receipts = [], []
+    state = FilesUpgradeCheckpoint(
+        plan=plan,
+        operation_id="synthetic-operation",
+        attempt_id="b" * 64,
+        original_inventory=row["backend_metadata"]["substrateReceipt"],
+    )
+
+    def persist(phase, step, completed):
+        checkpoint, _ = state.prepare(phase, step, completed)
+        state.acknowledge(checkpoint)
+        events.append((phase, step))
+
+    def apply_delta(self, *, checkpoint):
+        completed = []
+        for call in self.plan_calls(self._capability.substrate_plan()):
+            checkpoint("intent", call["step"], completed)
+            completed.append({"step": call["step"], "status": 200, "ok": True})
+            checkpoint("observed", call["step"], completed)
+
+    class FilesRun(FakeRun):
+        def replace_service(self, name, body, **kwargs):
+            assert state.complete
+            events.append(("replace", name))
+            super().replace_service(name, body, **kwargs)
+            self.services[name]["metadata"]["generation"] = 8
+            return copy.deepcopy(self.services[name])
+
+        def wait_ready(self, name, **kwargs):
+            assert receipts and kwargs["expected_generation"] == 8
+            return super().wait_ready(name, **kwargs)
+
+    run = FilesRun(plan.service)
+    run.services = {plan.service: copy.deepcopy(existing)}
+    handoff = Mock()
+    monkeypatch.setattr(pod_upgrade_handoff, "PodUpgradeHandoffClient", lambda **_: handoff)
+    monkeypatch.setattr(user_gcp_bootstrap, "mint_bootstrap_token", lambda **_: "inert")
+    monkeypatch.setattr(FilesCapabilityBootstrap, "apply_delta", apply_delta)
+    backend = UserGcpBackend(
+        user_project=plan.project,
+        user_region=plan.region,
+        bootstrap_sa=plan.bootstrapAccount,
+        image=image,
+        live=True,
+    )
+    backend._client = lambda: run
+    copy_image = Mock(return_value=OLD)
+    backend._ensure_pod_image = copy_image
+    spec = PodSpec(
+        hushh_id=plan.hushhId,
+        phone_e164_hash="opaque",
+        pod_pubkey="public",
+        expected_service_uid=plan.serviceUid,
+        upgrade_target_image=image,
+        upgrade_operation_id="synthetic-operation",
+        upgrade_attempt_id="b" * 64,
+        files_upgrade_plan=plan.model_dump(),
+        on_files_upgrade_checkpoint=persist,
+        on_upgrade_ack=receipts.append,
+    )
+    if configuration_changed:
+        run.services[plan.service]["metadata"]["generation"] = 8
+        with pytest.raises(FilesCapabilityChanged):
+            await backend.upgrade(spec)
+        copy_image.assert_not_called()
+        handoff.prepare_and_wait.assert_not_called()
+        assert not events and not run.replaced
+        return
+    result = await backend.upgrade(spec)
+    assert len(run.replaced) == 1 and not run.created
+    assert result.backend_metadata["filesCapability"] == {
+        "planDigest": plan.digest,
+        "status": "enabled",
+    }
+    assert (
+        run.replaced[0]["spec"]["template"]["spec"]["containers"][0]["resources"]
+        == existing["spec"]["template"]["spec"]["containers"][0]["resources"]
+    )
+    assert _env_of(run.replaced[0])["POD_STORAGE_GCS_BUCKET"] == plan.bucket
+    assert await backend.discover_files_upgrade_ack(spec) == receipts[0]
+    assert (
+        await backend.discover_files_upgrade_ack(replace(spec, upgrade_attempt_id="c" * 64)) is None
+    )
+    assert len(run.replaced) == 1
+
+
+@pytest.mark.asyncio
 async def test_upgrade_resolves_the_source_tag_fresh_and_replaces_in_place(copy_log):
     name = ugb._service_name(HUSHH_ID)
     run = FakeRun(name, existing_digest=OLD)
@@ -1249,6 +1355,24 @@ async def test_a_push_refusal_re_applies_the_substrate_and_the_upgrade_lands(ser
     # A healed upgrade is a success, so no failure marker is left behind to burn the
     # attempt cap on the next sweep.
     assert "upgrade" not in registry.rows["uid-1"]["backend_metadata"]
+
+
+@pytest.mark.asyncio
+async def test_files_approval_never_authorizes_full_substrate_healing(service_env):
+    pas, _ = service_env
+    refusal = _refusal(status=403, side="destination")
+    backend = _FlakyThenFine(refusal=refusal)
+    substrate = _SpySubstrate()
+    service = pas.PersonalAgentProvisioningService(
+        registry=FakeRegistry({}), backend=backend, substrate=substrate
+    )
+    spec = replace(_spec(), files_upgrade_plan={"capability": "files"})
+    with pytest.raises(type(refusal)):
+        await service._upgrade_healing_the_substrate_once(
+            backend.upgrade, spec, user_id="uid-1", hushh_id=HUSHH_ID
+        )
+    assert not substrate.ensured
+    assert backend.attempts == 1
 
 
 @pytest.mark.asyncio

@@ -200,12 +200,22 @@ async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_
 
     monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "synthetic-project")
+    monkeypatch.delenv("GENAI_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("HUSSH_ID", "synthetic-owner")
     monkeypatch.setenv(
-        "POD_FILES_TASK_QUEUE", "projects/synthetic-project/locations/us-central1/queues/files"
+        "HUSSH_POD_KMS_KEY",
+        "projects/synthetic-project/locations/us-central1/keyRings/hushh-one/cryptoKeys/synthetic",
     )
+    from hushh_mcp.services.pod_files.provisioning import coordinates
+
+    names = coordinates("synthetic-owner", "synthetic-project", "us-central1")
+    monkeypatch.setenv("POD_FILES_TASK_QUEUE", names["queue"])
+    monkeypatch.setenv("POD_FILES_WORKER_SERVICE_ACCOUNT", names["worker"])
     monkeypatch.setattr(
-        "hushh_mcp.runtime_providers.build_managed_gemini_adk_model",
-        lambda name: Model(model=name),
+        "hushh_mcp.runtime_providers.ManagedGeminiRuntimeBinding.build_adk_model",
+        lambda self, name: Model(model=name),
     )
     if terminal_task:
         result = await jobs._organize("a" * 32)
@@ -225,3 +235,56 @@ async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_
         "rename",
         "move",
     ]
+
+
+def test_background_model_cannot_escape_owner_project_through_genai_override(monkeypatch):
+    from hushh_mcp.services.pod_files.model_binding import (
+        organization_model_binding,
+        organization_model_status,
+    )
+    from hushh_mcp.services.pod_files.provisioning import coordinates
+
+    names = coordinates("synthetic-owner", "owner-project", "us-central1")
+    settings = {
+        "HUSSH_ID": "synthetic-owner",
+        "HUSHH_DEPLOY_ENV": "dev",
+        "HUSSH_POD_USER_ADC_ENABLED": "true",
+        "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+        "GOOGLE_GENAI_USE_VERTEXAI": "true",
+        "GOOGLE_CLOUD_PROJECT": "owner-project",
+        "HUSSH_POD_KMS_KEY": "projects/owner-project/locations/us-central1/keyRings/hushh-one/cryptoKeys/synthetic",
+        "POD_FILES_TASK_QUEUE": names["queue"],
+        "POD_FILES_WORKER_SERVICE_ACCOUNT": names["worker"],
+    }
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("GENAI_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("POD_FILES_DEV_MODEL_PROJECT", raising=False)
+    assert organization_model_binding().project == "owner-project"
+    assert (
+        organization_model_status()["backgroundProvider"]
+        == "Google Vertex AI in your cloud project"
+    )
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "approved-dev-project")
+    with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
+        organization_model_binding()
+    monkeypatch.setenv("POD_FILES_DEV_MODEL_PROJECT", "approved-dev-project")
+    assert organization_model_binding().project == "approved-dev-project"
+    assert (
+        organization_model_status()["backgroundProvider"]
+        == "Google Vertex AI through your approved dev bridge"
+    )
+    for environment in ("uat", "production", ""):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", environment)
+        with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
+            organization_model_binding()
+        assert organization_model_status() == {
+            "backgroundAvailable": False,
+            "backgroundProvider": None,
+        }
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv(
+        "POD_FILES_WORKER_SERVICE_ACCOUNT", "foreign@other-project.iam.gserviceaccount.com"
+    )
+    with pytest.raises(FilesRefused, match="FILES_BACKGROUND_NOT_CONFIGURED"):
+        organization_model_binding()

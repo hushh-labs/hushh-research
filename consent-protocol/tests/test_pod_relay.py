@@ -235,3 +235,51 @@ async def test_pod_redirects_cannot_forward_owner_information(method):
             session=RedirectingPod(),
         )
     assert code == 502
+
+
+@pytest.mark.asyncio
+async def test_direct_chat_grants_are_owner_bound_and_refuse_assignment_races():
+    from unittest.mock import AsyncMock
+
+    from fastapi import HTTPException
+
+    from api.routes.one.pod_relay import direct_chat_grants
+
+    row = {
+        "user_id": _OWNER,
+        "hushh_id": _HUSHH,
+        "status": "provisioned",
+        "pod_key_id": "synthetic-key",
+        "backend_metadata": {
+            "url": _POD_URL,
+            "serviceUid": "synthetic-incarnation",
+            "ingress": "direct",
+        },
+    }
+    registry = _FakeRegistry({_OWNER: row})
+    endpoint = {"hushhId": _HUSHH, "url": _POD_URL, "podKeyId": "synthetic-key"}
+    bindings = type("Bindings", (), {"endpoint": AsyncMock(return_value=endpoint)})()
+    issuer = AsyncMock(return_value={"email": "synthetic-scoped-grant"})
+    arguments = dict(
+        hushh_id=_HUSHH, user_id=_OWNER, registry=registry, bindings=bindings, issuer=issuer
+    )
+    with pytest.raises(HTTPException) as error:
+        await direct_chat_grants(**arguments, audit=_RecordingAudit(allow=False))
+    assert error.value.status_code == 403
+    issuer.assert_not_awaited()
+    assert await direct_chat_grants(**arguments, audit=_RecordingAudit(allow=True)) == {
+        "endpoint": endpoint,
+        "dataDoorGrants": {"email": "synthetic-scoped-grant"},
+    }
+
+    async def replace_pod(user_id):
+        registry.rows[_OWNER] = {
+            **row,
+            "backend_metadata": {**row["backend_metadata"], "serviceUid": "replacement"},
+        }
+        return {"email": "synthetic-scoped-grant"}
+
+    issuer.side_effect = replace_pod
+    with pytest.raises(HTTPException) as error:
+        await direct_chat_grants(**arguments, audit=_RecordingAudit(allow=True))
+    assert error.value.detail["code"] == "POD_ASSIGNMENT_CHANGED"

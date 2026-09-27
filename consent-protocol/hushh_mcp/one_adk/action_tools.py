@@ -600,6 +600,10 @@ async def _verify_backend_direct_authorization(
     safe to hand back to the model on refusal, never the raw validation
     error.
     """
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        return False, "", "This action requires confirmation in the owner app."
     session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not session_user_id:
         return False, "", "The user is not signed in."

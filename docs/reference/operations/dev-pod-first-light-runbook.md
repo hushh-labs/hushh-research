@@ -81,14 +81,18 @@ still requires the owner's explicit per-device choice in Trusted devices.
 
 ### Model project ownership
 
-The owner pod uses Vertex in its own cloud project through its native runtime
-identity. Keep `GOOGLE_CLOUD_PROJECT` owner-local; do not copy the hub's
-`GENAI_GOOGLE_CLOUD_PROJECT` into pod configuration or grant the pod access to
-the hub's model bridge. Memory Bank, storage and encryption remain owner-local.
+The production default is Vertex in the owner's cloud project through the pod's
+native runtime identity. Dev also permits the explicitly approved personal Gemini
+bridge. Bind that exception to the exact dev model project and runtime identity;
+do not infer authorization from the hub configuration. Memory Bank, storage and
+encryption remain owner-local. Files setup includes the selected processing
+project in its frozen approval and shows the provider boundary before opt-in.
 
 The dev hub's model project is selected by the governed build's
 `_GENAI_PROJECT_ID` setting and cross-project allowlist in
-`deploy/backend.cloudbuild.yaml`; the dev managed-AI default is `hushh-vertex-personal54`. Owner-pod AI remains in the owner's configured project; this bridge setting does not redirect private-pod inference.
+`deploy/backend.cloudbuild.yaml`; the dev managed-AI default is `hushh-vertex-personal54`.
+That setting alone does not redirect private-pod inference: the pod needs its own
+verified configuration and prediction permission for that project.
 Its native project and billing linkage remain separate. Verify the serving
 revision's model routing and prediction access independently for hub and pod;
 a configured bridge or enabled billing does not prove provider access.

@@ -821,6 +821,70 @@ async def relay_pod_turn_route(
     )
 
 
+async def direct_chat_grants(
+    *, hushh_id: str, user_id: str, registry=None, audit=None, bindings=None, issuer=None
+) -> dict:
+    """Issue existing specialist scopes without accepting conversation content.
+
+    These remain owner-visible, revocable standing grants, not turn-scoped tokens.
+    Incarnation checks fence an issuance race; they do not change token semantics.
+    """
+    from hushh_mcp.services.pod_access_audit import _owner_binding_denials
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    _require_enabled()
+    repo = registry or PersonalAgentRegistryRepo()
+    auditor = audit or PodAccessAuditService(registry=repo)
+    try:
+        await auditor.authorize_owner_read(
+            user_id=user_id,
+            agent_id=PERSONAL_AGENT_ID,
+            scope=ConsentScope.PKM_READ.value,
+            hushh_id=hushh_id,
+            request_id=f"chat-grants:{hushh_id}",
+        )
+    except PodAccessDenied:
+        raise HTTPException(403, detail={"code": "POD_OWNER_REQUIRED"}) from None
+    before = await repo.get(user_id) or {}
+    uid = (before.get("backend_metadata") or {}).get("serviceUid")
+    if _owner_binding_denials(before, hushh_id) or not uid:
+        raise _not_ready(str(before.get("status") or ""))
+    try:
+        endpoint = await (bindings or PodBindingService(registry=repo)).endpoint(user_id=user_id)
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    grants = await (issuer or issue_pod_data_door_grants)(user_id)
+    after = await repo.get(user_id) or {}
+    metadata = after.get("backend_metadata") or {}
+    if (
+        _owner_binding_denials(after, hushh_id)
+        or metadata.get("serviceUid") != uid
+        or metadata.get("directReadiness")
+        != (before.get("backend_metadata") or {}).get("directReadiness")
+        or metadata.get("ingress") != "direct"
+        or after.get("pod_key_id") != endpoint.get("podKeyId")
+        or _pod_url(after) != endpoint.get("url")
+    ):
+        raise HTTPException(409, detail={"code": "POD_ASSIGNMENT_CHANGED"})
+    return {"endpoint": endpoint, "dataDoorGrants": grants}
+
+
+@router.post("/{hushh_id}/chat-grants")
+async def direct_chat_grants_route(
+    request: Request,
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+):
+    from fastapi.responses import JSONResponse
+
+    # This door accepts no task payload, key, prompt, or user-selected scope.
+    async for chunk in request.stream():
+        if chunk:
+            raise HTTPException(400, detail={"code": "POD_CHAT_GRANTS_BODY_REFUSED"})
+    result = await direct_chat_grants(hushh_id=hushh_id, user_id=user_id)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 # -- the learning loop's doors, beside the turn ----------------------------------
 #
 # Same three guards as the turn, same server-minted pkm.read grant, same URL

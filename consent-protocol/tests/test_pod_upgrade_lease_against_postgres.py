@@ -398,6 +398,36 @@ async def test_equivalent_timestamp_offsets_preserve_claim(pg, engine):
 
 
 @pytest.mark.asyncio
+async def test_files_checkpoint_advancement_fences_stale_recovery(pg, engine):
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    lease = await repo.claim_image_upgrade(
+        user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+    )
+    stale = await repo.get(_USER)
+    advanced = {**stale["backend_metadata"], "filesUpgradeCheckpoint": {"phase": "intent"}}
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=stale,
+        expected_lease=lease,
+        previous_metadata=stale["backend_metadata"],
+        backend_metadata=advanced,
+        retain_lease=True,
+    )
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=stale,
+        expected_lease=lease,
+        previous_metadata=stale["backend_metadata"],
+        backend_metadata={"image": "stale-success"},
+    )
+    current = await repo.get(_USER)
+    assert current["backend_metadata"] == advanced
+
+
+@pytest.mark.asyncio
 async def test_uncertain_upgrade_retains_admission_until_terminal_publication(pg, engine):
     from db.db_client import DatabaseClient
 

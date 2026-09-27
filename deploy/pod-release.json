@@ -1,15 +1,18 @@
 {
-  "version": "2026.09-dev.2",
+  "version": "2026.09-dev.3",
   "channel": "dev",
-  "summary": "Private agent connection fixes and updates that preserve your hosting choices.",
+  "summary": "Private chat recovery and optional Files setup in your existing cloud.",
   "notes": {
     "improvements": [
-      "Software updates retain your current hosting and memory settings."
+      "Private chat uses your pod and encrypted conversation recovery.",
+      "Review and approve Files storage and background processing on an existing BYOC pod."
     ],
     "fixes": [
       "Image updates preserve browser access and resource sizing.",
       "Trusted-device revocation fences the latest issued pod binding.",
-      "Puppy streaming deadlines return a consistent timeout and cancel device work."
+      "Puppy streaming deadlines return a consistent timeout and cancel device work.",
+      "Interrupted Files setup retains its resource receipts for reconciliation.",
+      "Location chat requests use the command confirmation flow."
     ],
     "security": [
       "Signed device bindings are checked against the owner and pod.",

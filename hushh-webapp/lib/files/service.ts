@@ -32,7 +32,7 @@ export type FilesSettings = {
   automatic: boolean;
   excluded: string[];
   backgroundAvailable?: boolean;
-  backgroundProvider?: string;
+  backgroundProvider?: string | null;
 };
 export type OrganizationJob = {
   id: string;

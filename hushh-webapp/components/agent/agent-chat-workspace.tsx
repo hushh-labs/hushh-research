@@ -4966,7 +4966,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           phase: "executing",
         });
         const execute =
-          action?.activation_policy === "trusted_activation_required"
+          action?.activation_policy === "trusted_activation_required" &&
+          !(action.command?.domain === "location" && action.execution_target.status === "wired"
+            && action.execution_target.path === "local_handler")
             ? executeTrustedActivationGatewayAction
             : executeAgentGatewayAction;
         const result = await execute({
@@ -5370,14 +5372,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               toolEvent,
             );
             upsertTurnStreamEvent(visibleEvent);
-            // A parked run_app_action directive that owes no confirmation
-            // runs through the governed client executor; one
-            // that does owe a confirmation (or a trusted tap) is staged.
+            const action = toolEvent.actionId ? getKaiActionById(toolEvent.actionId) : null;
+            // Location's command runtime owns the ledger-bound confirmation.
+            // Enter preparation directly; a generic chat tap is not its receipt.
+            const commandOwnsConfirmation = action?.command?.domain === "location"
+              && action.execution_target.status === "wired"
+              && action.execution_target.path === "local_handler";
             if (
               toolEvent.raw.parked === true &&
               toolEvent.actionId &&
-              !toolEvent.requiresConfirmation &&
-              !toolEvent.trustedActivationRequired
+              (commandOwnsConfirmation || (!toolEvent.requiresConfirmation &&
+              !toolEvent.trustedActivationRequired))
             ) {
               const callKey = toolEvent.callId;
               if (executedToolCalls.has(callKey)) return;

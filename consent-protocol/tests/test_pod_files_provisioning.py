@@ -277,3 +277,212 @@ def test_files_worker_teardown_targets_captured_unique_identity():
     session.post.assert_not_called()
     session.delete.assert_not_called()
     assert session.get.call_args.args[0].endswith("/serviceAccounts/123456789")
+
+
+def legacy_files_fixture():
+    image = "us-central1-docker.pkg.dev/owner-project/one-pod/pod@sha256:" + "a" * 64
+    spec = PodSpec(hushh_id="owner-123", phone_e164_hash="opaque", pod_pubkey="public")
+    backend = UserGcpBackend(user_project="owner-project", user_region="us-central1", live=False)
+    service = backend.render_deploy_config(spec)
+    service["metadata"].update(uid="synthetic-incarnation", generation=7)
+    template = service["spec"]["template"]
+    container = template["spec"]["containers"][0]
+    container["resources"]["limits"] = {"cpu": "2", "memory": "2Gi"}
+    env = {item["name"]: item.get("value") for item in container["env"]}
+    row = {
+        "user_id": "synthetic-owner",
+        "hushh_id": spec.hushh_id,
+        "status": "provisioned",
+        "deployment_target": "user_gcp",
+        "user_cloud_authorized_at": "synthetic-authorization",
+        "external_agent_id": service["metadata"]["name"],
+        "user_cloud_project": "owner-project",
+        "user_cloud_region": "us-central1",
+        "user_cloud_bootstrap_sa": "bootstrap@owner-project.iam.gserviceaccount.com",
+        "backend_metadata": {
+            "serviceUid": "synthetic-incarnation",
+            "runtime_service_account": template["spec"]["serviceAccountName"],
+            "substrateReceipt": {
+                "applied": True,
+                "tenantRef": "owner-project/us-central1",
+                "plannedResources": [
+                    {"type": "gcs_bucket", "id": env["POD_STORAGE_GCS_BUCKET"]},
+                    {"type": "kms_key", "id": env["HUSSH_POD_KMS_KEY"].rsplit("/", 1)[-1]},
+                ],
+                "resourceObservations": [
+                    {
+                        "type": "kms_key",
+                        "id": env["HUSSH_POD_KMS_KEY"].rsplit("/", 1)[-1],
+                        "disposition": "created",
+                        "identity": {
+                            "name": env["HUSSH_POD_KMS_KEY"],
+                            "purpose": "ENCRYPT_DECRYPT",
+                            "createTime": "2026-09-01T00:00:00Z",
+                        },
+                    }
+                ],
+            },
+        },
+    }
+    row["backend_metadata"]["substrateReceipt"]["resourceObservations"].append(
+        {
+            "type": "gcs_bucket",
+            "id": env["POD_STORAGE_GCS_BUCKET"],
+            "disposition": "created",
+            "identity": {
+                "name": env["POD_STORAGE_GCS_BUCKET"],
+                "generation": "1",
+                "projectNumber": "123456789",
+                "timeCreated": "2026-09-01T00:00:00Z",
+            },
+        }
+    )
+    return row, image, service
+
+
+def test_existing_files_plan_binds_observed_custody_and_refuses_changed_configuration():
+    import pytest
+
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+
+    row, image, service = legacy_files_fixture()
+    container = service["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item.get("value") for item in container["env"]}
+    plan = plan_from_observation(row, image, service)
+    desired = deepcopy(service)
+    plan.apply_configuration(existing=service, desired=desired)
+    plan.require_installed(desired)
+    wrong_model = deepcopy(desired)
+    wrong_model["spec"]["template"]["spec"]["containers"][0]["env"].append(
+        {"name": "GENAI_GOOGLE_CLOUD_PROJECT", "value": "foreign-project"}
+    )
+    with pytest.raises(ValueError, match="model authority"):
+        plan.require_installed(wrong_model)
+    assert (
+        desired["spec"]["template"]["spec"]["containers"][0]["resources"] == container["resources"]
+    )
+    assert (
+        plan.substrate_plan()["filesLibrary"]["prefix"]
+        == env["POD_STORAGE_GCS_PREFIX"].strip("/") + "/files/v1"
+    )
+    assert not any(item["name"].startswith("POD_FILES_") for item in container["env"])
+    changed = deepcopy(service)
+    changed["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["memory"] = "4Gi"
+    with pytest.raises(ValueError, match="configuration changed"):
+        plan.apply_configuration(existing=changed, desired=deepcopy(changed))
+    with pytest.raises(ValueError, match="assignment changed"):
+        plan.require_owner({**row, "user_id": "another-owner"}, image)
+    assert plan_from_observation(row, image, changed).digest != plan.digest
+    missing_key = deepcopy(row)
+    missing_key["backend_metadata"]["substrateReceipt"]["resourceObservations"] = []
+    with pytest.raises(ValueError, match="key identity"):
+        plan_from_observation(missing_key, image, service)
+
+    from unittest.mock import Mock
+
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError
+
+    session = Mock()
+    session.get.return_value = Mock(status_code=403)
+    bootstrap = FilesCapabilityBootstrap(capability=plan, token="synthetic", session=session)
+    calls = bootstrap.plan_calls(plan.substrate_plan())
+    assert not any(call["step"] == "cmek_bucket" for call in calls)
+    bucket_iam = next(call for call in calls if call["step"] == "iam_files_bucket_metadata")
+    assert "depends_on" not in bucket_iam
+    queue_admin = next(call for call in calls if call["step"] == "iam_files_queue_admin")
+    assert queue_admin["bindings"] == [
+        {
+            "role": "roles/cloudtasks.queueAdmin",
+            "members": ["serviceAccount:" + plan.bootstrapAccount],
+        }
+    ]
+    assert calls.index(queue_admin) < next(
+        i for i, c in enumerate(calls) if c["step"] == "files_queue"
+    )
+    assert any(
+        b["member"] == plan.bootstrapAccount and b["role"] == "roles/cloudtasks.queueAdmin"
+        for b in plan.substrate_plan()["iam"]
+    )
+    with pytest.raises(BootstrapError, match="custody"):
+        bootstrap.apply_delta(checkpoint=lambda *_: None)
+    session.request.assert_not_called()
+
+
+def test_files_activation_requires_separate_approval_and_durable_step_acknowledgements():
+    import pytest
+
+    from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
+    from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+    from hushh_mcp.services.pod_update_identity import approved_files_plan, release_identity
+
+    row, image, service = legacy_files_fixture()
+    plan = plan_from_observation(row, image, service)
+    approval = {
+        "ownerId": plan.ownerId,
+        "hushhId": plan.hushhId,
+        "podIncarnation": plan.serviceUid,
+        "targetImage": image,
+        "capabilityPlan": plan.model_dump(),
+        "capabilityPlanDigest": plan.digest,
+    }
+    assert approved_files_plan(approval) == plan
+    assert release_identity(plan.hushhId, plan.serviceUid, image) != release_identity(
+        plan.hushhId, plan.serviceUid, image, capability_digest=plan.digest
+    )
+    for key, value in (
+        ("ownerId", "foreign"),
+        ("podIncarnation", "replacement"),
+        ("capabilityPlanDigest", "0" * 64),
+    ):
+        with pytest.raises(ValueError):
+            approved_files_plan({**approval, key: value})
+    original = row["backend_metadata"]["substrateReceipt"]
+    state = FilesUpgradeCheckpoint(
+        plan=plan, operation_id="op-one", attempt_id="a" * 64, original_inventory=original
+    )
+    intent, inventory = state.prepare("intent", "enable_services", [])
+    assert inventory["applied"] is False and original["applied"] is True
+    assert {
+        "type": "cloud_tasks_queue",
+        "id": plan.environment["POD_FILES_TASK_QUEUE"].rsplit("/", 1)[-1],
+    } in inventory["plannedResources"]
+    completed = [{"step": "enable_services", "status": 200, "ok": True}]
+    with pytest.raises(ValueError, match="matching intent"):
+        state.prepare("observed", "enable_services", completed)
+    state.acknowledge(intent)
+    observed, _ = state.prepare("observed", "enable_services", completed)
+    with pytest.raises(ValueError, match="reconciliation"):
+        state.prepare("intent", "generate_files_task_identity", completed)
+    state.acknowledge(observed)
+    state.prepare("intent", "generate_files_task_identity", completed)
+    assert not state.complete
+
+
+def test_files_iam_receipts_are_retained_only_for_expected_google_api_hosts():
+    from hushh_mcp.services.byoc_substrate import _binding_observation
+
+    receipt = {
+        "step": "iam_files_enqueuer",
+        "role": "roles/cloudtasks.enqueuer",
+        "member": "serviceAccount:runtime@owner-project.iam.gserviceaccount.com",
+        "disposition": "added",
+        "beforeEtag": "before",
+        "afterEtag": "after",
+    }
+    for host, path in (
+        (
+            "cloudtasks.googleapis.com",
+            "/v2/projects/owner-project/locations/us-central1/queues/synthetic:getIamPolicy",
+        ),
+        (
+            "us-central1-run.googleapis.com",
+            "/v1/projects/owner-project/locations/us-central1/services/synthetic:getIamPolicy",
+        ),
+    ):
+        valid = {**receipt, "policyResource": f"https://{host}{path}"}
+        assert _binding_observation(valid) == valid
+        assert (
+            _binding_observation({**valid, "policyResource": f"https://{host}.example.org{path}"})
+            is None
+        )

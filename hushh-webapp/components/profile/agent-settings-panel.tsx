@@ -8,6 +8,7 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { FilesActivationPanel } from "@/components/profile/files-activation-panel";
 
 const HOST_LABELS = {
   shared: "Hussh Shared",
@@ -253,6 +254,9 @@ export function AgentSettingsPanel({
             </Button>
           ) : null}
         </div>
+        {mode === "byoc" && status?.filesActivationAvailable ? (
+          <FilesActivationPanel key={userId} disabled={busy || working} onScheduled={refresh} />
+        ) : null}
       </div>
     );
   }
@@ -369,6 +373,9 @@ export function AgentSettingsPanel({
             ) : null}
           </div>
         </details>
+      ) : null}
+      {mode === "byoc" && status?.filesActivationAvailable ? (
+        <FilesActivationPanel key={userId} disabled={busy || working} onScheduled={refresh} />
       ) : null}
     </div>
   );
