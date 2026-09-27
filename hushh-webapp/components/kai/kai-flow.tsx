@@ -1074,9 +1074,19 @@ export function KaiFlow({
     activeImportCursorRef.current = snapshot.latestCursor;
     setStreaming(snapshot.streaming);
 
+    // setState changes identity with every ?stage= navigation, so this
+    // restore re-runs whenever the person opens (or reopens) a review --
+    // including one that has nothing to do with this stale snapshot, e.g.
+    // "Load sample brokerage" after an earlier real import attempt was
+    // abandoned mid-stream or failed without being dismissed. Supplying the
+    // snapshot's own data is idempotent; forcing the stage away from a
+    // review the person is already looking at is not, on every branch here,
+    // not just "completed".
     if (snapshot.status === "running") {
       setError(null);
-      setState("importing");
+      if (stateRef.current !== "reviewing") {
+        setState("importing");
+      }
       return;
     }
 
@@ -1086,9 +1096,6 @@ export function KaiFlow({
         parsedPortfolio: snapshot.parsedPortfolio,
       }));
       setError(null);
-      // setState changes identity with every ?stage= navigation, so this
-      // restore re-runs when the person opens the review. Supplying the
-      // extracted result is idempotent; forcing the stage back is not.
       if (stateRef.current !== "reviewing") {
         setState("import_complete");
       }
@@ -1097,8 +1104,10 @@ export function KaiFlow({
 
     if (snapshot.status === "failed" && snapshot.errorMessage) {
       setError(snapshot.errorMessage);
-      toast.error(snapshot.errorMessage);
-      setState("import_required");
+      if (stateRef.current !== "reviewing") {
+        toast.error(snapshot.errorMessage);
+        setState("import_required");
+      }
     }
   }, [mode, setState, userId]);
 
@@ -1131,12 +1140,14 @@ export function KaiFlow({
         const message =
           snapshot.errorMessage || "Import failed. Please try again.";
         setError(message);
-        toast.error(message);
-        setState("import_required");
+        if (stateRef.current !== "reviewing") {
+          toast.error(message);
+          setState("import_required");
+        }
         return;
       }
 
-      if (snapshot.status === "running") {
+      if (snapshot.status === "running" && stateRef.current !== "reviewing") {
         setState("importing");
       }
     }, 700);
@@ -3686,6 +3697,14 @@ export function KaiFlow({
   const handlePreloadSchema = useCallback(async () => {
     if (isPreloadingSchema) return;
 
+    // Loading sample data is a deliberate switch away from any earlier real
+    // import attempt. Discard its background snapshot up front so a stale
+    // "running"/"failed" one left over from that attempt can't be restored
+    // over the sample review a moment later (the restore effects guard
+    // against clobbering an open review, but a snapshot with nothing to
+    // clobber yet -- because this hasn't set state to "reviewing" yet --
+    // would otherwise still win the race).
+    discardImportResult();
     setIsPreloadingSchema(true);
     setError(null);
 
@@ -3713,6 +3732,7 @@ export function KaiFlow({
       setIsPreloadingSchema(false);
     }
   }, [
+    discardImportResult,
     effectiveVaultOwnerToken,
     isPreloadingSchema,
     setState,

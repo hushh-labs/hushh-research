@@ -228,6 +228,85 @@ describe("personal Gmail information-request scope boundary", () => {
     );
   });
 
+  it("closes the confirm dialog as soon as the preference saves, without waiting for the scan", async () => {
+    // Regression: setMonitoring(true) used to await the whole inbox scan
+    // (30-message classification, 40-60s) before resolving, and the confirm
+    // dialog's .finally(() => setShowEnableConfirm(false)) was chained onto
+    // that same promise -- so the dialog sat open with a static "Starting…"
+    // label and no spinner for the entire scan, looking hung. The preference
+    // save is fast; the scan is owned by the existing auto-scan effect and
+    // has its own "Scanning emails: N" progress panel (used correctly by
+    // "Check now"). The dialog must close the moment the preference saves.
+    gmailServiceMocks.getPreference.mockResolvedValue({
+      user_id: "owner",
+      monitoring_enabled: false,
+      retention: "metadata_only",
+    });
+    gmailServiceMocks.setPreference.mockResolvedValue({
+      user_id: "owner",
+      monitoring_enabled: true,
+      retention: "metadata_only",
+    });
+    gmailServiceMocks.list.mockResolvedValue({
+      workflows: [],
+      next_offset: null,
+      total_count: 0,
+    });
+    let resolveScan!: (value: unknown) => void;
+    gmailServiceMocks.scanStream.mockImplementation(
+      ({
+        handlers,
+      }: {
+        handlers: { onProgress: (count: number) => void };
+      }) =>
+        new Promise((resolve) => {
+          handlers.onProgress(1);
+          resolveScan = resolve;
+        }),
+    );
+
+    render(
+      createElement(GmailInformationRequestsSection, {
+        userId: "owner",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock: vi.fn(),
+      }),
+    );
+
+    const start = await screen.findByRole("button", {
+      name: "Start monitoring",
+    });
+    await waitFor(() => expect(start).not.toBeDisabled());
+    fireEvent.click(start);
+
+    expect(await screen.findByText("Start monitoring?")).toBeVisible();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start monitoring" }),
+    );
+
+    // The preference PATCH resolves quickly; the dialog closes on that
+    // alone, not on the still-pending scan.
+    await waitFor(() =>
+      expect(screen.queryByText("Start monitoring?")).not.toBeInTheDocument(),
+    );
+    // The scan is still in flight here (resolveScan not called yet) -- its
+    // progress panel, not a frozen dialog, is what the person now sees.
+    expect(await screen.findByText("Scanning emails: 1")).toBeVisible();
+
+    resolveScan({
+      accepted: true,
+      scanned_count: 1,
+      unchanged_count: 0,
+      matched_count: 0,
+      failed_count: 0,
+      workflow_ids: [],
+    });
+    expect(await screen.findByText("Gmail monitoring is on")).toBeVisible();
+  });
+
   it("opens the private vault instead of issuing an invalid monitor opt-in", async () => {
     const onRequestVaultUnlock = vi.fn();
     render(
