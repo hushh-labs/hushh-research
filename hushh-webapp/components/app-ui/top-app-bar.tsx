@@ -43,6 +43,7 @@ import {
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
@@ -1093,10 +1094,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                   style={{
-                    // Collapse the fixed side gutter to the back button's width
-                    // when a breadcrumb trail is showing, so the trail sits
-                    // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail
+                    // Breadcrumbs and One status sit beside the back control or logo.
+                    width: hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "auto"
                       : "var(--top-bar-side-w)",
                     // The collapsed gutter otherwise leaves the back button's
@@ -1158,18 +1157,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   )}
                 </div>
 
-                {/* Title sits in the normal flex flow. The right cluster remains
-                  intentionally compact; `flex-1 min-w-0` lets the title truncate
-                  before it can collide with the account action. */}
+                {/* Shrink the title/status before it can collide with account actions. */}
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions || hasBreadcrumbTrail
+                    showOnboardingActions || hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "justify-start"
                       : "justify-center",
                   )}
                 >
-                  {hasBreadcrumbTrail ? (
+                  {pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
+                    <OneAgentPresence compact />
+                  ) : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (

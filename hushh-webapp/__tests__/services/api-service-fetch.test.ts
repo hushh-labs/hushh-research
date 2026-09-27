@@ -19,10 +19,6 @@ const requestTimeoutMocks = vi.hoisted(() => ({
   resolveSlowRequestTimeoutMs: vi.fn(() => 75_000),
 }));
 
-// ---------------------------------------------------------------------------
-// Mocks – declared before any import that touches them
-// ---------------------------------------------------------------------------
-
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
     isNativePlatform: capacitorMocks.isNativePlatform,
@@ -70,10 +66,6 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
   resolveSlowRequestTimeoutMs: requestTimeoutMocks.resolveSlowRequestTimeoutMs,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks are registered)
-// ---------------------------------------------------------------------------
-
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -81,10 +73,6 @@ import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
@@ -117,11 +105,20 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("ApiService.apiFetch", () => {
+  it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
+    const url = "https://owner-pod.example/api/one/pod/status";
+    mockFetch.mockImplementation(async (target, init) => {
+      if (target === url && init?.credentials !== "omit") throw new TypeError("Failed to fetch");
+      return jsonResponse({ ok: true });
+    });
+    const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
+    await request(url, { credentials: "omit" });
+    expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
+    await ApiService.apiFetch("/api/one/personal-agent/status");
+    expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();

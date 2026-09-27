@@ -155,6 +155,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][0]).toBe(`${POD_URL}${path.replace("/api/one/", "/api/one/pod/")}`);
     const headers = new Headers(calls[0][1]?.headers);
+    expect(calls[0][1]?.credentials).toBe("omit");
     expect(headers.get("Authorization")).toBe("Bearer pst1.claims.mac");
     expect(headers.get("X-Hussh-Chat-Key")).toBe("synthetic-derived");
     expect(ApiService.getPersonalAgentStatus).not.toHaveBeenCalled();

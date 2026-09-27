@@ -90,12 +90,12 @@ function toAgentState(value: unknown): AgentState | null {
     : null;
 }
 
-export function OneAgentPresence() {
+export function OneAgentPresence({ compact = false }: { compact?: boolean }) {
   const { user } = useAuth();
-  return user ? <OwnerAgentPresence key={user.uid} userId={user.uid} /> : null;
+  return user ? <OwnerAgentPresence key={user.uid} userId={user.uid} compact={compact} /> : null;
 }
 
-function OwnerAgentPresence({ userId }: { userId: string }) {
+function OwnerAgentPresence({ userId, compact }: { userId: string; compact: boolean }) {
   const [rebuilding, setRebuilding] = useState(false);
   const { vaultOwnerToken } = useVault();
   // Follows the deployment while it is in flight and stops once it settles.
@@ -251,22 +251,35 @@ function OwnerAgentPresence({ userId }: { userId: string }) {
           : whereItLives
       }
       data-testid="one-agent-presence"
-      className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"
+      className={compact
+        ? "pointer-events-auto inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle"
+        : "inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"}
     >
       <span
         className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`}
         aria-hidden
       />
-      <span className="text-[12px] font-medium text-muted-foreground">
+      <span className={compact ? "sr-only" : "text-[12px] font-medium text-muted-foreground"}>
         Agent One
       </span>
-      <span
-        className="text-[12px] text-foreground"
+      {canRebuild && compact ? <button
+        type="button"
+        onClick={() => void handleRebuild()}
+        disabled={rebuilding}
+        aria-label="Reconnect your private agent"
+        title="Reconnect your private agent"
+        className="min-w-0 truncate text-[12px] text-foreground underline underline-offset-2 disabled:opacity-60"
+        data-testid="one-agent-rebuild"
+      >
+        {rebuilding ? "Connecting…" : label}
+      </button> : <span
+        className="min-w-0 truncate text-[12px] text-foreground"
         data-testid="one-agent-status"
+        role="status"
       >
         {label}
-      </span>
-      {canRebuild ? (
+      </span>}
+      {canRebuild && !compact ? (
         <button
           type="button"
           onClick={() => void handleRebuild()}

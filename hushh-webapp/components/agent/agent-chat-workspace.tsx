@@ -1,4 +1,5 @@
 "use client";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 
 import { Capacitor } from "@capacitor/core";
 import {
@@ -6686,18 +6687,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/*
-              Three flex regions, and only the middle one may give way:
-              [history] [identity: flex-1, clips] [actions: shrink-0].
-              The identity region used to share a group with the history
-              button and carried no clip, so on a 390px phone the actions
-              (then 281px, with a fixed-width picker slot) squeezed it below
-              its own minimum and the brand tile painted under the One | Puppy
-              toggle while the agent's name collapsed to zero width. Clipping
-              the identity horizontally makes that overlap impossible by
-              construction: whatever does not fit is cut at its own edge and
-              truncates, it never slides under a control.
-            */}
+            {/* Only identity may shrink: clip it before it can overlap the fixed actions. */}
             <ShellActionSurface
               variant="icon"
               ref={historyDrawerFallbackRef}
@@ -6748,11 +6738,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <div className="truncate text-base font-medium leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
-                <ChatAgentSubtitle text={chatHeaderSubtitle({
-                  isPuppySurface,
-                  activeToolCalls,
-                  statusText,
-                })} />
+                {!isPuppySurface && !statusText && activeToolCalls.length === 0 ? (
+                  <OneAgentPresence compact />
+                ) : (
+                  <ChatAgentSubtitle text={chatHeaderSubtitle({
+                    isPuppySurface,
+                    activeToolCalls,
+                    statusText,
+                  })} />
+                )}
               </div>
             </div>
 
@@ -6803,7 +6797,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     title={`Running ${modelPreference.effective_model}`}
                     className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
-                    {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
+                    {/* "3.6 Flash", not "Gemini 3.6 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}

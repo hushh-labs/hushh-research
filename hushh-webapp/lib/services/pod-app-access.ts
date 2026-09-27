@@ -57,6 +57,7 @@ export async function ownerPodRequest(
   }
   const response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
     ...init,
+    credentials: "omit",
     body,
     headers,
     cache: "no-store",
@@ -133,6 +134,7 @@ export async function reconnectOwnerPod(
   );
   const probe = await ports.fetch(`${endpoint.url}/api/one/pod/status`, {
     method: "GET",
+    credentials: "omit",
     headers: { Authorization: `Bearer ${session.session}` },
     cache: "no-store",
   });

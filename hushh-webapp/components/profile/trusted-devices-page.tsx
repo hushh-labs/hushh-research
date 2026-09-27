@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   LaptopIcon as Laptop,
   SpinnerGapIcon as Loader2,
@@ -44,6 +45,7 @@ export default function TrustedDevicesPage() {
   const [error, setError] = useState("");
   const [puppyAccess, setPuppyAccess] = useState<Record<string, boolean>>({});
   const [changingPuppy, setChangingPuppy] = useState<string | null>(null);
+  const puppyChangePending = useRef(false);
   const [puppyNotice, setPuppyNotice] = useState("");
   const [pendingPuppyWithdrawal, setPendingPuppyWithdrawal] = useState<string | null>(null);
   const [byocReady, setByocReady] = useState(false);
@@ -95,15 +97,29 @@ export default function TrustedDevicesPage() {
   }, [vaultOwnerToken, puppyDeviceIds]);
 
   async function changePuppyAccess(deviceId: string, enabled: boolean) {
+    if (puppyChangePending.current) return;
     if (!vaultOwnerToken) {
-      setError("Unlock your vault to change Puppy access.");
+      morphyToast.error("Unlock your vault to change Puppy access.");
       return;
     }
+    puppyChangePending.current = true;
     setChangingPuppy(deviceId);
     setError("");
     setPuppyNotice("");
     try {
-      const result = await ApiService.setPuppyAccess(deviceId, enabled, vaultOwnerToken);
+      const request = ApiService.setPuppyAccess(deviceId, enabled, vaultOwnerToken);
+      await morphyToast.promise(request, {
+        loading: enabled ? "Connecting to your pod…" : "Withdrawing Puppy access…",
+        success: (result) => result.revocationPending
+          ? "New access is disabled. Reconnect your pod to finish withdrawal."
+          : enabled
+            ? "Puppy access enabled. Connect Hermes on your trusted computer."
+            : "Puppy access disabled.",
+        error: enabled
+          ? "Could not enable Puppy. Check your pod connection and try again."
+          : "Withdrawal could not be confirmed. Check access and retry.",
+      }).unwrap();
+      const result = await request;
       setPuppyAccess((current) => ({ ...current, [deviceId]: result.enabled }));
       if (result.revocationPending) {
         setPendingPuppyWithdrawal(deviceId);
@@ -111,9 +127,10 @@ export default function TrustedDevicesPage() {
       } else if (pendingPuppyWithdrawal === deviceId) {
         setPendingPuppyWithdrawal(null);
       }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Puppy access could not be changed.");
+    } catch {
+      // The action toast owns transient failures; do not expose transport errors.
     } finally {
+      puppyChangePending.current = false;
       setChangingPuppy(null);
     }
   }
@@ -189,6 +206,7 @@ export default function TrustedDevicesPage() {
                     icon={Laptop}
                     title={device.device_name}
                     description={sync.label}
+                    stackTrailingOnMobile
                     trailing={
                       isActive ||
                       pendingPodRevocations.includes(device.device_id) ? (
@@ -200,7 +218,7 @@ export default function TrustedDevicesPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={changingPuppy === device.device_id}
+                              disabled={changingPuppy !== null}
                               onClick={() => void changePuppyAccess(device.device_id, pendingPuppyWithdrawal === device.device_id ? false : !puppyAccess[device.device_id])}
                             >
                               {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal === device.device_id ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}

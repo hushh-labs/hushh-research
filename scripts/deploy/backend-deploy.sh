@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
 # Backend deploy step for deploy/backend.cloudbuild.yaml.
 #
-# WHY THIS IS A FILE AND NOT INLINE YAML
-# Cloud Build caps a single build-step arg at 10,000 characters. This body grew past
-# that on 2026-07-28 (commit 363a9932d, 9,559 -> 10,569) and every backend deploy has
-# failed at submission since, on ALL THREE lanes -- dev, uat and production -- with:
-#   INVALID_ARGUMENT: invalid .steps field: build step 2 arg 1 too long (max: 10000)
-# gcloud enforces this client-side on the parsed config, so no Cloud Build is ever
-# created and there is nothing to read in the build log. Stripping every comment left
-# 10,711 -- still over. Moving the body here removes the ceiling permanently.
+# Kept outside YAML because Cloud Build limits each step argument to 10,000 characters.
+# test_pod_image_build_contract.py guards that packaging boundary.
 #
 # HOW SUBSTITUTIONS REACH THIS SCRIPT
 # Cloud Build substitutes ${_FOO} in the build CONFIG only, never inside a file from the
@@ -808,13 +802,21 @@ append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
 env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
 deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
 
-# Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are
-# long-lived HTTP requests on Cloud Run; the previous 300s hard-killed
-# any voice conversation at 5 minutes. Session affinity is best-effort
-# per Google's WebSocket guidance; reconnects still re-mint a relay
-# ticket, and cross-instance nonce single-use is Postgres-backed
-# (migration 084). Billing note: instances with open WebSockets stay
-# active for the connection's lifetime.
+# Long-lived requests retain the 3600s timeout and best-effort affinity.
+# Active sockets remain billable; these settings do not establish relay readiness.
+# The main-owned dev workflow still passes the legacy template capacity. Its
+# two-worker hub repeatedly exceeded 1Gi during the owner-update rehearsal on
+# 2026-09-27. Use the existing UAT hub envelope for dev's default values; explicit
+# capacity overrides and other environments retain their declared values. This
+# applies only to the hub, never to an owner's single-worker pod.
+# BEGIN DEV HUB CAPACITY DEFAULTS
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  [[ "${_CLOUD_RUN_MEMORY}" != "1Gi" ]] || _CLOUD_RUN_MEMORY="4Gi"
+  [[ "${_CLOUD_RUN_CPU}" != "1" ]] || _CLOUD_RUN_CPU="2"
+  [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="20"
+fi
+# END DEV HUB CAPACITY DEFAULTS
+
 image_reference="${_IMAGE_REFERENCE}"
 if [[ -z "${image_reference}" ]]; then
   image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"

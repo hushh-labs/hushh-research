@@ -60,9 +60,9 @@ describe("OneDashboardPage", () => {
     window.localStorage.clear();
   });
 
-  it("retains pod presence alongside the agent roster", () => {
+  it("leaves pod presence to the shared top bar", () => {
     render(<OneDashboardPage userId="owner" />);
-    expect(screen.getByTestId("dashboard-pod-presence")).toBeTruthy();
+    expect(screen.queryByTestId("dashboard-pod-presence")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
   });
 

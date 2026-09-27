@@ -32,6 +32,39 @@ CLOUDBUILD = REPO_ROOT / "deploy" / "backend.cloudbuild.yaml"
 NON_DEV_ENVS = ["uat", "prod", "production", "manual", ""]
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat", "prod", "manual"])
+def test_dev_hub_capacity_preserves_other_lanes_and_explicit_overrides(environment):
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    guard = script.split("# BEGIN DEV HUB CAPACITY DEFAULTS\n", 1)[1].split(
+        "# END DEV HUB CAPACITY DEFAULTS", 1
+    )[0]
+    for memory, cpu, concurrency in [("1Gi", "1", "80"), ("8Gi", "4", "12")]:
+        result = subprocess.run(  # noqa: S603 - fixed shell and repository-owned guard
+            [
+                "bash",
+                "-eu",
+                "-c",
+                guard
+                + '\nprintf "%s %s %s" "$_CLOUD_RUN_MEMORY" "$_CLOUD_RUN_CPU" "$_CLOUD_RUN_CONCURRENCY"',
+            ],
+            env={
+                "_DEPLOY_ENV": environment,
+                "_CLOUD_RUN_MEMORY": memory,
+                "_CLOUD_RUN_CPU": cpu,
+                "_CLOUD_RUN_CONCURRENCY": concurrency,
+            },
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        expected = (
+            "4Gi 2 20"
+            if environment == "dev" and memory == "1Gi"
+            else f"{memory} {cpu} {concurrency}"
+        )
+        assert result.stdout == expected
+
+
 @pytest.fixture(scope="module")
 def config() -> dict:
     return yaml.safe_load(CLOUDBUILD.read_text(encoding="utf-8"))

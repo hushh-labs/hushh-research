@@ -1,23 +1,9 @@
 /**
- * API Service - Platform-Aware API Routing
- *
- * Production-grade service that handles API calls across platforms:
- * - iOS: Routes to Cloud Run backend (static export has no API routes)
- * - Web: Routes to local Next.js API routes
- *
- * MIGRATION GUIDE:
- * ================
- * When adding new API routes to the Next.js app, follow this checklist:
- *
- * 1. Add the route to Next.js as usual (app/api/...)
- * 2. Add a corresponding method to this service
- * 3. If the route has complex logic, consider adding to native Swift plugin
- * 4. Test on both web AND iOS simulator
- *
- * For routes that need to work offline on iOS, use Capacitor plugins:
- * - VaultService → HushhVault plugin
- * - ConsentService → HushhConsent plugin
- * - AuthService → HushhAuth plugin
+ * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
+ * requests use Cloud Run. Admitted owner-pod requests use their signed endpoint
+ * directly, with session authorization and no cookies on every platform.
+ * Add routes through their owning contracts and verify web/native parity.
+ * Offline vault, consent and authentication retain their Capacitor owners.
  */
 
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
@@ -936,7 +922,7 @@ async function apiFetch(
           assertEffectCurrent();
           const formResponse = await fetchWithWebTimeout(url, {
             ...fetchOptions,
-            credentials: "include",
+            credentials: options.credentials ?? "include",
             headers: mergedHeaders,
           }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
           return await settleAuthenticatedResponse(formResponse);
@@ -1027,7 +1013,7 @@ async function apiFetch(
     assertEffectCurrent();
     const response = await fetchWithWebTimeout(url, {
       ...fetchOptions,
-      credentials: "include",
+      credentials: options.credentials ?? "include",
       headers: mergedHeaders,
     }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
     return await settleAuthenticatedResponse(response);
@@ -3492,7 +3478,6 @@ export class ApiService {
     return response.json() as Promise<{ status: "ready" }>;
   }
 
-  /** Historical Live compatibility surface. It never opens a network session. */
   static async getOneAdkLiveRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
@@ -4067,8 +4052,7 @@ export class ApiService {
           }
         );
       } catch {
-        // Hub revocation committed. Preserve that receipt, but never report pod
-        // completion when direct delivery or the signed courier was refused.
+        // Hub receipt survives a failed pod revocation delivery.
         pod = { delivered: false, pending: null };
       }
     }
@@ -4088,7 +4072,8 @@ export class ApiService {
             ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
           },
         }),
-      direct: (url, init) => apiFetch(url, init),
+      // Pods authenticate signed sessions, never hub/browser cookies.
+      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit" }),
     };
   }
 
@@ -4160,6 +4145,7 @@ export class ApiService {
     }
     const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
       method: "POST",
+      credentials: "omit",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session}` },
       body,
       signal,
@@ -4206,6 +4192,7 @@ export class ApiService {
     if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
     const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
       method: "GET",
+      credentials: "omit",
       headers: { Authorization: `Bearer ${session.session}` },
       cache: "no-store",
       signal,

@@ -238,26 +238,34 @@ OAuth client id changed — nothing to re-fetch on the server side.
 2. Everything else (voice, Plaid, market data, Gmail receipts OAuth, Maps, reviewer
    smoke, phone test numbers) replicates UAT, using secret values copied into the dev
    project.
-3. **Managed Vertex inference temporarily uses the UAT Vertex project.** The Dev
-   Cloud Run service continues to run as
-   `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`, but
-   `GOOGLE_CLOUD_PROJECT=hushh-pda-uat` for managed Gemini text, bounded audio
-   transcription, and semantic Location command calls.
-   Dev keeps its own Cloud Run and database resources while managed Gemini requests
-   use UAT's working Vertex billing entitlement. UAT grants that Dev service account only
-   `roles/aiplatform.user` and `roles/serviceusage.serviceUsageConsumer`; Dev usage
-   therefore consumes UAT Vertex quota and appears in UAT billing and audit logs.
-   The shared backend build rejects this override outside `deploy-env=dev`.
-   The Dev Cloud Build identity has the UAT project-local
-   `devVertexDeployVerifier` custom role with only
-   `serviceusage.services.list` and `resourcemanager.projects.getIamPolicy`, allowing
-   the build to verify those runtime grants without broad UAT Viewer access.
+3. **Dev managed Vertex uses the approved personal bridge.** At source revision
+   `52b83d8a2`, the dev build defaults `GENAI_GOOGLE_CLOUD_PROJECT` to
+   `hushh-vertex-personal54`. `GOOGLE_CLOUD_PROJECT` remains `hushh-pda-dev`
+   for native runtime services. This replaces the earlier UAT bridge configuration;
+   read the serving revision before identifying the live configuration.
 
-   Roll back after Google clears project `621416509462` by removing the Dev fallback
-   from `deploy/backend.cloudbuild.yaml`, redeploying Dev, proving managed Vertex
-   readiness against `hushh-pda-dev`, removing the two UAT IAM bindings from the Dev
-   runtime service account, and removing the verifier-role binding from the Dev Cloud
-   Build identity. Delete the custom role after no bindings remain.
+   The dev runtime service account requires `roles/aiplatform.user` and
+   `roles/serviceusage.serviceUsageConsumer` in the bridge project. Its requests
+   consume that project's model quota and billing. The deployment verifier is a
+   separate identity: the dev Cloud Build account requires the bridge-local
+   `devVertexDeployVerifier` custom role with only `serviceusage.services.list`
+   and `resourcemanager.projects.getIamPolicy`. The runtime's prediction grants
+   do not grant the build account permission to inspect them.
+
+   On September 27, a synthetic Gemini 3.6 Flash request under the dev runtime
+   identity succeeded. The first candidate deployment stopped before backend
+   installation because the build's verifier binding was missing from the new
+   bridge project. The exact read-only role and binding were then established
+   and read back. These observations prove neither an owner-pod model turn nor
+   successful application deployment; use the revision-bound
+   [readiness audit](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
+   for the deployment result.
+
+   To change the bridge, update its owning deployment configuration, establish
+   the two runtime grants and the separate verifier binding, and prove provider
+   readiness before traffic promotion. Remove obsolete cross-project grants only
+   after checking that no serving runtime, active build or retained rollback
+   target still depends on them.
 
 ---
 
@@ -531,6 +539,14 @@ bash scripts/ops/setup_dev_cloudbuild_triggers.sh
   `Deploy to Dev` workflow. Never point triggers like these at UAT/production.
 
 ## Contributor usage once dev is live
+
+The dev hub's default capacity follows the existing UAT hub envelope: 2 vCPU,
+4 GiB and request concurrency 20. `scripts/deploy/backend-deploy.sh` translates
+the main-owned dev workflow's legacy defaults until that workflow supplies the
+new settings itself. Explicit alternative values and other environments retain
+their declared settings. This corrects repeated 1 GiB hub memory failures
+observed during the September 27, 2026 owner-update rehearsal; it is not a load
+capacity certification and does not resize owner pods.
 
 ```bash
 ./bin/hushh bootstrap                 # hydrates hushh-webapp/.env.dev.local from hushh-pda-dev

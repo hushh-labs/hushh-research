@@ -2108,3 +2108,45 @@ token while retaining the pod branch's action authority and nested inset behavio
 release-reader shell being excluded. Its explicit include and the executed deployment
 suite's positive/negative upload check now protect that packaging boundary. These
 corrections require a new exact-SHA CI verdict before application deployment.
+
+### Governed dev deployment — 2026-09-27 UTC
+
+Candidate `52b83d8a23baace796ee5ef716f29cc9f8520c88` passed complete GitHub CI
+([run 36312596172](https://github.com/hushh-labs/hushh-research/actions/runs/36312596172)):
+10,287 frontend tests, 7,347 backend tests and 201 database tests, alongside the
+required contract, browser, integration and native lanes. The first deployment
+stopped at bridge-project inspection permissions before backend installation.
+The build identity received the existing verifier-role pattern with exactly two
+read permissions; the runtime's prediction grants were unchanged.
+
+The governed retry
+([run 36314404359](https://github.com/hushh-labs/hushh-research/actions/runs/36314404359))
+completed successfully. Independent readback verified backend
+`consent-protocol-00104-cvk` and frontend `hushh-webapp-00074-47s` serving that
+exact source revision. The runtime uses the approved dev model bridge and
+Gemini 3.6 Flash; its deployed-image text, ADK, audio and semantic provider probes
+passed. Files offers are enabled in dev, with setup still requiring exact approval.
+The dev-only pod release is `2026.09-dev.3+52b83d8a23ba.61ff4ee3`.
+
+The canonical reviewer's predeployment Hosting/Software updates and Trusted
+Devices rehearsals passed with its existing BYOC assignment. Normal image-update,
+Files activation and direct browser/device acceptance remain separate live checks.
+Destructive history migration 252 remains parked. No application merge to main,
+UAT/production deployment, stable publication or automatic owner upgrade occurred.
+
+The subsequent normal Settings rehearsal approved that exact release and pod
+incarnation; repeating the approval key returned the same durable operation.
+Authenticated handoff reached idle, but the owner service still served its
+predecessor image. The dev hub repeatedly exceeded its 1 GiB memory limit.
+Deployment success therefore did not establish runtime or update acceptance.
+The corrective deployment uses UAT's existing hub envelope for dev defaults
+(2 vCPU, 4 GiB, concurrency 20); owner pod resources remain unchanged. Capacity
+acceptance requires observations after that correction, not just these settings.
+
+Source inspection also identified a browser transport defect: the shared fetch
+wrapper forced cookie credentials onto direct pod requests although the pod
+intentionally disallows credentialed CORS. The correction preserves explicit
+cookie omission for admission, Files, chat/streaming, commands and Puppy routes.
+Regression tests reject the old behavior; live browser admission and inference
+remain required. Agent presence moves into the shared `/one` top bar and chat
+using the existing observation hooks; registration is not relay readiness.
