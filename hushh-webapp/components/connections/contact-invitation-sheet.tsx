@@ -340,8 +340,8 @@ export function ContactInvitationSheet({
                   <textarea
                     aria-label={`Invitation message for ${previewCandidate?.displayName}`}
                     readOnly
-                    rows={5}
-                    className="w-full resize-y select-text rounded-md bg-transparent text-sm leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    rows={6}
+                    className="mt-1 min-h-[8.5rem] w-full resize-none select-text rounded-xl border border-border/80 bg-background/80 px-3.5 py-3 text-sm leading-relaxed text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     value={invitationBody(previewShare)}
                   />
                 </div>
