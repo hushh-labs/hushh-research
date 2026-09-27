@@ -1,10 +1,11 @@
-"""Temporary, revision-bound write hold for the first BYOK compatibility image.
+"""Revision-bound BYOK writer phase following the read-capable bridge.
 
-Enable only in a subsequent CI-green image after this read-capable bridge serves
-and old writers have drained. Never use a runtime switch or a platform-key fallback.
+Deploy only after the read-capable bridge serves and old writers have drained.
+The bridge remains the application rollback target. No runtime switch or
+platform-key fallback may reopen legacy history writes.
 """
 
-CHAT_HISTORY_WRITES_ENABLED = False
+CHAT_HISTORY_WRITES_ENABLED = True
 CHAT_HISTORY_UPGRADING = "CHAT_HISTORY_UPGRADING"
 CHAT_HISTORY_UPGRADING_MESSAGE = "One is updating chat history. Please try again shortly."
 

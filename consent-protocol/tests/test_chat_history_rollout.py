@@ -11,8 +11,10 @@ from hushh_mcp.services import chat_history_rollout as rollout
 from tests.helpers.chat_keys import static_chat_cipher
 
 
-def test_bridge_image_defaults_to_hold():
-    assert runpy.run_path(rollout.__file__)["CHAT_HISTORY_WRITES_ENABLED"] is False
+def test_writer_image_enables_only_owner_bound_history():
+    assert runpy.run_path(rollout.__file__)["CHAT_HISTORY_WRITES_ENABLED"] is True
+    sealed = static_chat_cipher().seal("synthetic", owner_id="owner", aad="fixture")
+    assert sealed.ciphertext.startswith("hussh-chat-v1:")
 
 
 @pytest.mark.parametrize(

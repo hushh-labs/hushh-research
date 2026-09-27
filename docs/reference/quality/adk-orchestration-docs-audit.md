@@ -1390,3 +1390,33 @@ now pinned in its exact route inventory, included in canonical CI. Reverificatio
 is required on the corrected revision. Maintained Live voice still selects the
 hub provider; recorded pod commands have a separate authority path. Neither
 source inspection nor route tests establish live private voice acceptance.
+
+
+### Compatibility validation and next-stage guards — 2026-09-26
+
+The frozen bridge `d2326808d` passed complete local CI (10,202 frontend, 522
+native/voice, 6,986 backend and 92 backend PKM tests). GitHub run 36280787865
+found one additional PostgreSQL checkpoint fixture still injecting the platform
+cipher. Commit `dbd658599` uses the existing owner chat-cipher fixture; all 19
+real PostgreSQL command-finalization tests then passed. The full rerun passed its frontend lane. Its protocol lane rejected the
+checkpoint database URL because connector tests require their own isolated target;
+protocol verification is being repeated with normal disposable connector fixtures.
+The 19 checkpoint database cases passed separately on the same source revision. No dev acceptance follows
+from the earlier local pass.
+
+The isolated follow-up merges main `e91b6b56d` while preserving pod owner guards
+and setup prerequisites. Its AI-setup integration passed 61 focused frontend
+tests, typecheck and five portfolio-import tests. Voice selection now follows
+verified hosting; server ticket and socket admission independently refuse
+non-Shared placement. Eleven placement tests and 17 voice-route tests pass.
+Migration 250 remains excluded from the release manifest. Its strengthened
+cutover refuses unresolved effects, recent writers, unknown session namespaces,
+missing tables and lock contention; 40 isolated PostgreSQL cases pass. These
+checks do not establish a live drain, retained-information recovery, pod upgrade
+or separate-network device acceptance. Application promotion, dev rollout and
+cutover remain separate evidence steps.
+
+The staged writer candidate enables BYOK writes in source only. Deploy it only
+after the bridge serves 100% and incompatible writers are drained; the source
+flag is not live evidence. Its rollback target is the read-capable bridge, never
+a platform-key writer. Migration 250 remains deferred in this writer stage.
