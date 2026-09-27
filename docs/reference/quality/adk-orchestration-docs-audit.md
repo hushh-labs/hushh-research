@@ -2412,3 +2412,17 @@ an installable offer, even after lease age expires. It does not invent an approv
 operation ID or verified version. Every non-null retained lease suppresses another
 offer, matching database admission. Focused checks cover the owner-switch race,
 duplicate recovery clicks, refusal and compatible-release controls.
+
+### Files browser follow-up — 2026-09-27
+
+The reviewer reached the updated pod's Files listing and settings successfully,
+but clicking Save issued no folder request. Source inspection at `3dfd28c4f7`
+identified the shared button's explicit non-submit default. The Files form now
+declares its submit action, covering folder creation, rename and move. A focused
+interaction check uses the actual shared button; removing the fix makes it fail.
+
+An interrupted first upload now reloads the authoritative listing while preserving
+the original error. This exposes the retained entry's Resume action without
+creating another file. Focused coverage verifies continuation with the same entry.
+These corrections still require deployed browser acceptance; the earlier failed
+journeys do not establish successful upload, download, undo or trash behavior.

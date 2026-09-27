@@ -221,20 +221,27 @@ export function FilesWorkspace() {
               if (!file) return;
               void act(async () => {
                 const signal = work.current.signal;
-                await FilesService.upload(
-                  file,
-                  parent,
-                  (received) => {
-                    if (!signal.aborted)
-                      setProgress(
-                        file.size
-                          ? Math.round((received / file.size) * 100)
-                          : 100,
-                      );
-                  },
-                  signal,
-                  resume,
-                );
+                try {
+                  await FilesService.upload(
+                    file,
+                    parent,
+                    (received) => {
+                      if (!signal.aborted)
+                        setProgress(
+                          file.size
+                            ? Math.round((received / file.size) * 100)
+                            : 100,
+                        );
+                    },
+                    signal,
+                    resume,
+                  );
+                } catch (error) {
+                  // Creation may have committed before a chunk failed. Discover
+                  // that retained entry so Resume reuses its identity and bytes.
+                  if (!signal.aborted) await load().catch(() => undefined);
+                  throw error;
+                }
                 signal.throwIfAborted();
                 setProgress(null);
                 setResume(undefined);
@@ -313,7 +320,9 @@ export function FilesWorkspace() {
                   }
                 />
               )}
-              <Button disabled={busy}>Save</Button>
+              <Button type="submit" disabled={busy}>
+                Save
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
