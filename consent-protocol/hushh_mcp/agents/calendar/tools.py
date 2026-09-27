@@ -9,13 +9,16 @@ call Google until the owner presses the confirmation control.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
-from typing import Any, Awaitable, Callable
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Awaitable, Callable, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
 
-from hushh_mcp.services.google_calendar_service import get_google_calendar_service
+from hushh_mcp.services.google_calendar_service import (
+    EVENT_PAGE_MAX,
+    get_google_calendar_service,
+)
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 logger = logging.getLogger(__name__)
@@ -185,7 +188,7 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
 
     async def _call(user_id: str) -> dict[str, Any]:
         result = await get_google_calendar_service().list_events(
-            user_id=user_id, start_at=start_at, end_at=end_at, max_results=100
+            user_id=user_id, start_at=start_at, end_at=end_at, max_results=EVENT_PAGE_MAX
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
 
@@ -200,11 +203,17 @@ async def calendar_events(
     tool_context: ToolContext,
     start_at: str,
     end_at: str,
+    query: str | None = None,
+    limit: int = 100,
 ) -> dict[str, Any]:
     """List events in an exact ISO-8601, time-zone-qualified interval.
 
-    Use this before rescheduling or cancelling so you use the event id returned
-    by Google rather than guessing one.
+    ``query`` is optional free text Google matches against title, description,
+    location, attendees and organizer. ``limit`` is 1-250 events. When the
+    result says ``truncated``, more events exist than were returned: say so,
+    never claim the list is complete. Use this before rescheduling or
+    cancelling so you use the event id returned by Google rather than
+    guessing one.
     """
 
     async def _call(user_id: str) -> dict[str, Any]:
@@ -214,6 +223,8 @@ async def calendar_events(
                 user_id=user_id,
                 start_at=_calendar_iso(start_at, tool_context),
                 end_at=_calendar_iso(end_at, tool_context),
+                max_results=_bounded_limit(limit),
+                query=query,
             ),
         }
 
@@ -222,10 +233,23 @@ async def calendar_events(
         _call,
         calendar_read={
             "operation": "events",
+            "query": query,
+            "event_limit": _bounded_limit(limit),
             "start_at": _calendar_iso(start_at, tool_context),
             "end_at": _calendar_iso(end_at, tool_context),
         },
     )
+
+
+def _bounded_limit(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return 100
+    try:
+        number = int(value)
+    except ValueError:
+        return 100
+    bounded: int = max(1, min(number, EVENT_PAGE_MAX))
+    return bounded
 
 
 async def calendar_availability(
@@ -326,30 +350,36 @@ async def propose_calendar_event(
 async def propose_calendar_reschedule(
     tool_context: ToolContext,
     event_id: str,
-    title: str,
     start_at: str,
     end_at: str,
+    title: str | None = None,
     attendees: list[str] | None = None,
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
 ) -> dict[str, Any]:
-    """Prepare a reschedule for a real event id. It is not changed until confirmed."""
-    return await _propose(
-        action="reschedule",
-        payload={
-            "event_id": event_id,
-            "title": title,
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
-            "time_zone": _timezone(tool_context) if tool_context else "UTC",
-            "attendees": attendees or [],
-            "description": description or "",
-            "location": location or "",
-            "send_updates": send_updates,
-        },
-        tool_context=tool_context,
-    )
+    """Prepare a reschedule for a real event id. It is not changed until confirmed.
+
+    Only the new time is required. Leave title, attendees, description and
+    location out to keep them exactly as they are. ``attendees`` replaces the
+    whole guest list, so pass it only to change who is invited; the review
+    shows every attendee it adds or removes. An all-day event stays all-day.
+    """
+    payload: dict[str, Any] = {
+        "event_id": event_id,
+        "start_at": _calendar_iso(start_at, tool_context),
+        "end_at": _calendar_iso(end_at, tool_context),
+        "time_zone": _timezone(tool_context) if tool_context else "UTC",
+        "send_updates": send_updates,
+    }
+    changes = {
+        "title": title,
+        "attendees": attendees,
+        "description": description,
+        "location": location,
+    }
+    payload.update({key: value for key, value in changes.items() if value})
+    return await _propose(action="reschedule", payload=payload, tool_context=tool_context)
 
 
 async def propose_calendar_cancellation(
@@ -366,7 +396,10 @@ async def propose_calendar_cancellation(
 
 
 async def _propose(
-    *, action: str, payload: dict[str, Any], tool_context: ToolContext
+    *,
+    action: Literal["create", "reschedule", "cancel"],
+    payload: dict[str, Any],
+    tool_context: ToolContext,
 ) -> dict[str, Any]:
     try:
         proposal = await get_google_calendar_service().propose(
@@ -429,6 +462,14 @@ async def _propose(
             "endAt": event_fields["endAt"],
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
+            **(
+                {
+                    "attendeesAdded": event_fields["attendeesAdded"],
+                    "attendeesRemoved": event_fields["attendeesRemoved"],
+                }
+                if action == "reschedule"
+                else {}
+            ),
             "sendUpdates": bool(plan.get("send_updates")),
             "conflicts": [
                 {"title": item.get("title"), "startAt": _flat_iso(item.get("start"))}
@@ -461,18 +502,22 @@ def _proposal_summary(
     display_time_zone: str,
 ) -> str:
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    current = plan.get("current_event")
+    current = current if isinstance(current, dict) else {}
 
-    title = str(plan.get("title") or plan.get("event_id") or "this event")
-    timing = (
-        ""
-        if action == "cancel"
-        else f" for {_display_time(plan.get('start_at'), display_time_zone)}"
-    )
-    attendee_note = (
-        f" and notify {len(plan.get('attendees', []))} attendee(s)"
-        if plan.get("send_updates")
-        else " without sending updates"
-    )
+    title = str(plan.get("title") or current.get("title") or plan.get("event_id") or "this event")
+    if action == "cancel":
+        timing = ""
+    elif plan.get("all_day") and plan.get("start_date"):
+        timing = f" to {_display_all_day(plan['start_date'], plan.get('end_date'))}"
+    else:
+        timing = f" for {_display_time(plan.get('start_at'), display_time_zone)}"
+    count = _resulting_attendee_count(action=action, plan=plan)
+    if not plan.get("send_updates"):
+        attendee_note = " without sending updates" if count else ""
+    else:
+        attendee_note = f" and notify {_attendees(count)}" if count else ""
+    change_note = _attendee_change_note(plan) if action == "reschedule" else ""
     details = [
         _conflict_detail(item, time_zone=display_time_zone)
         for item in conflicts
@@ -481,9 +526,62 @@ def _proposal_summary(
     if details:
         return (
             f"You already have {', '.join(details)}. "
-            f"{verb} “{title}”{timing}{attendee_note} anyway?"
+            f"{verb} “{title}”{timing}{attendee_note} anyway?{change_note}"
         )
-    return f"{verb} “{title}”{timing}{attendee_note}?"
+    return f"{verb} “{title}”{timing}{attendee_note}?{change_note}"
+
+
+def _attendees(count: int) -> str:
+    return f"{count} attendee" if count == 1 else f"{count} attendees"
+
+
+def _current_attendee_emails(plan: dict[str, Any]) -> list[str]:
+    current = plan.get("current_event")
+    current = current if isinstance(current, dict) else {}
+    return [
+        str(item.get("email"))
+        for item in current.get("attendees", [])
+        if isinstance(item, dict) and item.get("email")
+    ]
+
+
+def _resulting_attendee_count(*, action: str, plan: dict[str, Any]) -> int:
+    """How many people the change reaches: never the model's argument count.
+
+    A cancel or reschedule that did not name attendees still notifies every
+    guest already on the event.
+    """
+    if action == "create":
+        return len(plan.get("attendees", []))
+    change = plan.get("attendee_change")
+    if action == "reschedule" and isinstance(change, dict):
+        return int(change.get("result_count") or 0)
+    return len(_current_attendee_emails(plan))
+
+
+def _attendee_change_note(plan: dict[str, Any]) -> str:
+    change = plan.get("attendee_change")
+    if not isinstance(change, dict):
+        return ""
+    parts = []
+    for verb, key in (("adds", "added"), ("removes", "removed")):
+        emails = [str(item) for item in change.get(key, []) if item]
+        if emails:
+            parts.append(f"{verb} {_attendees(len(emails))} ({', '.join(emails)})")
+    return f" This {' and '.join(parts)}." if parts else ""
+
+
+def _display_all_day(start_date: object, end_date: object) -> str:
+    """ "Fri, Oct 2 (all day)"; a multi-day span names its last day."""
+    try:
+        first = date.fromisoformat(str(start_date))
+        last = date.fromisoformat(str(end_date)) - timedelta(days=1) if end_date else first
+    except ValueError:
+        return f"{start_date} (all day)"
+    label = first.strftime("%a, %b %-d")
+    if last > first:
+        label = f"{label} to {last.strftime('%a, %b %-d')}"
+    return f"{label} (all day)"
 
 
 def _flat_iso(value: object) -> str | None:
@@ -500,25 +598,38 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
     """Normalize the proposed event's title/time/attendees/location across all
     three actions for the client directive payload.
 
-    `create`/`reschedule` proposals carry the new title/time directly on
-    `plan` (from the tool's own input). `cancel` only ever receives an
-    `event_id` + `send_updates` -- its real title/time/attendees live under
-    `plan["current_event"]`, the real event `propose()` fetched from Google
-    before staging the proposal (see `GoogleCalendarService.propose`).
+    `create` proposals carry the new title/time directly on `plan` (from the
+    tool's own input). `cancel` only ever receives an `event_id` +
+    `send_updates`, and a `reschedule` names only what it changes: the rest
+    lives under `plan["current_event"]`, the real event `propose()` fetched
+    from Google before staging the proposal (see `GoogleCalendarService.propose`).
     """
+    current = plan.get("current_event")
+    current = current if isinstance(current, dict) else {}
     if action == "cancel":
-        current = plan.get("current_event")
-        current = current if isinstance(current, dict) else {}
         return {
             "title": current.get("title"),
             "startAt": _flat_iso(current.get("start")),
             "endAt": _flat_iso(current.get("end")),
-            "attendees": [
-                str(item.get("email"))
-                for item in current.get("attendees", [])
-                if isinstance(item, dict) and item.get("email")
-            ],
+            "attendees": _current_attendee_emails(plan),
             "location": current.get("location") or None,
+        }
+    if action == "reschedule":
+        change = plan.get("attendee_change")
+        change = change if isinstance(change, dict) else {}
+        removed = {str(item).lower() for item in change.get("removed", [])}
+        attendees = [
+            email for email in _current_attendee_emails(plan) if email.lower() not in removed
+        ] + [str(item) for item in change.get("added", [])]
+        all_day = bool(plan.get("all_day") and plan.get("start_date"))
+        return {
+            "title": plan.get("title") or current.get("title"),
+            "startAt": plan.get("start_date") if all_day else _flat_iso(plan.get("start_at")),
+            "endAt": plan.get("end_date") if all_day else _flat_iso(plan.get("end_at")),
+            "attendees": attendees,
+            "attendeesAdded": [str(item) for item in change.get("added", [])],
+            "attendeesRemoved": [str(item) for item in change.get("removed", [])],
+            "location": plan.get("location") or current.get("location") or None,
         }
     return {
         "title": plan.get("title"),

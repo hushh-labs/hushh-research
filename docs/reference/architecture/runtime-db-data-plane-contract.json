@@ -461,7 +461,7 @@
       ],
       "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
       "retention_policy": "Terminal sync-run reads expire after 30 days from completed_at, with updated_at as a conservative fallback only for legacy terminal runs without completed_at. Preview reads expire seven days after created_at; cache updates and PKM-persist acknowledgement do not renew that window. Owner-scoped manual reporting and bounded compaction use scripts/ops/gmail_cache_retention.py; no automatic schedule exists. Physical expired rows can remain until an authorized maintenance run. Durable information requires explicit encrypted PKM write through the consent/vault path.",
-      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps.",
+      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps. Full account deletion also releases the grant at Google after commit, best effort: a live mailbox watch is stopped (users.stop) before the refresh token is revoked. Disconnect does not yet stop the watch.",
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
       "plaintext_posture": "encrypted_oauth_tokens_and_sensitive_derived_receipt_cache",
       "expected_row_growth": "high_provider_sync"
@@ -512,7 +512,7 @@
       ],
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
       "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
-      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services.",
+      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
       "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
       "expected_row_growth": "low_provider_workflow"
@@ -1085,7 +1085,7 @@
       ],
       "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py",
       "retention_policy": "Retain the encrypted credential while the connection is active; clear the ciphertext immediately on disconnect and keep only the revoked status row.",
-      "deletion_behavior": "Explicit account deletion removes credentials and OAuth attempts. Reset scrubs credentials and account labels while retaining revoked monotonic generation/version counters to fence late results. Disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
+      "deletion_behavior": "Explicit account deletion removes credentials and OAuth attempts, then (after commit, best effort) revokes verified envelope-v2 Google Drive grants at Google; legacy envelopes and API-key connectors are not revoked. Reset scrubs credentials and account labels while retaining revoked monotonic generation/version counters to fence late results. Disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
       "trust_boundary": "AES-GCM via EXTERNAL_CONNECTOR_CREDENTIAL_KEY, separate from google_provider_connections and enterprise_crm_registry. Legacy envelopes retain owner/connector AAD. V2 adds generation/version binding and encrypts verified account identity, client, scopes, expiry, and refresh material; queryable expiry is integrity-checked. Lifecycle generations, refresh leases, capability verification, and bounded revocation outcomes contain no provider secrets. Disconnect scrubs credentials before bounded in-memory revocation; failed revocation is not a promise of background retry.",
       "plaintext_posture": "encrypted_credential_no_plaintext_at_rest",
       "expected_row_growth": "low_per_user"
@@ -1252,7 +1252,7 @@
       ],
       "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)",
       "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
-      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity. Current state: full account deletion retains these rows with the raw user_id (declared in hushh_mcp/services/account_erasure_policy.py); changing that is a legal policy decision.",
       "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"

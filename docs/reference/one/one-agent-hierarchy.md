@@ -180,32 +180,6 @@ invented citations, oversized data, changed selection/generation, and provider d
 they do not infer statement coverage. Live two-account selected-file acceptance is
 required before promotion. This is implemented source, not deployed UAT evidence.
 
-The default shared-runtime `adk_bridge/__init__.py` registration includes `agent_documents`,
-`agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`. An owner-bound pod may additionally register Connections and Connected Systems for its own turn; those are not ambient shared-runtime handlers.
-Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
-product surfaces. Email's `ask_email_agent` path admits only owner-authorized
-typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
-them. It preserves One's conversation and permits only `list_needs_reply` /
-`search_inbox`. After a read, only exact-call-reviewed MCP tools and One's
-client-only editable Gmail draft remain callable in the same invocation; the
-draft cannot run in the original parallel read batch and cannot send. Its
-interpreter has no tools; durable tool history contains a redacted receipt,
-not mailbox metadata or draft fields. Reviewed sending and receipt/sync
-tools are not admitted through this lane. Connected Systems remains
-authority-ingress-only. Connections is reached through Nav; its separate legacy
-mutation adapter retains its full information/action authority gate. There is no
-separate Gmail specialist roster entry.
-
-Live Drive relevance is a declared semantic stage under
-`consent-protocol/docs/reference/backend-semantic-boundary.md`. The
-`agent_documents_live_select` gene in the documents manifest selects up to eight
-opaque candidate references from file metadata. The host validates references,
-rejects invented or excessive selections, and fails closed when selection is
-unavailable. An empty selection is a no-match; unreadable files carry allowlisted
-reasons to the owner, while the interpreter sees counts. The opt-in live evaluation
-is `consent-protocol/scripts/eval_drive_candidate_selection.py`. Promotion still
-requires that live evaluation and selected-file acceptance.
-
 Live Drive relevance is a declared semantic stage (per
 `consent-protocol/docs/reference/backend-semantic-boundary.md`):
 
@@ -227,13 +201,16 @@ file-request suggestions prompt may list them as gaps. The conflicting-values
 and per-item rules in the interpreter instruction are model behaviour and need
 the live eval before promotion.
 
-The `adk_bridge/__init__.py` registration includes exactly `agent_documents`,
+The default shared-runtime `adk_bridge/__init__.py` registration includes `agent_documents`,
 `agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`.
+An owner-bound pod may additionally register Connections and Connected Systems
+for its own turn; those are not ambient shared-runtime handlers.
 Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
 product surfaces. Email's `ask_email_agent` path admits only owner-authorized
 typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
-them. It preserves One's conversation and permits only `list_needs_reply` /
-`search_inbox`. After a read, only exact-call-reviewed MCP tools and One's
+them. It preserves One's conversation and permits only `list_recent` (the newest
+INBOX page, "my last N emails"), `list_needs_reply` and `search_inbox`, each scoped
+to `inbox`, `sent` or `anywhere` and returning an `unread` flag. After a read, only exact-call-reviewed MCP tools and One's
 client-only editable Gmail draft remain callable in the same invocation; the
 draft cannot run in the original parallel read batch and cannot send. Its
 interpreter has no tools; durable tool history contains a redacted receipt,

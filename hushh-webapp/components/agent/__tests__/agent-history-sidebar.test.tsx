@@ -114,7 +114,7 @@ describe("AgentHistorySidebar", () => {
     renderSidebar();
 
     const sidebar = screen.getByLabelText("Agent chat history");
-    expect(sidebar).toHaveClass("chrome-glass-surface");
+    expect(sidebar).toHaveClass("bg-background");
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();

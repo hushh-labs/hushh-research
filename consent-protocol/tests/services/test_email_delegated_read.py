@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -39,7 +40,10 @@ class _Reader:
             raise GmailMetadataError("connection_changed")
 
 
-async def _run(reader, gene, require_access=None):
+_NOW = datetime(2026, 9, 26, 20, 0, tzinfo=timezone.utc)
+
+
+async def _run(reader, gene, require_access=None, timezone_name="UTC"):
     return await run_delegated_mail_read(
         gmail=object(),
         user_id="owner",
@@ -47,8 +51,10 @@ async def _run(reader, gene, require_access=None):
         conversation_id="original-one-thread",
         message="find my invoices",
         require_access=require_access or AsyncMock(),
+        timezone=timezone_name,
         gene_runner=gene,
         reader_factory=lambda **_: reader,
+        clock=lambda: _NOW,
     )
 
 
@@ -66,7 +72,9 @@ async def test_planner_never_sees_external_content_and_interpreter_has_no_second
     assert len(calls) == 2
     assert "evil.invalid" not in calls[0]["prompt"]
     assert "untrusted_external_content" in calls[1]["prompt"]
-    assert reader.calls == [("search_inbox", {"query": "subject:invoice", "limit": 2})]
+    assert reader.calls == [
+        ("search_inbox", {"query": "subject:invoice", "limit": 2, "mailbox": "inbox"})
+    ]
     assert reader.validations == 2
     assert result["conversationId"] == "original-one-thread"
     assert result["structured"]["sources"] == [
@@ -104,6 +112,115 @@ async def test_disconnection_during_interpretation_suppresses_answer():
     result = await _run(reader, gene)
     assert "PRIVATE ANSWER" not in json.dumps(result)
     assert result["structured"]["status"] == "connection_changed"
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        {"operation": "list_recent", "limit": 10},
+        # The planner's observed UAT output for "show me my last 10 emails":
+        # an inbox search with no criteria. It is the newest page, not an error.
+        {"operation": "search_inbox", "query": "", "limit": 10},
+        {"operation": "search_inbox", "query": "   ", "limit": 10},
+    ],
+)
+async def test_recent_emails_request_is_one_direct_bounded_read(plan):
+    reader = _Reader(metadata={**_Reader().metadata, "truncated": False})
+    calls = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs["gene_id"])
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return plan
+        return {"answer": "Your latest message.", "source_refs": ["mail:1"]}
+
+    result = await _run(reader, gene)
+    assert reader.calls == [("list_recent", {"limit": 10, "mailbox": "inbox"})]
+    assert calls == ["agent_email_read_planner", "agent_email_read_interpreter"]
+    assert result["structured"]["status"] == "ok"
+    assert "omitted" not in result["response"]
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        {"operation": "list_recent", "query": "from:someone", "limit": 10},
+        {"operation": "list_needs_reply", "query": "from:someone"},
+    ],
+)
+async def test_query_on_a_fixed_listing_is_rejected_before_io(plan):
+    reader = _Reader()
+    result = await _run(reader, AsyncMock(return_value=plan))
+    assert result["structured"]["status"] == "invalid_argument"
+    assert not reader.calls
+
+
+async def test_planner_and_interpreter_get_the_persons_clock():
+    prompts = {}
+
+    async def gene(**kwargs):
+        prompts[kwargs["gene_id"]] = json.loads(kwargs["prompt"])
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "limit": 3}
+        return {"answer": "Latest.", "source_refs": ["mail:1"]}
+
+    await _run(_Reader(), gene, timezone_name="America/New_York")
+    for gene_id in ("agent_email_read_planner", "agent_email_read_interpreter"):
+        assert prompts[gene_id]["current_time_utc"] == "2026-09-26T20:00:00+00:00"
+        assert prompts[gene_id]["user_timezone"] == "America/New_York"
+
+
+@pytest.mark.parametrize(
+    "timezone_name,query,expected",
+    [
+        # Local midnight in New York (EDT, UTC-4), never Gmail's Pacific default.
+        (
+            "America/New_York",
+            "from:bank after:2026/09/21 before:2026/09/28",
+            "from:bank after:1789963200 before:1790568000",
+        ),
+        ("Asia/Kolkata", "newer:2026-09-21", "after:1789929000"),
+        ("Not/AZone", "older:2026/09/21", "before:1789948800"),
+        # Epoch terms and relative ages already mean the same instant anywhere.
+        ("America/New_York", "after:1789963200 newer_than:7d", "after:1789963200 newer_than:7d"),
+    ],
+)
+async def test_date_terms_are_pinned_to_local_midnight(timezone_name, query, expected):
+    reader = _Reader()
+    gene = AsyncMock(
+        side_effect=[
+            {"operation": "search_inbox", "query": query},
+            {"answer": "One.", "source_refs": ["mail:1"]},
+        ]
+    )
+    await _run(reader, gene, timezone_name=timezone_name)
+    assert reader.calls[0][1]["query"] == expected
+
+
+async def test_impossible_date_term_is_rejected_before_io():
+    reader = _Reader()
+    gene = AsyncMock(return_value={"operation": "search_inbox", "query": "after:2026/02/31"})
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "invalid_argument"
+    assert not reader.calls
+
+
+async def test_mailbox_scope_is_forwarded_and_bounded():
+    reader = _Reader()
+    gene = AsyncMock(
+        side_effect=[
+            {"operation": "list_recent", "limit": 5, "mailbox": "sent"},
+            {"answer": "Sent.", "source_refs": ["mail:1"]},
+        ]
+    )
+    await _run(reader, gene)
+    assert reader.calls == [("list_recent", {"limit": 5, "mailbox": "sent"})]
+
+    other = _Reader()
+    unknown = AsyncMock(return_value={"operation": "list_recent", "mailbox": "spam"})
+    result = await _run(other, unknown)
+    assert result["structured"]["status"] == "unavailable"
+    assert not other.calls
 
 
 async def test_clarification_does_not_read_provider():

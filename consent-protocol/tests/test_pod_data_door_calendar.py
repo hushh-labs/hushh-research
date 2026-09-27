@@ -367,6 +367,8 @@ async def test_explicit_calendar_read_preserves_window_operation_and_projection(
         "availability": tools.calendar_availability,
         "openings": tools.calendar_free_slots,
     }[operation]
+    if operation == "events":
+        kwargs.update(query="board review", limit=7)
     if operation == "openings":
         kwargs.update(duration_minutes=45, limit=2)
     result = await call(ctx, **kwargs)
@@ -389,6 +391,9 @@ async def test_explicit_calendar_read_preserves_window_operation_and_projection(
     )
     if operation == "events":
         assert result["coverage_complete"] is False
+        assert result["truncated"] is True
+        assert chosen.await_args.kwargs["query"] == "board review"
+        assert chosen.await_args.kwargs["max_results"] == 7
 
 
 @pytest.mark.parametrize(
@@ -399,6 +404,9 @@ async def test_explicit_calendar_read_preserves_window_operation_and_projection(
         {"end_at": "2026-09-01T09:00:00Z"},
         {"operation": "openings"},
         {"owner_id": "foreign-owner"},
+        {"query": "x" * 513},
+        {"event_limit": 251},
+        {"operation": "availability", "query": "board"},
     ],
 )
 def test_calendar_options_reject_unbounded_or_ambient_authority(change):

@@ -88,7 +88,7 @@ the hub's model bridge. Memory Bank, storage and encryption remain owner-local.
 
 The dev hub's model project is selected by the governed build's
 `_GENAI_PROJECT_ID` setting and cross-project allowlist in
-`deploy/backend.cloudbuild.yaml`; the current dev default is `hushh-pda-uat`.
+`deploy/backend.cloudbuild.yaml`; the dev managed-AI default is `hushh-vertex-personal54`. Owner-pod AI remains in the owner's configured project; this bridge setting does not redirect private-pod inference.
 Its native project and billing linkage remain separate. Verify the serving
 revision's model routing and prediction access independently for hub and pod;
 a configured bridge or enabled billing does not prove provider access.

@@ -5,7 +5,7 @@ This is how a developer adds a real external MCP connector (Notion,
 HubSpot, ...) to the interface: describe it in a local JSON descriptor,
 probe it against the real endpoint to confirm it's reachable, then apply to
 write it into `external_mcp_connectors`. No code change needed per
-connector -- the generic `agent_external_connector` specialist and the
+connector -- Chat's governed `RegisteredMcpToolset` and the
 `/one/profile/connectors` page both read this registry, not a hardcoded list.
 
 Usage:

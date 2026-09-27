@@ -32,6 +32,7 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
@@ -50,6 +51,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     drain_account_deletion_cleanup_intents,
 )
 from hushh_mcp.services.account_service import (
+    ACCOUNT_DELETION_FAILED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
     AccountService,
@@ -1768,7 +1770,15 @@ async def delete_account(
     target = payload.target if payload else "both"
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     service = AccountService()
-    result = await service.delete_account(user_id, target=target)
+    try:
+        result = await service.delete_account(user_id, target=target)
+    except Exception as exc:
+        # The erasure itself catches every error once its transaction begins,
+        # and provider release never raises, so an exception here happened
+        # before anything was erased (for example the profile read). Report it
+        # with the machine code so the client keeps a session it can retry.
+        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
+        result = {"success": False, "error": type(exc).__name__}
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -1782,7 +1792,14 @@ async def delete_account(
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
-        raise HTTPException(status_code=500, detail="Account deletion failed")
+        # The erasure transaction raised and was rolled back, so the account is
+        # normally still intact. The machine code lets clients keep the session
+        # after confirming that through the tombstone-aware status route,
+        # instead of treating a definite failure like a lost response.
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Account deletion failed", "code": ACCOUNT_DELETION_FAILED_CODE},
+        )
 
     if result.get("account_deleted") is True:
         details = result.get("details")

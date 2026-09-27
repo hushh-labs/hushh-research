@@ -201,7 +201,10 @@ export class AccountServiceImpl {
         return result;
       }
     } catch (error) {
-      console.error("Account deletion failed:", error);
+      // Severity belongs to the deletion flow: most failures here are handled
+      // outcomes it explains to the person, and the dev overlay reports every
+      // console.error as an application crash.
+      console.warn("Account deletion request failed:", error);
       trackEvent("account_delete_completed", {
         result: "error",
         status_bucket: "5xx",

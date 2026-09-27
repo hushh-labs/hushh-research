@@ -83,6 +83,39 @@ class TestAccountDeleteErrorDetail:
         detail = resp.json().get("detail", "")
         assert detail == "Account deletion failed"
 
+    def test_500_carries_rolled_back_failure_code(self):
+        """Clients need a machine code to keep the session after a rolled-back delete."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={"success": False, "error": self._SENTINEL},
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 500
+        assert resp.json() == {
+            "detail": "Account deletion failed",
+            "code": "ACCOUNT_DELETION_FAILED",
+        }
+
+    def test_exception_before_erasure_still_carries_failure_code(self):
+        """A pre-erasure crash must not look like a lost response to the client."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError(self._SENTINEL),
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 500
+        assert resp.json() == {
+            "detail": "Account deletion failed",
+            "code": "ACCOUNT_DELETION_FAILED",
+        }
+        assert self._SENTINEL not in resp.text
+
     def test_successful_deletion_returns_200(self):
         """A successful deletion must return 200 (not 422 or 500)."""
         with patch.object(

@@ -48,7 +48,8 @@ describe("restoring a turn from history", () => {
       { type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" },
     ]);
     expect(restored?.streamEvents).toEqual([
-      expect.objectContaining({ id: "call-calendar", label: "Connector access", message: "Connector access checked.", status: "done", brand: "calendar" }),
+      // Routine: the panel keeps it out of Activity, exactly as on the live turn.
+      expect.objectContaining({ id: "call-calendar", label: "Connector access", message: "Connector access checked.", status: "done", brand: "calendar", routine: true }),
       expect.objectContaining({ id: "call-mcp", label: "Connected tool", status: "done", tag: "Read", connectorId: "custom_0123" }),
       expect.objectContaining({ id: "call-review", status: "waiting", tag: "Needs review" }),
       expect.objectContaining({ id: "call-public", status: "done", tag: "Public" }),

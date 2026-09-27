@@ -436,7 +436,8 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # recency alone does not determine the selected pair.
 # Every text manifest, the memory chain included, names `gemini-default`; only
 # the Live head pins a model directly, and that pin stays explicit in its manifest.
-FLEET_TEXT_MODEL_DEFAULT = "gemini-3.7-flash"
+# Founder decision 2026-09-27: 3.7 Flash was timing out in chat; 3.6 Flash is the default.
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.6-flash"
 
 
 def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:

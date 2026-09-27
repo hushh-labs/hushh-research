@@ -403,3 +403,138 @@ def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkey
     assert directive["payload"]["type"] == "calendar.connect"
     assert directive["payload"]["accessLevel"] == "manage"
     assert directive["payload"]["confirmLabel"] == "Allow Calendar scheduling"
+
+
+def _current_event_with_guests() -> dict[str, object]:
+    return {
+        "title": "Standup",
+        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+        "end": {"dateTime": "2026-08-11T10:30:00+05:30"},
+        "attendees": [
+            {"email": email, "response_status": "accepted"}
+            for email in ("owner@example.com", "a@example.com", "b@example.com", "c@example.com")
+        ],
+    }
+
+
+def _review(monkeypatch, plan: dict[str, object]) -> tuple[str, dict[str, object]]:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        calendar.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
+        return {"proposal_id": "gcal_review", "expires_at": "2026-08-11T12:00:00Z", "plan": plan}
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    return context, calendar  # type: ignore[return-value]
+
+
+def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:  # noqa: ANN001
+    # Regression: the review said "notify 0 attendee(s)" for a meeting with
+    # four guests, because it counted only attendees the model passed.
+    # Negative control: the previous summary counted plan["attendees"] (absent
+    # here) and fails this assertion.
+    plan = {
+        "event_id": "evt-1",
+        "start_at": "2026-08-12T04:30:00Z",
+        "end_at": "2026-08-12T05:00:00Z",
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+        "attendee_change": {"added": [], "removed": [], "result_count": 4},
+    }
+    context, calendar = _review(monkeypatch, plan)
+    asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at="2026-08-12T10:00:00",
+            end_at="2026-08-12T10:30:00",
+        )
+    )
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert "notify 4 attendees" in payload["summary"]
+    assert "0 attendee" not in payload["summary"]
+    assert payload["title"] == "Standup"
+    assert payload["attendees"] == [
+        "owner@example.com",
+        "a@example.com",
+        "b@example.com",
+        "c@example.com",
+    ]
+    # Omitted fields are never sent as empty values that would clear them.
+    assert set(calendar.proposal_payload) == {  # type: ignore[arg-type]
+        "event_id",
+        "start_at",
+        "end_at",
+        "time_zone",
+        "send_updates",
+    }
+
+
+def test_a_reschedule_review_names_every_attendee_it_removes(monkeypatch) -> None:  # noqa: ANN001
+    plan = {
+        "event_id": "evt-1",
+        "start_at": "2026-08-12T04:30:00Z",
+        "end_at": "2026-08-12T05:00:00Z",
+        "attendees": ["new@example.com"],
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+        "attendee_change": {
+            "added": ["new@example.com"],
+            "removed": ["a@example.com", "b@example.com", "c@example.com"],
+            "result_count": 2,
+        },
+    }
+    context, _ = _review(monkeypatch, plan)
+    asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at="2026-08-12T10:00:00",
+            end_at="2026-08-12T10:30:00",
+            attendees=["new@example.com"],
+        )
+    )
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert "adds 1 attendee (new@example.com)" in payload["summary"]
+    assert (
+        "removes 3 attendees (a@example.com, b@example.com, c@example.com)" in (payload["summary"])
+    )
+    assert payload["attendeesRemoved"] == ["a@example.com", "b@example.com", "c@example.com"]
+    assert payload["attendees"] == ["owner@example.com", "new@example.com"]
+
+
+def test_a_cancel_review_counts_the_guests_it_will_notify(monkeypatch) -> None:  # noqa: ANN001
+    plan = {
+        "event_id": "evt-1",
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+    }
+    context, _ = _review(monkeypatch, plan)
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
+    assert summary == "Cancel “Standup” and notify 4 attendees?"
+
+
+def test_calendar_events_searches_within_a_bound_and_reports_truncation(monkeypatch) -> None:  # noqa: ANN001
+    seen: dict[str, object] = {}
+
+    class _Listing(_Calendar):
+        async def list_events(self, **kwargs: object) -> dict[str, object]:
+            seen.update(kwargs)
+            return {"events": [], "truncated": True, "more_events_exist": "more exist"}
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Listing())
+    result = asyncio.run(
+        tools.calendar_events(
+            _context(),
+            start_at="2026-08-11T00:00:00",
+            end_at="2026-08-18T00:00:00",
+            query="dentist",
+            limit=9_999,
+        )
+    )
+    assert seen["query"] == "dentist"
+    assert seen["max_results"] == 250
+    assert result["truncated"] is True

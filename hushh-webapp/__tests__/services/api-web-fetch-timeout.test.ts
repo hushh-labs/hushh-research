@@ -31,6 +31,11 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath("/api/one/feed/unread-count")).toBe(60_000);
   });
 
+  it("lets a committing account deletion finish instead of aborting at 60 s", () => {
+    expect(webFetchTimeoutMsForPath("/api/account/delete")).toBe(180_000);
+    expect(webFetchTimeoutMsForPath("/api/account/session-status")).toBe(60_000);
+  });
+
   it("outlasts the connector proxy for an allowed Drive question's search", () => {
     const id = "11111111-1111-4111-8111-111111111111";
     expect(

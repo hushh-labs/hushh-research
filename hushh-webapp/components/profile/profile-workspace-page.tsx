@@ -119,6 +119,7 @@ import {
   DELETE_ACCOUNT_DIALOG_TITLE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
+  isHandledAccountDeletionOutcome,
   resolveDeleteAccountAuth,
   revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
@@ -1601,7 +1602,10 @@ function ProfilePageContent({
       });
       return "deleted";
     } catch (error) {
-      console.error("Delete account error:", error);
+      (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
+        "Delete account error:",
+        error,
+      );
       return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);

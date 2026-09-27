@@ -77,8 +77,21 @@ EXPORTS = {
     "application/vnd.google-apps.presentation": "text/plain",
 }
 # Live lane only. A Sheets CSV export holds the first sheet only, so every
-# Sheets read is partial; the selected lane still refuses Sheets.
-LIVE_EXPORTS = {**EXPORTS, "application/vnd.google-apps.spreadsheet": "text/csv"}
+# Sheets read is partial; the selected lane still refuses Sheets. A Google Doc
+# exports as Markdown so headings, lists and tables keep their structure
+# (https://developers.google.com/workspace/drive/api/guides/ref-export-formats);
+# Slides has no Markdown export and stays plain text.
+LIVE_EXPORTS = {
+    **EXPORTS,
+    "application/vnd.google-apps.document": "text/markdown",
+    "application/vnd.google-apps.spreadsheet": "text/csv",
+}
+# Markdown carries each image inline, so a picture-heavy Doc can pass the
+# CONTENT_LIMIT, or Google's 10 MB export limit (a 403), where its plain text
+# does not. Such a Doc is read once more as plain text under the same bound.
+LIVE_EXPORT_FALLBACKS = {"application/vnd.google-apps.document": "text/plain"}
+_LIVE_EXPORT_FALLBACK_CODES = frozenset({"file_too_large", "source_unavailable"})
+_LIVE_EXPORT_TYPES = frozenset({*LIVE_EXPORTS.values(), *LIVE_EXPORT_FALLBACKS.values()})
 LIVE_PARTIAL_EXPORTS = frozenset({"application/vnd.google-apps.spreadsheet"})
 BINARY_TYPES = frozenset(
     {
@@ -244,7 +257,7 @@ class GoogleDriveAdapter:
             ) or (
                 path.endswith("/export")
                 and len(params) == 1
-                and params.get("mimeType") in LIVE_EXPORTS.values()
+                and params.get("mimeType") in _LIVE_EXPORT_TYPES
             )
         else:
             allowed = False
@@ -465,15 +478,29 @@ class GoogleDriveAdapter:
     ) -> tuple[str, bytes]:
         """Content of a file the owner's live grant can read (export for Docs/Slides/Sheets)."""
         export_mime = LIVE_EXPORTS.get(mime_type)
-        content = await self._get(
-            _file_path(file_id) + ("/export" if export_mime else ""),
+        if not export_mime:
+            content = await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"alt": "media", "supportsAllDrives": "true"},
+                limit=CONTENT_LIMIT,
+            )
+            return mime_type, content
+        try:
+            return export_mime, await self._export(file_id, export_mime, access_token)
+        except DriveReadError as error:
+            fallback = LIVE_EXPORT_FALLBACKS.get(mime_type)
+            if not fallback or str(error) not in _LIVE_EXPORT_FALLBACK_CODES:
+                raise
+        return fallback, await self._export(file_id, fallback, access_token)
+
+    async def _export(self, file_id: str, export_mime: str, access_token: str) -> bytes:
+        return await self._get(
+            _file_path(file_id) + "/export",
             access_token=access_token,
-            params={"mimeType": export_mime}
-            if export_mime
-            else {"alt": "media", "supportsAllDrives": "true"},
+            params={"mimeType": export_mime},
             limit=CONTENT_LIMIT,
         )
-        return export_mime or mime_type, content
 
     async def fetch_content(
         self,

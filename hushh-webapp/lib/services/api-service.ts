@@ -504,9 +504,19 @@ function isLongDriveSharingPath(path: string): boolean {
   return LONG_DRIVE_SHARING_PATH.test(path.split("?", 1)[0] ?? "");
 }
 
+/**
+ * Account deletion is one transaction whose duration grows with round-trip
+ * latency to the database (about 1 s deployed, minutes through a local Cloud SQL
+ * proxy). Aborting it early turns a committing deletion into an "uncertain"
+ * outcome and a safety sign-out, so the browser waits well past the backend's
+ * worst case instead.
+ */
+const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
+
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = path.split("?", 1)[0];
   if (isLongDriveSharingPath(path)) return 180_000;
+  if (pathname === "/api/account/delete") return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
     : WEB_FETCH_TIMEOUT_MS;

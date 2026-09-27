@@ -108,6 +108,19 @@ async function writeIdbRecord(record: StoredRecipientRecord): Promise<void> {
   });
 }
 
+async function deleteIdbRecord(userId: string): Promise<void> {
+  const db = await openKeyDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(userId);
+    tx.onerror = () => reject(tx.error || new Error("Unable to delete key."));
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
 // ---- Durable native backup (iOS Keychain; no-op with in-memory fallback on web) ----
 
 async function readKeychainBackup(userId: string): Promise<StoredRecipientRecord | null> {
@@ -319,6 +332,20 @@ async function ensureKeychainBackedUp(record: {
   const existing = await readKeychainBackup(record.userId);
   if (existing?.keyId === record.keyId) return;
   await writeKeychainBackup(record);
+}
+
+/**
+ * Remove this device's location private key for a deleted account, from both
+ * IndexedDB and its native Keychain mirror. Only for account deletion: a signed
+ * out account must keep its key, or its in-flight grants become undecryptable.
+ * Both stores are attempted independently and failures are never thrown.
+ */
+export async function forgetLocationRecipientKey(userId: string): Promise<void> {
+  if (!userId) return;
+  const removals: Array<Promise<unknown>> = [];
+  if (typeof indexedDB !== "undefined") removals.push(deleteIdbRecord(userId));
+  if (isNative()) removals.push(HushhKeychain.delete({ key: keychainBackupKey(userId) }));
+  await Promise.allSettled(removals);
 }
 
 export async function ensureLocationRecipientKey(userId: string): Promise<{

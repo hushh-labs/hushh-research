@@ -1,5 +1,6 @@
 "use client";
 
+import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import type {
   DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
@@ -148,7 +149,10 @@ function emptyResult(
  * leak, not a UX. Callers should get one consistent, actionable message and
  * a `failed` result they can retry, instead of an uncaught rejection.
  */
-function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
+function pkmWriteFailureResult(
+  error: unknown,
+  userId: string,
+): PkmWriteCoordinatorResult {
   if (error instanceof PkmMetadataReviewRequired) {
     return emptyResult("failed", "This memory has conflicting labels or sensitivity assessments. Review and prepare it again before saving; nothing was saved.");
   }
@@ -164,6 +168,14 @@ function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
     return emptyResult(
       "failed",
       "Sharing changed while you were reviewing this detail. Review the current recipients and confirm again."
+    );
+  }
+  if (isAccountDeletionActive(userId)) {
+    // The account is being erased under this write; nothing is left to save.
+    console.warn("[PkmWriteCoordinator] PKM write stopped by account deletion.");
+    return emptyResult(
+      "blocked_pending_unlock",
+      "Memory saving stopped because the session changed.",
     );
   }
   console.error("[PkmWriteCoordinator] PKM write failed.");
@@ -410,7 +422,7 @@ export class PkmWriteCoordinator {
         retryingAfterConflict = true;
       }
     } catch (error) {
-      return pkmWriteFailureResult(error);
+      return pkmWriteFailureResult(error, params.userId);
     }
 
     return emptyResult("failed", "Failed to save PKM domain.");
@@ -545,7 +557,7 @@ export class PkmWriteCoordinator {
         retryingAfterConflict = true;
       }
     } catch (error) {
-      return pkmWriteFailureResult(error);
+      return pkmWriteFailureResult(error, params.userId);
     }
 
     return emptyResult("failed", "Failed to save PKM domain.");

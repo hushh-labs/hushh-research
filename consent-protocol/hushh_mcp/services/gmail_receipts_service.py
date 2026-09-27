@@ -71,6 +71,7 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
+_GMAIL_STOP_URL = "https://gmail.googleapis.com/gmail/v1/users/me/stop"
 # The origin remains environment-derived. Receipt sync and approved delivery
 # share this one callback and canonical token store.
 _GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
@@ -1991,6 +1992,58 @@ class GmailReceiptsService:
         except Exception:
             # Revoke failures should not block disconnect.
             logger.warning("gmail.disconnect.revoke_failed")
+
+    async def stop_watch_and_revoke_for_erasure(self, row: dict[str, Any]) -> dict[str, str]:
+        """Release an erased account's Gmail grant at Google, best effort.
+
+        ``row`` is the connection snapshot taken inside the committed account
+        erasure, so no local state is read or written here. A live mailbox watch
+        is stopped before the grant is revoked, because the stop call needs a
+        valid access token. Failures are reported, never raised.
+        """
+        outcome = {"gmail_watch": "not_active", "gmail_grant": "none"}
+        refresh_token = self._decrypt_token(
+            row.get("refresh_token_ciphertext"),
+            row.get("refresh_token_iv"),
+            row.get("refresh_token_tag"),
+        )
+        watch_expires_at = _parse_iso(row.get("watch_expiration_at"))
+        watch_live = _clean_text(row.get("watch_status")) in {"active", "expiring"} or bool(
+            watch_expires_at and watch_expires_at > _utcnow()
+        )
+        if watch_live:
+            outcome["gmail_watch"] = "failed"
+            try:
+                access_token = self._decrypt_token(
+                    row.get("access_token_ciphertext"),
+                    row.get("access_token_iv"),
+                    row.get("access_token_tag"),
+                )
+                expires_at = _parse_iso(row.get("access_token_expires_at"))
+                if not (
+                    access_token and expires_at and expires_at > _utcnow() + timedelta(seconds=60)
+                ):
+                    access_token = None
+                    if refresh_token:
+                        refreshed = await self._refresh_access_token(refresh_token=refresh_token)
+                        access_token = _clean_text(refreshed.get("access_token")) or None
+                if access_token:
+                    await self._http_post_json(_GMAIL_STOP_URL, token=access_token, payload={})
+                    outcome["gmail_watch"] = "stopped"
+            except Exception as exc:
+                logger.warning("gmail.erasure.watch_stop_failed error=%s", type(exc).__name__)
+        if refresh_token:
+            try:
+                await self._http_post_form(
+                    _GOOGLE_OAUTH_REVOKE_URL,
+                    {"token": refresh_token},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                outcome["gmail_grant"] = "revoked"
+            except Exception as exc:
+                logger.warning("gmail.erasure.revoke_failed error=%s", type(exc).__name__)
+                outcome["gmail_grant"] = "failed"
+        return outcome
 
     async def disconnect(self, *, user_id: str) -> dict[str, Any]:
         row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)

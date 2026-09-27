@@ -190,7 +190,7 @@ tools:
     py_func: hushh_mcp.one_adk.workspace_mcp_tools.discover_workspace_tools
     required_scope: vault.owner
   - name: read_workspace_tool
-    description: Perform one bounded Workspace MCP read using its discovered schema; provider writes require their existing reviewed app action.
+    description: Perform one bounded Drive read using its discovered schema; Gmail and Calendar read through their own Chat tools, and provider writes require their existing reviewed app action.
     py_func: hushh_mcp.one_adk.workspace_mcp_tools.read_workspace_tool
     required_scope: vault.owner
 runtime:

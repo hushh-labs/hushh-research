@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
+from email.utils import getaddresses
 from typing import Any, Literal
 
 import httpx
@@ -22,12 +23,15 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceip
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 _SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-_FIELDS = "id,threadId,internalDate,payload/headers"
+_FIELDS = "id,threadId,internalDate,labelIds,payload/headers"
 _HEADERS = ["From", "Subject", "Date"]
+# Mailbox scope for a read. Spam and trash stay excluded everywhere.
+_MAILBOX_LABELS: dict[str, str | None] = {"inbox": "INBOX", "sent": "SENT", "anywhere": None}
 _BUDGET = 256 * 1024
 _DEADLINE = 20.0
 _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
-MailOperation = Literal["list_needs_reply", "search_inbox"]
+MailOperation = Literal["list_needs_reply", "list_recent", "search_inbox"]
+Mailbox = Literal["inbox", "sent", "anywhere"]
 RequireAccess = Callable[[], Awaitable[None]]
 
 
@@ -47,9 +51,12 @@ def _label(value: Any, maximum: int) -> tuple[str, bool]:
     return encoded[:maximum].decode("utf-8", errors="ignore"), len(encoded) > maximum
 
 
-def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str]:
-    allowed = {"limit", "query"} if operation == "search_inbox" else {"limit"}
-    if operation not in {"list_needs_reply", "search_inbox"} or set(arguments) - allowed:
+def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str]:
+    allowed = {"limit", "query", "mailbox"} if operation == "search_inbox" else {"limit", "mailbox"}
+    if (
+        operation not in {"list_needs_reply", "list_recent", "search_inbox"}
+        or set(arguments) - allowed
+    ):
         raise GmailMetadataError("invalid_argument")
     limit = arguments.get("limit", 10)
     if type(limit) is not int or not 1 <= limit <= 25:
@@ -62,7 +69,20 @@ def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str]:
         or any(ord(char) < 32 for char in query)
     ):
         raise GmailMetadataError("invalid_argument")
-    return limit, query.strip()
+    mailbox = arguments.get("mailbox", "inbox")
+    # Needs-reply is defined over inbound inbox threads; it has no other scope.
+    if mailbox not in _MAILBOX_LABELS or (operation == "list_needs_reply" and mailbox != "inbox"):
+        raise GmailMetadataError("invalid_argument")
+    return limit, query.strip(), mailbox
+
+
+def _recipient_label(value: str) -> str:
+    """First recipient's display name or address, plus how many others."""
+    recipients = [name or address for name, address in getaddresses([value]) if name or address]
+    if not recipients:
+        return "Unknown recipient"
+    extra = len(recipients) - 1
+    return recipients[0] + (f" (+{extra} more)" if extra else "")
 
 
 def _validate_message(message: Any) -> None:
@@ -76,6 +96,13 @@ def _validate_message(message: Any) -> None:
         or not isinstance(header.get("name"), str)
         or not isinstance(header.get("value"), str)
         for header in headers
+    ):
+        raise GmailMetadataError("invalid_response")
+    labels = message.get("labelIds", [])
+    if (
+        not isinstance(labels, list)
+        or len(labels) > 100
+        or any(not isinstance(label, str) for label in labels)
     ):
         raise GmailMetadataError("invalid_response")
     timestamp = message.get("internalDate")
@@ -125,7 +152,7 @@ class GmailMetadataReader:
             raise GmailMetadataError("connection_changed")
 
     async def read(self, operation: MailOperation, arguments: dict[str, Any]) -> dict[str, Any]:
-        limit, query = _arguments(operation, arguments)
+        limit, query, mailbox = _arguments(operation, arguments)
         if self._used:
             raise GmailMetadataError("read_already_used")
         self._used = True
@@ -148,7 +175,9 @@ class GmailMetadataReader:
                 async with httpx.AsyncClient(
                     transport=self._transport, timeout=10, follow_redirects=False
                 ) as client:
-                    result = await self._read(client, access_token, operation, limit, query)
+                    result = await self._read(
+                        client, access_token, operation, limit, query, mailbox
+                    )
                 await self.require_current()
                 return result
         except GmailApiError as exc:
@@ -215,19 +244,22 @@ class GmailMetadataReader:
         operation: MailOperation,
         limit: int,
         query: str,
+        mailbox: str = "inbox",
     ) -> dict[str, Any]:
-        listing = await self._get(
-            client,
-            token,
-            "/messages",
-            {
-                "q": query if operation == "search_inbox" else _NUDGE_QUERY,
-                "labelIds": "INBOX",
-                "maxResults": 25 if operation == "list_needs_reply" else limit,
-                "includeSpamTrash": "false",
-                "fields": "messages(id,threadId),nextPageToken",
-            },
-        )
+        params: dict[str, Any] = {
+            "maxResults": 25 if operation == "list_needs_reply" else limit,
+            "includeSpamTrash": "false",
+            "fields": "messages(id,threadId),nextPageToken",
+        }
+        # list_recent is the newest INBOX page with no search expression; the
+        # provider already returns it newest first. The other operations keep
+        # their authored query.
+        label = _MAILBOX_LABELS[mailbox]
+        if label is not None:
+            params["labelIds"] = label
+        if operation != "list_recent":
+            params["q"] = query if operation == "search_inbox" else _NUDGE_QUERY
+        listing = await self._get(client, token, "/messages", params)
         entries = listing.get("messages", [])
         maximum = 25 if operation == "list_needs_reply" else limit
         if not isinstance(entries, list) or len(entries) > maximum:
@@ -252,7 +284,9 @@ class GmailMetadataReader:
                 f"/{'threads' if is_threads else 'messages'}/{identity}",
                 {
                     "format": "metadata",
-                    "metadataHeaders": _HEADERS,
+                    # Recipients are requested only for sent mail, where they
+                    # replace the owner as the meaningful counterparty.
+                    "metadataHeaders": _HEADERS + (["To"] if mailbox == "sent" else []),
                     "fields": f"id,messages({_FIELDS})" if is_threads else _FIELDS,
                 },
             )
@@ -267,7 +301,10 @@ class GmailMetadataReader:
             else:
                 _validate_message(payload)
             payloads.append(payload)
-        truncated = bool(listing.get("nextPageToken"))
+        # "Last N" asked for exactly N newest messages, so older mail beyond the
+        # page is not an omission. Search and needs-reply still report a next
+        # page as truncation because matches were left out.
+        truncated = operation != "list_recent" and bool(listing.get("nextPageToken"))
         if is_threads:
             row = await asyncio.to_thread(self._gmail._fetch_connection_row, user_id=self._user_id)
             account_email = str((row or {}).get("google_email") or "")
@@ -295,29 +332,39 @@ class GmailMetadataReader:
                 headers = self._gmail._extract_headers(payload)
                 sender, email = self._gmail._parse_from_header(headers.get("from", ""))
                 received = self._gmail._message_received_at(payload, headers)
-                raw_items.append(
-                    {
-                        "subject": headers.get("subject") or "(no subject)",
-                        "sender": sender or email or "Unknown sender",
-                        "received_at": received.isoformat() if received else None,
-                    }
-                )
+                item = {
+                    "subject": headers.get("subject") or "(no subject)",
+                    "sender": sender or email or "Unknown sender",
+                    "received_at": received.isoformat() if received else None,
+                    "unread": "UNREAD" in payload.get("labelIds", []),
+                }
+                if mailbox == "sent":
+                    # The owner sent these, so the sender is always them; the
+                    # useful metadata is who received it.
+                    item["recipient"] = _recipient_label(headers.get("to", ""))
+                raw_items.append(item)
         items = []
         for ordinal, item in enumerate(raw_items, 1):
             subject, cut_subject = _label(item["subject"], 320)
             sender, cut_sender = _label(item["sender"], 160)
             truncated = truncated or cut_subject or cut_sender
-            items.append(
-                {
-                    "source_ref": f"mail:{ordinal}",
-                    "subject": subject,
-                    "sender": sender,
-                    "received_at": item["received_at"],
-                }
-            )
+            projected: dict[str, Any] = {
+                "source_ref": f"mail:{ordinal}",
+                "subject": subject,
+                "sender": sender,
+                "received_at": item["received_at"],
+            }
+            if "unread" in item:
+                projected["unread"] = item["unread"]
+            if "recipient" in item:
+                recipient, cut_recipient = _label(item["recipient"], 160)
+                truncated = truncated or cut_recipient
+                projected["recipient"] = recipient
+            items.append(projected)
         result = {
             "status": "ok",
             "operation": operation,
+            "mailbox": mailbox,
             "untrusted_external_content": items,
             "truncated": truncated,
             "metadata_only": True,

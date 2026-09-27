@@ -55,9 +55,12 @@ def test_contract_names_exactly_two_consecutive_releases_newest_first() -> None:
     assert newest == previous + 1, f"expected consecutive minors newest first, got {SUPPORTED}"
 
 
-def test_catalog_offers_exactly_the_supported_releases() -> None:
-    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == SUPPORTED
-    for model_id in SUPPORTED:
+def test_catalog_offers_only_supported_releases() -> None:
+    # Founder decision 2026-09-27: the catalog offers 3.6 Flash alone (no picker); the
+    # provider layer still supports both releases for explicit pins.
+    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.6-flash",)
+    assert set(model_catalog.FLEET_TEXT_MODEL_CHOICES) <= set(SUPPORTED)
+    for model_id in model_catalog.FLEET_TEXT_MODEL_CHOICES:
         assert model_catalog.is_selectable_text_model(model_id), model_id
 
 

@@ -174,12 +174,12 @@ steps:
         if [[ -z "${genai_project_id}" ]]; then
           genai_project_id="$PROJECT_ID"
           if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-            genai_project_id="hushh-pda-uat"
+            genai_project_id="hushh-vertex-personal54"
           fi
         fi
         if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
           case "${_DEPLOY_ENV}:${genai_project_id}" in
-            dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54) ;;
+            dev:hushh-vertex-personal54|uat:hushh-vertex-personal54|production:hushh-vertex-personal54) ;;
             *)
               echo "Cross-project managed Vertex target is not allowlisted." >&2
               exit 1
@@ -348,7 +348,7 @@ steps:
         if [[ -z "${genai_project_id}" ]]; then
           genai_project_id="$PROJECT_ID"
           if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-            genai_project_id="hushh-pda-uat"
+            genai_project_id="hushh-vertex-personal54"
           fi
         fi
         image_reference="${_IMAGE_REFERENCE}"

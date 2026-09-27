@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import resource
 import sys
 import zipfile
@@ -177,10 +178,29 @@ def parse_live_csv(content: bytes) -> ParsedText:
     return ParsedText(parsed.pages, parsed.truncated or truncated)
 
 
+# A Google Docs Markdown export inlines every image as a base64 data URI, as a
+# reference definition ("[image1]: <data:image/png;base64,...>") used by
+# "![][image1]", or inline. Those bytes are not text: they would spend the text
+# budget and reach the model as noise. Each image becomes one "[image]" marker.
+_DATA_URI_DEFINITION = re.compile(
+    rb"^[ \t]*\[[^\]\n]{1,200}\]:[ \t]*<?data:[^\s>]*>?[ \t]*\r?\n?", re.MULTILINE
+)
+_INLINE_DATA_URI_IMAGE = re.compile(rb"!\[[^\]\n]{0,200}\]\(<?data:[^\s)>]*>?\)")
+_REFERENCED_IMAGE = re.compile(rb"!\[[^\]\n]{0,200}\]\[image\d{1,6}\]")
+
+
+def markdown_without_inline_images(content: bytes) -> bytes:
+    content = _DATA_URI_DEFINITION.sub(b"", content)
+    content = _INLINE_DATA_URI_IMAGE.sub(b"[image]", content)
+    return _REFERENCED_IMAGE.sub(b"[image]", content)
+
+
 def parse_live_document(content: bytes, mime_type: str) -> ParsedText:
     """Live lane: ``parse_document`` plus CSV. The selected lane never reads CSV."""
     if mime_type == "text/csv":
         return parse_live_csv(content)
+    if mime_type == "text/markdown" and content and len(content) <= MAX_INPUT_BYTES:
+        content = markdown_without_inline_images(content)
     return parse_document(content, mime_type)
 
 

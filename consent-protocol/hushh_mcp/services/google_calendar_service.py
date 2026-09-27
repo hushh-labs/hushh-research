@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -24,6 +25,28 @@ from hushh_mcp.services.google_connection_service import (
 )
 
 _CALENDAR_BASE = "https://www.googleapis.com/calendar/v3"
+# events.list returns at most 250 events per page by default
+# (https://developers.google.com/workspace/calendar/api/v3/reference/events/list).
+# One page, never an unbounded walk: a caller learns when more exist.
+EVENT_PAGE_MAX = 250
+_EVENT_QUERY_MAX_CHARS = 256
+# Attendee fields an events.patch may carry back. Read-only fields (id, self,
+# organizer) are recomputed by Google and never echoed.
+_WRITABLE_ATTENDEE_FIELDS = frozenset(
+    {
+        "email",
+        "displayName",
+        "optional",
+        "responseStatus",
+        "comment",
+        "additionalGuests",
+        "resource",
+    }
+)
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 class GoogleCalendarService:
@@ -135,32 +158,64 @@ class GoogleCalendarService:
         }
 
     async def list_events(
-        self, *, user_id: str, start_at: str, end_at: str, max_results: int = 50
+        self,
+        *,
+        user_id: str,
+        start_at: str,
+        end_at: str,
+        max_results: int = 50,
+        query: str | None = None,
     ) -> dict[str, Any]:
+        """One bounded page of primary-calendar events, honest about truncation.
+
+        ``truncated`` is true when Google reports a next page: more matching
+        events exist than were returned, so the caller must not claim the list
+        is complete.
+        """
         start, end = self._iso(start_at), self._iso(end_at)
         if start >= end:
             raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+        params: dict[str, Any] = {
+            "timeMin": start,
+            "timeMax": end,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": max(1, min(int(max_results), EVENT_PAGE_MAX)),
+        }
+        search = " ".join(str(query or "").split())
+        if len(search) > _EVENT_QUERY_MAX_CHARS:
+            raise GoogleConnectionError("Calendar search text is too long", status_code=422)
+        if search:
+            params["q"] = search
         response = await self._request(
             user_id=user_id,
             method="GET",
             path="/calendars/primary/events",
             access="read",
-            params={
-                "timeMin": start,
-                "timeMax": end,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": max(1, min(max_results, 100)),
-            },
+            params=params,
         )
+        events = [
+            self._event_summary(item)
+            for item in response.get("items", [])
+            if isinstance(item, dict)
+        ]
+        truncated = bool(response.get("nextPageToken"))
         return {
-            "events": [
-                self._event_summary(item)
-                for item in response.get("items", [])
-                if isinstance(item, dict)
-            ],
+            "events": events,
             "time_zone": response.get("timeZone"),
-            "has_more": bool(response.get("nextPageToken")),
+            "has_more": truncated,
+            "returned_count": len(events),
+            "truncated": truncated,
+            **(
+                {
+                    "more_events_exist": (
+                        f"Only the first {len(events)} matching events are shown; more exist "
+                        "in this range. Say so, and narrow the range or search to see the rest."
+                    )
+                }
+                if truncated
+                else {}
+            ),
         }
 
     async def freebusy(
@@ -381,6 +436,8 @@ class GoogleCalendarService:
             )
             expected_etag = str(event.get("etag") or "") or None
             plan["current_event"] = self._event_summary(event)
+            if action == "reschedule":
+                self._stage_reschedule(plan, event)
         if action in {"create", "reschedule"}:
             plan["conflicts"] = await self._find_conflicts(
                 user_id=user_id,
@@ -415,36 +472,160 @@ class GoogleCalendarService:
         title = str(payload.get("title") or "").strip()
         if action in {"reschedule", "cancel"} and not event_id:
             raise GoogleConnectionError("Calendar event id is required", status_code=422)
-        if action in {"create", "reschedule"}:
-            if not title or len(title) > 512:
-                raise GoogleConnectionError("Calendar event title is required", status_code=422)
-            start, end = (
-                self._iso(str(payload.get("start_at") or "")),
-                self._iso(str(payload.get("end_at") or "")),
+        if action == "cancel":
+            return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
+        # A reschedule changes only what it names; the current title stands.
+        if (action == "create" and not title) or len(title) > 512:
+            raise GoogleConnectionError("Calendar event title is required", status_code=422)
+        start, end = (
+            self._iso(str(payload.get("start_at") or "")),
+            self._iso(str(payload.get("end_at") or "")),
+        )
+        if start >= end:
+            raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+        raw_attendees = payload.get("attendees")
+        attendees = [
+            str(item).strip().lower()
+            for item in (raw_attendees if isinstance(raw_attendees, list) else [])
+            if str(item).strip()
+        ]
+        if len(attendees) > 100 or any("@" not in item for item in attendees):
+            raise GoogleConnectionError(
+                "Calendar attendees must be valid email addresses", status_code=422
             )
-            if start >= end:
-                raise GoogleConnectionError("Calendar end must be after start", status_code=422)
-            attendees = [
-                str(item).strip().lower()
-                for item in payload.get("attendees", [])
-                if str(item).strip()
-            ]
-            if len(attendees) > 100 or any("@" not in item for item in attendees):
-                raise GoogleConnectionError(
-                    "Calendar attendees must be valid email addresses", status_code=422
-                )
+        description = str(payload.get("description") or "")[:8000]
+        location = str(payload.get("location") or "")[:1024]
+        plan: dict[str, Any] = {
+            "event_id": event_id or None,
+            "start_at": start,
+            "end_at": end,
+            "time_zone": str(payload.get("time_zone") or "UTC"),
+            "send_updates": bool(payload.get("send_updates", True)),
+        }
+        if action == "create":
             return {
-                "event_id": event_id or None,
+                **plan,
                 "title": title,
-                "start_at": start,
-                "end_at": end,
-                "time_zone": str(payload.get("time_zone") or "UTC"),
                 "attendees": attendees,
-                "description": str(payload.get("description") or "")[:8000],
-                "location": str(payload.get("location") or "")[:1024],
-                "send_updates": bool(payload.get("send_updates", True)),
+                "description": description,
+                "location": location,
             }
-        return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
+        # Reschedule: an omitted or empty field is left exactly as it is.
+        # Attendees, when given, are the complete new list; the review shows
+        # who that adds and removes before anything changes.
+        changes = {
+            "title": title,
+            "description": description,
+            "location": location,
+        }
+        plan.update({key: value for key, value in changes.items() if value})
+        if attendees:
+            plan["attendees"] = list(dict.fromkeys(attendees))
+        return plan
+
+    def _stage_reschedule(self, plan: dict[str, Any], event: dict[str, Any]) -> None:
+        """Record what the reviewed reschedule changes on the fetched event."""
+        start = _mapping(event.get("start"))
+        plan["all_day"] = bool(start.get("date")) and not start.get("dateTime")
+        if plan["all_day"]:
+            start_date, end_date = self._all_day_dates(plan)
+            plan["start_date"], plan["end_date"] = start_date, end_date
+        kept, added, removed = self._attendee_change(plan, event)
+        plan["attendee_change"] = {
+            "added": added,
+            "removed": removed,
+            "result_count": len(kept) + len(added),
+        }
+
+    @staticmethod
+    def _all_day_dates(plan: dict[str, Any]) -> tuple[str, str]:
+        """Every calendar day the requested interval touches, in the owner's zone.
+
+        An all-day event stays all-day: Google's end date is exclusive, so an
+        interval ending exactly at midnight does not claim the next day.
+        """
+        try:
+            zone = ZoneInfo(str(plan.get("time_zone") or "UTC"))
+        except (ValueError, ZoneInfoNotFoundError):
+            zone = ZoneInfo("UTC")
+        start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00")).astimezone(zone)
+        end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00")).astimezone(zone)
+        last: date = end.date() if end.time() == datetime.min.time() else end.date() + timedelta(1)
+        first = start.date()
+        return first.isoformat(), max(last, first + timedelta(days=1)).isoformat()
+
+    @staticmethod
+    def _attendee_change(
+        plan: dict[str, Any], event: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+        """Kept attendee records, added emails and removed emails.
+
+        The owner, the organizer and booked rooms are never dropped by an
+        attendee list that simply leaves them out.
+        """
+        current = [
+            item
+            for item in event.get("attendees", [])
+            if isinstance(item, dict) and str(item.get("email") or "").strip()
+        ]
+        if "attendees" not in plan:
+            return current, [], []
+        wanted = [str(email).strip().lower() for email in plan["attendees"]]
+        wanted_set = set(wanted)
+        kept = [
+            item
+            for item in current
+            if str(item["email"]).strip().lower() in wanted_set
+            or item.get("self")
+            or item.get("organizer")
+            or item.get("resource")
+        ]
+        kept_emails = {str(item["email"]).strip().lower() for item in kept}
+        added = [email for email in wanted if email not in kept_emails]
+        removed = [str(item["email"]) for item in current if item not in kept]
+        return kept, added, removed
+
+    def _reschedule_patch(self, plan: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+        """The events.patch body: only the fields this reschedule changes.
+
+        events.update is a full replacement, so a body built only from the
+        request erased attendees, description, location, reminders and
+        conference data. events.patch leaves every unnamed field untouched
+        (https://developers.google.com/workspace/calendar/api/v3/reference/events/patch).
+        """
+        if plan.get("all_day"):
+            body: dict[str, Any] = {
+                "start": {"date": plan["start_date"]},
+                "end": {"date": plan["end_date"]},
+            }
+        else:
+            start, end = _mapping(event.get("start")), _mapping(event.get("end"))
+            body = {
+                "start": {
+                    "dateTime": plan["start_at"],
+                    "timeZone": start.get("timeZone") or plan["time_zone"],
+                },
+                "end": {
+                    "dateTime": plan["end_at"],
+                    "timeZone": end.get("timeZone") or plan["time_zone"],
+                },
+            }
+        for field, source in (
+            ("summary", "title"),
+            ("description", "description"),
+            ("location", "location"),
+        ):
+            if plan.get(source) and plan[source] != event.get(field):
+                body[field] = plan[source]
+        kept, added, removed = self._attendee_change(plan, event)
+        if added or removed:
+            # A patched array replaces the whole array, so every kept attendee
+            # is sent back with its response status and options intact.
+            body["attendees"] = [
+                {key: value for key, value in item.items() if key in _WRITABLE_ATTENDEE_FIELDS}
+                for item in kept
+            ] + [{"email": email} for email in added]
+        return body
 
     async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
@@ -510,14 +691,21 @@ class GoogleCalendarService:
                     )
                 headers = {"If-Match": str(current.get("etag") or "")}
                 if action == "reschedule":
+                    _kept, added, removed = self._attendee_change(plan, current)
+                    reviewed = plan.get("attendee_change") or {}
+                    if added != reviewed.get("added", []) or removed != reviewed.get("removed", []):
+                        raise GoogleConnectionError(
+                            "Calendar event changed; review it again before confirming",
+                            status_code=409,
+                        )
                     response = await self._request(
                         user_id=user_id,
-                        method="PUT",
+                        method="PATCH",
                         path=f"/calendars/primary/events/{plan['event_id']}",
                         access="manage",
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
                         headers=headers,
-                        payload=self._event_payload(plan),
+                        payload=self._reschedule_patch(plan, current),
                     )
                 else:
                     await self._request(

@@ -161,7 +161,7 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     admitted = agent_tree._one_roster_tools(
         specialist_model="test-model", allow_workspace_tools=True
     )
-    for tool in (agent_tree.discover_workspace_tools, agent_tree.read_workspace_tool):
+    for tool in (agent_tree.discover_workspace_tools, agent_tree.READ_WORKSPACE_TOOL):
         assert tool not in baseline
         assert tool in admitted
     assert not any(isinstance(tool, agent_tree.RegisteredMcpToolset) for tool in baseline)
@@ -171,7 +171,7 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
         agent_tree.propose_app_action,
     ]
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
-    assert agent_tree.read_workspace_tool not in agent_tree._one_roster_tools(
+    assert agent_tree.READ_WORKSPACE_TOOL not in agent_tree._one_roster_tools(
         specialist_model="test-model", allow_workspace_tools=True
     )
 

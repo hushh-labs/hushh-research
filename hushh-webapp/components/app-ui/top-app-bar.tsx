@@ -77,6 +77,7 @@ import {
   DELETE_ACCOUNT_DIALOG_TITLE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
+  isHandledAccountDeletionOutcome,
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
@@ -1458,7 +1459,10 @@ function OnboardingRouteActions() {
         skipFcmCleanup: true,
       });
     } catch (error) {
-      console.error("[TopAppBar] Failed to delete account:", error);
+      (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
+        "[TopAppBar] Failed to delete account:",
+        error,
+      );
     } finally {
       setIsDeleting(false);
       setDeleteConfirmOpen(false);

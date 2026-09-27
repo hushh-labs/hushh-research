@@ -167,6 +167,29 @@ class GoogleConnectionService:
                 "Google connection needs reauthorization", status_code=401
             ) from exc
 
+    def refresh_token_for_erasure(self, row: dict[str, Any], *, user_id: str) -> str | None:
+        """Decrypt an erased connection's refresh token for provider revocation only.
+
+        Account deletion snapshots the ciphertext before its rows are removed and
+        calls this after commit. A missing or undecryptable envelope has nothing
+        this service can revoke.
+        """
+        if not _clean(row.get("refresh_token_ciphertext")):
+            return None
+        try:
+            return (
+                self._decrypt(
+                    {
+                        "ciphertext": row.get("refresh_token_ciphertext"),
+                        "iv": row.get("refresh_token_iv"),
+                    },
+                    aad=f"google-connection:{user_id}",
+                )
+                or None
+            )
+        except GoogleConnectionError:
+            return None
+
     @staticmethod
     def _pkce_challenge(verifier: str) -> str:
         digest = hashlib.sha256(verifier.encode()).digest()

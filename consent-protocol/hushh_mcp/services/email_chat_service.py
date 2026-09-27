@@ -231,6 +231,7 @@ class EmailChatService:
         conversation_id: str,
         message: str,
         require_access: Callable[[], Awaitable[None]],
+        timezone: str = "UTC",
     ) -> dict[str, Any]:
         """Read Mail for One without creating or writing a second conversation."""
         from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
@@ -242,6 +243,7 @@ class EmailChatService:
             conversation_id=conversation_id,
             message=message,
             require_access=require_access,
+            timezone=timezone,
         )
 
     async def _run_adk_tool_loop(

@@ -96,24 +96,79 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
-async def test_full_text_search_uses_the_validated_file_time_order(monkeypatch):
+def _file(file_id, *, modified, created="2026-09-01T00:00:00Z"):
+    return {
+        "id": file_id,
+        "name": file_id,
+        "mimeType": "application/pdf",
+        "modifiedTime": modified,
+        "createdTime": created,
+        "webViewLink": f"https://drive.google.com/file/d/{file_id}/view",
+    }
+
+
+async def test_full_text_search_sends_no_order_and_sorts_the_page_locally(monkeypatch):
+    # Drive refuses orderBy on any q with a fullText term ("Sorting is not
+    # supported for queries with fullText terms"), so a keyword search that
+    # sent one failed outright. Negative control: the previous code sent
+    # order_by="modifiedTime desc" here and this assertion fails on it.
+    relevance_order = [
+        _file("older", modified="2026-09-01T00:00:00Z"),
+        _file("undated", modified=None),
+        _file("newest", modified="2026-09-20T00:00:00Z"),
+    ]
+    listing = AsyncMock(return_value={"files": relevance_order, "nextPageToken": "more"})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "(title contains 'tax' or fullText contains 'tax')"},
+    )
+    assert listing.await_args.kwargs["order_by"] is None
+    assert listing.await_args.kwargs["query"] == (
+        "((name contains 'tax' or fullText contains 'tax')) and trashed = false"
+    )
+    assert [item["id"] for item in result.payload["files"]] == ["newest", "older", "undated"]
+    assert result.payload["nextPageToken"] == "more"
+
+
+async def test_full_text_search_honours_a_created_time_request_locally(monkeypatch):
+    listing = AsyncMock(
+        return_value={
+            "files": [
+                _file("a", modified="2026-09-20T00:00:00Z", created="2026-01-01T00:00:00Z"),
+                _file("b", modified="2026-09-01T00:00:00Z", created="2026-09-10T00:00:00Z"),
+            ]
+        }
+    )
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={
+            "query": "fullText contains 'invoice'",
+            "orderBy": "createdTime desc",
+        },
+    )
+    assert listing.await_args.kwargs["order_by"] is None
+    assert [item["id"] for item in result.payload["files"]] == ["b", "a"]
+
+
+async def test_a_metadata_search_keeps_the_provider_side_order(monkeypatch):
     listing = AsyncMock(return_value={"files": []})
     drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
     await drive.read_tool(
         user_id="owner",
         tool_name="search_files",
-        arguments={"query": "(title contains 'tax' or fullText contains 'tax')"},
-    )
-    assert listing.await_args.kwargs["order_by"] == "modifiedTime desc"
-    await drive.read_tool(
-        user_id="owner",
-        tool_name="search_files",
-        arguments={
-            "query": "(title contains 'tax' or fullText contains 'tax')",
-            "orderBy": "createdTime desc",
-        },
+        arguments={"query": "title contains 'tax'", "orderBy": "createdTime desc"},
     )
     assert listing.await_args.kwargs["order_by"] == "createdTime desc"
+
+
+def test_only_a_full_text_term_disables_provider_sorting():
+    assert rest.has_full_text_term("(title contains 'x' or fullText contains 'x')")
+    assert not rest.has_full_text_term("title contains 'fulltextual'")
+    assert not rest.has_full_text_term("mimeType = 'application/pdf'")
 
 
 async def test_a_created_window_is_listed_newest_created_first(monkeypatch):

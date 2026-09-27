@@ -4,6 +4,7 @@ const {
   mockDeleteAccount,
   mockOnAccountDeleted,
   mockClearForUser,
+  mockClearDeviceSecrets,
   mockSetOnboardingRequiredCookie,
   mockSetOnboardingFlowActiveCookie,
   mockPublishAccountDeletionToSiblingTabs,
@@ -16,6 +17,7 @@ const {
   mockDeleteAccount: vi.fn(),
   mockOnAccountDeleted: vi.fn(),
   mockClearForUser: vi.fn(),
+  mockClearDeviceSecrets: vi.fn(),
   mockSetOnboardingRequiredCookie: vi.fn(),
   mockSetOnboardingFlowActiveCookie: vi.fn(),
   mockPublishAccountDeletionToSiblingTabs: vi.fn(),
@@ -53,7 +55,10 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/services/user-local-state-service", () => ({
-  UserLocalStateService: { clearForUser: mockClearForUser },
+  UserLocalStateService: {
+    clearForUser: mockClearForUser,
+    clearDeviceSecretsForDeletedAccount: mockClearDeviceSecrets,
+  },
 }));
 
 vi.mock("@/lib/services/onboarding-route-cookie", () => ({
@@ -67,14 +72,19 @@ vi.mock("@/lib/services/vault-service", () => ({
 
 import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
+  ACCOUNT_DELETION_FAILED_CODE,
+  ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
+  AccountDeletionNotCompletedError,
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE,
   AccountDeletionOutcomeUncertainError,
   AccountErasureBanksNotDisconnectedError,
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
+  isHandledAccountDeletionOutcome,
 } from "@/lib/flows/delete-account";
 import { ApiError } from "@/lib/services/api-client";
+import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 
 function makeSessionUser(uid = "user_123") {
   return {
@@ -138,6 +148,7 @@ describe("executeVerifiedAccountDeletion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClearForUser.mockResolvedValue(undefined);
+    mockClearDeviceSecrets.mockResolvedValue(undefined);
     mockBackendInvalidationCode.mockReturnValue(null);
     mockFirebaseInvalidationCode.mockReturnValue(null);
   });
@@ -163,6 +174,7 @@ describe("executeVerifiedAccountDeletion", () => {
       mockPublishAccountDeletionToSiblingTabs.mock.invocationCallOrder[0],
     ).toBeLessThan(mockOnAccountDeleted.mock.invocationCallOrder[0]!);
     expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
     expect(mockSetOnboardingRequiredCookie).toHaveBeenCalledWith(false);
     expect(mockSetOnboardingFlowActiveCookie).toHaveBeenCalledWith(false);
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
@@ -173,6 +185,22 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(
       mockDispatchAuthSessionInvalidated.mock.invocationCallOrder[0],
     ).toBeLessThan(mockClearForUser.mock.invocationCallOrder[0]!);
+  });
+
+  it("does not let a stalled device-secret cleanup hold a committed deletion open", async () => {
+    vi.useFakeTimers();
+    mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: true });
+    mockClearDeviceSecrets.mockImplementation(() => new Promise(() => {}));
+
+    const action = executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-token",
+      sessionUser: makeSessionUser(),
+    });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(action).resolves.toBeUndefined();
+    expect(mockSetOnboardingRequiredCookie).toHaveBeenCalledWith(false);
   });
 
   it("accepts a data-deleted account whose Firebase identity was quarantined", async () => {
@@ -339,6 +367,87 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockClearForUser).not.toHaveBeenCalled();
   });
 
+  function reportedDeletionFailure() {
+    return new ApiError("Account deletion failed", 500, {
+      detail: "Account deletion failed",
+      code: ACCOUNT_DELETION_FAILED_CODE,
+    });
+  }
+
+  it("keeps the session when the backend reports a rolled-back delete and the account is still active", async () => {
+    const failure = reportedDeletionFailure();
+    mockDeleteAccount.mockRejectedValue(failure);
+    mockGetAccountSessionStatus.mockResolvedValue(
+      Response.json({ active: true }, { status: 200 }),
+    );
+
+    const action = executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-token",
+      sessionUser: makeSessionUser(),
+    });
+
+    await expect(action).rejects.toBeInstanceOf(AccountDeletionNotCompletedError);
+    await expect(action).rejects.toMatchObject({ originalError: failure });
+    expect(accountDeletionErrorMessage(await action.catch((e) => e))).toBe(
+      ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
+    );
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
+    expect(mockOnAccountDeleted).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
+    expect(mockClearDeviceSecrets).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a reported failure as deleted when the tombstone shows an ambiguous commit landed", async () => {
+    mockDeleteAccount.mockRejectedValue(reportedDeletionFailure());
+    mockGetAccountSessionStatus.mockResolvedValue(
+      Response.json(
+        { detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } },
+        { status: 401 },
+      ),
+    );
+    mockBackendInvalidationCode.mockReturnValue("account_not_found");
+
+    await expect(
+      executeVerifiedAccountDeletion({
+        userId: "user_123",
+        vaultOwnerToken: "vault-token",
+        sessionUser: makeSessionUser(),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      code: "account_not_found",
+      path: "account_delete_uncertain_outcome",
+      userId: "user_123",
+    });
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
+  });
+
+  it("still fails closed on a reported failure when the account status cannot be read", async () => {
+    mockDeleteAccount.mockRejectedValue(reportedDeletionFailure());
+    mockGetAccountSessionStatus.mockResolvedValue(
+      new Response("unavailable", { status: 503 }),
+    );
+
+    await expect(
+      executeVerifiedAccountDeletion({
+        userId: "user_123",
+        vaultOwnerToken: "vault-token",
+        sessionUser: makeSessionUser(),
+      }),
+    ).rejects.toBeInstanceOf(AccountDeletionOutcomeUncertainError);
+
+    expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "account_deletion_uncertain" }),
+    );
+    expect(mockClearForUser).not.toHaveBeenCalled();
+    expect(mockClearDeviceSecrets).not.toHaveBeenCalled();
+  });
+
   it("does not claim deletion when both status probes are unavailable", async () => {
     const transportError = new TypeError("Failed to fetch");
     const sessionUser = makeSessionUser();
@@ -413,6 +522,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
     expect(mockOnAccountDeleted).not.toHaveBeenCalled();
     expect(mockClearForUser).not.toHaveBeenCalled();
+    expect(mockClearDeviceSecrets).not.toHaveBeenCalled();
     expect(sessionUser.getIdToken).toHaveBeenCalledTimes(1);
     expect(sessionUser.getIdToken).toHaveBeenCalledWith(false);
   });
@@ -518,5 +628,71 @@ describe("banks sealed in the vault are revoked before the account is erased", (
 
     expect(mockRevokeAllVaultPlaid).not.toHaveBeenCalled();
     expect(mockDeleteAccount).toHaveBeenCalled();
+  });
+
+  it("treats explained deletion outcomes as handled, and anything else as a crash", () => {
+    expect(
+      isHandledAccountDeletionOutcome(
+        new AccountDeletionOutcomeUncertainError(new TypeError("offline")),
+      ),
+    ).toBe(true);
+    expect(
+      isHandledAccountDeletionOutcome(new AccountDeletionNotCompletedError(null)),
+    ).toBe(true);
+    expect(
+      isHandledAccountDeletionOutcome(
+        new ApiError("blocked", 409, {
+          detail: {
+            code: ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(isHandledAccountDeletionOutcome(new AccountErasureBanksNotDisconnectedError(1))).toBe(
+      true,
+    );
+    expect(isHandledAccountDeletionOutcome(new Error("unexpected"))).toBe(false);
+  });
+
+  it("marks background work as deletion-interrupted only while deletion may have happened", async () => {
+    mockGetAccountSessionStatus.mockResolvedValue(
+      Response.json({ active: true }, { status: 200 }),
+    );
+    mockDeleteAccount.mockRejectedValueOnce(
+      new ApiError("Account deletion failed", 500, {
+        detail: "Account deletion failed",
+        code: ACCOUNT_DELETION_FAILED_CODE,
+      }),
+    );
+    await expect(
+      executeVerifiedAccountDeletion({
+        userId: "uid-rolled-back",
+        vaultOwnerToken: "vault-token",
+        sessionUser: makeSessionUser("uid-rolled-back"),
+      }),
+    ).rejects.toBeInstanceOf(AccountDeletionNotCompletedError);
+    expect(isAccountDeletionActive("uid-rolled-back")).toBe(false);
+
+    mockDeleteAccount.mockRejectedValueOnce(
+      new ApiError("blocked", 409, {
+        detail: { code: ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE },
+      }),
+    );
+    await expect(
+      executeVerifiedAccountDeletion({
+        userId: "uid-blocked",
+        vaultOwnerToken: "vault-token",
+        sessionUser: makeSessionUser("uid-blocked"),
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(isAccountDeletionActive("uid-blocked")).toBe(false);
+
+    mockDeleteAccount.mockResolvedValueOnce({ success: true, account_deleted: true });
+    await executeVerifiedAccountDeletion({
+      userId: "uid-deleted",
+      vaultOwnerToken: "vault-token",
+      sessionUser: makeSessionUser("uid-deleted"),
+    });
+    expect(isAccountDeletionActive("uid-deleted")).toBe(true);
   });
 });

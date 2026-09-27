@@ -22,11 +22,12 @@ def test_catalog_comes_from_the_registry_not_the_environment(
     monkeypatch.delenv("HUSSH_GEMINI_TEXT_MODEL", raising=False)
     choices = model_catalog.selectable_text_models()
     assert [choice.model_id for choice in choices] == [
-        "gemini-3.7-flash",
         "gemini-3.6-flash",
-    ], "the catalog is the two registry-backed Flash releases, default first"
+    ], "one registry-backed Flash release and no choice (founder decision 2026-09-27)"
     assert all(choice.label.startswith("Gemini ") for choice in choices)
     assert model_catalog.is_selectable_text_model("gemini-3.6-flash")
+    # A stored 3.7 choice is no longer selectable, so it resolves to the lane default.
+    assert not model_catalog.is_selectable_text_model("gemini-3.7-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.8-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.1-pro-preview")
     assert not model_catalog.is_selectable_text_model("not-a-model")
@@ -135,7 +136,6 @@ async def test_an_unavailable_model_is_refused_with_the_list_that_is() -> None:
     with pytest.raises(prefs.ModelPreferenceError) as caught:
         await prefs.set_preference(user_id="someone", model_id="gemini-3.1-pro-preview")
     assert caught.value.code == "MODEL_NOT_SELECTABLE"
-    assert "gemini-3.7-flash" in str(caught.value)
     assert "gemini-3.6-flash" in str(caught.value)
 
     with pytest.raises(prefs.ModelPreferenceError) as missing_user:

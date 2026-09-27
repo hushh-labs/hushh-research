@@ -20,6 +20,29 @@ import { VaultQuickUnlockTrustLocalService } from "@/lib/services/vault-quick-un
  * - Keep normal multi-account sign-in isolation by user-id scoping.
  */
 export class UserLocalStateService {
+  /**
+   * Remove device-held key material that only a deleted account may lose: the
+   * One Location private key and the native vault quick-unlock secret. Never
+   * called on sign-out, where both must survive for the next unlock. Never
+   * throws, because the account deletion it follows has already committed.
+   */
+  static async clearDeviceSecretsForDeletedAccount(userId: string): Promise<void> {
+    if (!userId) return;
+    const results = await Promise.allSettled([
+      import("@/lib/one-location/encryption").then(({ forgetLocationRecipientKey }) =>
+        forgetLocationRecipientKey(userId),
+      ),
+      import("@/lib/services/vault-bootstrap-service").then(({ VaultBootstrapService }) =>
+        VaultBootstrapService.clearDeviceVaultSecretsForDeletedAccount(userId),
+      ),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        console.warn("[UserLocalStateService] Failed clearing deleted-account device secrets:", result.reason);
+      }
+    }
+  }
+
   static async clearForUser(userId: string): Promise<void> {
     if (!userId) return;
 

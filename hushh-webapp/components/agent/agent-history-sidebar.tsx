@@ -437,8 +437,12 @@ export function AgentHistorySidebar({
       <aside
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
+          // Opaque in the drawer: the panel slides with a transform, and WebKit
+          // (iOS WKWebView) takes that transformed panel as the backdrop root, so
+          // a translucent glass surface blurred nothing and showed the chat
+          // through the drawer on iOS while Chromium's blur hid it on web.
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] border-r border-black/[0.06] !bg-background/90 !backdrop-saturate-100 shadow-[18px_0_42px_rgba(0,0,0,0.25)] backdrop-blur-2xl dark:border-white/[0.08]"
+            ? "rounded-r-[28px] border-r border-black/[0.06] bg-background shadow-[18px_0_42px_rgba(0,0,0,0.25)] dark:border-white/[0.08]"
             : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className

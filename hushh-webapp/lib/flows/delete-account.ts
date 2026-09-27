@@ -19,6 +19,10 @@ import {
   publishAccountDeletionToSiblingTabs,
 } from "@/lib/auth/session-invalidation";
 import type { User } from "firebase/auth";
+import {
+  clearAccountDeletionActive,
+  markAccountDeletionActive,
+} from "@/lib/auth/account-deletion-activity";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
 export type DeleteAccountAuthResolution =
@@ -46,6 +50,11 @@ export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
   "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
+
+/** Backend code for an erasure transaction that raised and was rolled back. */
+export const ACCOUNT_DELETION_FAILED_CODE = "ACCOUNT_DELETION_FAILED";
+export const ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE =
+  "Your account wasn't deleted and you're still signed in. Please try again.";
 
 export const ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE =
   "We couldn't disconnect your linked banks at Plaid, so nothing was deleted. Check your connection and try again.";
@@ -90,6 +99,28 @@ function isRecoverableAccountDeletionPrecondition(error: unknown): boolean {
   );
 }
 
+function isReportedAccountDeletionFailure(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 500 &&
+    apiErrorCode(error) === ACCOUNT_DELETION_FAILED_CODE
+  );
+}
+
+/**
+ * The backend reported a failed erasure and the status route then confirmed
+ * the account is still active. The account and session are intact, so the
+ * person can retry deliberately instead of being signed out.
+ */
+export class AccountDeletionNotCompletedError extends Error {
+  readonly code = "ACCOUNT_DELETION_NOT_COMPLETED";
+
+  constructor(readonly originalError: unknown) {
+    super(ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE);
+    this.name = "AccountDeletionNotCompletedError";
+  }
+}
+
 export class AccountDeletionOutcomeUncertainError extends Error {
   readonly code = "ACCOUNT_DELETION_OUTCOME_UNCERTAIN";
 
@@ -99,9 +130,26 @@ export class AccountDeletionOutcomeUncertainError extends Error {
   }
 }
 
+/**
+ * Outcomes the deletion UI already explains to the person. Callers log these as
+ * warnings: they are expected results, not crashes, and the Next.js dev overlay
+ * reports every console.error as an application issue.
+ */
+export function isHandledAccountDeletionOutcome(error: unknown): boolean {
+  return (
+    error instanceof AccountDeletionOutcomeUncertainError ||
+    error instanceof AccountDeletionNotCompletedError ||
+    error instanceof AccountErasureBanksNotDisconnectedError ||
+    isRecoverableAccountDeletionPrecondition(error)
+  );
+}
+
 export function accountDeletionErrorMessage(error: unknown): string {
   if (error instanceof AccountDeletionOutcomeUncertainError) {
     return DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE;
+  }
+  if (error instanceof AccountDeletionNotCompletedError) {
+    return ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE;
   }
   if (isRecoverableAccountDeletionPrecondition(error)) {
     return ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE;
@@ -265,6 +313,9 @@ export async function executeVerifiedAccountDeletion(params: {
   let result;
   let submissionFailure: unknown = null;
   let terminalDeletionSignalDispatched = false;
+  // From here the erasure may lock or remove this account's rows under any
+  // background vault work still running on this page.
+  markAccountDeletionActive(params.userId);
   try {
     result = await AccountService.deleteAccount(params.vaultOwnerToken, "both");
   } catch (error) {
@@ -281,6 +332,7 @@ export async function executeVerifiedAccountDeletion(params: {
     // their external agent and retry deliberately. Transport/lost-response
     // failures remain on the fail-closed confirmation path below.
     if (isRecoverableAccountDeletionPrecondition(submissionFailure)) {
+      clearAccountDeletionActive(params.userId);
       throw submissionFailure;
     }
     const uncertainCause =
@@ -297,6 +349,17 @@ export async function executeVerifiedAccountDeletion(params: {
             }),
             Date.now() + 8_000,
           ).catch(() => "unavailable" as const);
+    if (
+      deletionStatus === "active" &&
+      isReportedAccountDeletionFailure(submissionFailure)
+    ) {
+      // The backend answered with its rolled-back failure code, so no
+      // destructive transaction is still in flight and "active" is not a
+      // pre-commit snapshot. Keep the session: signing out here would look
+      // like a completed deletion while the account still exists.
+      clearAccountDeletionActive(params.userId);
+      throw new AccountDeletionNotCompletedError(submissionFailure);
+    }
     if (deletionStatus !== "deleted") {
       // The destructive request may have committed even though neither status
       // probe observed its tombstone. Even a transient "active" result can be
@@ -342,6 +405,12 @@ export async function executeVerifiedAccountDeletion(params: {
   }
   CacheSyncService.onAccountDeleted(params.userId);
   await UserLocalStateService.clearForUser(params.userId);
+  // Bounded: the deletion has committed, so a stalled Keychain or IndexedDB
+  // bridge must not hold the success state open. The cleanup continues.
+  await withDeadline(
+    UserLocalStateService.clearDeviceSecretsForDeletedAccount(params.userId),
+    Date.now() + 3_000,
+  ).catch(() => undefined);
   setOnboardingRequiredCookie(false);
   setOnboardingFlowActiveCookie(false);
 }

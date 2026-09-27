@@ -120,6 +120,7 @@ import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+  isRoutineReadinessTool,
   driveBatchProgressToVisibleStreamEvent,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
@@ -1959,6 +1960,7 @@ export function storedMessageToAgentMessage(
         ...(step.tag ? { tag: step.tag } : {}),
         ...(step.provider ? { brand: step.provider } : {}),
         ...(step.connectorId ? { connectorId: step.connectorId } : {}),
+        ...(isRoutineReadinessTool(step.toolName) ? { routine: true as const } : {}),
         createdAtMs: createdAt?.getTime() ?? 0,
       }))
     : [];

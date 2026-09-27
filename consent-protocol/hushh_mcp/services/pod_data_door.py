@@ -70,6 +70,8 @@ class CalendarReadOptions(BaseModel):
     end_at: AwareDatetime
     duration_minutes: int | None = Field(default=None, ge=5, le=720)
     limit: int = Field(default=3, ge=1, le=20)
+    event_limit: int = Field(default=100, ge=1, le=250)
+    query: str | None = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
     def bounded_window(self) -> "CalendarReadOptions":
@@ -80,6 +82,8 @@ class CalendarReadOptions(BaseModel):
             raise ValueError("opening duration required")
         if self.operation != "openings" and self.duration_minutes is not None:
             raise ValueError("duration only applies to openings")
+        if self.operation != "events" and (self.query is not None or self.event_limit != 100):
+            raise ValueError("query and event_limit only apply to events")
         return self
 
 
@@ -381,6 +385,8 @@ def project_calendar_read(raw: dict[str, Any], options: CalendarReadOptions) -> 
     )
     if options.operation == "events":
         result["coverage_complete"] = bool(result["connected"] and raw.get("has_more") is False)
+        result["returned_count"] = len(result["events"])
+        result["truncated"] = raw.get("has_more") if isinstance(raw.get("has_more"), bool) else None
         return result
     if not result["connected"]:
         return result
@@ -594,7 +600,8 @@ async def _read_calendar(
                 user_id=owner_id,
                 start_at=start_at,
                 end_at=end_at,
-                max_results=100 if options else 20,
+                max_results=options.event_limit if options else 20,
+                **({"query": options.query} if options and options.query is not None else {}),
             )
     except GoogleConnectionError as exc:
         # The connection service says 403 for BOTH "never connected" ("Connect

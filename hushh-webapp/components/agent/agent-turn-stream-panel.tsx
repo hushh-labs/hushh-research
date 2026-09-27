@@ -38,6 +38,8 @@ export type AgentVisibleStreamEvent = {
   createdAtMs: number;
   durationMs?: number;
   batchProgress?: DriveBatchProgress;
+  /** A readiness check that runs on most turns; see isInformativeActivityEvent. */
+  routine?: true;
 };
 
 /** Only app-owned tool identities map to a product mark; provider text never does. */
@@ -51,6 +53,37 @@ export function connectorBrandForTool(toolName: unknown, provider?: unknown): Co
 }
 
 export const PRIVATE_MEMORY_PREPARATION_EVENT_ID = "private-memory-preparation";
+
+/**
+ * Readiness checks that run on nearly every turn. A row saying "Connector access
+ * checked." on every answer tells the person nothing, so these tools are routine.
+ */
+const ROUTINE_READINESS_TOOLS: ReadonlySet<string> = new Set(["discover_workspace_tools"]);
+
+export function isRoutineReadinessTool(toolName: unknown): boolean {
+  return typeof toolName === "string" && ROUTINE_READINESS_TOOLS.has(toolName);
+}
+
+/** A routine step this slow is worth explaining, so it renders like any other. */
+export const ROUTINE_STEP_SLOW_MS = 3_000;
+
+/**
+ * Activity shows only steps that carry information for the person: tool and
+ * connector calls, reviews, anything that failed, blocked or waits on them, and
+ * anything unusually slow. A routine readiness check (private memory ready,
+ * connector access checked) that succeeded quickly does not render. Live and
+ * restored turns both pass through this one rule.
+ */
+export function isInformativeActivityEvent(
+  event: AgentVisibleStreamEvent,
+  nowMs: number,
+): boolean {
+  const routine = event.routine === true || event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID;
+  if (!routine) return true;
+  if (event.status === "running") return nowMs - event.createdAtMs >= ROUTINE_STEP_SLOW_MS;
+  if (event.status !== "done") return true;
+  return typeof event.durationMs === "number" && event.durationMs >= ROUTINE_STEP_SLOW_MS;
+}
 
 export type AgentTurnStreamPanelProps = {
   streamEvents: AgentVisibleStreamEvent[];
@@ -171,6 +204,7 @@ export function agentToolEventToVisibleStreamEvent(
     status,
     ...(toolEvent.tag ? { tag: toolEvent.tag } : {}),
     ...(brand ? { brand } : {}),
+    ...(isRoutineReadinessTool(toolEvent.raw?.toolName) ? { routine: true as const } : {}),
     createdAtMs: nowMs,
   };
 }
@@ -244,6 +278,8 @@ export function AgentTurnStreamPanel({
   const [firstTextMs, setFirstTextMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [timingPhase, setTimingPhase] = useState<"idle" | "running" | "done">("idle");
+  // Wall clock for routine steps: one that is still running shows once it is slow.
+  const [clockMs, setClockMs] = useState(() => Date.now());
   useEffect(() => {
     if (isStreaming && timingPhase !== "running") {
       turnStartedAt.current = performance.now();
@@ -257,6 +293,7 @@ export function AgentTurnStreamPanel({
     }
     if (!isStreaming) return;
     const timer = window.setInterval(() => {
+      setClockMs(Date.now());
       if (turnStartedAt.current !== null)
         setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
     }, 1000);
@@ -266,9 +303,13 @@ export function AgentTurnStreamPanel({
     if (firstTextMs === null && responseText.trim() && turnStartedAt.current !== null)
       setFirstTextMs(Math.max(0, performance.now() - turnStartedAt.current));
   }, [firstTextMs, responseText]);
+  const visibleEvents = useMemo(
+    () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
+    [streamEvents, clockMs],
+  );
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
-      streamEvents.map((event) => ({
+      visibleEvents.map((event) => ({
         id: event.id,
         label: event.label,
         message: event.message,
@@ -277,7 +318,7 @@ export function AgentTurnStreamPanel({
         ...(event.brand ? { mark: <ConnectorBrandMark brand={event.brand} size="sm" /> } : {}),
         durationMs: event.durationMs,
       })),
-    [streamEvents]
+    [visibleEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
   const currentBatchProgress = [...streamEvents].reverse().find((event) =>
@@ -286,7 +327,8 @@ export function AgentTurnStreamPanel({
   // The owner starts a compilation from a completed chat turn. Keep its meter
   // active while the separate authenticated Drive stream is running.
   const batchIsStreaming = isStreaming || driveCompilation?.status === "running";
-  const preparingPrivateMemory = streamEvents.some(
+  // Only a visible (slow) preparation row replaces the generic pending line.
+  const preparingPrivateMemory = visibleEvents.some(
     (event) =>
       event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID &&
       event.status === "running",

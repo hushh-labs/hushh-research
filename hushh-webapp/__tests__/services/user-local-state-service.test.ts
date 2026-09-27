@@ -9,6 +9,18 @@ const mocks = vi.hoisted(() => ({
   clearVaultMethodPrompt: vi.fn(),
   clearQuickUnlockTrust: vi.fn(),
   forgetLocationMemory: vi.fn(),
+  forgetLocationRecipientKey: vi.fn(),
+  clearDeviceVaultSecrets: vi.fn(),
+}));
+
+vi.mock("@/lib/one-location/encryption", () => ({
+  forgetLocationRecipientKey: mocks.forgetLocationRecipientKey,
+}));
+
+vi.mock("@/lib/services/vault-bootstrap-service", () => ({
+  VaultBootstrapService: {
+    clearDeviceVaultSecretsForDeletedAccount: mocks.clearDeviceVaultSecrets,
+  },
 }));
 
 // Mocked rather than exercised for real: location-grant-memory reaches
@@ -113,5 +125,27 @@ describe("UserLocalStateService", () => {
     await UserLocalStateService.clearForUser("uid-rearm");
 
     expect(OneSetupCompletionHintService.isResolved("uid-rearm")).toBe(false);
+  });
+
+  it("keeps device key material on sign-out cleanup", async () => {
+    // clearForUser runs on every sign-out. The location private key and the
+    // quick-unlock secret must survive it or the next unlock and in-flight
+    // location grants break.
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
+    expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
+  });
+
+  it("removes device key material for a deleted account, even if one store fails", async () => {
+    mocks.forgetLocationRecipientKey.mockRejectedValue(new Error("idb blocked"));
+    mocks.clearDeviceVaultSecrets.mockResolvedValue(undefined);
+
+    await expect(
+      UserLocalStateService.clearDeviceSecretsForDeletedAccount("uid-1"),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.forgetLocationRecipientKey).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearDeviceVaultSecrets).toHaveBeenCalledWith("uid-1");
   });
 });

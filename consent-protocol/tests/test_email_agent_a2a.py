@@ -83,6 +83,13 @@ async def test_message_turn_maps_to_specialist_result():
     assert svc.calls[0]["message"] == "what needs a reply"
     assert svc.calls[0]["consent_token"] == "t"
     assert svc.calls[0]["conversation_id"] == "one-thread"
+    assert svc.calls[0]["timezone"] == "UTC"
+
+
+async def test_person_timezone_reaches_the_mail_read():
+    svc = _FakeEmailService()
+    await EmailAgentA2A(service=svc).handle(_task(timezone="America/New_York"))
+    assert svc.calls[0]["timezone"] == "America/New_York"
 
 
 @pytest.mark.asyncio

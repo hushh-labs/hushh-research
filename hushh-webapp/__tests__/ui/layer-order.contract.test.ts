@@ -125,6 +125,35 @@ describe("layer ladder", () => {
     expect(ladder.transient).toBeGreaterThan(highestKnownContainer);
   });
 
+  describe("chat history drawer on iOS (WKWebView)", () => {
+    it("keeps the drawer below the header with the same geometry on native", () => {
+      // The drawer sits on the sheet tier (above the header's z-540), so only its
+      // top edge keeps it off the header controls. That edge and the header's
+      // height must be the one variable; a native rule that redefined the height
+      // itself, instead of the safe-top it is built from, would split them.
+      const drawer = read("components/agent/agent-connections-drawer.tsx");
+      expect(drawer.match(/top-\[var\(--agent-chat-header-height\)\]/g)).toHaveLength(2);
+      expect(read("components/agent/agent-chat-workspace.tsx")).toContain(
+        "h-[var(--agent-chat-header-height)]",
+      );
+      const css = read("app/globals.css");
+      for (const rule of css.matchAll(/html\.native-ios[^{]*\{([^}]*)\}/g)) {
+        expect(rule[1]).not.toMatch(/--agent-chat-header-height\s*:/);
+      }
+    });
+
+    it("keeps the drawer surface opaque inside its transformed sheet layer", () => {
+      // WebKit takes the transformed drawer panel as the backdrop root, so a
+      // translucent glass surface blurs nothing there: the chat showed through
+      // the drawer on iOS while Chromium's blur hid it on web.
+      const source = read("components/agent/agent-history-sidebar.tsx");
+      const aside = source.slice(source.indexOf("<aside"));
+      const mobileSurface = aside.match(/isMobileMode\s*\?\s*"([^"]+)"/)?.[1] ?? "";
+      expect(mobileSurface).toMatch(/(^|\s)bg-background(\s|$)/);
+      expect(mobileSurface).not.toMatch(/bg-background\/\d+|backdrop-blur|chrome-glass-surface/);
+    });
+  });
+
   it.each(CONSUMERS)("$file consumes its ladder token", ({ file, tokens, forbidden }) => {
     const source = read(file);
     for (const token of tokens) {

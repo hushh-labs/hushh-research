@@ -83,6 +83,7 @@ beforeEach(() => {
 import {
   AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+  ROUTINE_STEP_SLOW_MS,
   agentToolEventToVisibleStreamEvent,
   driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
@@ -226,30 +227,72 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
-  it("shows private-memory preparation without a second generic pending line", () => {
-    const preparation = {
+  it("keeps a routine turn's quick readiness checks out of Activity", () => {
+    // Founder report: every answer carried "Private memory ready." and
+    // "Connector access checked." rows that told the person nothing.
+    const memoryReady = {
       id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
       label: "Private memory",
-      message: "Preparing your private memory.",
-      status: "running" as const,
-      createdAtMs: 1_700_001,
+      message: "Private memory ready.",
+      status: "done" as const,
+      createdAtMs: 1,
+      durationMs: 400,
     };
+    const connectorAccess = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "access", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "calendar" },
+    }), 2);
     const { rerender } = render(
-      <AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />,
+      <AgentTurnStreamPanel streamEvents={[memoryReady, connectorAccess]} responseText="Hello." isStreaming={false} />,
     );
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Private memory ready.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connector access checked.")).not.toBeInTheDocument();
 
-    expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
-    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
-
+    // A failed memory load, a slow one, and a real tool call still show.
+    const mailRead = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mail", actionId: null, label: "Gmail", execution: "server",
+      message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
+    }), 3);
     rerender(
       <AgentTurnStreamPanel
-        streamEvents={[{ ...preparation, message: "Private memory ready.", status: "done" }]}
-        responseText=""
-        isStreaming
+        streamEvents={[
+          { ...memoryReady, status: "error", message: "Private memory could not load." },
+          { ...connectorAccess, id: "slow-access", durationMs: ROUTINE_STEP_SLOW_MS },
+          connectorAccess,
+          mailRead,
+        ]}
+        responseText="Hello."
+        isStreaming={false}
       />,
     );
-    expect(screen.getByText("Private memory ready.")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    const activity = screen.getByRole("button", { name: /Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    expect(screen.getByText("Private memory could not load.")).toBeInTheDocument();
+    expect(screen.getAllByText("Connector access checked.")).toHaveLength(1);
+    expect(screen.getByText("Mail read finished.")).toBeInTheDocument();
+  });
+
+  it("shows a still-running memory preparation only once it is slow", () => {
+    vi.useFakeTimers();
+    try {
+      const preparation = {
+        id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+        label: "Private memory",
+        message: "Preparing your private memory.",
+        status: "running" as const,
+        createdAtMs: Date.now(),
+      };
+      render(<AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />);
+      expect(screen.queryByText("Preparing your private memory.")).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+
+      act(() => { vi.advanceTimersByTime(ROUTINE_STEP_SLOW_MS); });
+      expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
+      expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows only reported Drive file counts and advances the meter from actual checks", () => {
@@ -623,8 +666,8 @@ describe("AgentTurnStreamPanel", () => {
 
   it("labels Google connector steps with their official mark, and nothing for private connectors", () => {
     const calendar = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
-      callId: "calendar-access", actionId: null, label: "Connector access", execution: "server",
-      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "calendar" },
+      callId: "calendar-read", actionId: null, label: "Connected app read", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "read_workspace_tool", provider: "calendar" },
     }), 1);
     const mail = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
       callId: "mail-read", actionId: null, label: "Gmail", execution: "server",
@@ -645,7 +688,7 @@ describe("AgentTurnStreamPanel", () => {
     render(<AgentTurnStreamPanel streamEvents={[calendar, mail, custom]} responseText="" isStreaming={false} />);
     const activity = screen.getByRole("button", { name: /One activity|Activity/ });
     if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
-    const calendarRow = screen.getByText("Connector access").closest("li");
+    const calendarRow = screen.getByText("Connected app read").closest("li");
     expect(calendarRow?.querySelector('img[data-connector-brand="calendar"]')).toHaveAttribute("src", "/icons/connectors/calendar.svg");
     expect(screen.getByText("Microsoft Learn").closest("li")?.querySelector("img")).toBeNull();
     expect(screen.getByText("Read")).toBeInTheDocument();

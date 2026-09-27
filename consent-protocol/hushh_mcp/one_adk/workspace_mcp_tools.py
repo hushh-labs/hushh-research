@@ -10,7 +10,9 @@ import re
 from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Literal
 
+from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
+from google.genai import types as genai_types
 
 if TYPE_CHECKING:
     from hushh_mcp.one_adk.governed_mcp_toolset import ResolvedMcpConnection
@@ -647,3 +649,45 @@ async def read_workspace_tool(
         "result": result.payload,
         "truncated": result.truncated,
     }
+
+
+def readable_workspace_providers() -> list[str]:
+    """The providers read_workspace_tool is declared for, read at declaration time.
+
+    Gmail and Calendar read through One's typed REST tools; until hosted
+    Workspace MCP is enrolled this tool can only refuse them, so offering them
+    costs the model a declaration and a wasted turn. discover_workspace_tools
+    keeps all three: its status drives the in-chat Connect and Manage cards.
+    """
+    return ["drive", "gmail", "calendar"] if _hosted_enrolled() else ["drive"]
+
+
+class _ReadWorkspaceTool(FunctionTool):
+    """read_workspace_tool, declared only for the providers it can read.
+
+    Narrowed on the declaration rather than with a one-value Literal: that
+    renders as JSON Schema "const", which is outside the subset Gemini
+    documents for function declarations. The runtime checks are unchanged.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(read_workspace_tool)
+
+    def _get_declaration(self) -> genai_types.FunctionDeclaration | None:
+        declaration = super()._get_declaration()  # a fresh deep copy per call
+        if declaration is None:
+            return None
+        providers = readable_workspace_providers()
+        schema = declaration.parameters_json_schema
+        if isinstance(schema, dict):
+            provider = schema.get("properties", {}).get("provider")
+            if isinstance(provider, dict):
+                provider["enum"] = providers
+        elif declaration.parameters and declaration.parameters.properties:
+            declared = declaration.parameters.properties.get("provider")
+            if declared is not None:
+                declared.enum = providers
+        return declaration
+
+
+READ_WORKSPACE_TOOL = _ReadWorkspaceTool()

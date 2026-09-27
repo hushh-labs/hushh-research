@@ -4,6 +4,17 @@ import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
 
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function DELETE(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
@@ -33,10 +44,14 @@ export async function DELETE(request: NextRequest) {
 
     if (!response.ok) {
       console.error("[API] Backend error:", responseText);
-      return NextResponse.json(
-        { error: responseText || "Failed to delete account" },
-        { status: response.status }
-      );
+      // Forward the backend's JSON error object intact: the client decides
+      // whether the session survives from its machine code (for example the
+      // recoverable 409 deprovisioning precondition). Wrapping it in a string
+      // hides that code and turns a no-op failure into a forced sign-out.
+      const errorPayload = parseJsonObject(responseText) ?? {
+        error: responseText || "Failed to delete account",
+      };
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     try {

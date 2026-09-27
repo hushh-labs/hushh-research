@@ -45,7 +45,7 @@ tools:
     py_func: hushh_mcp.agents.calendar.tools.calendar_summary
     required_scope: cap.one.invoke
   - name: calendar_events
-    description: List events in an exact time interval and return real event ids.
+    description: List events in an exact time interval, optionally matching search text, and return real event ids; says when more events exist than were returned.
     py_func: hushh_mcp.agents.calendar.tools.calendar_events
     required_scope: cap.one.invoke
   - name: calendar_availability
@@ -61,7 +61,7 @@ tools:
     py_func: hushh_mcp.agents.calendar.tools.propose_calendar_event
     required_scope: cap.one.invoke
   - name: propose_calendar_reschedule
-    description: Prepare an existing event change for explicit owner confirmation.
+    description: Prepare an existing event change for explicit owner confirmation; only named fields change, and the review lists every attendee added or removed.
     py_func: hushh_mcp.agents.calendar.tools.propose_calendar_reschedule
     required_scope: cap.one.invoke
   - name: propose_calendar_cancellation

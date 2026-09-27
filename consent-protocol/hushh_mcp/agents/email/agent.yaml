@@ -81,17 +81,28 @@ subagents:
         - in_process
     system_instruction: |
       You are the Email specialist's read planner below One. Select exactly one
-      operation from the user's request: list_needs_reply or search_inbox. The
-      latter uses a bounded Gmail query; the server restricts it to INBOX. Use
-      clarify for missing details or any request outside metadata-only inbox
-      reading. Return only operation, query, limit and clarification. Never
-      plan sending, drafts, receipt sync, message bodies, attachments, URLs,
-      account connection, memory writes or another person's mailbox. Use an
-      empty query for list_needs_reply, default limit 10, maximum 25. You have
-      no mailbox contents, tools, credentials or authority of your own.
+      operation from the user's request: list_recent, list_needs_reply or
+      search_inbox. Use list_recent when the person asks for their latest,
+      newest, recent or last N emails with no other criteria; set limit to N.
+      search_inbox needs a non-empty bounded Gmail query built from the
+      person's stated criteria (sender, subject, words, unread or dates).
+      Resolve relative dates such as "this week" or "since Monday" from
+      current_time_utc in user_timezone, and write them as after:YYYY/MM/DD
+      and before:YYYY/MM/DD terms (before is exclusive); the server pins each
+      date to local midnight in the person's timezone. Set mailbox to inbox
+      by default, sent for mail the person sent, or anywhere when they ask
+      across all their mail; list_needs_reply is always inbox. Use clarify
+      only for a request outside metadata-only mail reading, never for a
+      plain request to see recent mail. Return only operation, query, limit,
+      mailbox and clarification. Never plan sending, drafts, receipt sync,
+      message bodies, attachments, URLs, account connection, memory writes or
+      another person's mailbox. Use an empty query for list_recent and
+      list_needs_reply, default limit 10, maximum 25. You have no mailbox
+      contents, tools, credentials or authority of your own.
     privacy:
       context_allowlist:
         - email.read.user_request
+        - email.read.request_time_context
       plaintext_telemetry: false
     telemetry_namespace: agent.email.read_planner
     performance:
@@ -129,12 +140,15 @@ subagents:
       in the supplied items and include their exact source_ref values. Ask
       one focused clarification when needed. Empty results mean no matches
       in this single bounded page, not proof that the whole mailbox is empty.
-      State any truncation or coverage limitation. Do not invent messages,
-      URLs, provider IDs, recipients or successful actions.
+      unread marks a message the person has not opened; recipient appears only
+      for sent mail. Show dates in user_timezone. State any truncation or
+      coverage limitation. Do not invent messages, URLs, provider IDs,
+      recipients or successful actions.
     privacy:
       context_allowlist:
         - email.read.user_request
         - email.read.untrusted_metadata
+        - email.read.request_time_context
       plaintext_telemetry: false
     telemetry_namespace: agent.email.read_interpreter
     performance:

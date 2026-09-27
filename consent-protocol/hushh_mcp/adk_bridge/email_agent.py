@@ -73,6 +73,7 @@ class EmailAgentA2A:
             consent_token=task.consent_token,
             conversation_id=task.conversation_id or "",
             require_access=require_access,
+            timezone=task.timezone or "UTC",
         )
         await require_access()
         return SpecialistTurnResult(

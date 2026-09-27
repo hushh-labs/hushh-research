@@ -128,7 +128,7 @@ ingestion and native requirements do not gate the live request journey above.
   API startup hook or live scheduler was activated at that source checkpoint;
   see the later UAT delivery record for the enabled scheduler.
 - Mail chat checkpoint: the registered typed-chat Email specialist now performs only
-  metadata-only `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
+  metadata-only `list_recent` / `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
   UAT rollout admission and owner/task/call-bound invocation authority. It reuses Gmail grants,
   skips body/ICS enrichment, preserves One's conversation and does not persist an Email turn.
   The interpreter has no tools; One's tool gate closes before reading external data.

@@ -1,7 +1,7 @@
 import json
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1432,3 +1432,101 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
     for call in transaction.await_args_list:
         assert call.args == ("owner-one",)
         assert call.kwargs == {"requested_target": "investor"}
+
+
+def _erasure_ready_service(monkeypatch):
+    service = AccountService()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
+    monkeypatch.setattr(
+        service,
+        "_delete_personal_agent_state",
+        lambda _conn, *, params, results: results.update(
+            {"personal_agent_external_resources_absent": True}
+        ),
+    )
+    return service
+
+
+@pytest.mark.asyncio
+async def test_provider_grants_are_released_only_after_the_erasure_commits(monkeypatch):
+    service = _erasure_ready_service(monkeypatch)
+    events: list[str] = []
+
+    @contextmanager
+    def committing_db():
+        yield MagicMock()
+        events.append("committed")
+
+    async def release(snapshot):
+        events.append("released")
+        assert snapshot.user_id == "user_delete_123"
+        return {"status": "attempted", "google_connection": ["revoked"]}
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
+    )
+    with patch(
+        "hushh_mcp.services.account_service.get_db_connection", return_value=committing_db()
+    ):
+        result = await service._delete_full_account("user_delete_123", requested_target="both")
+
+    assert result["success"] is True
+    assert events == ["committed", "released"]
+    assert result["details"]["provider_grant_release"] == {
+        "status": "attempted",
+        "google_connection": ["revoked"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_erasure_never_releases_provider_grants(monkeypatch):
+    service = _erasure_ready_service(monkeypatch)
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("lifecycle release in progress")
+    release = MagicMock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service._delete_full_account("user_delete_123", requested_target="both")
+
+    assert result["success"] is False
+    release.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_private_mcp_and_parent_scoped_rows_are_erased(monkeypatch):
+    service = _erasure_ready_service(monkeypatch)
+    conn = MagicMock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure",
+        AsyncMock(return_value={"status": "no_provider_grants"}),
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service._delete_full_account("user_delete_123", requested_target="both")
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    # Connector erasure owns private MCP registrations; they go only after the
+    # owner's connections, the rows that reference them.
+    private_delete = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "DELETE FROM external_mcp_connectors WHERE user_id=:user" in sql
+    )
+    connection_delete = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "DELETE FROM user_external_connector_connections" in sql
+    )
+    assert connection_delete < private_delete
+    assert result["success"] is True
+    for table in (
+        "connected_system_intent_approval_challenges",
+        "ria_claim_dossiers",
+        "webauthn_challenges",
+        "webauthn_credentials",
+    ):
+        assert f"DELETE FROM {table} WHERE user_id = :user_id" in executed_sql

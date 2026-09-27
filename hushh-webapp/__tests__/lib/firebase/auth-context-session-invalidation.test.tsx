@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   apiDeleteSession: vi.fn(),
   cacheSignedOut: vi.fn(),
   clearForUser: vi.fn(),
+  clearDeviceSecretsForDeletedAccount: vi.fn(),
   identityRefresh: vi.fn(),
   clearMarketingSeen: vi.fn(),
   markForceIntroOnce: vi.fn(),
@@ -99,7 +100,11 @@ vi.mock("@/lib/services/onboarding-route-cookie", () => ({
 }));
 
 vi.mock("@/lib/services/user-local-state-service", () => ({
-  UserLocalStateService: { clearForUser: mocks.clearForUser },
+  UserLocalStateService: {
+    clearForUser: mocks.clearForUser,
+    clearDeviceSecretsForDeletedAccount:
+      mocks.clearDeviceSecretsForDeletedAccount,
+  },
 }));
 
 vi.mock("@/lib/utils/session-storage", () => ({
@@ -184,6 +189,15 @@ function requestExplicitSessionVerification() {
     new CustomEvent(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, {
       detail: { ...owner, reason: "test_explicit_verification" },
     }),
+  );
+}
+
+function dispatchInvalidation(detail: AuthSessionInvalidationDetail) {
+  window.dispatchEvent(
+    new CustomEvent<AuthSessionInvalidationDetail>(
+      AUTH_SESSION_INVALIDATED_EVENT,
+      { detail },
+    ),
   );
 }
 
@@ -597,6 +611,7 @@ describe("AuthProvider terminal session invalidation", () => {
       });
       await act(async () => Promise.resolve());
       expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+      expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
 
       expect(publishAccountDeletionToSiblingTabs("account-owner")).toBe(true);
       const [, payload] = setItem.mock.calls[1]!;
@@ -616,9 +631,60 @@ describe("AuthProvider terminal session invalidation", () => {
           "/login?auth_notice=account_not_found",
         );
       });
+      expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(
+        "account-owner",
+      );
     } finally {
       setItem.mockRestore();
     }
+  });
+
+  it("keeps device key material when the account is not confirmed deleted", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+
+    act(() =>
+      dispatchInvalidation({
+        code: "account_deletion_uncertain",
+        path: "test_uncertain",
+        userId: "account-owner",
+      }),
+    );
+    act(() =>
+      dispatchInvalidation({
+        code: "session_invalid",
+        path: "test_disabled",
+        userId: "account-owner",
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
+  });
+
+  it("clears device key material for a confirmed deletion even after an earlier teardown", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+
+    act(() =>
+      dispatchInvalidation({
+        code: "session_invalid",
+        path: "test_first",
+        userId: "account-owner",
+      }),
+    );
+    act(() =>
+      dispatchInvalidation({
+        code: "account_deleted",
+        path: "account_delete_confirmed",
+        userId: "account-owner",
+      }),
+    );
+
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledTimes(1);
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(
+      "account-owner",
+    );
   });
 
   it("does not let the initial auth watchdog interrupt a later web validation", async () => {

@@ -1251,6 +1251,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ? customEvent.detail.code
         : "session_invalid";
       console.warn("🔒 [AuthProvider] Auth session invalidated:", code);
+      const invalidatedUserId = eventUserId || currentUserId;
+      if (
+        invalidatedUserId &&
+        (code === "account_not_found" || code === "account_deleted")
+      ) {
+        // The backend or Firebase confirmed this account is gone (never an
+        // uncertain outcome or a disabled account), so the device key material
+        // it owned goes too -- also on sibling tabs and other devices. This
+        // runs before the duplicate-signal latch so a later deletion signal is
+        // not lost behind an earlier session_invalid teardown.
+        void UserLocalStateService.clearDeviceSecretsForDeletedAccount(
+          invalidatedUserId,
+        );
+      }
       if (
         terminalInvalidationLatchRef.current ||
         authRecoveryInFlightRef.current

@@ -408,6 +408,27 @@ export class VaultBootstrapService {
     };
   }
 
+  /**
+   * Remove this device's native quick-unlock secret and wrapper reference for a
+   * deleted account. Only for account deletion: the vault they unlock is gone.
+   * Sign-out must keep them so quick unlock keeps working. Never throws.
+   */
+  static async clearDeviceVaultSecretsForDeletedAccount(userId: string): Promise<void> {
+    if (!userId || !Capacitor.isNativePlatform()) return;
+    const wrapperIds = new Set<string>(["default"]);
+    try {
+      wrapperIds.add(await this.getDeviceBiometricWrapperId(userId));
+    } catch {
+      // The legacy default wrapper is still removed below.
+    }
+    await Promise.allSettled([
+      ...[...wrapperIds].map((wrapperId) =>
+        HushhKeychain.deleteBiometric({ key: keychainSecretKey(userId, wrapperId) }),
+      ),
+      HushhKeychain.delete({ key: deviceWrapperReferenceKey(userId) }),
+    ]);
+  }
+
   static async clearGeneratedDefaultMaterial(
     userId: string,
     mode?: GeneratedVaultKeyMode | null,

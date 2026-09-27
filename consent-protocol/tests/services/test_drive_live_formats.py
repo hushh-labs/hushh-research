@@ -171,6 +171,94 @@ async def test_live_read_exports_google_sheets_as_csv():
     )
 
 
+DOC = "application/vnd.google-apps.document"
+SLIDES = "application/vnd.google-apps.presentation"
+
+
+async def test_live_read_exports_a_google_doc_as_markdown():
+    # Markdown keeps headings, lists and tables; text/plain flattened them.
+    adapter = drive.GoogleDriveAdapter()
+    adapter._get = AsyncMock(return_value=b"# Budget\n\n| Month | Total |\n")
+    result = await adapter.read_live_bytes(
+        file_id="selected-file", mime_type=DOC, access_token="synthetic-token"
+    )
+    assert result == ("text/markdown", b"# Budget\n\n| Month | Total |\n")
+    adapter._get.assert_awaited_once_with(
+        "/files/selected-file/export",
+        access_token="synthetic-token",
+        params={"mimeType": "text/markdown"},
+        limit=drive.CONTENT_LIMIT,
+    )
+
+
+async def test_slides_have_no_markdown_export_and_stay_plain_text():
+    adapter = drive.GoogleDriveAdapter()
+    adapter._get = AsyncMock(return_value=b"Slide one")
+    result = await adapter.read_live_bytes(
+        file_id="selected-file", mime_type=SLIDES, access_token="synthetic-token"
+    )
+    assert result == ("text/plain", b"Slide one")
+
+
+@pytest.mark.parametrize("code", ["file_too_large", "source_unavailable"])
+async def test_an_oversized_markdown_export_is_read_again_as_plain_text(code):
+    # Markdown inlines images, so it can pass the 4 MB bound (or Google's 10 MB
+    # export limit) where the plain text does not. The same bound applies.
+    adapter = drive.GoogleDriveAdapter()
+    adapter._get = AsyncMock(side_effect=[DriveReadError(code), b"Budget"])
+    result = await adapter.read_live_bytes(
+        file_id="selected-file", mime_type=DOC, access_token="synthetic-token"
+    )
+    assert result == ("text/plain", b"Budget")
+    assert [call.kwargs["params"] for call in adapter._get.await_args_list] == [
+        {"mimeType": "text/markdown"},
+        {"mimeType": "text/plain"},
+    ]
+    assert {call.kwargs["limit"] for call in adapter._get.await_args_list} == {drive.CONTENT_LIMIT}
+
+
+async def test_a_lost_grant_is_never_retried_as_plain_text():
+    adapter = drive.GoogleDriveAdapter()
+    adapter._get = AsyncMock(side_effect=DriveReadError("reconnect_required"))
+    with pytest.raises(DriveReadError, match="reconnect_required"):
+        await adapter.read_live_bytes(
+            file_id="selected-file", mime_type=DOC, access_token="synthetic-token"
+        )
+    assert adapter._get.await_count == 1
+
+
+@pytest.mark.parametrize("export", ["text/markdown", "text/plain", "text/csv"])
+async def test_the_adapter_admits_each_live_export_type(monkeypatch, export):
+    monkeypatch.setattr(
+        drive.httpx, "AsyncClient", lambda **_: (_ for _ in ()).throw(RuntimeError("admitted"))
+    )
+    with pytest.raises(RuntimeError, match="admitted"):
+        await drive.GoogleDriveAdapter()._get_private(
+            "/files/selected-file/export",
+            access_token="synthetic-token",
+            params={"mimeType": export},
+            limit=drive.CONTENT_LIMIT,
+        )
+
+
+def test_markdown_images_become_markers_not_base64_text():
+    exported = (
+        b"# Trip\n\nSee the map ![][image1] below.\n\n"
+        b"![alt](data:image/png;base64,QUJD)\n\n"
+        b"[image1]: <data:image/png;base64," + b"A" * 5000 + b">\n"
+    )
+    text = parse_live_document(exported, "text/markdown").pages[0]
+    assert "base64" not in text
+    assert "AAAA" not in text
+    assert text.count("[image]") == 2
+    assert text.startswith("# Trip")
+
+
+def test_a_real_markdown_link_is_kept():
+    text = parse_live_document(b"[Plan](https://example.com/plan)", "text/markdown").pages[0]
+    assert text == "[Plan](https://example.com/plan)"
+
+
 async def test_an_uploaded_csv_downloads_as_media():
     adapter = drive.GoogleDriveAdapter()
     adapter._get = AsyncMock(return_value=b"a,b\n")

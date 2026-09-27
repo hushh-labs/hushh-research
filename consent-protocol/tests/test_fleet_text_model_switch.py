@@ -97,8 +97,9 @@ def test_registry_holds_exactly_the_last_two_gemini_releases() -> None:
         entry.model for entry in gemini_rows[1:] if not entry.supports_native_realtime
     ]
     assert generation_ids == ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-embedding-001"]
-    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.7-flash", "gemini-3.6-flash")
-    assert FLEET_TEXT_MODEL_DEFAULT == "gemini-3.7-flash"
+    # Founder decision 2026-09-27: 3.7 timed out in chat; One offers 3.6 only, no picker.
+    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.6-flash",)
+    assert FLEET_TEXT_MODEL_DEFAULT == "gemini-3.6-flash"
     assert set(model_catalog._LABELS) == set(model_catalog.FLEET_TEXT_MODEL_CHOICES)
     assert FLEET_TEXT_MODEL_DEFAULT in model_catalog.FLEET_TEXT_MODEL_CHOICES
     for retired in ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"):

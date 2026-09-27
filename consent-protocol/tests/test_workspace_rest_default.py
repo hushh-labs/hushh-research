@@ -17,6 +17,9 @@ import pytest
 from hushh_mcp.one_adk import governed_mcp_toolset, workspace_mcp_tools
 from hushh_mcp.one_adk.governed_mcp_toolset import native_registration_admitted
 
+# Read at collection, before any fixture patches it: the shipped switch value.
+_SHIPPED_ENROLLMENT = governed_mcp_toolset.HOSTED_WORKSPACE_MCP_ENROLLED
+
 
 @pytest.fixture(autouse=True)
 def _rest_default(monkeypatch):
@@ -100,3 +103,36 @@ def test_drive_service_is_the_rest_transport_facade():
     )
     with pytest.raises(ValueError):
         workspace_mcp_tools._service("gmail")
+
+
+def _declared_providers(tool) -> set[str]:
+    declaration = tool._get_declaration()
+    assert declaration is not None
+    schema = declaration.parameters_json_schema
+    assert isinstance(schema, dict)
+    provider = schema["properties"]["provider"]
+    assert "const" not in provider  # outside Gemini's declaration subset
+    return set(provider["enum"])
+
+
+def test_read_workspace_tool_is_declared_only_for_providers_it_can_read(monkeypatch):
+    # Gmail and Calendar reads through this tool can only refuse while hosted
+    # Workspace MCP is not enrolled, so the model is not offered them. The
+    # declaration follows the switch, so enrolling needs no second edit.
+    assert _SHIPPED_ENROLLMENT is False
+    assert _declared_providers(workspace_mcp_tools.READ_WORKSPACE_TOOL) == {"drive"}
+    monkeypatch.setattr(governed_mcp_toolset, "HOSTED_WORKSPACE_MCP_ENROLLED", True)
+    assert _declared_providers(workspace_mcp_tools.READ_WORKSPACE_TOOL) == {
+        "drive",
+        "gmail",
+        "calendar",
+    }
+
+
+def test_discovery_stays_declared_for_every_connect_and_manage_card():
+    # Its permission_required / api_available status is what shows the Gmail
+    # and Calendar Connect and Manage cards in Chat; it is not dead weight.
+    from google.adk.tools.function_tool import FunctionTool
+
+    discovery = FunctionTool(workspace_mcp_tools.discover_workspace_tools)
+    assert _declared_providers(discovery) == {"drive", "gmail", "calendar"}
