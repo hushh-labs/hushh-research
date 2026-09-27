@@ -38,13 +38,23 @@ def circle_fixture(db, monkeypatch, action):
         CREATE TABLE connection_scope_proposal_events(id BIGSERIAL PRIMARY KEY,
           connection_scope_proposal_id UUID NOT NULL REFERENCES connection_scope_proposals(id),
           event_type TEXT NOT NULL,actor_user_id TEXT,reason TEXT);
+        -- get_circle() left-joins one_location_recipient_keys; sms_schema's
+        -- minimal fixture doesn't create it, so create_or_get_circle's
+        -- read-back 500s without this (see audience_writer_schema, which
+        -- needs it too). Declared inline rather than replaying migration 061
+        -- wholesale: that migration's own indexes assume its full
+        -- one_location_share_grants/one_location_events shapes, which
+        -- collide with the simpler tables sms_schema already created for
+        -- this fixture (both are CREATE TABLE IF NOT EXISTS onto the same
+        -- names, so 061's CREATE INDEX ... (..., expires_at) then fails
+        -- against sms_schema's columns).
+        CREATE TABLE one_location_recipient_keys(
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id TEXT NOT NULL, key_id TEXT NOT NULL,
+          public_key_jwk JSONB NOT NULL, algorithm TEXT NOT NULL DEFAULT 'ECDH-P256-AES256-GCM',
+          status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
     """)
     migrations = Path(__file__).resolve().parents[2] / "db/migrations"
     for name in (
-        # get_circle() left-joins one_location_recipient_keys; sms_schema's
-        # minimal fixture doesn't create it, so create_or_get_circle's read-back
-        # 500s without this (see audience_writer_schema, which needs it too).
-        "061_one_location_agent.sql",
         "138_circle_member_connection_origin.sql",
         "158_one_location_circle_member_limit_100.sql",
         "159_one_location_circle_invite_max_uses_100.sql",
