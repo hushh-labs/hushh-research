@@ -137,8 +137,11 @@ test.describe("active share action alignment", () => {
 
         if (width < 640) {
           expect(row.actions.top).toBeGreaterThanOrEqual(row.copy.bottom - 1);
+          expect(Math.abs(row.change.left - row.actions.left)).toBeLessThanOrEqual(1);
+          expect(Math.abs(row.stop.right - row.actions.right)).toBeLessThanOrEqual(1);
         } else {
           expect(row.copy.right).toBeLessThanOrEqual(row.actions.left + 1);
+          expect(row.stop.left - row.change.right).toBeLessThanOrEqual(16);
         }
       }
     });

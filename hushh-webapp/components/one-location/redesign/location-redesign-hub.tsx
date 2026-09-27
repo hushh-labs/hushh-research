@@ -141,7 +141,11 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import { ACTIVE_SHARE_STOP_CLASSNAME } from "./active-share-row-layout";
+import {
+  ACTIVE_SHARE_ACTIONS_CLASSNAME,
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
+} from "./active-share-row-layout";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -2791,25 +2795,7 @@ function LocationDetailFlow({
                   title={name}
                   description={
                     single ? (
-                      <div className="space-y-1">
-                        <ActiveShareMetadata grant={single} />
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                      </div>
+                      <ActiveShareMetadata grant={single} />
                     ) : (
                       <>
                         <span>{`${group.grants.length} active shares`}</span>
@@ -2827,11 +2813,29 @@ function LocationDetailFlow({
                   }
                   trailing={
                     single ? (
-                      <StopGrantTextButton
-                        grantId={single.id}
-                        revokingGrantId={vm.revokingGrantId}
-                        onStopGrant={vm.onStopGrant}
-                      />
+                      <div className={ACTIVE_SHARE_ACTIONS_CLASSNAME}>
+                        {!isSmsTriggeredGrant(single) ? (
+                          <button
+                            type="button"
+                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
+                            }
+                          >
+                            {single.durationMode === "until_stopped"
+                              ? "Set end time"
+                              : "Change time"}
+                          </button>
+                        ) : null}
+                        <StopGrantTextButton
+                          grantId={single.id}
+                          revokingGrantId={vm.revokingGrantId}
+                          onStopGrant={vm.onStopGrant}
+                        />
+                      </div>
                     ) : null
                   }
                   stackTrailingOnMobile={Boolean(single)}
