@@ -8,6 +8,7 @@ refresh causes a safe retry rather than releasing a possibly superseded grant.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -33,6 +34,17 @@ _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
 MailOperation = Literal["list_needs_reply", "list_recent", "search_inbox"]
 Mailbox = Literal["inbox", "sent", "anywhere"]
 RequireAccess = Callable[[], Awaitable[None]]
+MAIL_READ_ERROR_CODES = frozenset(
+    {
+        "connect_required",
+        "reconnect_required",
+        "connection_changed",
+        "permission_denied",
+        "source_changed",
+        "response_too_large",
+        "invalid_argument",
+    }
+)
 
 
 class GmailMetadataError(RuntimeError):
@@ -150,6 +162,35 @@ class GmailMetadataReader:
             or _SCOPE not in re.split(r"[\s,]+", str(row.get("scope_csv") or ""))
         ):
             raise GmailMetadataError("connection_changed")
+
+    def observed_grant_fingerprint(self) -> str:
+        """Hub-only digest of the grant used for this read; never a credential."""
+        if self._observation is None or not self._account:
+            raise GmailMetadataError("connection_changed")
+        return self._grant_fingerprint(self._account, self._observation)
+
+    def _grant_fingerprint(self, account: str, observation: dict[str, Any]) -> str:
+        payload = json.dumps(
+            [self._user_id, account, observation],
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    async def current_grant_fingerprint(self) -> str:
+        """Revalidation for a stateless pod receipt, without fetching OAuth tokens."""
+        await self._require_access()
+        row = await asyncio.to_thread(self._gmail._fetch_connection_row, user_id=self._user_id)
+        if (
+            not row
+            or row.get("status") != "connected"
+            or row.get("revoked") is not False
+            or not row.get("google_sub")
+            or _SCOPE not in re.split(r"[\s,]+", str(row.get("scope_csv") or ""))
+        ):
+            raise GmailMetadataError("connection_changed")
+        return self._grant_fingerprint(row["google_sub"], self._gmail._refresh_observation(row))
 
     async def read(self, operation: MailOperation, arguments: dict[str, Any]) -> dict[str, Any]:
         limit, query, mailbox = _arguments(operation, arguments)

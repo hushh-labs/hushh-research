@@ -203,13 +203,15 @@ async def test_unavailable_when_model_not_ready():
 
 
 async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store(monkeypatch):
+    import json
+    from dataclasses import replace
     from unittest.mock import AsyncMock
 
     import pytest
 
     from hushh_mcp.adk_bridge import _register_builtin_specialists
-    from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
     from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime, dispatch
+    from hushh_mcp.one_adk import agent_tree as tree
     from hushh_mcp.runtime_providers import factory
     from hushh_mcp.services import pod_consent_client, pod_memory_service, pod_specialist_runtime
     from hushh_mcp.services.pod_consent_client import ConsentVerdict
@@ -217,6 +219,9 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
 
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
     monkeypatch.setenv("HUSSH_ID", "pod-owner")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GMAIL_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
     revoked = False
 
     async def verify(token, *, expected_scope):
@@ -235,10 +240,19 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
         return store
 
     monkeypatch.setattr(pod_specialist_runtime, "PodAgentChatStore", local_store)
+    shared_auth = AsyncMock(side_effect=AssertionError("Pod must not use hub vault authority"))
+    monkeypatch.setattr(tree, "validate_first_party_owner_token", shared_auth)
+    monkeypatch.setattr(
+        "hushh_mcp.adk_bridge.email_agent.validate_first_party_owner_token", shared_auth
+    )
     responses = iter(
         [
-            _fc_response("search_inbox", {"query": "subject:invoice", "limit": 2}),
-            _text_response("One invoice from Billing."),
+            _text_response(
+                json.dumps({"operation": "search_inbox", "query": "subject:invoice", "limit": 2})
+            ),
+            _text_response(
+                json.dumps({"answer": "One invoice from Billing.", "source_refs": ["mail:1"]})
+            ),
         ]
     )
     calls = []
@@ -253,9 +267,20 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
 
     def read(_self, name, token, **kwargs):
         reads.append((name, token, kwargs))
-        return {"results": [{"subject": "Invoice", "from": "Billing", "snippet": "Ready"}]}
+        assert name == "email" and token == "email-view"
+        if kwargs["email_read"]["operation"] == "validate":
+            return {"current": True}
+        return {
+            "metadata": {
+                "metadata_only": True,
+                "truncated": False,
+                "untrusted_external_content": [{"source_ref": "mail:1", "subject": "Invoice"}],
+            },
+            "observation": {"expires_at": 9999999999, "nonce": "0" * 32, "signature": "synthetic"},
+        }
 
     monkeypatch.setattr(PodHubClient, "read_specialist", read)
+    _register_builtin_specialists()
     runtime = pod_specialist_runtime.build_pod_specialist_runtime(
         user_id="owner",
         hushh_id="pod-owner",
@@ -269,46 +294,51 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
         vertex_location=None,
         data_door_grants={"email": "email-view"},
     )
-    task = A2ATask(
-        user_id="owner",
-        consent_token="read",  # noqa: S106 -- synthetic scope token
-        conversation_id="thread",
-        message="Find my invoice",
-        authority=A2AAuthorityContext(
-            "owner",
-            "owner",
-            "thread",
-            "first_party",
-            invocation_capabilities=("cap.one.invoke",),
-        ),
+    context = SimpleNamespace(
+        user_id="pod-owner",
+        invocation_id="sdk-invocation",
+        function_call_id="sdk-call",
+        state={
+            tree.STATE_USER_ID: "owner",
+            tree.STATE_CONSENT_TOKEN: "read",
+            tree.STATE_CONVERSATION_ID: "thread",
+            tree.STATE_EXECUTION_SURFACE: "typed_chat",
+        },
     )
-    _register_builtin_specialists()
     with bind_specialist_runtime(runtime):
+        task = await tree._task_from_context(context, "Find my invoice", agent_id="agent_email")
+        assert task is not None
+        assert task.authority.subject_user_id == "owner"
+        assert task.expected_task_id == '["sdk-invocation","sdk-call"]'
         result = await dispatch("agent_email", task)
         assert result.text == "One invoice from Billing."
         assert result.directive is None and not result.state_changed
         assert stores[0]["log"] is log and stores[0]["agent_id"] == "agent_email"
-        assert reads == [
-            (
-                "email",
-                "email-view",
-                {
-                    "email_read": {
-                        "operation": "search",
-                        "query": "subject:invoice",
-                        "limit": 2,
-                    }
-                },
-            )
+        assert [r[2]["email_read"]["operation"] for r in reads] == [
+            "search_inbox",
+            "validate",
+            "validate",
         ]
         assert len(calls) == 2
+        with pytest.raises(PermissionError):
+            await dispatch("agent_email", replace(task, expected_task_id="different-call"))
         revoked = True
         with pytest.raises(PermissionError):
             await dispatch("agent_email", task)
-        assert len(calls) == 2 and len(reads) == 1
+        assert len(calls) == 2 and len(reads) == 3
+        revoked = False
+        context.user_id = "foreign-session"
+        assert await tree._task_from_context(context, "read", agent_id="agent_email") is None
+        context.user_id = "pod-owner"
+        context.state[tree.STATE_CONSENT_TOKEN] = "different-credential"
+        assert await tree._task_from_context(context, "read", agent_id="agent_email") is None
+        context.state[tree.STATE_CONSENT_TOKEN] = "read"
+    with bind_specialist_runtime(replace(runtime, admit_owner=None)):
+        assert await tree._task_from_context(context, "read", agent_id="agent_email") is None
+    shared_auth.assert_not_awaited()
     with pytest.raises(PermissionError):
         await pod_specialist_runtime.PodEmailReadPort("owner", "email-view").search_inbox(
             user_id="foreign",
             query="invoice",
         )
-    assert len(reads) == 1
+    assert len(reads) == 3

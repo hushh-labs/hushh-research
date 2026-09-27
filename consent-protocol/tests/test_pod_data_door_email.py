@@ -243,3 +243,117 @@ def test_email_options_cannot_select_owner_or_unbounded_operation(options):
 
     with pytest.raises(ValueError):
         EmailReadOptions.model_validate(options)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "grant",
+        "owner_id",
+        "pod_id",
+        "service_uid",
+        "scope_digest",
+        "environment",
+        "expired",
+        "signature",
+    ],
+)
+def test_mail_observation_is_private_and_bound_to_current_authority(monkeypatch, change):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_mail_observation as receipts
+    from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+
+    monkeypatch.setenv("CONSENT_TOKEN_SIGNING_ALG", "hmac")
+    monkeypatch.setattr(receipts, "_key", lambda: "synthetic-receipt-signing-key")
+    monkeypatch.setattr(receipts.time, "time", lambda: 1000)
+    context = receipts.MailObservationContext("owner", "pod", "incarnation", "scope", "dev")
+    receipt = receipts.issue_observation(context, "hub-only-grant")
+    assert set(receipt.model_dump()) == {"expires_at", "nonce", "signature"}
+    assert "hub-only-grant" not in receipt.model_dump_json()
+    fingerprint = "changed" if change == "grant" else "hub-only-grant"
+    if change in {"owner_id", "pod_id", "service_uid", "scope_digest", "environment"}:
+        context = replace(context, **{change: "different"})
+    if change == "expired":
+        monkeypatch.setattr(receipts.time, "time", lambda: 1090)
+    if change == "signature":
+        receipt = receipt.model_copy(update={"signature": "0" * 64})
+    if change:
+        with pytest.raises(GmailMetadataError):
+            receipts.verify_observation(context, receipt, fingerprint)
+    else:
+        receipts.verify_observation(context, receipt, fingerprint)
+
+
+@pytest.mark.parametrize("change_during_interpretation", [False, True])
+async def test_pod_mail_suppresses_answer_when_observed_grant_changes(
+    monkeypatch, change_during_interpretation
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_mail_observation as receipts
+    from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+    from hushh_mcp.services.pod_email_read import EmailReadOptions, read_email_metadata
+    from hushh_mcp.services.pod_mail_reader import PodMailMetadataReader
+
+    monkeypatch.setenv("CONSENT_TOKEN_SIGNING_ALG", "hmac")
+    monkeypatch.setattr(receipts, "_key", lambda: "synthetic-receipt-signing-key")
+    context = receipts.MailObservationContext("owner", "pod", "incarnation", "scope", "dev")
+    grant = "original"
+    access = AsyncMock()
+
+    class Reader:
+        def __init__(self, **kwargs):
+            self.observed = grant
+
+        async def read(self, operation, arguments):
+            assert operation == "list_recent"
+            assert arguments == {"limit": 10, "mailbox": "inbox"}
+            return {
+                "metadata_only": True,
+                "truncated": False,
+                "untrusted_external_content": [{"source_ref": "mail:1", "subject": "Synthetic"}],
+            }
+
+        async def require_current(self):
+            assert self.observed == grant
+
+        def observed_grant_fingerprint(self):
+            return self.observed
+
+        async def current_grant_fingerprint(self):
+            return grant
+
+    async def read(**options):
+        return await read_email_metadata(
+            "owner",
+            EmailReadOptions(**options),
+            service=object(),
+            context=context,
+            require_access=access,
+            reader_factory=Reader,
+        )
+
+    async def gene(**kwargs):
+        nonlocal grant
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent"}
+        if change_during_interpretation:
+            grant = "reconnected"
+        return {"answer": "Synthetic answer", "source_refs": ["mail:1"]}
+
+    result = await run_delegated_mail_read(
+        gmail=object(),
+        user_id="owner",
+        consent_token="synthetic",
+        conversation_id="thread",
+        message="show my recent mail",
+        require_access=access,
+        gene_runner=gene,
+        reader_factory=lambda **_: PodMailMetadataReader(read=read, require_access=access),
+    )
+    assert result["structured"]["status"] == (
+        "connection_changed" if change_during_interpretation else "ok"
+    )
+    assert (result["response"] == "Synthetic answer") is not change_during_interpretation

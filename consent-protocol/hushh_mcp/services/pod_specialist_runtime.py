@@ -9,6 +9,7 @@ closed instead of constructing shared-runtime services.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -449,6 +450,17 @@ class PodEmailReadPort:
     async def search_inbox(self, *, user_id: str, query: str, limit: int = 10) -> list[dict]:
         return (await self._read(user_id, operation="search", query=query, limit=limit))["results"]
 
+    def metadata_reader(self, *, gmail: Any, user_id: str, require_access: Any) -> Any:
+        from hushh_mcp.services.pod_mail_reader import PodMailMetadataReader
+
+        if user_id != self._owner or gmail is not self:
+            raise PermissionError("Email owner mismatch")
+
+        async def read(**options: Any) -> dict:
+            return await self._read(user_id, **options)
+
+        return PodMailMetadataReader(read=read, require_access=require_access)
+
 
 def build_pod_specialist_runtime(
     *,
@@ -507,6 +519,20 @@ def build_pod_specialist_runtime(
             if getattr(log, "_owner_id", None) != hushh_id:
                 raise PermissionError("Pod storage owner mismatch")
             await log.require_open()
+
+    invocation_expires_at = int(time.time() * 1000) + 180_000
+
+    async def admit_owner(owner: str, credential: str) -> int:
+        # Invocation permission is local session authority, never a fabricated
+        # VAULT_OWNER token. Information access still needs its separate grant.
+        if (
+            owner != user_id
+            or credential != consent_token
+            or int(time.time() * 1000) >= invocation_expires_at
+        ):
+            raise PermissionError("Pod invocation authority unavailable")
+        await require_access()
+        return invocation_expires_at
 
     async def model_call(contents: Any, config: Any) -> Any:
         nonlocal client
@@ -594,8 +620,10 @@ def build_pod_specialist_runtime(
                 await email_access()
                 return result
 
+            email_port = PodEmailReadPort(user_id, data_door_grants.get("email", ""))
             return EmailAgentA2A(
                 require_read=authorize_email,
+                admit_owner=admit_owner,
                 service=EmailChatService(
                     chat_store=PodAgentChatStore(
                         owner_user_id=user_id,
@@ -605,7 +633,8 @@ def build_pod_specialist_runtime(
                         agent_id=agent_id,
                         model=model,
                     ),
-                    gmail_service=PodEmailReadPort(user_id, data_door_grants.get("email", "")),
+                    gmail_service=email_port,
+                    reader_factory=email_port.metadata_reader,
                     model_call=email_model,
                     model=adk_model,
                     ready=lambda: True,
@@ -663,4 +692,4 @@ def build_pod_specialist_runtime(
             },
         )
 
-    return SpecialistRuntime(user_id, require_access, service_for)
+    return SpecialistRuntime(user_id, require_access, service_for, hushh_id, admit_owner)

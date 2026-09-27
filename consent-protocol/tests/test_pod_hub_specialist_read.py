@@ -56,6 +56,28 @@ def _client(session):
     return PodHubClient(base_url="https://hub.example", session=session)
 
 
+@pytest.mark.parametrize(
+    "code", ["connect_required", "connection_changed", "provider-private-details", {"bad": "shape"}]
+)
+def test_mail_refusal_preserves_only_declared_machine_codes(code):
+    from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+
+    session = _Session(_Resp(409, {"detail": {"code": code}}))
+    error_type = (
+        GmailMetadataError
+        if code in ("connect_required", "connection_changed")
+        else PodHubUnavailable
+    )
+    with pytest.raises(error_type) as error:
+        _client(session).read_specialist(
+            "email", "synthetic", email_read={"operation": "list_recent"}
+        )
+    if error_type is GmailMetadataError:
+        assert error.value.code == code
+    else:
+        assert "provider-private-details" not in str(error.value)
+
+
 def test_a_successful_read_returns_the_projection_state():
     projection = {"recipients": [{"userId": "friend"}], "circles": []}
     session = _Session(_Resp(200, {"name": "location", "state": projection}))

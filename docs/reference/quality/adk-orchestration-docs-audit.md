@@ -1669,3 +1669,51 @@ setting or describes transient provider processing as vault-only residence.
 TestFlight's incoming early backend-provenance probe has a possible stale-evidence
 window before shipping. The owning `release-ios-appstore` workflow must recheck
 release-time provenance; dev deployment does not exercise or establish that lane.
+
+### Local ADK refresh and pod Mail boundary — 2026-09-27 UTC
+
+Integration commit `29ef8d991` includes frozen local ADK `c8f718230` on the
+infrastructure branch candidate. The ADK worktree remained clean and untouched;
+the root's PDF edits remain separate. The incoming catalog selects Gemini 3.6
+Flash. Calendar PATCH behavior, bounded query options, connector reviews and
+account-cleanup changes are retained. Generated registries, capability graphs,
+Location cards and topology are regenerated from their owners after integration.
+
+The dev deployment recipe now selects the existing personal Gemini bridge. An
+impersonated dev runtime identity completed a synthetic provider request through
+that project. This proves provider access, not that the changed deployment recipe
+is serving. Owner-pod inference retains its own runtime configuration; the shared
+dev bridge is not a fallback for a failed private connection.
+
+The refreshed Mail delegation needed explicit pod dependencies: its planner and
+interpreter now accept the existing owner model adapter, while bounded metadata
+reads use the authenticated hub connector door. OAuth credentials remain at the
+hub. A short-lived opaque observation receipt is reconstructed against the current
+owner, scope token, registry incarnation and Mail grant after interpretation.
+Reconnect, revocation or replacement suppresses the stale answer. This receipt
+does not attest the caller's running incarnation beyond the existing pod identity
+contract, and it grants no new access. These are source changes awaiting dev
+deployment and live connector acceptance.
+
+Pod Mail invocation now uses an explicit ingress-bound admission callback, rather
+than trying to validate a local session as a hub vault-owner token. It checks the
+exact owner and credential, rechecks the existing session authority, and preserves
+ADK's invocation/function-call IDs. The ADK session remains keyed by HusshID for
+memory isolation. The typed surface is supplied by the pod route, never inferred
+from client screen context. Mail's separate information grant remains mandatory.
+Nav and Drive's remaining shared-authority assumptions are not resolved by this
+Mail change.
+
+Focused evidence: 66 account-cleanup tests passed; 38 Email gene/delegated-read
+tests passed; 149 metadata/broker/runtime tests passed; 21 Email service/wrapper
+tests passed after correcting the real pod admission mismatch; and 327 affected
+pod-turn/text-runtime/agent-tree/broker tests passed with 73 skips. These groups
+overlap and are not an aggregate test count. Read-only review found no blocking
+defect in the final pod admission boundary. GitHub validation and live acceptance
+are still separate gates.
+
+Verification uses focused affected contracts and the final candidate's GitHub CI;
+another full local CI run is not required by this execution pass. Existing-owner
+Files activation, full private conversation-store wiring, normal Settings update
+acceptance and separate-network Puppy inference remain open. No new owner upgrade,
+main merge, history deletion or deployment is established by this source refresh.

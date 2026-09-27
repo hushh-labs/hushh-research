@@ -1219,11 +1219,15 @@ async def _task_from_context(
             action_capabilities=tuple(key for key in grant_keys if key.startswith("cap.")),
         )
     if agent_id in {"agent_nav", "agent_email", "agent_documents"}:
+        from hushh_mcp.adk_bridge.dispatch import bound_specialist_runtime
+
+        runtime = bound_specialist_runtime()
+        expected_session_owner = runtime.session_owner_id if runtime is not None else user_id
         # ADK supplies these bindings; model arguments/session state cannot.
         invocation_id = getattr(tool_context, "invocation_id", None)
         function_call_id = getattr(tool_context, "function_call_id", None)
         if (
-            getattr(tool_context, "user_id", None) != user_id
+            getattr(tool_context, "user_id", None) != expected_session_owner
             or not isinstance(invocation_id, str)
             or not invocation_id.strip()
             or not isinstance(function_call_id, str)
@@ -1231,9 +1235,18 @@ async def _task_from_context(
             or specialist_target not in {None, "consent", "connections"}
         ):
             return None
-        token = await validate_first_party_owner_token(user_id, consent_token)
-        if token is None:
-            return None
+        if runtime is not None:
+            if runtime.owner_user_id != user_id or runtime.admit_owner is None:
+                return None
+            try:
+                expires_at_ms = await runtime.admit_owner(user_id, consent_token)
+            except (PermissionError, RuntimeError):
+                return None
+        else:
+            token = await validate_first_party_owner_token(user_id, consent_token)
+            if token is None:
+                return None
+            expires_at_ms = token.expires_at
         if agent_id in {"agent_email", "agent_documents"} and (
             state.get(STATE_EXECUTION_SURFACE) != "typed_chat" or specialist_target is not None
         ):
@@ -1257,7 +1270,7 @@ async def _task_from_context(
             task_id=task_id,
             caller_kind="first_party",
             invocation_capabilities=tuple(dict.fromkeys(capabilities)),
-            expires_at_ms=token.expires_at,
+            expires_at_ms=expires_at_ms,
         )
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
     timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None

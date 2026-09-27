@@ -48,6 +48,7 @@ owner's own session.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 from typing import Any, Optional
@@ -97,6 +98,74 @@ class PodSpecialistReadRequest(BaseModel):
     email_read: EmailReadOptions | None = Field(default=None, alias="emailRead")
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+async def _read_bound_mail(
+    *, owner_id: str, asserted: str, payload: PodSpecialistReadRequest, check: Any, registry: Any
+) -> dict:
+    """Revalidate one credential-free metadata read against its serving owner."""
+    required_scope = _REQUIRED_SCOPE["email"]
+    from hushh_mcp.services.gmail_metadata_reader import (
+        MAIL_READ_ERROR_CODES,
+        GmailMetadataError,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_binding_service import hub_environment
+    from hushh_mcp.services.pod_email_read import read_email_metadata
+    from hushh_mcp.services.pod_mail_observation import MailObservationContext
+
+    owner_registry = registry if registry is not None else PersonalAgentRegistryRepo()
+    try:
+        initial = await owner_registry.get(owner_id)
+        service_uid = str((initial.get("backend_metadata") or {}).get("serviceUid") or "")
+    except Exception:
+        raise HTTPException(503, detail="Mail authority unavailable") from None
+    if not service_uid:
+        raise HTTPException(403, detail="scope is not valid for this read")
+
+    async def require_mail_access() -> None:
+        try:
+            valid_now, _, parsed_now = await _run(check, payload.scope_token, required_scope)
+            serving = await resolve_serving_owner_hushh_id(owner_id, registry=owner_registry)
+            current = await owner_registry.get(owner_id)
+            current_uid = str(
+                ((current or {}).get("backend_metadata") or {}).get("serviceUid") or ""
+            )
+        except Exception:
+            raise HTTPException(503, detail="Mail authority unavailable") from None
+        if (
+            not valid_now
+            or parsed_now is None
+            or parsed_now.user_id != owner_id
+            or serving != asserted
+            or current_uid != service_uid
+        ):
+            raise HTTPException(403, detail="scope is not valid for this read")
+
+    await require_mail_access()
+    try:
+        projection = await read_email_metadata(
+            owner_id,
+            payload.email_read,
+            context=MailObservationContext(
+                owner_id=owner_id,
+                pod_id=asserted,
+                service_uid=service_uid,
+                scope_digest=hashlib.sha256(payload.scope_token.encode()).hexdigest(),
+                environment=hub_environment(),
+            ),
+            require_access=require_mail_access,
+        )
+    except GmailMetadataError as exc:
+        code = exc.code if exc.code in MAIL_READ_ERROR_CODES else "unavailable"
+        raise HTTPException(409, detail={"code": code}) from None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("pod_specialist.mail_read_failed type=%s", type(exc).__name__)
+        raise HTTPException(502, detail="Mail read unavailable") from None
+    await require_mail_access()
+    return {"name": "email", "state": projection}
 
 
 async def broker_specialist_read(
@@ -184,6 +253,11 @@ async def broker_specialist_read(
         # Same 403 shape as an invalid scope: do not reveal whether the mismatch
         # was the binding or the token.
         raise HTTPException(status_code=403, detail="scope is not valid for this read")
+
+    if payload.email_read is not None and payload.email_read.operation not in {"nudges", "search"}:
+        return await _read_bound_mail(
+            owner_id=owner_id, asserted=asserted, payload=payload, check=check, registry=registry
+        )
 
     if payload.command_read is not None:
         if str(getattr(parsed, "agent_id", "")) != "personal_agent":

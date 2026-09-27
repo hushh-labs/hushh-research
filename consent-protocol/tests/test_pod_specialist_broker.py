@@ -433,3 +433,60 @@ async def test_scoped_broker_requires_live_owner_view_before_reader(
         assert result == {"name": name, "state": {"items": []}}
         assert read.await_args.kwargs["owner_id"] == "u-owner"
         assert read.await_args.kwargs[f"{name}_read"].operation == operation
+
+
+@pytest.mark.parametrize("change", [None, "revocation", "replacement", "erasure"])
+async def test_mail_metadata_rechecks_scope_and_incarnation_after_read(
+    flags_on, monkeypatch, change
+):
+    from unittest.mock import AsyncMock
+
+    _identity(monkeypatch, "hushh-owner")
+    changed = False
+
+    class Registry:
+        async def get(self, user_id):
+            assert user_id == "u-owner"
+            return {
+                "hushh_id": "hushh-owner",
+                "status": "provisioned",
+                "backend_metadata": {
+                    "serviceUid": "replacement"
+                    if changed and change == "replacement"
+                    else "original",
+                    **({"erasure": {}} if changed and change == "erasure" else {}),
+                },
+            }
+
+    async def validate(token, *, expected_scope):
+        assert expected_scope == "cap.email.inbox.view"
+        return not (changed and change == "revocation"), None, _Parsed("u-owner", expected_scope)
+
+    async def read(owner_id, options, *, context, require_access):
+        nonlocal changed
+        assert context.owner_id == owner_id == "u-owner"
+        assert context.service_uid == "original"
+        await require_access()
+        changed = True
+        return {"metadata": "synthetic"}
+
+    reader = AsyncMock(side_effect=read)
+    monkeypatch.setattr("hushh_mcp.services.pod_email_read.read_email_metadata", reader)
+    request = broker.PodSpecialistReadRequest(
+        scopeToken="synthetic", emailRead={"operation": "list_recent"}
+    )
+    call = broker.broker_specialist_read(
+        _Request(),
+        "email",
+        "Bearer synthetic",
+        request,
+        validator=validate,
+        registry=Registry(),
+    )
+    if change:
+        with pytest.raises(broker.HTTPException) as error:
+            await call
+        assert error.value.status_code == 403
+    else:
+        assert (await call)["state"] == {"metadata": "synthetic"}
+    reader.assert_awaited_once()

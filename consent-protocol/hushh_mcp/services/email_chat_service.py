@@ -144,6 +144,7 @@ class EmailChatService:
         model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
+        reader_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._gmail = gmail_service if gmail_service is not None else get_gmail_receipts_service()
@@ -151,6 +152,7 @@ class EmailChatService:
         # optional model_call callback for pod authority checks.
         self._use_adk = model is not None
         self._adk_model = model
+        self._reader_factory = reader_factory
 
         if model_call is not None:
             self._model_call = model_call
@@ -236,6 +238,20 @@ class EmailChatService:
         """Read Mail for One without creating or writing a second conversation."""
         from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
 
+        dependencies: dict[str, Any] = {}
+        if self._adk_model is not None:
+            from hushh_mcp.agents.email.runtime import run_email_gene
+
+            async def owner_gene(**kwargs: Any) -> dict[str, Any]:
+                await require_access()
+                result = await run_email_gene(model=self._adk_model, **kwargs)
+                await require_access()
+                return result
+
+            dependencies["gene_runner"] = owner_gene
+        if self._reader_factory is not None:
+            dependencies["reader_factory"] = self._reader_factory
+
         return await run_delegated_mail_read(
             gmail=self._gmail,
             user_id=user_id,
@@ -244,6 +260,7 @@ class EmailChatService:
             message=message,
             require_access=require_access,
             timezone=timezone,
+            **dependencies,
         )
 
     async def _run_adk_tool_loop(

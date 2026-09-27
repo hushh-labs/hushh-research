@@ -150,6 +150,7 @@ async def run_email_gene(
     consent_token: str,
     output_schema: Any = dict,
     timeout_seconds: float | None = None,
+    model: Any | None = None,
 ) -> dict[str, Any]:
     """Run one owner-authorized, schema-constrained Email model call."""
 
@@ -162,6 +163,7 @@ async def run_email_gene(
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
+        **({"model": model} if model is not None else {}),
     )
     request_timeout_seconds = (
         float(timeout_seconds)

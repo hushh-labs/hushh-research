@@ -562,6 +562,7 @@ async def run_pod_turn(
                 # a DB-backed specialist reads through the hub broker rather than
                 # failing on the missing DB credential. Empty {} keeps today's behaviour.
                 data_door_grants=payload.data_door_grants or {},
+                execution_surface="typed_chat",
                 # A fenced incarnation answers but never publishes; see text_runtime.
                 memory_commit_allowed=_memory_commit_allowed,
                 # The door's verdict on retirement, carried to the catch-up review.

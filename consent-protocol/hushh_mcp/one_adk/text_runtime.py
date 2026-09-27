@@ -33,6 +33,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
     STATE_DATA_DOOR_GRANTS,
+    STATE_EXECUTION_SURFACE,
     STATE_GROUNDING_REASON,
     STATE_MEMORY_AVAILABLE,
     STATE_MEMORY_DIGEST,
@@ -558,6 +559,7 @@ async def _stream_one_text_turn_once(
     runtime_vertex_location: str | None = None,
     data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
+    execution_surface: Literal["typed_chat"] | None = None,
     memory_commit_allowed: Any = None,
     memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
@@ -651,6 +653,7 @@ async def _stream_one_text_turn_once(
             # consent token: state-only, so a DB-backed specialist reads through
             # the hub broker and the model never sees the tokens themselves.
             STATE_DATA_DOOR_GRANTS: dict(data_door_grants or {}),
+            STATE_EXECUTION_SURFACE: execution_surface,
         },
     )
 
@@ -948,6 +951,7 @@ async def stream_one_text_turn(
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
     data_door_grants: dict[str, str] | None = None,
+    execution_surface: Literal["typed_chat"] | None = None,
     memory_commit_allowed: Any = None,
     # What the caller's door decided the catch-up review may do. Resolved at the
     # route and carried; the runtime never derives it. None is default-deny.
@@ -984,6 +988,7 @@ async def stream_one_text_turn(
                 runtime_vertex_location=runtime_vertex_location,
                 data_door_grants=data_door_grants,
                 managed_location=location,
+                execution_surface=execution_surface,
                 memory_commit_allowed=memory_commit_allowed,
                 memory_review_policy=memory_review_policy,
             ):

@@ -198,6 +198,18 @@ class PodHubClient:
         response = self.post(f"/api/one/pod/specialist/{name}/read", json=payload)
         status = getattr(response, "status_code", 502)
         if status != 200:
+            if name == "email" and email_read is not None and status == 409:
+                from hushh_mcp.services.gmail_metadata_reader import (
+                    MAIL_READ_ERROR_CODES,
+                    GmailMetadataError,
+                )
+
+                try:
+                    code = response.json()["detail"]["code"]
+                except (ValueError, KeyError, TypeError):
+                    code = None
+                if isinstance(code, str) and code in MAIL_READ_ERROR_CODES:
+                    raise GmailMetadataError(code)
             raise PodHubUnavailable(f"hub refused specialist read name={name} status={status}")
         try:
             body = response.json()
