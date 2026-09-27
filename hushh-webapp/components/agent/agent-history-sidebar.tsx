@@ -351,8 +351,9 @@ export function AgentHistorySidebar({
             <button
               type="button"
               className={cn(
-                "flex h-9 min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60",
-                isMobileMode ? "pr-8" : "pr-7",
+                "flex min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60",
+                // 44px rows in the touch drawer (Apple's minimum hit target).
+                isMobileMode ? "h-11 pr-8" : "h-9 pr-7",
                 active ? "font-semibold text-white" : "font-medium text-foreground/80 group-hover:text-foreground"
               )}
               onClick={() => onSelectConversation(conversation.id)}
@@ -360,7 +361,7 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className="truncate text-[13px] leading-tight flex-1">
+              <span className={cn("flex-1 truncate leading-tight", isMobileMode ? "text-[15px]" : "text-[13px]")}>
                 {title}
               </span>
 
@@ -442,7 +443,7 @@ export function AgentHistorySidebar({
           // a translucent glass surface blurred nothing and showed the chat
           // through the drawer on iOS while Chromium's blur hid it on web.
           isMobileMode
-            ? "rounded-r-[28px] border-r border-black/[0.06] bg-background shadow-[18px_0_42px_rgba(0,0,0,0.25)] dark:border-white/[0.08]"
+            ? "rounded-[24px] border border-black/[0.07] bg-background shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:border-white/[0.09] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
             : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
@@ -451,10 +452,10 @@ export function AgentHistorySidebar({
         data-collapsed={collapsed ? "true" : "false"}
       >
         {isMobileMode ? (
-          <div className="border-b border-border/65 px-3 py-3 dark:border-white/10">
+          <div className="px-4 pb-1 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">
+                <h2 className="truncate text-[22px] font-bold leading-7 tracking-[-0.022em] text-foreground">
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (
@@ -483,7 +484,7 @@ export function AgentHistorySidebar({
               variant="outline"
               size="sm"
               data-chat-new-button
-              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+              className="mt-3 flex h-10 w-full items-center justify-between rounded-[12px] border-transparent bg-foreground/[0.05] px-3 text-[14px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-foreground/[0.08] active:scale-[0.98] dark:border-transparent dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
@@ -591,7 +592,7 @@ export function AgentHistorySidebar({
         )}
 
         {!collapsed ? (
-          <div className="px-3 pt-2.5 pb-1">
+          <div className={cn(isMobileMode ? "px-4 pb-1 pt-2" : "px-3 pb-1 pt-2.5")}>
             <div className="relative">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70"
@@ -617,7 +618,7 @@ export function AgentHistorySidebar({
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-5 pt-1.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-1.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
           {collapsed ? <div className="h-2" aria-hidden="true" /> : null}
 
           {loading ? (
@@ -689,7 +690,14 @@ export function AgentHistorySidebar({
             <div className="space-y-4">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
-                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted-foreground/70">
+                  <div
+                    className={cn(
+                      "px-2 pb-1 pt-2",
+                      isMobileMode
+                        ? "text-[13px] font-semibold text-muted-foreground"
+                        : "text-[11px] font-medium tracking-wide text-muted-foreground/70",
+                    )}
+                  >
                     {group.label}
                   </div>
                   <div
@@ -711,7 +719,7 @@ export function AgentHistorySidebar({
             variant="pill"
             type="button"
             pressScale={false}
-            wrapperClassName="w-full shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,calc(env(safe-area-inset-bottom,0px)-var(--app-bottom-shell-height,0px)))]"
+            wrapperClassName="w-full shrink-0 border-t border-black/[0.06] px-3 py-2 pb-[max(0.5rem,calc(env(safe-area-inset-bottom,0px)-var(--app-bottom-shell-height,0px)))] dark:border-white/[0.08]"
             className={cn(
               "h-11 min-h-11 w-full justify-start rounded-xl px-3 text-[13px] font-medium text-foreground",
               collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",

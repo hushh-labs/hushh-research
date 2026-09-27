@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -364,13 +365,34 @@ def accept_connection_request(
         raise _handle(exc) from exc
 
 
+class RejectConnectionRequestBody(BaseModel):
+    """Optional. ``block`` also stops the sender from requesting this person again.
+
+    ``report_reason`` reports the request and its message to the Hussh team
+    (Google Play user-generated content policy) and always blocks.
+    """
+
+    block: bool = False
+    report_reason: (
+        Literal["spam", "harassment", "inappropriate", "impersonation", "other"] | None
+    ) = None
+
+
 @router.post("/connections/requests/{request_id}/reject")
 def reject_connection_request(
     request_id: str = Path(...),
+    payload: RejectConnectionRequestBody | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
-        return {"result": _service().reject_request(firebase_uid, request_id)}
+        return {
+            "result": _service().reject_request(
+                firebase_uid,
+                request_id,
+                block=bool(payload and payload.block),
+                report_reason=payload.report_reason if payload else None,
+            )
+        }
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

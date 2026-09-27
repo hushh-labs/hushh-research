@@ -64,7 +64,7 @@ final class AppUITests: XCTestCase {
             loginButton.exists && loginButton.isHittable,
             "Login must become usable after the native privacy cover releases"
         )
-        let privacyCover = app.staticTexts["Protecting private information\u{2026}"]
+        let privacyCover = app.descendants(matching: .any)["session-privacy-shield"]
         let coverDeadline = Date().addingTimeInterval(5)
         while Date() < coverDeadline, privacyCover.exists {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))

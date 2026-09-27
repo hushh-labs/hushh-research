@@ -12,6 +12,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CONNECTION_ID = "conn-req-1";
 
+const platform = vi.hoisted(() => ({ android: false }));
+vi.mock("@/lib/capacitor/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/capacitor/platform")>()),
+  isAndroid: () => platform.android,
+}));
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
@@ -160,6 +166,7 @@ const incomingConnection = {
 describe("useFeedActionables — connection request de-duplication", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    platform.android = false;
     mocks.consentItems = [];
     mocks.connectionRequests = [];
     mocks.circleMemberInvites = [];
@@ -192,6 +199,24 @@ describe("useFeedActionables — connection request de-duplication", () => {
       "decline",
       "confirm",
     ]);
+  });
+
+  it("adds Report before Decline on Android only (Google Play UGC policy)", () => {
+    platform.android = true;
+    mocks.pendingCount = 1;
+    mocks.consentItems = [consentConnectionEntry];
+    mocks.connectionRequests = [incomingConnection];
+
+    const { result } = renderHook(() => useFeedActionables());
+    const [row] = result.current.actionables;
+
+    expect(row.actions.map((action) => action.key)).toEqual([
+      "report",
+      "decline",
+      "confirm",
+    ]);
+    // A report is irreversible for the sender, so it needs a second tap.
+    expect(row.actions.find((action) => action.key === "report")?.confirm).toBe(true);
   });
 
   it("still renders ordinary consent requests from the consent lane", () => {

@@ -120,6 +120,8 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
+import { isAndroid } from "@/lib/capacitor/platform";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
@@ -229,6 +231,7 @@ import {
   type AgentSource,
   getAgentChatFeedback,
   setAgentChatFeedback,
+  type AgentResponseReportReason,
   recordAgentChatInformationRequest,
   parseRestoredTurnActivity,
 } from "@/lib/services/agent-chat-client";
@@ -1697,6 +1700,8 @@ export function AgentBubble({
   onPendingConsentDetails,
   rating = null,
   onRate,
+  reported = false,
+  onReport,
   gmailInformationRequestAttachment,
 }: {
   message: AgentMessage;
@@ -1721,6 +1726,8 @@ export function AgentBubble({
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
   rating?: "up" | "down" | null;
   onRate?: (rating: "up" | "down" | null) => void;
+  reported?: boolean;
+  onReport?: (reason: AgentResponseReportReason) => Promise<void>;
   gmailInformationRequestAttachment?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -1927,6 +1934,11 @@ export function AgentBubble({
               >
                 <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
               </button>
+              {onReport && isAndroid() ? (
+                // Google Play AI-Generated Content policy. Android only for
+                // now, so iOS and web chat stay exactly as they are.
+                <AgentResponseReportButton reported={reported} onReport={onReport} />
+              ) : null}
                 </>
               ) : null}
               {onRetry ? (
@@ -2345,6 +2357,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messageRatings, setMessageRatings] = useState<
     Record<string, "up" | "down">
   >({});
+  // Answers reported in this conversation during this session; the durable
+  // record is the "down" rating plus the server-side report log.
+  const [reportedMessageIds, setReportedMessageIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
@@ -3088,6 +3105,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     const token = getVaultOwnerToken();
+    setReportedMessageIds(new Set());
     if (!conversationId || !token) {
       setMessageRatings({});
       return;
@@ -4708,6 +4726,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       })();
     },
     [conversationId, getVaultOwnerToken, messageRatings],
+  );
+
+  /**
+   * Report one answer to the Hussh team (Google Play AI-Generated Content
+   * policy). Not optimistic: the dialog stays open and offers a retry until the
+   * server has the report, so a person is never told it was sent when it was not.
+   */
+  const handleReportMessage = useCallback(
+    async (messageId: string, reason: AgentResponseReportReason) => {
+      const token = getVaultOwnerToken();
+      if (!conversationId || !token) {
+        throw new Error("This conversation is not available yet.");
+      }
+      await setAgentChatFeedback({
+        conversationId,
+        messageId,
+        rating: "down",
+        reportReason: reason,
+        vaultOwnerToken: token,
+      });
+      setMessageRatings((current) => ({ ...current, [messageId]: "down" }));
+      setReportedMessageIds((current) => new Set(current).add(messageId));
+      toast.success("Thanks. The Hussh team reviews every report.");
+    },
+    [conversationId, getVaultOwnerToken],
   );
 
   // One memory-only job belongs to its originating turn. Later turns may
@@ -7427,6 +7470,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
                       onRate={(next) =>
                         handleRateMessage(message.serverMessageId ?? message.id, next)
+                      }
+                      reported={reportedMessageIds.has(message.serverMessageId ?? message.id)}
+                      onReport={(reason) =>
+                        handleReportMessage(message.serverMessageId ?? message.id, reason)
                       }
                       onRetry={
                         message.id === latestRetryableAssistantId

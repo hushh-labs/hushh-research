@@ -2066,11 +2066,20 @@ export async function getAgentChatFeedback(input: {
   }
 }
 
+/** Why a person reported an answer. Mirrors the backend's closed enum. */
+export type AgentResponseReportReason =
+  | "offensive"
+  | "harmful"
+  | "inaccurate"
+  | "other";
+
 export async function setAgentChatFeedback(input: {
   conversationId: string;
   messageId: string;
   rating: "up" | "down" | null;
   vaultOwnerToken: string;
+  /** Flags the answer for team review; the backend records it as "down". */
+  reportReason?: AgentResponseReportReason;
 }): Promise<void> {
   const response = await ApiService.apiFetch("/api/one/agent-chat/feedback", {
     method: "PUT",
@@ -2082,6 +2091,7 @@ export async function setAgentChatFeedback(input: {
       conversation_id: input.conversationId,
       message_id: input.messageId,
       rating: input.rating,
+      ...(input.reportReason ? { report_reason: input.reportReason } : {}),
     }),
   });
   if (!response.ok) {

@@ -88,6 +88,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
@@ -1048,6 +1049,35 @@ export default function ConnectPageClient() {
       removeLifecycleListener();
     };
   }, [reconcileConnectionSurfaces, user?.uid]);
+
+  // Push is the primary "your request was accepted" signal, but native has no
+  // SSE fallback. While a sent request is pending and this screen is visible,
+  // confirm it every few seconds so an acceptance lands without a refresh.
+  const pendingOutgoingRequestIds = useMemo(
+    () => Object.values(outgoingRequestIds),
+    [outgoingRequestIds],
+  );
+  const readPendingOutgoingRequestIds = useMemo(
+    () =>
+      user
+        ? async () => {
+            const idToken = await user.getIdToken();
+            const requests = await ConnectionsService.listRequests({
+              idToken,
+              direction: "outgoing",
+            });
+            return requests.map((request) => request.id);
+          }
+        : null,
+    [user],
+  );
+  useOutgoingRequestResolutionWatch({
+    pendingRequestIds: pendingOutgoingRequestIds,
+    readPendingRequestIds: readPendingOutgoingRequestIds,
+    onChanged: () => {
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    },
+  });
 
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
