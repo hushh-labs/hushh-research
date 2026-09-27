@@ -214,6 +214,26 @@ for (const width of [390, 768])
     expect(await chats.locator("aside").evaluate((element) => getComputedStyle(element).borderTopRightRadius)).toBe("28px");
   });
 
+for (const width of [390, 768])
+  test(`chat sidebar ends above the fixed bottom bar at ${width}px`, async ({ page }) => {
+    // The app's bottom bar is fixed in its own stacking context, so the drawer
+    // cannot out-z it; it must end where the bar begins or the list hides under it.
+    const barHeight = 88;
+    await page.setViewportSize({ width, height: 640 });
+    await page.evaluate((height) => {
+      document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
+    }, barHeight);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const connectors = chats.getByRole("button", { name: "Open Connectors" });
+    await expect(connectors).toBeVisible();
+    const barTop = 640 - barHeight;
+    const drawerBox = (await chats.boundingBox())!;
+    const connectorBox = (await connectors.boundingBox())!;
+    expect(Math.abs(drawerBox.y + drawerBox.height - barTop)).toBeLessThanOrEqual(1);
+    expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(barTop + 1);
+  });
+
 for (const width of [320, 390, 768, 1440])
   test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];

@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -20,7 +19,9 @@ from typing import Any
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
-logger = logging.getLogger(__name__)
+from hushh_mcp.services.drive_telemetry import drive_logger
+
+logger = drive_logger(__name__)
 
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"

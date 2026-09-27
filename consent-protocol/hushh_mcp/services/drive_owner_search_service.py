@@ -9,12 +9,12 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
-import logging
 import time
 from datetime import UTC, datetime
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
@@ -23,7 +23,7 @@ from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransp
 PAGE_SIZE = 25
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
-logger = logging.getLogger("drive_owner_search")
+logger = drive_logger("drive_owner_search")
 
 
 def compile_queries(plan: dict, timezone: str) -> list[dict]:
@@ -318,6 +318,7 @@ class DriveOwnerSearchService:
                 done = _advance_query(checkpoint)
         return checkpoint, files, incomplete, done
 
+    @drive_operation(job_key="job_id")
     async def run_one(
         self,
         *,
@@ -368,8 +369,7 @@ class DriveOwnerSearchService:
                         page_count = len(files)
                     finally:
                         logger.info(
-                            "drive_search.page job_id=%s phase=%s status=%s files=%d elapsed_ms=%.2f",
-                            job_id,
+                            "drive_search.page phase=%s status=%s files=%d elapsed_ms=%.2f",
                             phase,
                             page_outcome,
                             page_count,
@@ -421,8 +421,7 @@ class DriveOwnerSearchService:
             raise
         finally:
             logger.info(
-                "drive_search.slice job_id=%s status=%s pages=%d matched=%d elapsed_ms=%.2f",
-                job_id,
+                "drive_search.slice status=%s pages=%d matched=%d elapsed_ms=%.2f",
                 outcome,
                 pages,
                 found,

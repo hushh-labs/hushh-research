@@ -18,6 +18,7 @@ from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchServic
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+from hushh_mcp.services.drive_telemetry import correlation_tag
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
@@ -608,7 +609,8 @@ async def test_search_telemetry_contains_only_opaque_id_closed_states_and_counts
     ]
     assert len(messages) == 2
     assert all(
-        f"job_id={state['jobId']}" in message and "elapsed_ms=" in message for message in messages
+        f"drive_op={correlation_tag(state['jobId'])}" in message and "elapsed_ms=" in message
+        for message in messages
     )
     assert "phase=user status=received files=1" in messages[0]
     assert "status=queued pages=1 matched=1" in messages[1]

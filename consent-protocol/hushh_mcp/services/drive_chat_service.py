@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import time
 from datetime import datetime
@@ -34,11 +33,12 @@ from hushh_mcp.services.drive_suggestion_service import (
     plan_live_search,
     simple_file_activity_plan,
 )
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
-logger = logging.getLogger("drive_chat_service")
+logger = drive_logger("drive_chat_service")
 MAX_OWNER_LIST_DISPLAY = 60
 
 
@@ -415,6 +415,7 @@ class DriveChatService:
             background_search_query=message if background_available else None,
         )
 
+    @drive_operation()
     async def run_live_query(
         self,
         *,

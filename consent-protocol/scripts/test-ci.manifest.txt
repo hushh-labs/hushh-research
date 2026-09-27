@@ -54,6 +54,7 @@ tests/test_documents_agent_a2a.py
 tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
+tests/services/test_drive_telemetry.py
 tests/test_drive_live_query_routes.py
 tests/services/test_drive_live_query_lifecycle.py
 tests/services/test_connector_feature_admission.py
