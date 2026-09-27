@@ -373,6 +373,7 @@ function useCommandController(enabled = true) {
   const finishRef = useRef(finishCapture);
   finishRef.current = finishCapture;
   const startCapture = useCallback(async () => {
+    if (!enabled) throw new Error("Voice is unavailable until your agent connection is verified.");
     if (
       recordingRef.current ||
       processingRef.current ||
@@ -430,7 +431,7 @@ function useCommandController(enabled = true) {
             : "The microphone could not start. Try recording again.",
       });
     }
-  }, [cancelCapture, capture, command, run]);
+  }, [cancelCapture, capture, command, enabled, run]);
   const startRef = useRef(startCapture);
   startRef.current = startCapture;
   useEffect(() => {

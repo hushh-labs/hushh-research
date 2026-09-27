@@ -185,8 +185,9 @@ The separate recorded-command lane uses admitted pod routes
 `/api/one/pod/commands/transcriptions` and `/api/one/pod/commands/assess`, with
 hub-owned checkpoint and effect authority. Verify the selected browser transport
 and the serving revision before claiming private spoken-command acceptance.
-Live voice routing for BYOC remains an acceptance gap until its owner-pod
-selection is implemented and demonstrated.
+The writer candidate selects recorded pod commands for BYOC and refuses new
+hub Live sessions for non-Shared or unverified placement. Live private-command
+acceptance remains unverified until the exact revision and pod are exercised.
 
 The workflow definition runs from `main`; application content comes from its
 selected `ref` and exact SHA. Read back serving revisions and traffic after each

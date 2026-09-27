@@ -44,6 +44,7 @@ from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolCon
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 from hushh_mcp.runtime_providers.factory import build_managed_live_client
+from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,31 @@ def _require_enabled() -> OneVoiceLiveConfig:
     return config
 
 
+async def _require_shared_live_hosting(user_id: str) -> None:
+    """A voice credential does not authorize changing compute custody."""
+    try:
+        mode = await get_owner_hosting_mode(user_id)
+    except Exception:
+        mode = "unknown"
+    if mode == "shared":
+        return
+    if mode in {"byoc", "hussh_pods", "pending"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "AGENT_PRIVATE_RUNTIME_REQUIRED",
+                "message": "Use your private agent's command connection for voice.",
+            },
+        )
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "AGENT_HOSTING_UNAVAILABLE",
+            "message": "Your agent hosting could not be verified. Try again shortly.",
+        },
+    )
+
+
 @router.post("/sessions", response_model=VoiceSessionResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def mint_voice_session(
@@ -196,6 +222,7 @@ async def mint_voice_session(
         uuid.UUID(payload.conversation_id)
     except ValueError:
         raise HTTPException(status_code=422, detail={"code": "CONVERSATION_ID_INVALID"}) from None
+    await _require_shared_live_hosting(user_id)
     session_id = uuid.uuid4().hex
     try:
         ticket, expires_at = issue_ticket(
@@ -346,6 +373,13 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     except TicketError as exc:
         await websocket.send_json(protocol.error(str(exc), "Voice ticket was not accepted."))
         await websocket.close(code=protocol.CLOSE_TICKET)
+        return
+
+    try:
+        await _require_shared_live_hosting(claims.user_id)
+    except HTTPException as exc:
+        await websocket.send_json(protocol.error(exc.detail["code"], exc.detail["message"]))
+        await websocket.close(code=protocol.CLOSE_DISABLED)
         return
 
     session = VoiceSession(

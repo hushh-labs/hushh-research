@@ -117,8 +117,13 @@ Created-circle result references are projected only from correlated completed-st
 
 The integrated pod branch uses admitted `/api/one/pod/commands/transcriptions`
 and `/api/one/pod/commands/assess` for bounded private commands. Checkpoints and
-exact effect approval remain hub-owned. Maintained `/api/one/voice/*` Live sessions
-still use the hub provider and global readiness; they do not select an owner's
-BYOC pod. Live readiness must not disable the private command path or imply
-private-pod processing without an owner-aware transport change and live proof.
+exact effect approval remain hub-owned. Microphone selection now combines fresh
+owner hosting with provider readiness: BYOC uses recorded pod commands; confirmed
+Shared accounts can use ready hub Live sessions. Pending, unknown and unsupported
+placement enables neither microphone. Provider-health caching cannot replace a
+fresh hosting observation. Maintained `/api/one/voice/*` rechecks Shared placement
+at ticket issuance and socket admission; a hosting change refuses the attempt
+without automatic replay on another transport. These guards cover new sessions
+and reconnects, not continuous eviction of an already active Shared session.
+Separate live evidence is still required for private-pod voice acceptance.
 The obsolete `/api/one/adk/*` Live endpoints return retirement responses.

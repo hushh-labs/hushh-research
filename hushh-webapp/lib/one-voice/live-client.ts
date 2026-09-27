@@ -159,6 +159,10 @@ export function resolveVoiceSocketBase(): string {
 
 function errorFrameReason(code: string): VoiceUnavailableError["reason"] {
   switch (code) {
+    case "AGENT_PRIVATE_RUNTIME_REQUIRED":
+      return "private_runtime_required";
+    case "AGENT_HOSTING_UNAVAILABLE":
+      return "hosting_unavailable";
     case "ONE_VOICE_LIVE_DISABLED":
       return "disabled";
     case "ONE_VOICE_NOT_CONFIGURED":

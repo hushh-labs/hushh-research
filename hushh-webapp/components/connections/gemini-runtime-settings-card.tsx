@@ -744,7 +744,7 @@ function OwnerRuntimeSettingsCard({
         leading={<GeminiLogo className="h-8 w-8" />}
         title={ownCloudProject ? "Use your pod's AI" : "Use Hussh's AI"}
         description={ownCloudProject
-          ? `Vertex AI in your own project ${ownCloudProject}, on your pod's identity. Typed turns run on your pod; voice still runs on Hussh's hub for now.`
+          ? `Vertex AI in your own project ${ownCloudProject}, on your pod's identity. Typed turns and recorded commands run on your pod. Live conversation is not available on this connection.`
           : "No key needed."}
         // The default we want people to take. Until it is chosen the row says
         // so out loud, so the fast path is the obvious one rather than the one

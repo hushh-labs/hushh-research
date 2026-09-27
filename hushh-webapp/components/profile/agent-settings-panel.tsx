@@ -88,6 +88,7 @@ export function AgentSettingsPanel({
         })
         .unwrap();
       refresh();
+      dispatchFeedStateChanged();
     } catch {
       // The promise toast owns the transient error.
     } finally {
@@ -154,6 +155,7 @@ export function AgentSettingsPanel({
         })
         .unwrap();
       refresh();
+      dispatchFeedStateChanged();
     } catch {
       // The promise toast owns the transient error.
     } finally {

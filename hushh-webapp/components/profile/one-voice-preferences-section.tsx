@@ -129,12 +129,18 @@ export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
   label: string;
   description: string;
 } {
+  if (readiness.status !== "resolved" && readiness.microphoneOwner === "none") {
+    return { status: "unavailable", label: "Unavailable", description: "Your agent connection could not be verified. Check Hosting and try again." };
+  }
   if (readiness.status !== "resolved") {
     return {
       status: "checking",
       label: "Checking",
       description: "Asking the server whether live voice is available.",
     };
+  }
+  if (readiness.microphoneOwner === "pod_commands") {
+    return { status: "ready", label: "Private commands", description: "Recorded commands use your BYOC pod. Its private connection must be available." };
   }
   if (readiness.liveEnabled && readiness.serverStatus === "ready") {
     return {
@@ -145,12 +151,15 @@ export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
         : "Hold Talk to One to speak.",
     };
   }
+  if (readiness.microphoneOwner === "none") {
+    return { status: "unavailable", label: "Unavailable", description: "Voice needs an available agent connection. Check Hosting and try again." };
+  }
   if (readiness.serverStatus === "disabled") {
     return {
       status: "off",
       label: "Off",
       description:
-        "Live voice is turned off for this account. Push-to-talk commands still work.",
+        "Live voice is turned off for this account. Check Hosting for your agent connection.",
     };
   }
   return {
@@ -158,8 +167,8 @@ export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
     label: "Unavailable",
     description:
       readiness.serverStatus === "provider_unavailable"
-        ? "The voice provider can't be reached right now. Push-to-talk commands still work."
-        : "Live voice isn't set up on this server yet. Push-to-talk commands still work.",
+        ? "The voice provider can't be reached right now. Check Hosting for your agent connection."
+        : "Live voice isn't set up on this server yet. Check Hosting for your agent connection.",
   };
 }
 

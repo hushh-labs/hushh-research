@@ -1,5 +1,5 @@
 {
-  "finding_count": 1884,
+  "finding_count": 1885,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -11600,7 +11600,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/top-app-bar.tsx",
       "symbol": null,
-      "value": 1534
+      "value": 1537
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12851,7 +12851,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
       "symbol": null,
-      "value": 992
+      "value": 1016
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13697,7 +13697,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/location-command-provider.tsx",
       "symbol": null,
-      "value": 801
+      "value": 802
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14246,7 +14246,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-voice/live-client.ts",
       "symbol": null,
-      "value": 720
+      "value": 724
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15137,7 +15137,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
       "symbol": null,
-      "value": 633
+      "value": 695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16956,6 +16956,15 @@
       "path": "hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/voice.py",
+      "symbol": null,
+      "value": 520
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -18092,7 +18101,57 @@
         "value": 503
       }
     ],
-    "scope": "Frozen main/ADK plus Files integration after compatibility-preserving extractions; no budget, dependency or import-initialization rules relaxed."
+    "scope": "Frozen main/ADK plus Files integration after compatibility-preserving extractions; no budget, dependency or import-initialization rules relaxed.",
+    "writer_voice_20260926": {
+      "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#compatibility-validation-and-next-stage-guards--2026-09-26",
+      "changes": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/components/app-ui/top-app-bar.tsx||module exceeds the advisory operon budget",
+          "previous_value": 1534,
+          "reason": "Imported main e91b6b56d setup navigation chrome; no new subsystem.",
+          "value": 1537
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/components/connections/gemini-runtime-settings-card.tsx||module exceeds the advisory operon budget",
+          "previous_value": 992,
+          "reason": "Merge preserves owner-generation guards and pod model labels while integrating explicit radio selection and saved-key readiness. 61 focused setup tests passed.",
+          "value": 1016
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/components/agent/location-command-provider.tsx||module exceeds the advisory operon budget",
+          "previous_value": 801,
+          "reason": "One direct capture enabled guard and callback dependency preserve the existing microphone controller.",
+          "value": 802
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/lib/one-voice/live-client.ts||module exceeds the advisory operon budget",
+          "previous_value": 720,
+          "reason": "Two existing error-code mappings preserve structured hosting refusal without transport fallback.",
+          "value": 724
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+          "previous_value": 633,
+          "reason": "Existing fixture gains readiness, failed-key loading and radio-removal coverage without losing owner-switch assertions.",
+          "value": 695
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
+          "previous_value": null,
+          "reason": "Newly accepted module-size debt: owner hosting admission helper plus ticket/socket enforcement belong to this route owner; existing resolver remains placement authority.",
+          "value": 520
+        }
+      ],
+      "integration_revision": "3f8e2d50c17c165c81e1da2c8ca008a99222ca4a",
+      "main_revision": "e91b6b56d",
+      "verification": "Read-only adk_authority_review; focused owner, placement, route and PostgreSQL checks. Full candidate CI required before promotion."
+    }
   },
   "source_base": "7130a45e86290f07dc53dcf89ef0a34e4cd05856"
 }

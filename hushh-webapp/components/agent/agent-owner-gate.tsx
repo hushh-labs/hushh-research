@@ -8,7 +8,7 @@ import { LocationPublisherBridge } from "@/components/location/location-publishe
 import { LocationUpdatesStepBridge } from "@/components/location/location-updates-step-bridge";
 import { RequestReviewStepBridge } from "@/components/connections/request-review-step-bridge";
 import { VoiceSessionProvider } from "@/components/one-voice/voice-session-provider";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
+import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 
 /**
  * Exactly one microphone owner at a time.
@@ -20,9 +20,10 @@ import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
  */
 export function AgentOwnerGate({ children }: { children: ReactNode }) {
   const live = useOneVoiceLiveEnabled();
+  const commands = useOneVoiceCommandsEnabled();
   return (
-    <LocationCommandProvider enabled={!live}>
-      {!live ? <LocationCommandDeviceBridge /> : null}
+    <LocationCommandProvider enabled={commands}>
+      {commands ? <LocationCommandDeviceBridge /> : null}
       <VoiceSessionProvider enabled={live}>
         {live ? (
           <>
