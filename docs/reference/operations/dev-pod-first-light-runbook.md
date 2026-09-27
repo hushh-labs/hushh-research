@@ -57,6 +57,26 @@ service version without pod installation controls. The authored dev release and
 its source tests do not establish a completed live update rehearsal or authorize
 publication through the production stable channel.
 
+### Recovering a denied Files queue creation
+
+For a blocked Files activation, retain its existing approval, lease, successful
+resource receipts and failed observation. A prior update's acknowledgement cannot
+prove this operation. The maintenance-only `upgrade_pod` argument
+`resume_files_queue_operation` admits one continuation of the exact recorded
+queue-create HTTP 403 after fresh permission, queue-absence, worker-identity and
+unchanged-service checks. Use the already approved immutable target and operation;
+do not publish another approval, clear the lease or reset owner resources.
+
+The registry claims continuation by strict comparison with the observed metadata.
+Only the unfinished resource suffix runs, followed by the normal authenticated
+drain and image replacement. Configuration refusal remains visibly blocked and
+retains the reservation. Unknown provider outcomes or a second denial require
+investigation; they do not authorize replay. Queue permission checks allow a
+bounded propagation wait before the durable pre-write authority checkpoint.
+Verify installed digest, encrypted continuity and the exact completion receipt
+before recording acceptance. This source recovery path does not itself prove a
+successful live continuation.
+
 ### Controlled owner-direct access
 
 Keep an existing BYOC pod private while applying its owner-approved image update.

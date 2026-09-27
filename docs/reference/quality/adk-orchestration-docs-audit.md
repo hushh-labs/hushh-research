@@ -2329,3 +2329,39 @@ The existing owner-bound route test now exercises the actual service projection;
 its datetime case failed on the previous source. All 69 affected PKM route and
 trusted-device tests pass. This source correction still requires deployment and
 live synchronization readback; it does not establish a Puppy grant.
+
+### Dev readback and bounded Files continuation — 2026-09-27
+
+Canonical CI `36335189892` passed for `8ef90615bb`; governed dev deployment
+`36338207726` then completed successfully. Readback confirmed backend
+`consent-protocol-00108-s9q` and frontend `hushh-webapp-00078-ztt` serving that
+revision. The full deployment took 18m59s, versus the preceding 21m39s full run.
+This is one measured comparison with ordinary provider/cache variability.
+
+The canonical reviewer's authenticated device-sync read returned HTTP 200 with
+98 events and valid timestamp strings. Reviewer authentication used the dev
+Secret Manager configuration in memory; a stale local reviewer overlay had failed
+before that read. This confirms the deployed serialization fix, not personal
+Puppy grant or relay admission.
+
+The Files recovery change adds one explicit maintenance continuation for an exact
+recorded queue-create 403. It preserves the original approval, lease, failed
+observation and completed resource prefix. Provider reads must establish effective
+permissions, queue absence, original worker identity and unchanged service. A
+strict registry comparison claims the retry; normal drain, replacement and digest
+verification remain authoritative. A bounded read-only IAM propagation wait runs
+before the durable pre-write checkpoint. No automatic resource replay or second
+approval is introduced.
+
+The authority review corrected post-claim snapshot adoption and a configuration
+refusal that left an installing status. A negative control reproduced both
+pod-key and liveness races on the old adoption behavior. Focused source checks
+cover continuation, refusal, retained receipts and real PostgreSQL fencing.
+The live approved Files operation remains blocked until this verified source is
+used for its continuation; no new completion receipt is claimed here.
+
+The new recovery test family has one cohesive owner. Eleven existing size findings
+in provisioning, the GCP adapter, bootstrap executor and image-upgrade tests were
+individually reviewed; only their measured values changed in the debt baseline.
+The new recovery module remains bounded. No threshold or unrelated baseline
+entry changed, and no orchestration boundary was split merely for line counts.

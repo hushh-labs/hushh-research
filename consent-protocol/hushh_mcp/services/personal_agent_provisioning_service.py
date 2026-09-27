@@ -1612,7 +1612,13 @@ class PersonalAgentProvisioningService:
             "image": running_image({"backend_metadata": updated}),
         }
 
-    async def upgrade_pod(self, *, user_id: str, current_image: str) -> dict[str, Any]:
+    async def upgrade_pod(
+        self,
+        *,
+        user_id: str,
+        current_image: str,
+        resume_files_queue_operation: str | None = None,
+    ) -> dict[str, Any]:
         """Move one person's running pod onto ``current_image``, keeping who it is.
 
         ``provision`` heals to the digest a pod already runs -- correct for a heal,
@@ -1749,7 +1755,20 @@ class PersonalAgentProvisioningService:
             ingress="direct" if metadata.get("ingress") == "direct" else None,
         )
         backend = self._backend_for(spec)
-        if held is not None:
+        if resume_files_queue_operation is not None:
+            if held is None or set_by_newer_hub(row) or current_image != spec.upgrade_target_image:
+                raise ValueError("Files continuation requires its current held operation")
+            from hushh_mcp.services.pod_files.queue_recovery import claim_queue_retry
+
+            row, prefix = await claim_queue_retry(
+                registry=self._registry,
+                row=row,
+                spec=spec,
+                backend=backend,
+                operation=resume_files_queue_operation,
+            )
+            spec = replace(spec, files_upgrade_completed_steps=prefix)
+        elif held is not None:
             return await self._reconcile_image_upgrade(
                 user_id=user_id, row=row, spec=spec, backend=backend, lease=held
             )
@@ -1805,7 +1824,11 @@ class PersonalAgentProvisioningService:
         claim = getattr(self._registry, "claim_image_upgrade", None)
         if not callable(claim):
             raise PersonalAgentUpgradeUnsupportedError("registry cannot fence image upgrades")
-        lease = await claim(user_id=user_id, target_image=current_image, observed=row)
+        lease = (
+            held
+            if resume_files_queue_operation is not None
+            else await claim(user_id=user_id, target_image=current_image, observed=row)
+        )
         if not isinstance(lease, str) or not lease:
             return {
                 "hushhId": hushh_id,
@@ -1823,6 +1846,12 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("image upgrade authority changed before execution")
         claimed_binding = upgrade_host_snapshot(row)
+        if resume_files_queue_operation is not None and (
+            (row.get("backend_metadata") or {}).get("upgradeApproval", {}).get("operationId")
+            != resume_files_queue_operation
+            or not upgrade_approval_matches(row, spec.upgrade_target_image)
+        ):
+            raise RuntimeError("Files recovery approval changed before execution")
         if (
             requested_binding is None
             or claimed_binding is None
@@ -1964,6 +1993,8 @@ class PersonalAgentProvisioningService:
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
         if set_by_newer_hub(row):
+            if resume_files_queue_operation is not None:
+                raise RuntimeError("Files recovery executor was superseded; reservation retained")
             # Re-judged on the row AS IT IS AFTER THE CLAIM, for the same reason the
             # cooldown is. `list_upgrade_candidates` checked this against a row read
             # before `resolve_user_cloud` and before the lease; a newer hub revision
@@ -1982,7 +2013,7 @@ class PersonalAgentProvisioningService:
                 "image": previous,
                 "previousImage": previous,
             }
-        if _attempted_recently(old_meta.get("upgrade")):
+        if resume_files_queue_operation is None and _attempted_recently(old_meta.get("upgrade")):
             # Listed before another worker's attempt failed; do not stack a second
             # attempt on the same failure within the cooldown.
             await publish_upgrade(backend_metadata=old_meta)
@@ -2029,17 +2060,24 @@ class PersonalAgentProvisioningService:
             # mutation. It is proof of no attempt, unlike a provider timeout.
             if files_capability is None:
                 raise
+            recovering = resume_files_queue_operation is not None
+            state = "blocked" if recovering else "failed"
             rejected = {
                 **claimed_metadata,
                 "upgradeApproval": {
                     **claimed_metadata["upgradeApproval"],
-                    "status": "failed",
-                    "operationState": "failed",
+                    "status": state,
+                    "operationState": state,
                     "failureCode": "FILES_PLAN_CHANGED",
                 },
             }
-            await publish_upgrade(backend_metadata=rejected)
+            await publish_upgrade(backend_metadata=rejected, retain_lease=recovering)
+            if recovering:
+                raise RuntimeError(
+                    "Files recovery configuration changed; reservation retained"
+                ) from None
             raise
+
         except Exception as exc:
             marker = old_meta.get("upgrade") or {}
             attempts = (

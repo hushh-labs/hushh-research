@@ -160,8 +160,11 @@ The branch-owned backend build now overlaps runtime IAM and its isolated model
 probe with pod image publication. Deployment joins verified release metadata and
 the model probe before creating its candidate revision. Docker builds remain
 serial because they share a builder and contracts directory. This preserves the
-migration, provenance, health and promotion gates. The duration improvement needs
-a subsequent live run; these source dependencies do not establish a measured saving.
+migration, provenance, health and promotion gates. Governed run `36338207726`
+completed in 18m59s for backend, frontend and a pod image, versus the preceding
+21m39s run. Both services were read back serving `8ef90615bb`. This single-run
+2m40s improvement includes normal cache/provider variability; it is not a fixed
+deployment-time guarantee.
 
 ## GCP-native auto-deploy (Cloud Build triggers)
 

@@ -86,7 +86,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "PersonalAgentProvisioningService",
-      "value": 3142
+      "value": 3180
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -158,7 +158,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "UserGcpBackend",
-      "value": 1647
+      "value": 1649
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -266,7 +266,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_bootstrap.py",
       "symbol": "UserGcpBootstrap",
-      "value": 1145
+      "value": 1156
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1589,7 +1589,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "upgrade_pod",
-      "value": 569
+      "value": 607
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2291,7 +2291,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "upgrade",
-      "value": 266
+      "value": 268
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2471,7 +2471,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_bootstrap.py",
       "symbol": "apply",
-      "value": 241
+      "value": 252
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6998,7 +6998,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_image_upgrade_path.py",
       "symbol": "test_files_activation_replaces_same_image_only_after_bound_checkpoints",
-      "value": 102
+      "value": 121
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10949,7 +10949,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 3714
+      "value": 3752
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11498,7 +11498,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": null,
-      "value": 1913
+      "value": 1915
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11570,7 +11570,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_image_upgrade_path.py",
       "symbol": null,
-      "value": 1812
+      "value": 1832
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11696,7 +11696,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_bootstrap.py",
       "symbol": null,
-      "value": 1666
+      "value": 1677
     },
     {
       "detail": "module exceeds the advisory operon budget",

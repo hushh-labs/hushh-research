@@ -798,6 +798,7 @@ class UserGcpBootstrap:
         dry_run: bool = True,
         on_step: Any = None,
         checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        completed_prefix: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Create the plan's resources. ``dry_run`` is the default on purpose.
 
@@ -837,7 +838,17 @@ class UserGcpBootstrap:
                 "mint_bootstrap_token. It will not fall back to hushh's own identity."
             )
 
-        results: list[dict[str, Any]] = []
+        from copy import deepcopy
+
+        results: list[dict[str, Any]] = deepcopy(completed_prefix or [])
+        if results and (
+            checkpoint is None
+            or len(results) >= len(calls)
+            or any(result.get("ok") is not True for result in results)
+            or [result.get("step") for result in results]
+            != [call["step"] for call in calls[: len(results)]]
+        ):
+            raise BootstrapError("Bootstrap continuation requires a verified successful prefix")
 
         def _checkpoint(phase: str, step: str) -> None:
             if checkpoint is None:
@@ -866,7 +877,7 @@ class UserGcpBootstrap:
 
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
         unmet: set[str] = set()
-        for index, call in enumerate(calls):
+        for index, call in enumerate(calls[len(results) :], start=len(results)):
             # A step whose prerequisite failed has nothing to say about itself. Running it
             # anyway produces a second error message for a cause already reported once --
             # which is how the first live run turned one missing IAM binding into three

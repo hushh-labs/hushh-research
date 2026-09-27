@@ -89,6 +89,10 @@ class PodSpec:
     )
     # Present only for a separately approved Files resource/configuration delta.
     files_upgrade_plan: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
+    # Only a fenced maintenance recovery may supply already-acknowledged steps.
+    files_upgrade_completed_steps: Optional[list[dict[str, Any]]] = dataclass_field(
+        default=None, repr=False
+    )
     on_files_upgrade_checkpoint: Optional[Callable[[str, str, list[dict]], None]] = dataclass_field(
         default=None, repr=False, compare=False
     )

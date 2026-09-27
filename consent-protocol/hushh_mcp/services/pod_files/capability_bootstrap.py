@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -109,15 +110,49 @@ class FilesCapabilityBootstrap(UserGcpBootstrap):
         ):
             raise BootstrapError("Files bucket custody changed")
 
-    def apply_delta(self, *, checkpoint: Callable[[str, str, list[dict[str, Any]]], None]) -> dict:
+    def apply_delta(
+        self,
+        *,
+        checkpoint: Callable[[str, str, list[dict[str, Any]]], None],
+        completed_prefix: list[dict[str, Any]] | None = None,
+    ) -> dict:
         if not callable(checkpoint) or not self._token:
             raise BootstrapError("Files activation requires durable authority checkpoints")
         self.verify_existing_bucket()
+
+        def checkpoint_after_permissions(phase: str, step: str, completed: list[dict]) -> None:
+            if phase == "intent" and step == "files_queue":
+                self.wait_for_queue_permissions()
+            # Revalidate durable authority after waiting and before the write.
+            checkpoint(phase, step, completed)
+
         outcome = self.apply(
-            self._capability.substrate_plan(), dry_run=False, checkpoint=checkpoint
+            self._capability.substrate_plan(),
+            dry_run=False,
+            checkpoint=checkpoint_after_permissions,
+            completed_prefix=completed_prefix,
         )
         if outcome.get("ok") is not True:
             # Qualified intent/results have already been retained by checkpoint.
             # Failed/unknown provider work requires reconciliation, never replay.
             raise BootstrapError("Files activation requires reconciliation")
         return outcome
+
+    def wait_for_queue_permissions(self) -> None:
+        """Allow a bounded IAM propagation window without replaying queue writes."""
+        required = {"cloudtasks.queues.create", "cloudtasks.queues.get"}
+        for attempt in range(7):
+            response = self._session.post(
+                f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}:testIamPermissions",
+                headers={"Authorization": f"Bearer {self._token}"},
+                json={"permissions": sorted(required)},
+                timeout=10,
+                allow_redirects=False,
+            )
+            if response.status_code != 200:
+                raise BootstrapError("Files queue permissions cannot be verified")
+            if required <= set(response.json().get("permissions", [])):
+                return
+            if attempt < 6:
+                time.sleep(5)
+        raise BootstrapError("Files queue permissions are not effective yet")

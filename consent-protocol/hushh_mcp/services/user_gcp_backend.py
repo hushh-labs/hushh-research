@@ -1653,7 +1653,9 @@ class UserGcpBackend:
                 )
                 bootstrap = FilesCapabilityBootstrap(capability=files_capability, token=token)
                 await asyncio.to_thread(
-                    bootstrap.apply_delta, checkpoint=spec.on_files_upgrade_checkpoint
+                    bootstrap.apply_delta,
+                    checkpoint=spec.on_files_upgrade_checkpoint,
+                    completed_prefix=spec.files_upgrade_completed_steps,
                 )
                 # Re-observe immediately before replacement; resource provisioning
                 # does not authorize overwriting an independently edited service.

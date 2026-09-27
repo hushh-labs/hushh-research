@@ -218,8 +218,9 @@ def _env_of(body: dict) -> dict[str, str]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("configuration_changed", [False, True])
+@pytest.mark.parametrize("resume_queue", [False, True])
 async def test_files_activation_replaces_same_image_only_after_bound_checkpoints(
-    monkeypatch, configuration_changed
+    monkeypatch, configuration_changed, resume_queue
 ):
     from unittest.mock import Mock
 
@@ -244,14 +245,28 @@ async def test_files_activation_replaces_same_image_only_after_bound_checkpoints
         original_inventory=row["backend_metadata"]["substrateReceipt"],
     )
 
+    prefix = []
+    if resume_queue:
+        prefix = [{"step": call["step"], "ok": True, "status": 200} for call in state.calls[:5]]
+        state.previous = {
+            "version": 1,
+            "planDigest": plan.digest,
+            "operationId": state.operation_id,
+            "attemptId": state.attempt_id,
+            "phase": "retry_authorized",
+            "step": "files_queue",
+            "completed": prefix,
+            "recovery": {"reason": "queue_create_denied"},
+        }
+
     def persist(phase, step, completed):
         checkpoint, _ = state.prepare(phase, step, completed)
         state.acknowledge(checkpoint)
         events.append((phase, step))
 
-    def apply_delta(self, *, checkpoint):
-        completed = []
-        for call in self.plan_calls(self._capability.substrate_plan()):
+    def apply_delta(self, *, checkpoint, completed_prefix=None):
+        completed = list(completed_prefix or [])
+        for call in self.plan_calls(self._capability.substrate_plan())[len(completed) :]:
             checkpoint("intent", call["step"], completed)
             completed.append({"step": call["step"], "status": 200, "ok": True})
             checkpoint("observed", call["step"], completed)
@@ -294,6 +309,7 @@ async def test_files_activation_replaces_same_image_only_after_bound_checkpoints
         upgrade_attempt_id="b" * 64,
         files_upgrade_plan=plan.model_dump(),
         on_files_upgrade_checkpoint=persist,
+        files_upgrade_completed_steps=prefix or None,
         on_upgrade_ack=receipts.append,
     )
     if configuration_changed:
@@ -305,6 +321,10 @@ async def test_files_activation_replaces_same_image_only_after_bound_checkpoints
         assert not events and not run.replaced
         return
     result = await backend.upgrade(spec)
+    handoff.prepare_and_wait.assert_called_once()
+    if resume_queue:
+        assert events[0] == ("intent", "files_queue")
+        assert not any(step in {c["step"] for c in state.calls[:5]} for _, step in events)
     assert len(run.replaced) == 1 and not run.created
     assert result.backend_metadata["filesCapability"] == {
         "planDigest": plan.digest,

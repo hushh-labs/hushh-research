@@ -102,8 +102,15 @@ class FilesUpgradeCheckpoint:
                 raise ValueError("Files bootstrap has no acknowledged prefix")
             if count >= len(self.calls) or self.calls[count]["step"] != step:
                 raise ValueError("Files bootstrap step is outside the approved sequence")
+            retry = bool(
+                previous
+                and previous.get("phase") == "retry_authorized"
+                and previous.get("recovery", {}).get("reason") == "queue_create_denied"
+                and step == "files_queue"
+                and previous.get("step") == step
+            )
             if previous is not None and (
-                previous["phase"] != "observed"
+                (previous["phase"] != "observed" and not retry)
                 or previous["completed"] != completed
                 or completed[-1].get("ok") is not True
             ):
@@ -137,6 +144,8 @@ class FilesUpgradeCheckpoint:
             "step": step,
             "completed": deepcopy(completed),
         }
+        if previous and previous.get("recovery"):
+            checkpoint["recovery"] = deepcopy(previous["recovery"])
         inventory = extend_inventory(self.original, self.plan, completed)
         if (
             phase == "observed"
