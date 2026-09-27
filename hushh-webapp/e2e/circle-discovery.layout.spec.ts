@@ -499,9 +499,12 @@ for (const viewport of [
         visibleMaskProbe.remove();
         return result;
       });
-    const routeTitle = (await page.getByRole("heading", { name: "Connect" }).boundingBox())!;
+    // The shared top bar owns the single "Connect" title, as on Feed (this
+    // fixture renders the page body only; connect-page-layout.contract.test
+    // guards the top-bar title). The body repeats no heading, so the tab row
+    // is the first thing to clear.
+    await expect(page.getByRole("heading", { name: "Connect" })).toHaveCount(0);
     const segmentedControl = (await page.getByText("Connections · Circles").boundingBox())!;
-    expect(routeTitle.y).toBeGreaterThanOrEqual(topClearance.visibleMask);
     expect(segmentedControl.y).toBeGreaterThanOrEqual(topClearance.visibleMask);
     expect(topClearance.spacer).toBeGreaterThanOrEqual(topClearance.visibleMask);
     expect(topClearance.spacer).toBeLessThanOrEqual(topClearance.sharedOffset);

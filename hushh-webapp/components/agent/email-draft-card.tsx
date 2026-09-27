@@ -54,6 +54,8 @@ type EmailDraftCardProps = {
    * so a follow-up chat turn can revise it. Observing only; never sends.
    */
   onDraftChange?: (draft: EmailDraft) => void;
+  /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
+  onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -84,6 +86,7 @@ export function EmailDraftCard({
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
   onDraftChange,
+  onOpenConnections,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -640,6 +643,22 @@ export function EmailDraftCard({
                   <Link className="font-medium underline" href="/one/gmail">
                     Reconnect Mail
                   </Link>
+                ) : null}
+                {error.needsGmailConnect ? (
+                  onOpenConnections ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-connect-gmail"
+                      onClick={(event) => onOpenConnections("gmail", event.currentTarget)}
+                    >
+                      Connect Gmail
+                    </button>
+                  ) : (
+                    <Link className="font-medium underline" href="/one/gmail">
+                      Connect Gmail
+                    </Link>
+                  )
                 ) : null}
               </span>
               {autoDraft && !sourceBoundReply ? (

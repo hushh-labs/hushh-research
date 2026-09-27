@@ -9,6 +9,10 @@ import {
   setActiveStatementSnapshot,
 } from "@/lib/kai/brokerage/financial-sources";
 import { resolvePreferredPortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
+import {
+  computeStatementImportId,
+  upsertStatementSnapshot,
+} from "@/lib/kai/brokerage/statement-import-identity";
 import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
 
 import { FIRST_PLATYPUS, NOW, firstPlatypusSnapshot } from "../lib/plaid-vault/fixtures";
@@ -185,5 +189,33 @@ describe("financial statement snapshots", () => {
         hasPlaidPortfolio: true,
       })
     ).toBe("plaid");
+  });
+
+  it("gives a re-saved statement the same id and replaces its snapshot", async () => {
+    const statement = {
+      account_info: {
+        brokerage: "Charles Schwab",
+        account_number: "XXXX-1234",
+        statement_period_end: "2026-08-31",
+      },
+      holdings: [{ symbol: "AAPL", quantity: 10, market_value: 2000 }],
+    };
+    const id = await computeStatementImportId(statement);
+    // An edited review of the same statement is still that statement.
+    const edited = await computeStatementImportId({ ...statement, holdings: [] });
+    expect(edited).toBe(id);
+
+    const once = upsertStatementSnapshot([], { id, imported_at: "a" });
+    const twice = upsertStatementSnapshot(once, { id, imported_at: "b" });
+    expect(twice).toEqual([{ id, imported_at: "b" }]);
+
+    // Negative control: without an account number or period, holdings decide,
+    // so two unlabeled statements never collapse into one.
+    const unlabeledA = await computeStatementImportId({ holdings: statement.holdings });
+    const unlabeledB = await computeStatementImportId({
+      holdings: [{ symbol: "MSFT", quantity: 1, market_value: 400 }],
+    });
+    expect(unlabeledA).not.toBe(unlabeledB);
+    expect(upsertStatementSnapshot(twice, { id: unlabeledA })).toHaveLength(2);
   });
 });

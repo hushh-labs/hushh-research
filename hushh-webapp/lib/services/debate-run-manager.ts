@@ -8,10 +8,25 @@ import {
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
 import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
-import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import {
+  getLocalItem,
+  getSessionItem,
+  removeLocalItem,
+  setLocalItem,
+  setSessionItem,
+} from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
+/**
+ * Where the running debate can be found again after the page's session
+ * storage is gone: a native WebView reload (native session keys are purged on
+ * every boot), a relaunched app, or a reopened tab. Opaque identifiers only;
+ * the debate itself is never stored, it is replayed by the backend. Kept only
+ * while a run is live and bounded by a TTL; the backend stays the authority.
+ */
+const RUN_REATTACH_POINTER_KEY = "kai_debate_reattach_v1";
+const RUN_REATTACH_POINTER_TTL_MS = 30 * 60 * 1000;
 const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
 const STREAM_RECONNECT_MESSAGE =
   "Live updates paused. Reopen Analysis to reconnect.";
@@ -56,6 +71,36 @@ interface PersistedDebateRunManagerState {
   version: 1;
   debateSessionId: string;
   tasks: DebateRunTask[];
+}
+
+interface RunReattachPointer {
+  version: 1;
+  debateSessionId: string;
+  runId: string;
+  expiresAt: number;
+}
+
+function readReattachPointer(): RunReattachPointer | null {
+  const raw = getLocalItem(RUN_REATTACH_POINTER_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RunReattachPointer>;
+    if (
+      parsed.version !== 1 ||
+      typeof parsed.debateSessionId !== "string" ||
+      !parsed.debateSessionId.trim() ||
+      typeof parsed.runId !== "string" ||
+      typeof parsed.expiresAt !== "number" ||
+      parsed.expiresAt <= Date.now()
+    ) {
+      removeLocalItem(RUN_REATTACH_POINTER_KEY);
+      return null;
+    }
+    return parsed as RunReattachPointer;
+  } catch {
+    removeLocalItem(RUN_REATTACH_POINTER_KEY);
+    return null;
+  }
 }
 
 interface RunSecrets {
@@ -299,6 +344,7 @@ class DebateRunManager {
   private streamControllers = new Map<string, AbortController>();
   private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
   private debateSessionId: string;
+  private reattachPointerSnapshot: string | null = null;
 
   constructor() {
     this.debateSessionId = this.loadOrCreateSessionId();
@@ -310,7 +356,10 @@ class DebateRunManager {
     if (cached && cached.trim().length > 0) {
       return cached.trim();
     }
-    const next = createSessionId();
+    // Session storage is gone but a debate may still be running: rejoin its
+    // session so the backend's active-run lookup and start lock find it.
+    const pointer = readReattachPointer();
+    const next = pointer?.debateSessionId.trim() || createSessionId();
     setSessionItem(RUN_MANAGER_SESSION_KEY, next);
     return next;
   }
@@ -352,6 +401,48 @@ class DebateRunManager {
       tasks: Array.from(this.tasks.values()),
     };
     setSessionItem(RUN_MANAGER_STORAGE_KEY, JSON.stringify(payload));
+    this.syncReattachPointer();
+  }
+
+  private syncReattachPointer(): void {
+    const activeRunId = this.getActiveRunId();
+    const activeTask = activeRunId ? this.tasks.get(activeRunId) : undefined;
+    let next: string | null = null;
+    if (activeTask) {
+      const startedAt = Date.parse(activeTask.startedAt);
+      const pointer: RunReattachPointer = {
+        version: 1,
+        debateSessionId: this.debateSessionId,
+        runId: activeTask.runId,
+        expiresAt:
+          (Number.isFinite(startedAt) ? startedAt : Date.now()) +
+          RUN_REATTACH_POINTER_TTL_MS,
+      };
+      next = JSON.stringify(pointer);
+    }
+    // persist() runs on every streamed event; write only when the pointer
+    // actually changes.
+    if (next === this.reattachPointerSnapshot) return;
+    this.reattachPointerSnapshot = next;
+    if (next) {
+      setLocalItem(RUN_REATTACH_POINTER_KEY, next);
+    } else {
+      removeLocalItem(RUN_REATTACH_POINTER_KEY);
+    }
+  }
+
+  /**
+   * Highest event sequence this page has received for the run. It is the
+   * resume point, never the persisted or server `latest_cursor`: after a
+   * reload the page holds no events, and resuming past them lost the whole
+   * debate so far.
+   */
+  private deliveredCursor(runId: string): number {
+    let delivered = 0;
+    for (const seq of this.runSeenSeq.get(runId) ?? []) {
+      if (seq > delivered) delivered = seq;
+    }
+    return delivered;
   }
 
   private getActiveRunId(): string | null {
@@ -669,7 +760,6 @@ class DebateRunManager {
       userId,
       vaultOwnerToken,
       vaultKey,
-      cursor: 0,
       resetBuffer: this.getOrCreateBuffer(task.runId).length === 0,
     });
     return this.getTask(task.runId);
@@ -756,7 +846,6 @@ class DebateRunManager {
           userId,
           vaultOwnerToken,
           vaultKey,
-          cursor: 0,
           resetBuffer:
             this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
         });
@@ -792,7 +881,6 @@ class DebateRunManager {
         userId,
         vaultOwnerToken,
         vaultKey,
-        cursor: 0,
         resetBuffer: true,
       });
       return { kind: "blocked", task };
@@ -890,7 +978,6 @@ class DebateRunManager {
             userId: params.userId,
             vaultOwnerToken: params.vaultOwnerToken,
             vaultKey: params.vaultKey,
-            cursor: current.latestCursor,
             resetBuffer: false,
           });
         })
@@ -908,7 +995,6 @@ class DebateRunManager {
       userId: string;
       vaultOwnerToken: string;
       vaultKey?: string;
-      cursor: number;
       resetBuffer: boolean;
     },
   ): Promise<void> {
@@ -940,9 +1026,8 @@ class DebateRunManager {
         const response = await ApiService.streamKaiDebateRun({
           userId: params.userId,
           runId,
-          // Resume only after the latest canonical event already delivered to
-          // this client, even when the caller supplied an older cursor.
-          resumeCursor: Math.max(params.cursor, currentTask.latestCursor),
+          // Resume only after the latest canonical event this page holds.
+          resumeCursor: this.deliveredCursor(runId),
           vaultOwnerToken: params.vaultOwnerToken,
           signal: controller.signal,
         });

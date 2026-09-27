@@ -89,7 +89,7 @@ describe("Profile canonical page layout", () => {
     );
   });
 
-  it("keeps the Profile menu on the same colored tile and type system as Account", () => {
+  it("draws the Profile menu icons the way /one draws its launcher icons", () => {
     const workspace = readFileSync(
       join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
@@ -100,19 +100,21 @@ describe("Profile canonical page layout", () => {
       workspace.indexOf("</AppPageContentRegion>"),
     );
 
-    for (const tone of ["blue", "purple", "green", "indigo", "orange", "red"]) {
-      expect(homeMenu).toContain(`iconTone="${tone}"`);
-    }
-    expect(homeMenu).not.toContain('iconTone="capability"');
+    // Founder direction, 2026-09-27: the authored duotone glyph in its own
+    // vivid colour with no tile behind it, as on /one. A tile tone would
+    // paint a chip and force the glyph white.
+    const tones = [...homeMenu.matchAll(/iconTone="([a-z]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(tones.length).toBeGreaterThanOrEqual(8);
+    expect(new Set(tones)).toEqual(new Set(["capability"]));
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(
       /\.profile-home-content \[data-slot="settings-row-title"\] \{[\s\S]*?font-size: var\(--ios-account-row-title-size\) !important;[\s\S]*?font-weight: var\(--ios-account-regular-weight\) !important;[\s\S]*?letter-spacing: var\(--ios-account-row-title-tracking\) !important;/,
     );
+    // The glyph is the /one list-row size (AgentSectionIcon "roster": h-7 w-7).
     expect(css).toMatch(
-      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="blue"\][\s\S]*?background: var\(--ios-account-accent\) !important;/,
-    );
-    expect(css).toMatch(
-      /\.profile-home-content\s+\[data-slot="settings-row-icon"\]\[data-icon-tone="indigo"\][\s\S]*?background: var\(--app-indigo\) !important;/,
+      /\.profile-home-content \[data-icon-tone="capability"\] svg,[\s\S]*?height: 28px !important;\s+width: 28px !important;/,
     );
   });
   it("keeps account identity in a compact leading-aligned header row", () => {

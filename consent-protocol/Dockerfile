@@ -55,6 +55,14 @@ ENV PATH=/usr/local/bin:$PATH
 
 # Copy application code
 COPY . .
+
+# The generated action catalog is static per image, so its passage vectors are
+# computed here, once, instead of by every instance and worker at startup (about
+# 70s per instance on Cloud Run, 2026-09-27). Runs the runtime's own code against
+# the exact tree this image serves, offline, with the baked model. A missing or
+# mismatched file at runtime only means the catalog is embedded live.
+RUN HF_HUB_OFFLINE=1 python -m scripts.ops.bake_action_catalog_vectors
+
 RUN python -m compileall -q .
 
 # Run as a non-root, least-privilege user (FedRAMP CM-6 / SC-2). The app writes
@@ -68,4 +76,7 @@ EXPOSE 8080
 
 # Run FastAPI with uvicornWorker via gunicorn
 # Cloud Run sets PORT env var, default to 8080
-CMD ["sh", "-c", "exec gunicorn server:app -w 2 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]
+# Cloud Run sends SIGTERM and kills the container 10 s later. Keep gunicorn's
+# graceful shutdown (default 30 s) inside that window so workers stop on their
+# own terms: open agent-chat streams get their terminal event first.
+CMD ["sh", "-c", "exec gunicorn server:app -w 2 -c gunicorn.conf.py -k uvicorn.workers.UvicornWorker --timeout 120 --graceful-timeout 8 -b 0.0.0.0:${PORT:-8080}"]

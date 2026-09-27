@@ -37,6 +37,8 @@ import {
 import {
   addToPKM,
   clearAgentPkmContext,
+  describeAgentPkmCardDestination,
+  formatAgentPkmCardDestination,
   getIgnoredPkmCards,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -115,6 +117,32 @@ function cardScopePath(card: PkmMemoryCard): string {
 
 function cardImpactKey(card: PkmMemoryCard): string {
   return `${card.domain}::${cardScopePath(card)}`;
+}
+
+/** The reviewed card's destination, then how it is shared. */
+function CaptureCardDescription({
+  card,
+  domainTitles,
+}: {
+  card: AgentPkmPreviewCard;
+  domainTitles: ReadonlyMap<string, string>;
+}) {
+  const destination = describeAgentPkmCardDestination(card, domainTitles);
+  const sharing = card.sharing_impact?.active_recipient_count
+    ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
+    : "This stays private unless you choose to share it later.";
+  return (
+    <>
+      <span
+        className="block font-medium text-foreground"
+        data-testid="memory-capture-destination"
+        data-destination-kind={destination.kind}
+      >
+        {formatAgentPkmCardDestination(destination)}
+      </span>
+      {destination.kind === "not_saved" ? null : <span className="block">{sharing}</span>}
+    </>
+  );
 }
 
 export function PkmNaturalPanel({
@@ -398,6 +426,12 @@ export function PkmNaturalPanel({
 
   const visibleMetadataDomains = useMemo(
     () => (metadata?.domains || []).filter(isConsumerBrowsablePkmDomain),
+    [metadata?.domains]
+  );
+  // Every known domain, not only the browsable ones, so a proposed save into
+  // a domain Memory keeps off its list still names it the way the app does.
+  const domainTitles = useMemo(
+    () => new Map((metadata?.domains || []).map((domain) => [domain.key, domain.displayName] as const)),
     [metadata?.domains]
   );
 
@@ -1529,9 +1563,7 @@ export function PkmNaturalPanel({
                   <SettingsRow
                     key={card.card_id}
                     title={card.source_text?.trim() || "Proposed saved detail"}
-                    description={card.sharing_impact?.active_recipient_count
-                      ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
-                      : "This stays private unless you choose to share it later."}
+                    description={<CaptureCardDescription card={card} domainTitles={domainTitles} />}
                   />
                 ))}
                 {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}

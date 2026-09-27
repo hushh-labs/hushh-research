@@ -240,7 +240,9 @@ committed requirements. The non-negotiable items are:
    consent** items from the audit (these gate a truthful store listing).
 3. App Store metadata, screenshots, age rating, pricing/availability, agreements, release notes,
    support/privacy URLs, and the exact submitted build have each been reviewed against the live
-   product and current legal/privacy claims.
+   product and current legal/privacy claims. The privacy policy URL is
+   `https://one.hushh.ai/privacy` and the terms URL is `https://one.hushh.ai/terms`, both rendered
+   from `hushh-webapp/lib/legal/legal-documents.ts`.
 
 Prepare-only mode (the default) requires none of this — it is safe to run repeatedly to stage a
 build, set its release notes, and attach it for review.

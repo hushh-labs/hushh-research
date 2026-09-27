@@ -55,12 +55,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         super().__init__(db)
         self.search_cipher = cipher or DriveSharingCipher()
 
-    def _access(self, connection, user_id, generation=None):
+    def _access(self, connection, user_id, generation=None, *, read_only=False):
         if not connector_feature_enabled("google_drive_chat_reads", user_id):
             raise DriveReadError("connector_unavailable")
         # This job's explicit consent authorizes metadata collection only.
         # Never toggle or borrow the broader background-preparation preference.
-        return self.live_active(connection, user_id=user_id, generation=generation)
+        return self.live_active(
+            connection, user_id=user_id, generation=generation, read_only=read_only
+        )
 
     def _seal(self, value, user_id, resource_id, purpose):
         return json.dumps(
@@ -184,21 +186,25 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    # status() and list() back GET routes and must never write. They used to
+    # take the connection lock, and _lock() upserts a placeholder connection
+    # row: in an environment without a google_drive catalog row (production)
+    # that insert violated user_external_connector_connections_connector_id_fkey
+    # and every GET returned 500. A single-statement read needs no row lock,
+    # and expired rows are already excluded by the query, so neither the lock
+    # nor the opportunistic purge belongs on this path. Retention stays on the
+    # worker (due) and the write paths (create, existing, stop). results()
+    # is a GET too and reads the connection row FOR SHARE instead of _lock().
     async def status(self, *, user_id, job_id):
         identity = _identity(job_id)
 
         def operation(connection):
-            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             return view(self._owned(connection, user_id, identity))
 
-        await self.purge()
         return await self._transaction(operation)
 
     async def list(self, *, user_id):
-        await self.purge()
-
         def operation(connection):
-            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             rows = connection.execute(
                 text(
                     "SELECT * FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at>clock_timestamp() ORDER BY created_at DESC,job_id DESC LIMIT 20"
@@ -237,10 +243,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if type(limit) is not int or not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
         after = self._after(user_id, identity, cursor)
-        await self.purge()
 
         def operation(connection):
-            current = self._access(connection, user_id)
+            current = self._access(connection, user_id, read_only=True)
             row = self._owned(connection, user_id, identity)
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")

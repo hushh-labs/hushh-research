@@ -6,12 +6,12 @@ import type { Metadata } from "next";
 // verified. Keep the in-app steps in sync with the Profile "Delete account" flow.
 const SUPPORT_EMAIL = "support@hushh.ai";
 const REQUEST_SUBJECT = "Delete my Hussh One account";
-const PRIVACY_POLICY_URL = "https://www.hushh.ai/privacy";
+const PRIVACY_POLICY_URL = "/privacy";
 
 export const metadata: Metadata = {
   title: "Delete your Hussh One account · Hussh",
   description:
-    "How to delete your Hussh One account and data, in the app or without it, and what is kept afterwards.",
+    "How to delete your Hussh One account and information, in the app or without it, and what is kept afterwards.",
   alternates: { canonical: "/delete-account" },
 };
 
@@ -21,6 +21,9 @@ const bodyText =
   "mt-3 text-[16px] leading-6 text-[color:var(--app-secondary-label)]";
 const listText =
   "mt-3 list-disc space-y-2 pl-6 text-[16px] leading-6 text-[color:var(--app-secondary-label)]";
+
+// Where a person removes a Google grant themselves if our revoke did not land.
+const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
 export default function DeleteAccountPage() {
   const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(REQUEST_SUBJECT)}`;
@@ -38,9 +41,9 @@ export default function DeleteAccountPage() {
           Delete your account
         </h1>
         <p className={bodyText}>
-          This page explains how to delete your Hussh One account and the data
-          linked to it. It applies to the Hussh One app on Android and iPhone
-          and to one.hushh.ai. Deleting your account can’t be undone.
+          This page explains how to delete your Hussh One account and the
+          information linked to it. It applies to the Hussh One app on Android
+          and iPhone and to one.hushh.ai. Deleting your account can’t be undone.
         </p>
 
         <h2 className={sectionHeading}>Delete it in the app</h2>
@@ -79,23 +82,73 @@ export default function DeleteAccountPage() {
         <h2 className={sectionHeading}>What gets deleted</h2>
         <ul className={listText}>
           <li>Your profile and sign-in account</li>
-          <li>Your vault and everything stored in it</li>
+          <li>
+            Your vault and everything in it, including what One remembers about
+            you
+          </li>
+          <li>Your chat history with One</li>
+          <li>
+            Your connections: the services you linked, the people you connected
+            with, and what you shared with them
+          </li>
           <li>Your location sharing, circles, and check-ins</li>
-          <li>The data we hold for services you connected, and your settings</li>
+          <li>Your settings</li>
         </ul>
+
+        <h2 className={sectionHeading}>Google, banks, and other services</h2>
+        <ul className={listText}>
+          <li>
+            Before anything is deleted, we disconnect the banks you linked
+            through Plaid. If that fails, nothing is deleted and the app asks
+            you to try again.
+          </li>
+          <li>
+            After deletion, we ask Google to revoke One’s access to your Google
+            account, including Gmail, Calendar, and Drive. If Hussh One still
+            appears under{" "}
+            <a
+              className="font-medium text-[color:var(--app-accent)] underline underline-offset-2"
+              href={GOOGLE_PERMISSIONS_URL}
+              rel="noopener"
+            >
+              your Google account’s third-party access
+            </a>
+            , remove it there.
+          </li>
+          <li>
+            Other services you connected keep their own record of the link.
+            Remove Hussh One, or revoke any key you gave it, in that service’s
+            settings.
+          </li>
+          <li>
+            If you ask us by email, we can’t open your vault, so we can’t
+            disconnect your banks for you. Remove the connection in your
+            bank’s or Plaid’s settings.
+          </li>
+        </ul>
+
+        <h2 className={sectionHeading}>If you set up a private agent in your own cloud</h2>
         <p className={bodyText}>
-          A bank or other service you connected may keep its own record of the
-          link. You can also remove Hussh One from that service’s settings.
+          If your private agent runs in your own cloud account, the app asks you
+          to remove it before your account can be deleted. If that step doesn’t
+          finish, email {SUPPORT_EMAIL} and we’ll help you remove it.
         </p>
 
         <h2 className={sectionHeading}>What we may keep</h2>
-        <p className={bodyText}>
-          We keep a small number of records when the law or security requires
-          it, such as records of consent you gave or revoked and security
-          access logs. They are kept only for as long as our retention policy
-          allows and are then deleted or anonymized. They are never used to
-          restore your account.
-        </p>
+        <ul className={listText}>
+          <li>
+            Receipts of the subscriptions you granted to or revoked from
+            businesses, because they form a tamper-evident ledger.
+          </li>
+          <li>
+            A one-way code made from your account identifier, so a deleted
+            account can’t be quietly recreated or restored.
+          </li>
+          <li>
+            Database backups, for a limited period. Deleted information stays
+            in them until they expire on their own schedule.
+          </li>
+        </ul>
         <p className={bodyText}>
           Contact matching doesn’t store your address book, so there is no
           contact list to delete.
@@ -110,7 +163,7 @@ export default function DeleteAccountPage() {
           >
             privacy policy
           </a>{" "}
-          for more about how we handle your data.
+          for more about how we handle your information.
         </p>
       </article>
     </main>

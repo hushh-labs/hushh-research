@@ -10,6 +10,8 @@ export const ROUTE_ID_VALUES = [
   "one_dashboard",
   "getting_started",
   "delete_account",
+  "privacy_policy",
+  "terms_of_use",
   "one_setup",
   "developers",
   "founder_profile",
@@ -149,6 +151,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   }
   if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
   if (pathname === ROUTES.DELETE_ACCOUNT) return "delete_account";
+  if (pathname === ROUTES.PRIVACY) return "privacy_policy";
+  if (pathname === ROUTES.TERMS) return "terms_of_use";
   if (
     pathname === ROUTES.ONE_SETUP ||
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`)

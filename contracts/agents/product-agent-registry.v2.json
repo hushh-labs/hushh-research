@@ -2167,6 +2167,18 @@
           "name": "perform_valuation_analysis",
           "py_func": "hushh_mcp.agents.kai.tools.perform_valuation_analysis",
           "required_scope": "agent.kai.analyze"
+        },
+        {
+          "description": "Read-only latest public price and daily change for ticker symbols; providers receive the tickers only.",
+          "name": "get_market_quotes",
+          "py_func": "hushh_mcp.one_adk.finance_market_tools.get_market_quotes",
+          "required_scope": "agent.kai.analyze"
+        },
+        {
+          "description": "Read-only recent public news headlines for one ticker symbol; providers receive the ticker only.",
+          "name": "get_ticker_news",
+          "py_func": "hushh_mcp.one_adk.finance_market_tools.get_ticker_news",
+          "required_scope": "agent.kai.analyze"
         }
       ],
       "ui_type": "chat",

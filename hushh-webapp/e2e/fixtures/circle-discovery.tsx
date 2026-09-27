@@ -10,10 +10,8 @@ import type { OneLocationCircleMember, OneLocationCircleSummary } from "../../li
 import type { ConnectionSummaryEntry } from "../../lib/services/connections-service";
 import {
   AppPageShell,
-  AppPageHeaderRegion,
   AppPageContentRegion,
 } from "../../components/app-ui/app-page-shell";
-import { PageHeader } from "../../components/app-ui/page-sections";
 import {
   resolveSignedInShellContentOffset,
   resolveTopShellGeometryStyle,
@@ -149,9 +147,6 @@ function Fixture() {
           >
             <div data-app-shell-top-spacer="true" aria-hidden="true" />
             <AppPageShell data-connect-page="" fitContent width="agent">
-              <AppPageHeaderRegion>
-                <PageHeader title="Connect" titleRole="agent" />
-              </AppPageHeaderRegion>
               <AppPageContentRegion className="min-w-0">
                 <div className="relative space-y-3 sm:space-y-4">
                   <div className={document.documentElement.dataset.headerClass}>

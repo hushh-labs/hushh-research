@@ -39,6 +39,7 @@ vi.mock("@/lib/services/kai-history-service", () => ({
 const STORAGE_KEY = "kai_debate_run_manager_v1";
 const SESSION_KEY = "kai_debate_session_id_v1";
 const SESSION_ID = "debate_session_test";
+const REATTACH_KEY = "kai_debate_reattach_v1";
 
 function response(status: number, payload?: unknown) {
   return {
@@ -130,6 +131,7 @@ describe("DebateRunManagerService start gate", () => {
     apiMocks.consumeCanonicalKaiStream.mockReset();
     apiMocks.streamKaiDebateRun.mockResolvedValue(response(200));
     apiMocks.consumeCanonicalKaiStream.mockResolvedValue(undefined);
+    window.localStorage.clear();
   });
 
   it("recovers stale local running locks when backend has no active debate", async () => {
@@ -291,5 +293,64 @@ describe("DebateRunManagerService start gate", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // A reload keeps the task (and its cursor) but not the events. Resuming
+  // from that cursor replayed nothing already said, so the reattached debate
+  // came back empty.
+  it("replays a running debate from the start after a reload", async () => {
+    const manager = await loadManager([
+      { ...persistedTask("live-run"), latestCursor: 57 },
+    ]);
+    apiMocks.getActiveKaiDebateRun.mockResolvedValueOnce(
+      response(200, { run: { ...runPayload("live-run"), latest_cursor: 57 } }),
+    );
+
+    await manager.resumeActiveRun({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      vaultKey: "vault-key",
+    });
+
+    expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(1);
+    expect(apiMocks.streamKaiDebateRun.mock.calls[0]?.[0]).toMatchObject({
+      runId: "live-run",
+      resumeCursor: 0,
+    });
+    expect(apiMocks.startKaiDebateRunStream).not.toHaveBeenCalled();
+  });
+
+  // Native purges session keys on every WebView boot, and a reopened tab
+  // starts without them: the running debate's session was forgotten, so the
+  // active-run lookup missed it and a new debate started beside it.
+  it("rejoins a running debate's session when session storage is gone", async () => {
+    const manager = await loadManager([]);
+    apiMocks.startKaiDebateRunStream.mockResolvedValueOnce(response(200));
+    apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(announceRun("live-run"));
+    await manager.ensureRun(ensureParams);
+    const pointer = JSON.parse(window.localStorage.getItem(REATTACH_KEY) || "{}");
+    expect(pointer).toMatchObject({ runId: "live-run", debateSessionId: SESSION_ID });
+    // Opaque identifiers only: nothing about the debate itself.
+    expect(Object.keys(pointer).sort()).toEqual(
+      ["debateSessionId", "expiresAt", "runId", "version"],
+    );
+
+    window.sessionStorage.clear();
+    vi.resetModules();
+    const reloaded = (await import("@/lib/services/debate-run-manager"))
+      .DebateRunManagerService;
+    expect(reloaded.getDebateSessionId()).toBe(SESSION_ID);
+
+    // Negative control: an expired pointer is not rejoined.
+    window.sessionStorage.clear();
+    window.localStorage.setItem(
+      REATTACH_KEY,
+      JSON.stringify({ ...pointer, expiresAt: Date.now() - 1 }),
+    );
+    vi.resetModules();
+    const fresh = (await import("@/lib/services/debate-run-manager"))
+      .DebateRunManagerService;
+    expect(fresh.getDebateSessionId()).not.toBe(SESSION_ID);
+    expect(window.localStorage.getItem(REATTACH_KEY)).toBeNull();
   });
 });

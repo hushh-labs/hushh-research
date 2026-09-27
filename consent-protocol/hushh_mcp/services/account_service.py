@@ -83,6 +83,9 @@ class AccountService:
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),
+            "account_legal_acceptances": text(
+                "DELETE FROM account_legal_acceptances WHERE user_id = :user_id"
+            ),
             "actor_identity_cache": text(
                 "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
             ),
@@ -1994,6 +1997,9 @@ class AccountService:
                     # deletion removes the identity, so its FK-free budget row
                     # must be purged here as well.
                     "contact_sync_lookup_budgets",
+                    # Terms/Privacy acceptance history: FK-free (it precedes the
+                    # actor profile) and kept across reset, so only here.
+                    "account_legal_acceptances",
                     "one_location_auto_approve_preferences",
                     # Cross-user exclusions must go before their owner preference.
                     "one_location_visibility_exclusions",

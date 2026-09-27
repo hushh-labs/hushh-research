@@ -132,6 +132,7 @@ def _parse_cors_allowed_origins() -> list[str]:
 # Import rate limiting
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
+from api.middlewares.agent_chat_drain import AgentChatDrainMiddleware  # noqa: E402
 from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler  # noqa: E402
 from api.middlewares.observability import (  # noqa: E402
     configure_opentelemetry,
@@ -298,6 +299,10 @@ async def normalize_mcp_root(request: Request, call_next):
 
 
 app.mount("/mcp", remote_mcp_app)
+
+# Outside every BaseHTTPMiddleware so it writes to the server's own ``send``:
+# an agent-chat stream cancelled by shutdown still ends with a terminal event.
+app.add_middleware(AgentChatDrainMiddleware)
 
 # Registered last so it is the outermost application middleware: it strips the
 # chat key header before any other layer can read it and releases the key when the
@@ -628,7 +633,10 @@ async def startup_action_retrieval_warmup() -> None:
 
     ``list_app_actions`` ranks the generated action catalog with a small
     embedding model. Loaded lazily, the first search on each instance paid for
-    the model load and for embedding the whole catalog. Only an image that
+    the model load and for embedding the whole catalog. The image now bakes the
+    catalog's vectors (``scripts/ops/bake_action_catalog_vectors.py``), so this
+    loads the model and reads them; a missing or stale file falls back to
+    embedding here, as before. Only an image that
     bakes the model warms it (the Dockerfile sets its directory), so local
     runs and tests never load a model at startup. Runs in a worker thread and
     never blocks readiness or health; a failure leaves the lazy path in place.

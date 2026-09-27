@@ -16,6 +16,7 @@ import {
   profilePaneParentLocation,
   openProfilePane,
   pushProfilePaneLocation,
+  replaceProfilePaneLocation,
   resolveProfilePaneUrlState,
 } from "@/lib/navigation/profile-pane";
 
@@ -97,6 +98,50 @@ describe("Profile pane navigation state", () => {
       open: true, location: { panel: null, detail: null },
     });
     expect(currentUrl().searchParams.get("view")).toBe("people");
+  });
+
+  it("returns a detail opened from another screen to that screen, not its parent", () => {
+    // Founder report: Puppy One's "Trusted devices" opened the right detail,
+    // and Back then landed on Security, a screen the person never visited.
+    const TRUSTED_DEVICES = {
+      panel: "security" as const,
+      detail: "trusted-devices" as const,
+    };
+    openProfilePane("/one", window.location.search, TRUSTED_DEVICES, {
+      returnsToOrigin: true,
+    });
+    expect(resolveProfilePaneUrlState(window.location.search)).toEqual({
+      open: true,
+      location: TRUSTED_DEVICES,
+    });
+
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    popProfilePaneLocation("/one", window.location.search);
+    expect(back).toHaveBeenCalledOnce();
+    // Not rewritten in place to the Security parent.
+    expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(
+      TRUSTED_DEVICES,
+    );
+    back.mockRestore();
+  });
+
+  it("keeps the origin through an in-place replace, and only on the first entry", () => {
+    openProfilePane("/one", window.location.search, PHONE, {
+      returnsToOrigin: true,
+    });
+    pushProfilePaneLocation("/one", window.location.search, ACCOUNT);
+    expect(window.history.state.__hushhProfilePane).toEqual({ depth: 2 });
+
+    window.history.replaceState(
+      { __hushhProfilePane: { depth: 1, returnsToOrigin: true } },
+      "",
+      window.location.href,
+    );
+    replaceProfilePaneLocation("/one", window.location.search, ACCOUNT);
+    expect(window.history.state.__hushhProfilePane).toEqual({
+      depth: 1,
+      returnsToOrigin: true,
+    });
   });
 
   it("pops a direct detail through panel and root while remaining open", () => {

@@ -361,6 +361,48 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
     assert "select" not in response.text.lower()
 
 
+@pytest.mark.parametrize(
+    ("connection_row", "expected"),
+    [
+        (None, "connect_required"),
+        ({"status": "revoked", "envelope_version": 2}, "reconnect_required"),
+    ],
+)
+async def test_never_connected_drive_asks_to_connect_not_reconnect(
+    monkeypatch, connection_row, expected
+):
+    """A person who never connected Drive gets Connect, not Reconnect.
+
+    Uses the real credential check: it reports both states as
+    reconnect_required, and only the missing connection row may become
+    connect_required. A revoked grant still asks to reconnect.
+    """
+    from hushh_mcp.services.external_connector_google_oauth import (
+        ExternalConnectorGoogleOAuth,
+    )
+
+    lifecycle = SimpleNamespace(read=AsyncMock(return_value=connection_row))
+    oauth = ExternalConnectorGoogleOAuth(
+        db=None, registry=None, credentials=None, state_codec=None, lifecycle=lifecycle
+    )
+    unreachable = Mock(side_effect=AssertionError("no reader without a usable grant"))
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", unreachable)
+    monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", unreachable)
+    service = DriveChatService(
+        oauth=oauth,
+        search_planner=AsyncMock(side_effect=AssertionError("nothing to plan")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="find my latest statement in Drive")
+    )
+    assert response.structured.status == expected
+    assert response.structured.sources == []
+    assert ("Connect Drive" if expected == "connect_required" else "Reconnect Drive") in (
+        response.text
+    )
+    unreachable.assert_not_called()
+
+
 async def test_live_find_lists_recording_with_open_action_without_content_read(monkeypatch):
     source = reader()
     source.find.return_value["matches"] = [

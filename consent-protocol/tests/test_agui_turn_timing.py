@@ -298,6 +298,95 @@ async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(m
     assert "runner exploded" not in events[-1].model_dump_json()
 
 
+def _provider_error_text(status_code: int, status: str) -> str:
+    from google.adk.models.google_llm import _ResourceExhaustedError
+    from google.genai.errors import APIError
+
+    body = {"error": {"code": status_code, "status": status, "message": "PRIVATE_PROVIDER_TEXT"}}
+    error = APIError(status_code, body)
+    return str(_ResourceExhaustedError(error) if status_code == 429 else error)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "status", "code", "retryable"),
+    [
+        (429, "RESOURCE_EXHAUSTED", "RESOURCE_EXHAUSTED", True),
+        (503, "UNAVAILABLE", "MODEL_UNAVAILABLE", True),
+        # Negative control: a request the provider rejected is not retryable.
+        (400, "INVALID_ARGUMENT", "AGENT_ERROR", None),
+    ],
+)
+async def test_provider_failure_after_first_chunk_ends_with_retryable_terminal_error(
+    monkeypatch, caplog, status_code, status, code, retryable
+):
+    """Failover moves a request only while it opens; a later 429/5xx must still end the turn."""
+    script = [
+        (0.0, RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)),
+        (0.0, TextMessageContentEvent(message_id="a-1", delta="Partial answer")),
+        (
+            0.0,
+            RunErrorEvent(
+                message=_provider_error_text(status_code, status),
+                code="BACKGROUND_EXECUTION_ERROR",
+            ),
+        ),
+    ]
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(script))
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+
+    events = await _drain(_agent())
+
+    terminal = events[-1]
+    assert terminal.type == "RUN_ERROR"
+    assert terminal.code == code
+    assert (terminal.metadata or {}).get("retryable") is retryable
+    wire = terminal.model_dump_json()
+    assert "PRIVATE_PROVIDER_TEXT" not in wire and str(status_code) not in wire
+    fields = _fields(_timing_lines(caplog)[0])
+    assert fields["outcome"] == OUTCOME_ERROR
+    assert fields["error_class"] == ("model" if retryable else "other")
+
+
+async def test_escaped_provider_capacity_error_is_retryable(monkeypatch):
+    from google.genai.errors import ClientError
+
+    async def failing_run(self: ADKAgent, input: RunAgentInput):
+        yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        raise ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "PRIVATE"}})
+
+    monkeypatch.setattr(ADKAgent, "run", failing_run)
+
+    terminal = (await _drain(_agent()))[-1]
+
+    assert terminal.code == "RESOURCE_EXHAUSTED"
+    assert terminal.metadata == {"retryable": True}
+    assert "PRIVATE" not in terminal.model_dump_json()
+
+
+async def test_shutdown_cancellation_is_not_counted_as_the_person_leaving(monkeypatch, caplog):
+    from sse_starlette.sse import AppStatus
+
+    started = asyncio.Event()
+
+    async def slow_run(self: ADKAgent, input: RunAgentInput):
+        yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        started.set()
+        await asyncio.sleep(10)
+        yield RunFinishedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+
+    monkeypatch.setattr(ADKAgent, "run", slow_run)
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+
+    task = asyncio.create_task(_drain(_agent()))
+    await started.wait()
+    monkeypatch.setattr(AppStatus, "should_exit", True)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert _fields(_timing_lines(caplog)[0])["outcome"] == "server_restarting"
+
+
 @pytest.mark.parametrize(
     ("code", "expected"),
     [
@@ -305,6 +394,9 @@ async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(m
         ("DATABASE_UNAVAILABLE", "database"),
         ("AGENT_RUNTIME_MODEL_UNAVAILABLE", "runtime"),
         ("MODEL_ERROR", "model"),
+        ("RESOURCE_EXHAUSTED", "model"),
+        ("MODEL_UNAVAILABLE", "model"),
+        ("SERVER_RESTARTING", "shutdown"),
         ("PRIVATE_OWNER_VALUE", "other"),
         (None, "untyped"),
     ],

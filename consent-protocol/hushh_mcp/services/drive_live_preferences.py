@@ -23,10 +23,15 @@ class DriveLivePreferences(DriveDocumentStore):
         user_id: str,
         generation: int | None = None,
         management: bool = False,
+        read_only: bool = False,
     ) -> dict:
         if not management and not connector_feature_enabled("google_drive_live", user_id):
             raise DriveReadError("connector_unavailable")
-        row = self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+        params = {"user_id": user_id, "connector_id": "google_drive"}
+        # A read path must not upsert the placeholder row _lock() creates.
+        row = self._share(connection, params) if read_only else self._lock(connection, params)
+        if row is None:
+            raise DriveReadError("connection_changed")
         policy = self._row(
             connection,
             "SELECT * FROM external_mcp_connectors WHERE connector_id='google_drive' FOR SHARE",

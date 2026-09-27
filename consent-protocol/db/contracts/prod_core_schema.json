@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 254,
+  "expected_migration_version": 255,
   "migration_version_policy": "exact",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -59,6 +59,14 @@
     "account_identity_presence": [
       "user_id_hash",
       "first_observed_at"
+    ],
+    "account_legal_acceptances": [
+      "user_id",
+      "document_id",
+      "document_version",
+      "effective_date",
+      "surface",
+      "accepted_at"
     ],
     "actor_identity_cache": [
       "user_id",

@@ -18,11 +18,9 @@ import {
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
@@ -2857,10 +2855,8 @@ export default function ConnectPageClient() {
           </AppPageContentRegion>
         ) : (
           <>
-            <AppPageHeaderRegion>
-              <PageHeader title="Connect" titleRole="agent" />
-            </AppPageHeaderRegion>
-
+            {/* No in-body header: the shared top bar owns the single Connect
+                title, the same way Feed does (top-shell-breadcrumbs.ts). */}
             <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
               <SurfaceStack compact>
                 <div

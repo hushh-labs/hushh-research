@@ -261,15 +261,17 @@ export function resolvePkmMemoryLevel(params: {
 }
 
 /**
- * Human-readable ancestry for a memory, e.g. `Financial › Goals › Retirement`,
- * used to orient a deep search hit. Drops the leaf segment, array indices, and
- * entity-map identifiers so it never leaks a raw path or internal id.
+ * Readable labels for a run of path segments. Drops array indices, the
+ * `entities` / `_items` map keys and the identifier that follows them, and
+ * reserved keys, so a label never leaks a raw path or an internal id.
  */
-export function pkmMemoryCardBreadcrumb(card: PkmMemoryCard): string {
-  const parts: string[] = [card.domainTitle];
-  const ancestry = card.pathSegments.slice(0, -1);
+function readableSegmentLabels(
+  segments: readonly PkmPathSegment[],
+  options: { dropOpaqueIds?: boolean } = {},
+): string[] {
+  const parts: string[] = [];
   let skipNext = false;
-  for (const segment of ancestry) {
+  for (const segment of segments) {
     if (typeof segment === "number") continue;
     const normalized = segment.toLowerCase();
     if (normalized === "entities" || normalized === "_items") {
@@ -281,7 +283,35 @@ export function pkmMemoryCardBreadcrumb(card: PkmMemoryCard): string {
       continue;
     }
     if (shouldSkipPkmMemoryKey(segment)) continue;
+    if (options.dropOpaqueIds && (/^\d+$/.test(segment) || looksLikeOpaqueId(segment))) continue;
     parts.push(humanize(segment));
   }
-  return parts.join(" › ");
+  return parts;
+}
+
+/**
+ * Human-readable ancestry for a memory, e.g. `Financial › Goals › Retirement`,
+ * used to orient a deep search hit. Drops the leaf segment, array indices, and
+ * entity-map identifiers so it never leaks a raw path or internal id.
+ */
+export function pkmMemoryCardBreadcrumb(card: PkmMemoryCard): string {
+  return [card.domainTitle, ...readableSegmentLabels(card.pathSegments.slice(0, -1))].join(" › ");
+}
+
+/**
+ * Human-readable destination for a proposed write, e.g.
+ * `Financial › Investments › Holdings`, from a domain title and the
+ * domain-relative dotted scope the structure agent proposed. Uses the same
+ * labels Memory shows when the person later browses to that place. Opaque
+ * identifiers and numeric segments are dropped rather than shown.
+ */
+export function pkmScopeBreadcrumb(
+  domainTitle: string,
+  scopePath: string | null | undefined,
+): string {
+  const segments = String(scopePath ?? "")
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return [domainTitle, ...readableSegmentLabels(segments, { dropOpaqueIds: true })].join(" › ");
 }

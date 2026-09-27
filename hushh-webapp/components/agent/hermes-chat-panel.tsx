@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
@@ -16,7 +22,11 @@ import {
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import { isLocalHost } from "@/lib/hermes/local-host";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
-import { buildProfilePaneHref } from "@/lib/navigation/profile-pane";
+import {
+  buildProfilePaneHref,
+  openProfilePane,
+  type ProfilePaneLocation,
+} from "@/lib/navigation/profile-pane";
 import {
   PUPPY_ONE_INSTALL_URL,
   fetchPuppyStatus,
@@ -24,6 +34,11 @@ import {
   type PuppyStatus,
 } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
+
+const TRUSTED_DEVICES: ProfilePaneLocation = {
+  panel: "security",
+  detail: "trusted-devices",
+};
 
 /** Per-viewer browser preference for the on-device pill ("1" or "0"). */
 const ON_DEVICE_STORAGE_KEY = "hussh.puppy.on_device";
@@ -125,10 +140,35 @@ export function HermesChatPanel({
   const link = usePuppyLink();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
-  const trustedDevicesHref = buildProfilePaneHref(pathname, searchParams, {
-    panel: "security",
-    detail: "trusted-devices",
-  });
+  const trustedDevicesHref = buildProfilePaneHref(
+    pathname,
+    searchParams,
+    TRUSTED_DEVICES,
+  );
+  // A plain click opens the pane as a step away from THIS chat, so the pane's
+  // Back returns here. Followed as an ordinary link it landed with no origin,
+  // and Back fell through to the detail's static parent (Security), a screen
+  // the person never came from. Modified clicks keep the browser's own
+  // behaviour (new tab, new window), which is what the href is for.
+  const openTrustedDevices = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      openProfilePane(pathname, searchParams, TRUSTED_DEVICES, {
+        returnsToOrigin: true,
+      });
+    },
+    [pathname, searchParams],
+  );
 
   const loadStatus = useCallback(async () => {
     // Through the service layer, not a raw fetch: not-running is an ordinary
@@ -297,7 +337,7 @@ export function HermesChatPanel({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs">
+      <div className="flex items-center gap-2 border-b border-border/60 px-1 py-2.5 text-xs">
         <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span
           className={cn(
@@ -352,7 +392,11 @@ export function HermesChatPanel({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      {/* No inner gutter of its own: the column around the panel already
+          carries One's gutters and 896px measure, so a second px-4 here left
+          every Puppy turn 32px narrower than the same turn in One. px-1 only
+          keeps focus rings and bubble shadows off the clipping edge. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-5">
         {/* Always mounted, so the region is in the accessibility tree before
             the run begins rather than being inserted with its own content.
             One's "Thinking" is deliberately suppressed in Puppy mode, which
@@ -370,6 +414,7 @@ export function HermesChatPanel({
             link={link}
             status={status}
             trustedDevicesHref={trustedDevicesHref}
+            onOpenTrustedDevices={openTrustedDevices}
           />
         ) : null}
         {connected && turns.length === 0 ? (
@@ -403,7 +448,11 @@ export function HermesChatPanel({
         <div ref={endRef} />
       </div>
 
-      <div className="flex items-end gap-2 border-t border-border/60 px-4 py-3">
+      {/* The composer is One's compact pill (surface, height, radius, type
+          size), not a bordered box on a divider: the small 40px field under a
+          rule was the clearest sign this surface was a different, lesser app.
+          15px on phones, as One's, so the field reads at One's size. */}
+      <div className="mt-3 flex min-h-[3.75rem] shrink-0 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] bg-foreground/[0.045] px-2.5 pl-3.5 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] focus-within:ring-1 focus-within:ring-inset focus-within:ring-[color:var(--app-accent)]/40">
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -424,11 +473,13 @@ export function HermesChatPanel({
                 ? "Checking Puppy One…"
                 : composerPlaceholder(link)
           }
-          className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-border/70 bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
+          aria-label="Message Puppy One"
+          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
         />
         <Button
           type="button"
           size="icon"
+          className="h-9 w-9 shrink-0 rounded-full"
           onClick={() => void send()}
           disabled={!connected || sending || !draft.trim()}
           aria-label="Send to Puppy One"
@@ -473,7 +524,7 @@ function PuppyTurnView({
   if (turn.role === "user") {
     return (
       <div className="motion-step-enter flex w-full justify-end">
-        <span className="max-w-[min(76%,42rem)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-sm leading-6 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]">
+        <span className="max-w-[90%] whitespace-pre-wrap break-words rounded-[22px] sm:max-w-[min(76%,42rem)] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-sm leading-6 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]">
           {turn.text}
         </span>
       </div>
@@ -589,16 +640,22 @@ function PuppyLinkEmptyState({
   link,
   status,
   trustedDevicesHref,
+  onOpenTrustedDevices,
 }: {
   link: PuppyLink | null;
   /** Null while the bridge read is still out: the link alone can carry it. */
   status: PuppyStatus | null;
   trustedDevicesHref: string;
+  onOpenTrustedDevices: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const developerHint = isLocalHost() ? status?.message?.trim() || null : null;
   return (
     <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-      <PuppyLinkCopy link={link} trustedDevicesHref={trustedDevicesHref} />
+      <PuppyLinkCopy
+        link={link}
+        trustedDevicesHref={trustedDevicesHref}
+        onOpenTrustedDevices={onOpenTrustedDevices}
+      />
       {developerHint ? (
         <p className="mt-3 text-[11px] text-muted-foreground/80">
           {developerHint}
@@ -611,13 +668,16 @@ function PuppyLinkEmptyState({
 function PuppyLinkCopy({
   link,
   trustedDevicesHref,
+  onOpenTrustedDevices,
 }: {
   link: PuppyLink | null;
   trustedDevicesHref: string;
+  onOpenTrustedDevices: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const trustedDevices = (
     <Link
       href={trustedDevicesHref}
+      onClick={onOpenTrustedDevices}
       className="underline underline-offset-2 hover:text-foreground"
     >
       Trusted devices

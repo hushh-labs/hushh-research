@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -121,6 +121,28 @@ describe("HermesChatPanel when the bridge is not connected", () => {
       "href",
       "/one/puppy?tab=chat&profile_pane=1&profile_panel=security&profile_detail=trusted-devices",
     );
+  });
+
+  it("opens Trusted devices as a step away from this chat, so the pane's Back returns here", async () => {
+    // Founder report: Back from Trusted devices landed on Security (the
+    // detail's static parent) instead of the Puppy chat it was opened from.
+    // Followed as a plain link the pane entry carried no origin at all.
+    mocks.navigation.pathname = "/";
+    mocks.navigation.search = "";
+    await mount(link({ state: "unlinked" }));
+    const pushState = vi.spyOn(window.history, "pushState");
+
+    fireEvent.click(screen.getByRole("link", { name: "Trusted devices" }));
+
+    expect(pushState).toHaveBeenCalledOnce();
+    const [state, , url] = pushState.mock.calls[0];
+    expect(url).toBe(DEVICES);
+    expect((state as Record<string, unknown>).__hushhProfilePane).toEqual({
+      depth: 1,
+      returnsToOrigin: true,
+    });
+    pushState.mockRestore();
+    window.history.replaceState(null, "", "/");
   });
 
   it("live: names the machine, the model and when it was seen, and opens the Profile pane", async () => {
