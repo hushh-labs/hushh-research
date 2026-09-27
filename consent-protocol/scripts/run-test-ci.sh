@@ -43,6 +43,36 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+# The manifest runs in parallel, one pytest-xdist worker per CPU. This script is
+# the switch: CI (protocol-check) and the local `orchestrate.sh core` stage both
+# reach it through backend-check.sh, so there is no flag to forget or to turn
+# off. `--dist loadfile` keeps every test of a file on one worker, in file
+# order, so module-scoped fixtures and in-file ordering behave exactly as they
+# do serially; isolation ACROSS files is what parallelism tests, and
+# tests/conftest.py gives each worker its own offline database for that.
+#
+# Measured 2026-09-26 on the full manifest (see docs/reference/operations/ci.md):
+# serial vs parallel, same pass count, three clean parallel runs.
+#
+# The *_postgres.py files are the exception and run serially afterwards. They
+# share ONE real database (ONE_COMMAND_TEST_DATABASE_URL), and although each
+# test gets its own schema, Postgres catalog work is database-wide: two workers
+# raced on `CREATE EXTENSION pgcrypto` (UniqueViolation on
+# pg_extension_name_index, first parallel CI run), and a migration reading
+# pg_constraint hit "could not open relation" while another worker dropped its
+# test schema. Neither is a product defect; both are shared-database artefacts,
+# so those files keep the serial run they had before.
+PYTEST_PARALLEL_ARGS=(-n auto --dist loadfile)
+
+PARALLEL_TESTS=()
+POSTGRES_TESTS=()
+for test_file in "${TESTS[@]}"; do
+  case "$test_file" in
+    *_postgres.py) POSTGRES_TESTS+=("$test_file") ;;
+    *) PARALLEL_TESTS+=("$test_file") ;;
+  esac
+done
+
 CI_OFFLINE_DB_DIR=""
 if [ -z "${OFFLINE_DB_PATH:-}" ]; then
   CI_OFFLINE_DB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hushh-protocol-ci.XXXXXX")"
@@ -56,15 +86,25 @@ cleanup_offline_db() {
 }
 trap cleanup_offline_db EXIT
 
-TESTING="${TESTING:-true}" \
-GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
-DB_OFFLINE="${DB_OFFLINE:-1}" \
-OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
-APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
-VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
-HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
-PYTHONPATH=. \
-"$PYTHON_BIN" -m pytest -q "${TESTS[@]}"
+run_pytest() {
+  TESTING="${TESTING:-true}" \
+  GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
+  DB_OFFLINE="${DB_OFFLINE:-1}" \
+  OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
+  APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
+  VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
+  HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
+  PYTHONPATH=. \
+  "$PYTHON_BIN" -m pytest -q "$@"
+}
+
+if [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then
+  run_pytest "${PYTEST_PARALLEL_ARGS[@]}" "${PARALLEL_TESTS[@]}"
+fi
+if [ "${#POSTGRES_TESTS[@]}" -gt 0 ]; then
+  echo "== Shared-database tests (serial) =="
+  run_pytest "${POSTGRES_TESTS[@]}"
+fi
 
 # Every test file must at least IMPORT, listed in the manifest or not.
 #

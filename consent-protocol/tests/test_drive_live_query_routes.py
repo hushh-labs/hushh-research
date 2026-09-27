@@ -13,7 +13,9 @@ from api.routes import drive_sharing as routes
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
 BASE = "/api/connectors/google_drive/sharing/queries"
-REQUEST_ID = str(uuid4())
+# Fixed, not uuid4(): it is baked into parametrize ids, and pytest-xdist
+# refuses to run when workers collect different ids (scripts/run-test-ci.sh).
+REQUEST_ID = "5d0c7a4e-2f61-4c3b-9a8e-0d51a7e3b002"
 OWNER_PROOF = "synthetic-owner"
 
 

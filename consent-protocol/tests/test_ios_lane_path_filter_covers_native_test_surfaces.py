@@ -16,17 +16,16 @@ transitive imports are traced and checked for exactly that.
 It also pins the checkout depth and base-ref env of every lane that reaches
 the capability graph check (`generate_capability_graph.py --check`), which
 must diff against the pull request base and fails closed under CI when that
-base is not in the clone: `protocol-check` on PR Validation, and both
-`web-full-check` and `protocol-check` on Queue Validation, where the base is
-the merge group's `refs/heads/<branch>` and has to be stripped in a shell
-step because workflow expressions cannot.
+base is not in the clone: `protocol-check` and `web-full-suite-check` (whose
+`verify:one-voice` runs the check) on PR Validation. Queue Validation is a
+pass-through that reuses the PR Validation result and runs no lane, so it has
+no base ref to resolve; that is pinned here too, so a lane re-added there
+cannot silently skip the graph check.
 """
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from pathlib import Path
 
 import pathspec
@@ -37,7 +36,10 @@ ROOT = Path(__file__).resolve().parents[2]
 MONO_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 UPSTREAM_WORKFLOW_PATH = ROOT / "consent-protocol" / ".github" / "workflows" / "ci.yml"
 QUEUE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "queue-validation.yml"
-QUEUE_LANES_REACHING_THE_GRAPH_CHECK = ("web-full-check", "protocol-check")
+PR_LANES_REACHING_THE_GRAPH_CHECK = {
+    "protocol-check": ("orchestrate.sh protocol", "protocol-check.sh"),
+    "web-full-suite-check": ("orchestrate.sh web-full-suite",),
+}
 WEBAPP_DIR = ROOT / "hushh-webapp"
 UI_TESTS_PATH = WEBAPP_DIR / "ios" / "App" / "AppUITests" / "AppUITests.swift"
 RENDER_ROOTS = (WEBAPP_DIR / "app", WEBAPP_DIR / "components")
@@ -214,13 +216,6 @@ def _step_running(steps: list[dict], *fragments: str) -> dict:
     raise AssertionError(f"No step runs any of {fragments}")
 
 
-def _step_with_id(steps: list[dict], step_id: str) -> dict:
-    for step in steps:
-        if step.get("id") == step_id:
-            return step
-    raise AssertionError(f"No step has id {step_id}")
-
-
 def test_ios_filter_patterns_are_slash_anchored_and_point_at_real_paths() -> None:
     # gitignore rules treat a slash-free pattern as "any depth" while picomatch
     # anchors it at the root. Requiring a slash keeps this test's engine and
@@ -298,17 +293,18 @@ def test_every_marker_the_ci_run_xcuitest_expects_is_rendered_by_a_filtered_file
     )
 
 
-def test_protocol_check_fetches_full_history_and_exports_the_base_ref() -> None:
-    steps = _steps(_load_workflow(MONO_WORKFLOW_PATH), "protocol-check")
+@pytest.mark.parametrize("job", sorted(PR_LANES_REACHING_THE_GRAPH_CHECK))
+def test_pr_lane_fetches_full_history_and_exports_the_base_ref(job: str) -> None:
+    steps = _steps(_load_workflow(MONO_WORKFLOW_PATH), job)
     checkout = _first_step_using(steps, "actions/checkout")
     assert checkout.get("with", {}).get("fetch-depth") == 0, (
-        "protocol-check must check out full history so the capability graph "
+        f"{job} must check out full history so the capability graph "
         "check can diff against the PR base ref"
     )
-    protocol_step = _step_running(steps, "orchestrate.sh protocol", "protocol-check.sh")
-    base_ref = str(protocol_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
+    lane_step = _step_running(steps, *PR_LANES_REACHING_THE_GRAPH_CHECK[job])
+    base_ref = str(lane_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
     assert base_ref.startswith("origin/") and "github.base_ref" in base_ref, (
-        "protocol-check must export CAPABILITY_GRAPH_BASE_REF as origin/<PR base ref>"
+        f"{job} must export CAPABILITY_GRAPH_BASE_REF as origin/<PR base ref>"
     )
 
 
@@ -323,71 +319,18 @@ def test_upstream_backend_check_mirrors_the_checkout_depth_and_base_ref() -> Non
     assert base_ref.startswith("origin/") and "github.base_ref" in base_ref
 
 
-@pytest.mark.parametrize("job", QUEUE_LANES_REACHING_THE_GRAPH_CHECK)
-def test_queue_lane_fetches_full_history_and_exports_the_merge_group_base(job: str) -> None:
-    # On a merge_group event GITHUB_BASE_REF is unset, so the generator would
-    # fall back to origin/main, which a depth-1 checkout of the queue branch
-    # does not carry. Each lane must resolve the merge group's base itself.
-    steps = _steps(_load_workflow(QUEUE_WORKFLOW_PATH), job)
-    checkout = _first_step_using(steps, "actions/checkout")
-    assert checkout.get("with", {}).get("fetch-depth") == 0, (
-        f"{job} must check out full history so the capability graph check can "
-        "diff against the merge-group base"
-    )
-    resolve = _step_with_id(steps, "queue-base")
-    assert (
-        resolve.get("env", {}).get("QUEUE_BASE_REF") == "${{ github.event.merge_group.base_ref }}"
-    )
-    assert "GITHUB_OUTPUT" in str(resolve.get("run") or "")
-    lane_step = _step_running(steps, "orchestrate.sh web-full", "orchestrate.sh protocol")
-    assert steps.index(resolve) < steps.index(lane_step), (
-        "the base must resolve before the lane runs"
-    )
-    assert lane_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") == (
-        "${{ steps.queue-base.outputs.ref }}"
-    )
-
-
-@pytest.mark.parametrize(
-    ("merge_group_base_ref", "expected"),
-    [
-        ("refs/heads/main", "origin/main"),
-        ("refs/heads/integration/pr-train", "origin/integration/pr-train"),
-        ("", "origin/main"),
-    ],
-)
-def test_queue_base_ref_step_names_the_fetched_remote_ref(
-    tmp_path: Path, merge_group_base_ref: str, expected: str
-) -> None:
-    # Run the step's own shell: the generator reads CAPABILITY_GRAPH_BASE_REF
-    # verbatim, so the value must already be the remote-tracking ref that a
-    # fetch-depth 0 checkout carries, never the bare refs/heads/ form.
-    steps = _steps(_load_workflow(QUEUE_WORKFLOW_PATH), "protocol-check")
-    script = str(_step_with_id(steps, "queue-base")["run"])
-    output = tmp_path / "github_output"
-    output.write_text("", encoding="utf-8")
-    completed = subprocess.run(  # noqa: S603 - fixed shell running workflow text
-        ["bash", "-euo", "pipefail", "-c", script],  # noqa: S607
-        cwd=tmp_path,
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **{k: v for k, v in os.environ.items() if k in {"PATH", "HOME"}},
-            "QUEUE_BASE_REF": merge_group_base_ref,
-            "GITHUB_OUTPUT": str(output),
-        },
-    )
-    assert completed.returncode == 0, completed.stderr
-    assert output.read_text(encoding="utf-8").strip() == f"ref={expected}"
-
-
-def test_queue_lanes_share_one_base_ref_step() -> None:
-    # Two copies of the resolve step is the price of not having a reusable
-    # workflow; keep them byte-identical so one cannot drift from the other.
+def test_queue_validation_is_a_pass_through_that_runs_no_lane() -> None:
+    # Queue Validation reuses PR Validation's verdict for an identical tree.
+    # A CI lane re-added there would need its own merge-group base handling
+    # (GITHUB_BASE_REF is unset on merge_group), which this file used to pin.
     workflow = _load_workflow(QUEUE_WORKFLOW_PATH)
-    scripts = {
-        job: str(_step_with_id(_steps(workflow, job), "queue-base")["run"])
-        for job in QUEUE_LANES_REACHING_THE_GRAPH_CHECK
-    }
-    assert len(set(scripts.values())) == 1, scripts
+    jobs = workflow["jobs"]
+    assert set(jobs) == {"pr-validation-reuse", "main-freshness-gate", "ci-status"}, sorted(jobs)
+    assert jobs["ci-status"]["name"] == "CI Status Gate"
+    reuse = _step_running(
+        _steps(workflow, "pr-validation-reuse"), "verify-queue-entry-reuses-pr-validation.py"
+    )
+    assert reuse.get("env", {}).get("MERGE_GROUP_HEAD_SHA") == (
+        "${{ github.event.merge_group.head_sha }}"
+    )
+    assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")

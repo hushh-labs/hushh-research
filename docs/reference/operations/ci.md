@@ -14,7 +14,7 @@ flowchart TB
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
-    queueci["Queue Validation<br/>configured, not currently run<br/>(maintainers bypass the queue)"]
+    queueci["Queue Validation<br/>pass-through: reuses PR Validation<br/>for an identical tree"]
     queue["GitHub merge queue"]
     main["main"]
   end
@@ -144,7 +144,7 @@ The watcher logs to `tmp/devops-watch/`.
 To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by default:
 
 1. `scripts/ci/secret-scan.sh`
-2. web validation through `scripts/ci/web-core-check.sh`, `scripts/ci/web-targeted-check.sh`, and `scripts/ci/web-full-check.sh`
+2. web validation through `scripts/ci/web-core-check.sh`, `scripts/ci/web-targeted-check.sh`, and `scripts/ci/web-full-suite-check.sh` (`web-full-check.sh` is the first and last in sequence)
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
@@ -152,8 +152,8 @@ Web validation is intentionally split:
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
 2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity.
-3. `Queue Validation` is configured to run `web-full`, which includes `web-core`, full Vitest, voice gateway generation check, surface-map parity, and Capacitor static parity. In practice it does not run: see [The merge queue in practice](#the-merge-queue-in-practice).
-4. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
+3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core`, and `CI Status Gate` requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
+4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
 Fail-fast contract:
 
@@ -220,11 +220,11 @@ mandatory regardless of the expensive-lane selection.
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
-| Merge queue | `main` | `Queue Validation` full pre-merge CI, only for a PR that enters the queue (none has since 2026-09-01) |
+| Merge queue | `main`, `integration/pr-train` | `Queue Validation` pass-through: reports `CI Status Gate` on the merge group only when its tree equals the PR head's tree and PR Validation passed on that head; plus `Base Freshness Gate` |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
 | Manual | Any | `PR Validation` `workflow_dispatch` with scope: `frontend` \| `backend` \| `all` |
 
-**Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs both stacks for deterministic gating, and `Main Post-Merge Smoke` stays compact rather than path-filtered.
+**Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
 - **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
@@ -237,7 +237,7 @@ actually run it, instead of every lane:
 | `scripts/ci/` file | Schedules | Why |
 |---|---|---|
 | `orchestrate.sh` | frontend and backend | dispatches every stage |
-| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
+| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
 | every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
 
 The backend side is written as `scripts/ci/**` minus `!scripts/ci/web-*.sh`, so
@@ -270,18 +270,41 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base 
 
 The `main merge queue` ruleset is active, but its bypass list holds the
 governed maintainer cohort, and those maintainers land PRs directly. No PR has
-entered the queue since 2026-09-01, the date of the last `Queue Validation`
-run. So, today:
+entered the queue since 2026-09-01, the date of the last full `Queue
+Validation` run, and that run's `web-full` step was red in each of its last six
+runs. So the queue does **not** absorb stale-base risk; `Base Freshness Gate`
+on the PR is what blocks a stale branch.
 
-- the queue does **not** absorb stale-base risk; `Base Freshness Gate` on the
-  PR is what blocks a stale branch;
-- `Queue Validation`'s lanes, `web-full` included, run for nothing that merges;
-- **the full Vitest suite (`npm run test:ci`) gates no merge.** It runs only in
-  `web-full`, which only `Queue Validation` runs. PRs run `web-core` and the
-  changed-path packs in `web-targeted`; `Main Post-Merge Smoke` does not run
-  Vitest either. Whether to gate merges on the full suite again (a PR lane, the
-  smoke, or routing maintainers back through the queue) is an **open founder
-  decision**, not a settled policy.
+**Since 2026-09-26 the full Vitest suite gates every frontend PR** through the
+`Web Full Suite (Vitest)` lane in PR Validation, and `Queue Validation` is a
+thin pass-through rather than a second copy of CI.
+
+Why it was not deleted: `main` requires the `CI Status Gate` check
+([config/ci-governance.json](../../../config/ci-governance.json)) and the
+merge-queue ruleset is active, so a PR placed in the queue needs a `CI Status
+Gate` on its merge group or the entry times out and is dropped. Deleting the
+workflow would turn the queue into a trap rather than retire it.
+
+What the pass-through checks, in
+[scripts/ci/verify-queue-entry-reuses-pr-validation.py](../../../scripts/ci/verify-queue-entry-reuses-pr-validation.py):
+
+1. the merge group's head ref names one PR (`gh-readonly-queue/<base>/pr-<N>-<sha>`);
+2. the merge group's git **tree** is identical to the PR head's tree, which holds
+   exactly when the PR already contained its base and no other entry is queued
+   underneath it. Identical trees are identical content, so PR Validation's
+   verdict is a verdict on the merge group, not an approximation of it;
+3. the latest `PR Validation` run on that PR head has a successful `CI Status
+   Gate` job.
+
+Anything else fails closed with the fix: update the branch, wait for PR
+Validation, re-queue. `Base Freshness Gate` still runs on the merge group.
+Merge groups that stack several entries are therefore rejected rather than
+approximated; with `max_entries_to_merge: 1` that only costs a re-queue.
+
+To retire the workflow outright, the founder would remove the merge-queue
+rulesets (`main merge queue`, `integration pr train merge queue`) and set
+`merge_queue_required: false` in `config/ci-governance.json` in the same change;
+the workflow can then be deleted.
 
 ---
 
@@ -292,7 +315,7 @@ run. So, today:
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
 | Main Freshness Gate (job name `Base Freshness Gate`) | Block a branch that is behind its base | Blocking on pull requests (`MAIN_SYNC_MODE: block`, feeds `CI Status Gate`) and on `merge_group` |
-| CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
+| CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs, except that a lane whose paths changed (`Web Full Suite (Vitest)` for frontend, the iOS and Android native lanes) must have succeeded |
 
 Operational note:
 
@@ -398,7 +421,7 @@ Practical maintainer rule:
 
 ### Local core mirror
 
-`bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full web suite (`web-full`, 240 s) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
+`bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full Vitest suite (`web-full-suite`) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
 
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
@@ -464,7 +487,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Phone verification regression | `npm run verify:phone-verification` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
 | Security audit budget | `npm audit --json` + budget gate (`moderate/high/critical`) | Yes |
-| Tests | `npm run test:ci` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
+| Tests | `npm run test:ci` (the whole Vitest suite), in the `Web Full Suite (Vitest)` lane | Yes |
 
 **Build env (CI):** `NEXT_PUBLIC_BACKEND_URL` and all six `NEXT_PUBLIC_FIREBASE_*` vars are set to placeholders in the workflow so the build does not depend on real secrets.
 
@@ -487,7 +510,33 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Lint | `uv run ruff check .` | Yes |
 | Type check | `uv run mypy --config-file pyproject.toml --ignore-missing-imports` | Yes |
 | Security | `uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll` | Yes |
-| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
+| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites run in parallel with pytest-xdist, plus a whole-tree collection gate) | Yes |
+
+**Parallel pytest (2026-09-26).** `consent-protocol/scripts/run-test-ci.sh` runs the manifest with
+`-n auto --dist loadfile`: one worker per CPU, and every test in a file stays on
+one worker in file order, so module-scoped fixtures behave as they do serially.
+The script is the switch; there is no environment flag. `protocol-check` in CI
+and the local `orchestrate.sh core` stage both reach it through
+`consent-protocol/scripts/ci/backend-check.sh`. `tests/conftest.py` gives each
+xdist worker its own `OFFLINE_DB_PATH` file so workers never share SQLite rows;
+the Postgres-backed tests already create a uniquely named schema or database
+per test.
+
+Measured 2026-09-26 on a 16-core Mac shared with other agent sessions (so the
+spread is load, not the suite): the full manifest serially took 599 s (6,388
+passed, 203 skipped); three parallel runs each passed the same 6,388 with the
+same 203 skipped and zero failures, in 186 s, 59 s and 103 s. The three
+`ONE_COMMAND_TEST_DATABASE_URL` Postgres files, run concurrently against one
+shared database three times, passed 57/57 each time and left no schema behind.
+Before the switch CI spent 321 s in serial pytest (of a 7.8 min `Protocol
+(Python)` p50). Enabling it surfaced one class of defect: two route tests
+baked a module-level `uuid4()` into their parametrize ids, so every worker
+collected different test ids and xdist refused to start. They now use a fixed
+synthetic id.
+
+If a test genuinely cannot share a machine with others, mark it and run it in a
+second, serial pass inside `run-test-ci.sh`; do not skip it and do not add a
+flag. None needed that as of this change.
 
 Blocking backend manifest:
 
@@ -516,7 +565,7 @@ Blocking backend manifest:
 
 ### Capability-graph evolution gate
 
-`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. Queue Validation resolves the merge-group base into `CAPABILITY_GRAPH_BASE_REF` with its own step. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
+`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. `protocol-check` and `web-full-suite-check` both export `CAPABILITY_GRAPH_BASE_REF=origin/<PR base>` over a full-history checkout; Queue Validation runs no lane and so resolves no base. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 

@@ -1,5 +1,23 @@
 name: "Queue Validation"
 
+# A thin pass-through, not a second copy of CI (2026-09).
+#
+# This workflow used to re-run the whole CI surface on every merge group. No PR
+# has entered the queue since 2026-09-01 (maintainers bypass it), and its
+# web-full step was red in each of its last six runs, so it validated nothing
+# that merged. The full Vitest suite and the contract verifiers it ran now gate
+# every frontend PR in PR Validation (`Web Full Suite (Vitest)`).
+#
+# It is kept, rather than deleted, because `main` requires the `CI Status Gate`
+# check and has an active merge-queue ruleset: a PR that enters the queue needs
+# a `CI Status Gate` on its merge group, or the entry times out and is dropped.
+#
+# The pass-through never vouches for content CI has not seen. It accepts a
+# merge group only when its git tree is identical to the PR head's tree and the
+# latest PR Validation run on that head passed `CI Status Gate`; see
+# scripts/ci/verify-queue-entry-reuses-pr-validation.py. The freshness gate
+# still runs on the merge group itself.
+
 on:
   merge_group:
     branches: [main, integration/pr-train]
@@ -7,303 +25,28 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  security-events: read
+  actions: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NODE_VERSION: "24"
-  PYTHON_VERSION: "3.13"
-  CI_NATIVE_PARITY_REQUIRED: "0"
-  CI_DOCS_PARITY_REQUIRED: "0"
-  GITLEAKS_VERSION: "8.24.2"
-
 jobs:
-  secret-scan:
-    name: "Secret Scan"
+  pr-validation-reuse:
+    name: "Reuse PR Validation Result"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-      - name: Install gitleaks OSS CLI (license-free)
-        run: |
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${{ env.GITLEAKS_VERSION }}/gitleaks_${{ env.GITLEAKS_VERSION }}_linux_x64.tar.gz" \
-            | tar -xz
-          sudo mv gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-      - name: Resolve scan commit range
-        id: scan-range
-        shell: bash
-        run: |
-          BASE_REF="${{ github.event.merge_group.base_ref }}"
-          BASE_REF="${BASE_REF#refs/heads/}"
-          if [ -z "$BASE_REF" ]; then
-            BASE_REF="${{ github.event.repository.default_branch }}"
-          fi
-          git fetch origin "$BASE_REF" --quiet || true
-          if git rev-parse "origin/$BASE_REF" >/dev/null 2>&1; then
-            LOG_OPTS="origin/$BASE_REF..${{ github.sha }}"
-          else
-            LOG_OPTS="${{ github.sha }}"
-          fi
+          ref: ${{ github.sha }}
 
-          BASE_SHA="${{ github.event.merge_group.base_sha }}"
-          HEAD_SHA="${{ github.event.merge_group.head_sha }}"
-          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
-            && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
-            && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
-            && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
-            LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
-          fi
-
-          echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
-      - name: Run gitleaks scan (no license secret required)
-        run: bash scripts/ci/orchestrate.sh secret
+      - name: Require PR Validation to have passed on this exact tree
         env:
-          GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
-          GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
-          REQUIRE_GITHUB_ALERTS_CLEAN: "1"
-          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: "1"
-          REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
-
-  repo-governance:
-    name: "Governance"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-
-      - name: Run repo governance checks
-        run: bash scripts/ci/orchestrate.sh governance
-
-  preflight-gate:
-    name: "Preflight Gate"
-    needs:
-      - secret-scan
-      - repo-governance
-      - main-freshness-gate
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Validate cheap authority checks before expensive lanes
-        shell: bash
-        run: |
-          SECRET_SCAN="${{ needs['secret-scan'].result }}"
-          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
-          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
-
-          printf 'secret-scan=%s\n' "$SECRET_SCAN"
-          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
-          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
-
-          fail=0
-          for result in "$SECRET_SCAN" "$REPO_GOVERNANCE" "$MAIN_FRESHNESS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
-              fail=1
-            fi
-          done
-
-          if [ "$fail" -ne 0 ]; then
-            echo "Preflight failed; skipping expensive queue lanes."
-            exit 1
-          fi
-
-          echo "Preflight passed; expensive queue lanes may run."
-
-  web-full-check:
-    name: "Web Full (Next.js)"
-    needs: [preflight-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # The capability graph check diffs against the merge-group base, which
-          # a shallow clone does not carry.
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Restore Next.js build cache
-        uses: actions/cache@v4
-        with:
-          path: hushh-webapp/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
-
-      - name: Resolve capability graph base ref
-        id: queue-base
-        shell: bash
-        run: |
-          base="${QUEUE_BASE_REF#refs/heads/}"
-          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
-        env:
-          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
-
-      - name: Run full web check
-        run: bash scripts/ci/orchestrate.sh web-full
-        env:
-          CAPABILITY_GRAPH_BASE_REF: ${{ steps.queue-base.outputs.ref }}
-          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
-          NEXT_PUBLIC_BACKEND_URL: https://api.example.com
-          NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
-          NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-project.firebaseapp.com"
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project"
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
-          NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
-
-      - name: Upload security audit artifact
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: web-npm-audit-report
-          path: hushh-webapp/npm-audit-report.json
-          if-no-files-found: ignore
-
-  protocol-check:
-    name: "Protocol (Python)"
-    needs: [preflight-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # The capability graph check diffs against the merge-group base, which
-          # a shallow clone does not carry.
-          fetch-depth: 0
-
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-
-      - name: Resolve capability graph base ref
-        id: queue-base
-        shell: bash
-        run: |
-          base="${QUEUE_BASE_REF#refs/heads/}"
-          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
-        env:
-          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
-
-      - name: Run full protocol check
-        timeout-minutes: 22
-        run: bash scripts/ci/orchestrate.sh protocol
-        env:
-          CAPABILITY_GRAPH_BASE_REF: ${{ steps.queue-base.outputs.ref }}
-          TESTING: "true"
-          APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
-          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-          HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
-
-  mcp-package-check:
-    name: "MCP Package"
-    needs: [preflight-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: packages/hushh-mcp/package-lock.json
-
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-
-      - name: Verify packed MCP runtime and release artifacts
-        run: bash scripts/ci/orchestrate.sh mcp-package
-
-  integration-check:
-    name: "Integration"
-    needs: [preflight-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-
-      - name: Resolve change-aware verification plan
-        id: verification-plan
-        shell: bash
-        run: |
-          set -euo pipefail
-          base_sha="${{ github.event.merge_group.base_sha }}"
-          target_sha="${{ github.event.merge_group.head_sha || github.sha }}"
-          python3 scripts/ci/resolve-uat-verification-plan.py \
-            --target-sha "$target_sha" \
-            --base-sha "$base_sha" \
-            --github-output "$GITHUB_OUTPUT" \
-            --json-output "$RUNNER_TEMP/queue-verification-plan.json"
-
-      - name: Run cross-surface integration gate
-        run: bash scripts/ci/orchestrate.sh integration
-        env:
-          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
-          CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
-          CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
-          CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
-          CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/queue-verification-plan.json
-
-      - name: Upload verification-plan artifact
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: queue-verification-plan
-          path: ${{ runner.temp }}/queue-verification-plan.json
-          if-no-files-found: error
-
-  subtree-sync-check:
-    name: "Upstream Sync"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check if upstream consent-protocol has unpulled commits
-        continue-on-error: true
-        run: bash scripts/ci/subtree-sync-check.sh
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py
 
   main-freshness-gate:
     name: "Base Freshness Gate"
@@ -331,13 +74,7 @@ jobs:
   ci-status:
     name: "CI Status Gate"
     needs:
-      - secret-scan
-      - repo-governance
-      - preflight-gate
-      - web-full-check
-      - protocol-check
-      - mcp-package-check
-      - integration-check
+      - pr-validation-reuse
       - main-freshness-gate
     if: always()
     runs-on: ubuntu-latest
@@ -346,33 +83,16 @@ jobs:
       - name: Validate queue job outcomes
         shell: bash
         run: |
-          SECRET_SCAN="${{ needs['secret-scan'].result }}"
-          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
-          PREFLIGHT="${{ needs['preflight-gate'].result }}"
-          WEB="${{ needs['web-full-check'].result }}"
-          PROTOCOL="${{ needs['protocol-check'].result }}"
-          MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
-          INTEGRATION="${{ needs['integration-check'].result }}"
+          PR_VALIDATION_REUSE="${{ needs['pr-validation-reuse'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
-          printf 'secret-scan=%s\n' "$SECRET_SCAN"
-          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
-          printf 'preflight-gate=%s\n' "$PREFLIGHT"
-          printf 'web-full-check=%s\n' "$WEB"
-          printf 'protocol-check=%s\n' "$PROTOCOL"
-          printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
-          printf 'integration-check=%s\n' "$INTEGRATION"
+          printf 'pr-validation-reuse=%s\n' "$PR_VALIDATION_REUSE"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
-          fail=0
-          for result in "$SECRET_SCAN" "$REPO_GOVERNANCE" "$PREFLIGHT" "$WEB" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
-              fail=1
-            fi
-          done
-
-          if [ "$fail" -ne 0 ]; then
-            echo "One or more queue validation jobs failed."
+          # Both jobs always run on a merge group, so anything but success
+          # (skipped included) fails the gate.
+          if [ "$PR_VALIDATION_REUSE" != "success" ] || [ "$MAIN_FRESHNESS" != "success" ]; then
+            echo "Queue validation failed."
             exit 1
           fi
           echo "Queue validation passed."

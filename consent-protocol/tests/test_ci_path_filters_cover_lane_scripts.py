@@ -57,6 +57,7 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
+    "web-full-suite-check": {"frontend"},
     "protocol-check": {"backend"},
     "mcp-package-check": {"backend"},
     "integration-check": {"frontend", "backend"},
@@ -223,6 +224,11 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
     assert _job_scripts("web-targeted-check") >= {
         ORCHESTRATOR,
         "scripts/ci/web-targeted-check.sh",
+        "scripts/ci/web-common.sh",
+    }
+    assert _job_scripts("web-full-suite-check") >= {
+        ORCHESTRATOR,
+        "scripts/ci/web-full-suite-check.sh",
         "scripts/ci/web-common.sh",
     }
     assert _job_scripts("integration-check") >= {

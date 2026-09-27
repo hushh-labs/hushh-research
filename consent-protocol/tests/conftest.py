@@ -31,6 +31,17 @@ os.environ.setdefault(
     "0000000000000000000000000000000000000000000000000000000000000000",
 )
 
+# scripts/run-test-ci.sh runs the manifest under pytest-xdist, and every worker
+# process inherits the ONE OFFLINE_DB_PATH the script created. A shared SQLite
+# file would let rows one worker writes leak into another worker's assertions,
+# so each worker gets its own file beside it (same directory, so the script's
+# cleanup still removes it). A test that sets its own path is unaffected.
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+if _XDIST_WORKER and os.environ.get("OFFLINE_DB_PATH"):
+    _offline_root, _offline_ext = os.path.splitext(os.environ["OFFLINE_DB_PATH"])
+    if not _offline_root.endswith(f".{_XDIST_WORKER}"):
+        os.environ["OFFLINE_DB_PATH"] = f"{_offline_root}.{_XDIST_WORKER}{_offline_ext}"
+
 
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):

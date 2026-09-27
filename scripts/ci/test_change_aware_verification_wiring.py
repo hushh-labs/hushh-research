@@ -15,19 +15,20 @@ def require(path: str, *fragments: str) -> None:
         assert fragment in content, f"{path} is missing {fragment!r}"
 
 
-def test_ci_queue_smoke_and_uat_share_the_selector() -> None:
+def test_ci_smoke_and_uat_share_the_selector() -> None:
+    # Queue Validation is a pass-through that reuses PR Validation's verdict for
+    # an identical tree, so the selector decision it carries is PR Validation's.
     selector = "scripts/ci/resolve-uat-verification-plan.py"
     for workflow in (
         ".github/workflows/ci.yml",
-        ".github/workflows/queue-validation.yml",
         ".github/workflows/main-post-merge-smoke.yml",
         ".github/workflows/deploy-uat.yml",
     ):
         require(workflow, selector, "verification-plan")
 
 
-def test_ci_and_queue_pass_selector_decision_to_integration() -> None:
-    for workflow in (".github/workflows/ci.yml", ".github/workflows/queue-validation.yml"):
+def test_ci_passes_selector_decision_to_integration() -> None:
+    for workflow in (".github/workflows/ci.yml",):
         require(
             workflow,
             "CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
@@ -200,8 +201,8 @@ def test_web_targeted_layout_check_tracks_people_fixture_inputs() -> None:
 
 def main() -> int:
     tests = (
-        test_ci_queue_smoke_and_uat_share_the_selector,
-        test_ci_and_queue_pass_selector_decision_to_integration,
+        test_ci_smoke_and_uat_share_the_selector,
+        test_ci_passes_selector_decision_to_integration,
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
         test_uat_frontend_release_blocks_on_real_analytics_smoke,

@@ -457,6 +457,47 @@ jobs:
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
+  # The whole Vitest suite (~9,600 tests) plus the contract verifiers that used
+  # to run only in Queue Validation. It gates every PR that touches the
+  # frontend and runs in parallel with web-core, so it adds little to the
+  # critical path. Until 2026-09 the full suite ran only in the merge queue,
+  # which every maintainer bypasses, so a red unit test gated nothing.
+  web-full-suite-check:
+    name: "Web Full Suite (Vitest)"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # verify:one-voice runs the capability graph check, which diffs
+          # against the PR base ref and fails closed when a shallow clone
+          # does not carry it.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The CapabilityGraphV1 compiler behind verify:one-voice is Python; use
+      # the locked protocol runtime, never the runner's ambient interpreter.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+
+      - name: Run the full Vitest suite and contract verifiers
+        run: bash scripts/ci/orchestrate.sh web-full-suite
+        env:
+          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
   ios-native-check:
     name: "iOS Native (Xcode)"
     needs: [preflight-gate]
@@ -959,6 +1000,7 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
+      - web-full-suite-check
       - ios-native-check
       - android-native-check
       - protocol-check
@@ -980,6 +1022,7 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
+          WEB_FULL_SUITE="${{ needs['web-full-suite-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
@@ -995,6 +1038,7 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
+          printf 'web-full-suite-check=%s\n' "$WEB_FULL_SUITE"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
           printf 'protocol-check=%s\n' "$PROTOCOL"
@@ -1003,6 +1047,12 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
+          # A skipped lane passes the loop below, so a lane whose paths changed
+          # must be proven to have actually run and succeeded.
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
+            echo "Changed frontend sources require a successful full Vitest suite run."
+            fail=1
+          fi
           if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
             echo "Changed iOS sources require a successful native build and XCTest run."
             fail=1
@@ -1011,7 +1061,7 @@ jobs:
             echo "Changed Android sources require a successful native compile and unit run."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

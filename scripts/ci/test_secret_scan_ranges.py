@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RANGE_OWNERS = (
     ROOT / "scripts/ci/secret-scan.sh",
     ROOT / ".github/workflows/ci.yml",
-    ROOT / ".github/workflows/queue-validation.yml",
 )
 
 

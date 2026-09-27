@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|all|core|advisory>
+  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full-suite|web-full|web|protocol|mcp-package|integration|smoke|all|core|advisory>
 
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
@@ -12,8 +12,8 @@ Environment flags:
 
 Stage "core" is the fast local pre-push mirror: secret and governance, then
 protocol and web-core in parallel (separate Python and Node runtimes), then
-mcp-package and integration, which need the protocol stage's Python environment. The browser layout packs (web-targeted) and the full web suite
-(web-full) are left to GitHub Actions.
+mcp-package and integration, which need the protocol stage's Python environment. The browser layout packs (web-targeted) and the full Vitest suite
+(web-full-suite) are left to GitHub Actions, where they gate every frontend PR.
 
 Description:
   Canonical CI stage orchestrator used by GitHub Actions and local CI wrappers.
@@ -85,6 +85,9 @@ run_stage() {
     web-targeted)
       scripts/ci/web-targeted-check.sh
       ;;
+    web-full-suite)
+      scripts/ci/web-full-suite-check.sh
+      ;;
     web-full|web)
       scripts/ci/web-full-check.sh
       ;;
@@ -116,7 +119,7 @@ run_stage() {
 }
 
 case "$STAGE" in
-  secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|advisory)
+  secret|governance|web-core|web-targeted|web-full-suite|web-full|web|protocol|mcp-package|integration|smoke|advisory)
     run_stage "$STAGE"
     ;;
   core)
@@ -150,7 +153,7 @@ case "$STAGE" in
     # protocol stage provisions, so both cheap checks run after it.
     run_stage mcp-package
     run_stage integration
-    echo "✅ Core CI passed in $((SECONDS - started))s (web-targeted and web-full run on GitHub)."
+    echo "✅ Core CI passed in $((SECONDS - started))s (web-targeted and web-full-suite run on GitHub)."
     ;;
   all)
     echo "== CI Parity (Local) =="
