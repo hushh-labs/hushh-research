@@ -11861,7 +11861,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1381
+      "value": 1382
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17551,6 +17551,18 @@
         }
       ],
       "scope": "Reviewed 74 size-only findings; 72 imported, one necessary test fixture line and one locally improved module. No dependency/import rule, budget or test gate relaxed. Source review and focused checks do not substitute for canonical CI."
+    },
+    "generated_location_compatibility_20260927": {
+      "changes": [
+        {
+          "disposition": "retain_reviewed_generated_size_debt",
+          "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+          "previous_value": 1381,
+          "value": 1382
+        }
+      ],
+      "reason": "Canonical generator adds one compatibility revision after main integration. Generated output remains owned by the existing generator; no authored complexity, thresholds or non-size gates changed.",
+      "source_revision": "63afac9d6"
     },
     "main_drive_refresh_20260926": {
       "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewer-candidate-follow-up--2026-09-26",
