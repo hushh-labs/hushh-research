@@ -2166,3 +2166,61 @@ supports strict full-metadata comparison for that publication; PostgreSQL tests
 refuse concurrent approval, acknowledgement and erasure changes. Negative controls
 failed on the previous relaxed publication behavior. These are source safeguards;
 the actual normal image update and separate-network acceptance remain unverified.
+
+### Direct browser correction and update recovery — 2026-09-27 UTC
+
+Candidate `bde8b1d9cda832f2e56b1736ad5a746092e0a493` passed complete
+[GitHub CI 36321714899](https://github.com/hushh-labs/hushh-research/actions/runs/36321714899)
+and [governed dev deployment 36322801558](https://github.com/hushh-labs/hushh-research/actions/runs/36322801558).
+Independent readback verified backend `consent-protocol-00105-rmp` and frontend
+`hushh-webapp-00075-fgp` serving that exact revision. The application branch remains
+unmerged. The dev hub now uses the corrected capacity defaults; this is not a
+measured sustainable-load envelope.
+
+A canonical-reviewer browser rehearsal verified status beside the `/one` brand
+and inside One chat at 390, 768 and 1440 pixels, without viewport overflow. Trusted
+Devices loaded successfully and same-session vault continuity passed. This read
+rehearsal does not prove a Puppy grant, inference, or a successful pod update.
+
+Cloud Run reported the former update executor retired. Recovery independently
+verified unchanged owner service identity, revision and image, an authenticated
+missing target manifest, the exact retained approval and a fresh authenticated
+idle handoff. A strict metadata compare-and-set released only the interrupted
+lease, preserving the approved operation. Execution resumes through the existing
+upgrade service with that same release; installed-digest and recovery readback
+are still required before reporting completion.
+
+The existing personal Hermes client reached the signed endpoint flow but its
+Puppy binding was refused with `PUPPY_OWNER_APPROVAL_REQUIRED`. Enrollment remains
+intact. The owner's Trusted Devices grant must precede direct relay admission;
+registration or the browser correction alone cannot establish that grant.
+
+The resumed reviewer operation subsequently completed. Independent provider and
+registry readback verified the approved `2026.09-dev.3+52b83d8a23ba.61ff4ee3`
+image, a new revision on the same service, unchanged encrypted identity key and
+hosting policy, a ready acknowledgement and no held lease. This proves recovery
+of an interrupted owner-approved update; it is not uninterrupted-update or live
+rollback evidence. The bounded recovery job succeeded and was removed after its
+receipts were retained.
+
+A subsequent browser rehearsal verified the installed version, update-check
+feedback, preserved BYOC assignment, cold unlock and warm Hosting/Updates
+navigation. The newer advertised image does not yet declare this newly installed
+image as a supported predecessor. Files activation therefore still needs a
+verified compatible release path; an available setup button is not activation
+acceptance. A real private-chat rehearsal reached the pod but did not yet obtain
+a completed assistant turn; diagnosis remains open.
+
+The chat refusal was narrowed to `not_local_authority`: the streaming wrapper
+spread a `Headers` instance into an object, dropping its authorization and chat-key
+headers. The existing transport regression now fails on that implementation and
+passes when streaming preserves `HeadersInit` through `new Headers`. The focused
+transport suites passed 79 tests. Local browser-to-pod acceptance remains blocked
+at direct admission; it does not substitute for the next governed dev deployment.
+
+The next release descriptor adds the verified installed image as a supported
+predecessor. Review of the installed-source-to-candidate delta found no storage,
+Files, encryption, schema, dependency or pod-server changes; its backend change
+is the optional strict registry comparison used above. Release-contract tests
+passed 21 cases. Files still requires a new plan and exact owner approval for the
+newly published target; the completed image approval is not repurposed.

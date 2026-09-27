@@ -20,6 +20,7 @@
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:ac409994fddb8dda266c811eb14127d07678cd54b7c0c451aa16a8e94e7f4fea"
+    "sha256:ac409994fddb8dda266c811eb14127d07678cd54b7c0c451aa16a8e94e7f4fea",
+    "sha256:61ff4ee3bbfcb1c35d9a5c8cfd9988548e2bd03f1d5d7ccb5c61b1d16bcd5259"
   ]
 }

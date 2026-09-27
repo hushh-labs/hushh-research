@@ -108,13 +108,14 @@ function deferred<T>() {
 describe("ApiService.apiFetch", () => {
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
     const url = "https://owner-pod.example/api/one/pod/status";
-    mockFetch.mockImplementation(async (target, init) => {
-      if (target === url && init?.credentials !== "omit") throw new TypeError("Failed to fetch");
-      return jsonResponse({ ok: true });
-    });
+    mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
     const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
-    await request(url, { credentials: "omit" });
+    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key" });
+    await request(url, { credentials: "omit", headers });
     expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
+    const sent = new Headers(mockFetch.mock.calls[0][1]?.headers);
+    headers.forEach((value, key) => expect(sent.get(key)).toBe(value));
+    if (streaming) expect(sent.get("Accept")).toBe("text/event-stream");
     await ApiService.apiFetch("/api/one/personal-agent/status");
     expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
   });
@@ -248,7 +249,6 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
-    // On web the URL should be the path itself (relative), no hostname prefix
     expect(calledUrl).toBe("/api/test");
   });
 

@@ -1453,12 +1453,11 @@ export class ApiService {
     path: string,
     options: RequestInit = {},
   ): Promise<Response> {
+    const headers = new Headers(options.headers);
+    headers.set("Accept", "text/event-stream");
     return apiFetch(path, {
       ...options,
-      headers: {
-        ...options.headers,
-        Accept: "text/event-stream",
-      },
+      headers,
     });
   }
 
