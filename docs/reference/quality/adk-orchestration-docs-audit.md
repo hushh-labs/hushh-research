@@ -2150,3 +2150,19 @@ cookie omission for admission, Files, chat/streaming, commands and Puppy routes.
 Regression tests reject the old behavior; live browser admission and inference
 remain required. Agent presence moves into the shared `/one` top bar and chat
 using the existing observation hooks; registration is not relay readiness.
+
+The browser probe against the owner pod reproduced the transport failure with
+cookie credentials and reached the expected validation response without them.
+This proves the CORS correction's premise, not Puppy inference or admission.
+Candidate `b17f86a3` passed the backend, native, targeted web and governance lanes,
+but full web CI exposed a Circles test that cleared callback history before the
+first owner's reporting effect completed. The correction awaits that effect and
+retains every cross-owner assertion; no failing candidate was deployed.
+
+The interrupted reviewer update retains its original approval and lease. Recovery
+must prove executor termination, unchanged provider state and an authenticated
+missing target manifest before releasing that exact lease. The registry now
+supports strict full-metadata comparison for that publication; PostgreSQL tests
+refuse concurrent approval, acknowledgement and erasure changes. Negative controls
+failed on the previous relaxed publication behavior. These are source safeguards;
+the actual normal image update and separate-network acceptance remain unverified.

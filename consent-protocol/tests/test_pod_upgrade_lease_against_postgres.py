@@ -56,11 +56,7 @@ def _shipped_claim(target_image: str, observed: dict) -> tuple[Optional[str], di
 
 @pytest.fixture(scope="module")
 def pg():
-    """A disposable server carrying only the registry schema.
-
-    The harness's PKM migration list is irrelevant here and slow, so it is emptied for
-    this module; the prelude still runs because the schema file depends on it.
-    """
+    """Disposable PostgreSQL with only the registry migrations."""
     original = postgres_harness.MIGRATIONS
     postgres_harness.MIGRATIONS = []
     server = TempPostgres()
@@ -81,12 +77,7 @@ def pg():
 
 @pytest.fixture
 def engine(pg):
-    """SQLAlchemy, because that is what `execute_raw` uses.
-
-    The binds are `:name`, which psycopg2 alone does not speak. Running them through
-    any other binding style would be testing a translation this repository never
-    performs.
-    """
+    """Exercise production SQLAlchemy parameter binding against PostgreSQL."""
     from sqlalchemy import create_engine
 
     return create_engine(
@@ -123,39 +114,20 @@ def _claim(engine, target_image: str = _TARGET) -> list:
 
 
 def test_the_shipped_claim_statement_is_accepted_by_postgres(pg, engine):
-    """The statement is valid against the schema it will actually run on.
-
-    Not a claim that the existing pins would miss THIS -- they would, because they name
-    most of the statement's text. It is the check that survives a legitimate rewrite and
-    the one that notices a column renamed underneath it, neither of which a substring
-    can do.
-    """
+    """Validate the shipped SQL against the actual schema."""
     _row(pg)
     assert _claim(engine), "the statement ran but claimed nothing on a free lease"
 
 
 def test_the_second_worker_is_refused_while_the_lease_is_held(pg, engine):
-    """The property the lease exists for: exactly one winner.
-
-    Two reconcile loops in two gunicorn workers reach this within seconds of each
-    other. If both claim, both upgrade, and each records the other's failure against
-    the same three-attempt cap.
-    """
+    """Concurrent workers must have exactly one lease winner."""
     _row(pg)
     assert _claim(engine), "the first worker did not get the lease"
     assert _claim(engine) == [], "a second worker won a lease that was already held"
 
 
 def test_a_contested_claim_does_not_raise_on_the_lease_value(pg, engine):
-    """THE regression, and the reason a real database is the only witness.
-
-    The stored lease is `<iso timestamp>|<image ref>`. The original claim cast that
-    whole string to `timestamptz`, so the moment a lease existed -- which is precisely
-    the contested case the guard is for -- PostgreSQL raised instead of returning no
-    rows. `split_part(..., '|', 1)` takes only the timestamp half.
-
-    A fake database returns whatever it is told to. This asserts PostgreSQL parses it.
-    """
+    """Regression: casting the composite lease as a timestamp raised on contention."""
     held = f"{datetime.now(timezone.utc).isoformat()}|{_TARGET}"
     _row(pg, lease=held)
     assert _claim(engine) == [], "a held lease was either claimable or unparseable"
@@ -425,6 +397,46 @@ async def test_files_checkpoint_advancement_fences_stale_recovery(pg, engine):
     )
     current = await repo.get(_USER)
     assert current["backend_metadata"] == advanced
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed_key", ["upgradeApproval", "upgradeAcknowledgement", "erasure"])
+async def test_recovery_refuses_concurrent_authority_change(pg, engine, changed_key):
+    import json
+
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    lease = await repo.claim_image_upgrade(
+        user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+    )
+    observed = await repo.get(_USER)
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=backend_metadata || %s::jsonb "
+        "WHERE user_id=%s",
+        (json.dumps({changed_key: {"operationId": "concurrent-operation"}}), _USER),
+    )
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=observed["backend_metadata"],
+        backend_metadata=observed["backend_metadata"],
+        require_unchanged_metadata=True,
+    )
+    current = await repo.get(_USER)
+    assert current["backend_metadata"]["upgradeLease"] == lease
+    assert current["backend_metadata"][changed_key]["operationId"] == "concurrent-operation"
+    # A fresh, unchanged snapshot can publish; this method does not decide recovery safety.
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=current,
+        expected_lease=lease,
+        previous_metadata=current["backend_metadata"],
+        backend_metadata=current["backend_metadata"],
+        require_unchanged_metadata=True,
+    )
 
 
 @pytest.mark.asyncio

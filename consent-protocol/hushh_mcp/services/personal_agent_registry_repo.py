@@ -1797,12 +1797,10 @@ class PersonalAgentRegistryRepo:
         observed: Optional[dict],
         liveness_mode: Optional[str] = None,
         retain_lease: bool = False,
+        require_unchanged_metadata: bool = False,
     ) -> bool:
-        """Publish only the claiming worker's result, preserving unrelated metadata.
-
-        The exact lease and provisioned state fence registry publication only.
-        They do not establish provider-incarnation ownership or drain old work.
-        """
+        """Fence lease/host and optionally metadata; callers must separately prove
+        executor termination and provider outcome before recovery."""
         if not isinstance(expected_lease, str) or not expected_lease:
             return False
         snapshot = upgrade_host_snapshot(observed)
@@ -1812,7 +1810,9 @@ class PersonalAgentRegistryRepo:
             or snapshot["status"] != "provisioned"
         ):
             return False
-        observed_params = _upgrade_snapshot_params(snapshot, publishing=True)
+        observed_params = _upgrade_snapshot_params(
+            snapshot, publishing=not require_unchanged_metadata
+        )
         changes = {
             key: value
             for key, value in backend_metadata.items()
