@@ -1048,21 +1048,24 @@ class PersonalAgentRegistryRepo:
             puppy_approval=puppy_approval,
         )
 
-    async def record_endpoint(self, *, user_id: str, endpoint: dict) -> None:
-        """`backend_metadata.endpoint = endpoint` (the discovery record, versioned)."""
-        await asyncio.to_thread(
-            self._db().execute_raw,
-            """
-            UPDATE personal_agent_registry
-            SET backend_metadata = jsonb_set(
-                    coalesce(backend_metadata, '{}'::jsonb),
-                    '{endpoint}',
-                    CAST(:endpoint AS jsonb),
-                    true
-                )
-            WHERE user_id = :user_id
-            """,
-            {"user_id": user_id, "endpoint": json.dumps(endpoint)},
+    async def record_endpoint(
+        self,
+        *,
+        user_id: str,
+        hushh_id: str,
+        pod_key_id: str,
+        pod_public_key: str,
+        service_uid: str,
+        url: str,
+    ) -> dict | None:
+        return await direct_admission.record_endpoint(
+            self._db(),
+            user_id=user_id,
+            hushh_id=hushh_id,
+            pod_key_id=pod_key_id,
+            pod_public_key=pod_public_key,
+            service_uid=service_uid,
+            url=url,
         )
 
     async def record_puppy_access(self, *, user_id: str, device_id: str, access: dict) -> int:

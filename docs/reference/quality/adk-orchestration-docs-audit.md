@@ -2269,3 +2269,63 @@ owner browser's stored connection state or relay admission. Trusted Devices now
 maps recognized connection failures to fixed local messages and references;
 unknown error details remain hidden. No re-enrollment or device self-grant was
 performed to bypass the missing approval.
+
+
+### Dev release and retained Files denial — 2026-09-27 UTC
+
+Source `9c4379f0125850ab3a63896ee21d430447f3b556` passed complete
+[CI 36331365601](https://github.com/hushh-labs/hushh-research/actions/runs/36331365601)
+and [dev deployment 36332480677](https://github.com/hushh-labs/hushh-research/actions/runs/36332480677).
+Independent readback verified backend `consent-protocol-00107-plc` and frontend
+`hushh-webapp-00077-nqx`, each serving all traffic. The candidate model probe
+passed. The anonymous device-connect journey displayed sign-in/setup instructions
+and returned `login_required` without issuing an approval code.
+
+The canonical reviewer approved the exact dev release
+`2026.09-dev.3+9c4379f01258.22cadabe` with its Files capability plan through
+Settings. The operation retained a denied queue-creation receipt after creating
+its worker identity and recording the approved IAM changes. Subsequent readback
+verified that queue permissions had become effective, the queue was absent and
+the pod's image and generation were unchanged. This supports IAM propagation as
+the immediate failure; activation remains blocked pending a fenced continuation.
+The successful acknowledgement from the preceding image update belongs to a
+different operation and cannot prove this Files installation.
+
+A separate endpoint-publication review found that discovery could overwrite a
+newer endpoint version from a stale registry read. Publication now validates owner,
+pod key, incarnation and direct readiness under one row lock, then allocates the
+version before signing. Forty focused backend checks passed, including real
+Postgres concurrency and the existing direct-access rehearsal. A negative control
+reproduced signing after refused publication on the former implementation. This
+is not evidence that the personal owner's failed Puppy grant had that cause.
+
+The existing Hermes dev profile retains its device identity. Its explicit direct
+relay launcher can wait for metadata-only activation and uses the profile-selected
+local model. Local inference returned nonempty text, but owner grant, pod relay
+admission and separate-network inference remain distinct unverified outcomes.
+No re-enrollment, pin reset or device self-grant was used.
+
+Deployment timing is recorded in the existing
+[dev runbook](../operations/dev-fast-lane.md#deployment-duration-and-independent-work).
+The branch build overlaps independent IAM/model readiness and pod publication;
+62 focused build-contract checks passed. A subsequent governed deployment must
+measure the benefit. No application main merge, stable publication or UAT/production
+deployment occurred. Destructive-history cutover and broader live acceptance remain
+separate outstanding requirements.
+
+The endpoint patch's six existing size findings were individually reviewed by the
+parent and an independent read-only authority reviewer. The explicit registry
+facade grows three lines; the signing service grows five; the nearest regression
+suite and existing rehearsal fake carry their changed contract. Only those six
+measured baseline values were amended. A pure endpoint-version projection keeps
+the new transactional helper within its existing function budget. Thresholds,
+all other debt entries, dependency checks and import checks remain unchanged.
+
+A further live device-sync read returned HTTP 500. Sanitized provider logs identified
+`PkmDeviceSyncResponse`, `events.0.created_at`, and `string_type`. The service
+passed PostgreSQL `TIMESTAMPTZ` values directly to a string-only response contract.
+The projection now emits ISO timestamps while retaining existing string/null values.
+The existing owner-bound route test now exercises the actual service projection;
+its datetime case failed on the previous source. All 69 affected PKM route and
+trusted-device tests pass. This source correction still requires deployment and
+live synchronization readback; it does not establish a Puppy grant.

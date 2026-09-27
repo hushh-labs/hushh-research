@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import create_engine, event, text
 
 from db.db_client import DatabaseClient
-from hushh_mcp.services.personal_agent_direct_admission import record_binding
+from hushh_mcp.services.personal_agent_direct_admission import record_binding, record_endpoint
 from hushh_mcp.services.trusted_device_service import PostgresTrustedDeviceStore
 from tests.pkm_conformance import postgres_harness
 
@@ -56,6 +56,13 @@ def db(pg):
                     {
                         "url": "https://pod.example",
                         "serviceUid": "uid-1",
+                        "ingress": "direct",
+                        "directReadiness": {
+                            "verified": True,
+                            "serviceUid": "uid-1",
+                            "podKeyId": "podk_test",
+                            "url": "https://pod.example",
+                        },
                         "bindings": {"other": {"version": 9}},
                         "retained": "keep",
                     }
@@ -102,6 +109,70 @@ def revoke(db):
     store = PostgresTrustedDeviceStore.__new__(PostgresTrustedDeviceStore)
     store._db = db
     return store.revoke_device(user_id="u", device_id="tdv_test", now_ms=2)
+
+
+def publish_endpoint(db, url="https://pod.example"):
+    return asyncio.run(
+        record_endpoint(
+            db,
+            user_id="u",
+            hushh_id="ha1_test",
+            pod_key_id="podk_test",
+            pod_public_key="public",
+            service_uid="uid-1",
+            url=url,
+        )
+    )
+
+
+def test_simultaneous_endpoint_discovery_reuses_one_committed_version(db):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: publish_endpoint(db), range(2)))
+    assert results == [{"version": 1, "url": "https://pod.example", "podKeyId": "podk_test"}] * 2
+    with db.engine.connect() as conn:
+        meta = conn.execute(
+            text("SELECT backend_metadata FROM personal_agent_registry WHERE user_id='u'")
+        ).scalar_one()
+    assert meta["retained"] == "keep"
+    assert meta["bindings"]["other"] == {"version": 9}
+
+
+@pytest.mark.parametrize("change", ["replacement", "readiness", "deleted"])
+def test_waiting_discovery_cannot_publish_after_authority_changes(db, change):
+    assert publish_endpoint(db)["version"] == 1
+    reached_lock = threading.Event()
+
+    def observe(_conn, _cursor, statement, _params, _context, _many):
+        if statement.startswith("SELECT hushh_id"):
+            reached_lock.set()
+
+    event.listen(db.engine, "before_cursor_execute", observe)
+    try:
+        with db.engine.begin() as conn, ThreadPoolExecutor(max_workers=1) as pool:
+            if change == "replacement":
+                conn.execute(
+                    text(
+                        "UPDATE personal_agent_registry SET backend_metadata = jsonb_set(jsonb_set(backend_metadata, '{url}', '\"https://new-pod.example\"'), '{directReadiness,url}', '\"https://new-pod.example\"') WHERE user_id='u'"
+                    )
+                )
+            elif change == "readiness":
+                conn.execute(
+                    text(
+                        "UPDATE personal_agent_registry SET backend_metadata = jsonb_set(backend_metadata, '{directReadiness,verified}', 'false') WHERE user_id='u'"
+                    )
+                )
+            else:
+                conn.execute(text("DELETE FROM personal_agent_registry WHERE user_id='u'"))
+            result = pool.submit(publish_endpoint, db)
+            assert reached_lock.wait(5)
+            conn.commit()
+            assert result.result(timeout=5) is None
+        if change == "replacement":
+            assert publish_endpoint(db, "https://new-pod.example")["version"] == 2
+            assert publish_endpoint(db) is None
+            assert publish_endpoint(db, "https://new-pod.example")["version"] == 2
+    finally:
+        event.remove(db.engine, "before_cursor_execute", observe)
 
 
 def test_competing_issuers_publish_one_version_and_preserve_other_metadata(db):

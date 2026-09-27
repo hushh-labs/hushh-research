@@ -4873,7 +4873,11 @@ class PersonalKnowledgeModelService:
                     ),
                     "content_revision": self._to_non_negative_int(metadata.get("data_version")),
                     "manifest_revision": self._to_non_negative_int(row.get("new_manifest_version")),
-                    "created_at": row.get("created_at"),
+                    "created_at": (
+                        row["created_at"].isoformat()
+                        if isinstance(row.get("created_at"), datetime)
+                        else row.get("created_at")
+                    ),
                 }
             )
             next_cursor = max(next_cursor, event_id)

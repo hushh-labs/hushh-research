@@ -110,8 +110,16 @@ class _Registry:
         )
         return 1
 
-    async def record_endpoint(self, *, user_id, endpoint):
-        self.row.setdefault("backend_metadata", {})["endpoint"] = endpoint
+    async def record_endpoint(
+        self, *, user_id, hushh_id, pod_key_id, pod_public_key, service_uid, url
+    ):
+        metadata = self.row.setdefault("backend_metadata", {})
+        previous = metadata.get("endpoint", {})
+        if previous.get("url") == url and previous.get("podKeyId") == pod_key_id:
+            return previous
+        endpoint = {"version": previous.get("version", 0) + 1, "url": url, "podKeyId": pod_key_id}
+        metadata["endpoint"] = endpoint
+        return endpoint
 
     async def append_pending_tombstone(self, *, user_id, entry):
         self.row.setdefault("backend_metadata", {}).setdefault("pendingTombstones", []).append(

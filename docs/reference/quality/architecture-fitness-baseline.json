@@ -50,7 +50,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py",
       "symbol": "PersonalKnowledgeModelService",
-      "value": 4903
+      "value": 4907
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -140,7 +140,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": "PersonalAgentRegistryRepo",
-      "value": 1764
+      "value": 1767
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -842,7 +842,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": "PodBindingService",
-      "value": 375
+      "value": 380
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10823,7 +10823,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py",
       "symbol": null,
-      "value": 5122
+      "value": 5126
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11444,7 +11444,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": null,
-      "value": 1983
+      "value": 1986
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12056,7 +12056,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_upgrade_routes.py",
       "symbol": null,
-      "value": 1406
+      "value": 1414
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14639,7 +14639,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_service.py",
       "symbol": null,
-      "value": 708
+      "value": 738
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16601,7 +16601,7 @@
       "limit": 500,
       "path": "consent-protocol/scripts/ops/owner_direct_acceptance.py",
       "symbol": null,
-      "value": 540
+      "value": 548
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17276,7 +17276,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": null,
-      "value": 502
+      "value": 507
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17355,6 +17355,8 @@
   "review": {
     "adk_revision": "91bc9f7cbfa9a9d544623808b9e3ab36dc3a050c",
     "date": "2026-09-27",
+    "device_sync_delta": "Three existing size entries reviewed against live TIMESTAMPTZ response failure: service class/module +4 lines and existing owner-bound route test +8. Parent and read-only API reviewer; only timestamp projection and its regression. No threshold or unrelated entry changed.",
+    "endpoint_publication_delta": "Six reviewed existing size entries for explicit endpoint authority arguments, refusal before signing, the core regression and compatible rehearsal fake. Parent and read-only authority review; evidence base 9c4379f0125850ab3a63896ee21d430447f3b556. No other entries or budgets changed.",
     "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
     "freshness_main_revision": "6aba9e7f7b1b6b0ea953ec19fdea324812338553",
     "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",

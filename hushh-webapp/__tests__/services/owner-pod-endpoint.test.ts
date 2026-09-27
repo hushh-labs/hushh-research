@@ -239,6 +239,14 @@ describe("owner pod endpoint", () => {
       code: "ENDPOINT_MALFORMED",
     });
     expect((await ownerPod.loadPinnedEndpoint(USER))?.podKeyId).toBe("podk_1");
+
+    world.endpoint = endpointBody({ endpointVersion: 2 });
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    world.endpoint = endpointBody({ endpointVersion: 1 });
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toMatchObject({
+      code: "ENDPOINT_VERSION_REGRESSION",
+    });
+    expect((await ownerPod.loadPinnedEndpoint(USER))?.endpointVersion).toBe(2);
   });
 
   it("refuses a malformed endpoint record", async () => {

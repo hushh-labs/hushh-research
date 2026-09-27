@@ -12,6 +12,97 @@ import json
 from typing import Any, Optional
 
 
+def _next_endpoint(previous: Any, *, url: str, pod_key_id: str) -> dict | None:
+    """Preserve a valid version on rediscovery; advance it only for a new endpoint."""
+    if not isinstance(previous, dict):
+        return None
+    version = previous.get("version", 0)
+    if type(version) is not int or version < 0:
+        return None
+    if not version or previous.get("url") != url or previous.get("podKeyId") != pod_key_id:
+        version += 1
+    return {"version": version, "url": url, "podKeyId": pod_key_id}
+
+
+async def record_endpoint(
+    db: Any,
+    *,
+    user_id: str,
+    hushh_id: str,
+    pod_key_id: str,
+    pod_public_key: str,
+    service_uid: str,
+    url: str,
+) -> dict | None:
+    """Validate discovery authority and allocate its version under one row lock."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from db.db_client import DatabaseExecutionError
+
+    def commit() -> dict | None:
+        with db.engine.begin() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '5s'"))
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            owner = (
+                conn.execute(
+                    text(
+                        "SELECT hushh_id, status, deployment_target, pod_key_id, pod_pubkey, "
+                        "backend_metadata FROM personal_agent_registry "
+                        "WHERE user_id = :user_id FOR UPDATE"
+                    ),
+                    {"user_id": user_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if owner is None:
+                return None
+            metadata = owner["backend_metadata"] or {}
+            readiness = metadata.get("directReadiness") or {}
+            if (
+                owner["hushh_id"] != hushh_id
+                or owner["status"] != "provisioned"
+                or owner["deployment_target"] != "user_gcp"
+                or owner["pod_key_id"] != pod_key_id
+                or owner["pod_pubkey"] != pod_public_key
+                or "erasure" in metadata
+                or metadata.get("serviceUid") != service_uid
+                or str(metadata.get("url") or "").strip().rstrip("/") != url
+                or metadata.get("ingress") != "direct"
+                or not isinstance(readiness, dict)
+                or readiness.get("verified") is not True
+                or readiness.get("serviceUid") != service_uid
+                or readiness.get("podKeyId") != pod_key_id
+                or readiness.get("url") != url
+            ):
+                return None
+            previous = metadata.get("endpoint") or {}
+            endpoint = _next_endpoint(previous, url=url, pod_key_id=pod_key_id)
+            if endpoint is None or endpoint == previous:
+                return endpoint
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET backend_metadata = jsonb_set("
+                    "coalesce(backend_metadata, '{}'::jsonb), '{endpoint}', "
+                    "CAST(:endpoint AS jsonb), true) WHERE user_id = :user_id"
+                ),
+                {"user_id": user_id, "endpoint": json.dumps(endpoint)},
+            )
+            return endpoint
+
+    try:
+        return await asyncio.to_thread(commit)
+    except SQLAlchemyError:
+        raise DatabaseExecutionError(
+            table_name="personal_agent_registry",
+            operation="pod_endpoint_publication",
+            details="Pod endpoint storage is unavailable.",
+            status_code=503,
+            code="POD_ENDPOINT_STORAGE_UNAVAILABLE",
+        ) from None
+
+
 async def record_binding(
     db: Any,
     *,

@@ -569,41 +569,49 @@ def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, rou
     ]
 
 
-def test_device_sync_feed_is_owner_bound(monkeypatch):
-    class _FakePkmService:
-        async def list_device_sync_events(self, **kwargs):
-            assert kwargs == {
-                "user_id": "user_123",
-                "after_cursor": 4,
-                "limit": 25,
-            }
-            return {
-                "events": [
-                    {
-                        "cursor": 5,
-                        "domain": "financial",
-                        "operation": "delete",
-                        "content_revision": 8,
-                        "manifest_revision": None,
-                        "created_at": "2026-07-28T12:00:00Z",
-                    }
-                ],
-                "next_cursor": 5,
-                "has_more": False,
-            }
+@pytest.mark.parametrize(
+    "created_at",
+    [datetime(2026, 7, 28, 12, tzinfo=timezone.utc), "2026-07-28T12:00:00+00:00", None],
+)
+def test_device_sync_feed_is_owner_bound(monkeypatch, created_at):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
 
-    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    from hushh_mcp.services.personal_knowledge_model_service import PersonalKnowledgeModelService
+
+    service = PersonalKnowledgeModelService()
+    service._db = MagicMock()
+    service._execute_query = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                {
+                    "id": 5,
+                    "domain": "financial",
+                    "operation_type": "domain_delete",
+                    "new_manifest_version": None,
+                    "metadata": {"data_version": 8},
+                    "created_at": created_at,
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: service)
     client = TestClient(_build_app())
-
     response = client.get(
         "/api/pkm/device-sync/user_123",
         params={"after_cursor": 4, "limit": 25},
     )
     assert response.status_code == 200
-    assert response.json()["events"][0]["operation"] == "delete"
-
+    event = response.json()["events"][0]
+    assert event["operation"] == "delete"
+    assert event["created_at"] == (None if created_at is None else "2026-07-28T12:00:00+00:00")
+    service._db.table.assert_called_once_with("pkm_events")
+    service._db.table.return_value.select.return_value.eq.assert_called_once_with(
+        "user_id", "user_123"
+    )
     forbidden = client.get("/api/pkm/device-sync/another_user")
     assert forbidden.status_code == 403
+    service._execute_query.assert_awaited_once()
 
 
 def test_store_domain_rechecks_v7_kill_switch_before_commit(monkeypatch):

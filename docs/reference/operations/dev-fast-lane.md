@@ -119,8 +119,7 @@ flowchart LR
   `CI Status Gate` the dev deploy consumes.
 - **No auto-deploy-on-push in the workflow itself.** Dispatch stays
   manual-by-governed-actor so workflow-lane dev deploys are always intentional and
-  attributable. Auto-deploy exists as a separate GCP-native lane (below), added
-  2026-07 at founder request when the cadence demanded it.
+  attributable. The former GCP-native trigger lane is historical (below).
 
 ## Candidate verification and compatibility
 
@@ -146,22 +145,34 @@ does not approve installation on any owner's pod or publish a stable release.
 Calendar and configured Live voice keys participate in runtime parity. Configuration
 parity does not prove a successful connector operation or live voice session.
 
-Keep the existing Cloud Build trigger path until the governed workflow passes its
-live rehearsal, then disable the competing triggers and record that observed state.
-Existing owner resources and information require preservation throughout this change.
+The governed workflow has completed live dev deployments. On 2026-09-27, readback
+of the dev project's regional and global Cloud Build trigger inventories found no
+triggers. Preserve this single deployment authority and existing owner resources.
+
+### Deployment duration and independent work
+
+Measured on 2026-09-27, governed dev run `36332480677` took 21m39s for
+backend, frontend and a pod image. UAT run `36331605754` took 11m33s for
+frontend only; the recent full UAT run `36329957069` took 22m18s and also
+included the Drive worker. Compare selected services before comparing duration.
+
+The branch-owned backend build now overlaps runtime IAM and its isolated model
+probe with pod image publication. Deployment joins verified release metadata and
+the model probe before creating its candidate revision. Docker builds remain
+serial because they share a builder and contracts directory. This preserves the
+migration, provenance, health and promotion gates. The duration improvement needs
+a subsequent live run; these source dependencies do not establish a measured saving.
 
 ## GCP-native auto-deploy (Cloud Build triggers)
 
-A companion lane for "commit to `main` and dev updates itself" without any
-GitHub Actions dispatch: Cloud Build triggers in the dev project
-(`dev-backend-autodeploy`, `dev-frontend-autodeploy`) fire on `main` pushes,
-path-filtered per lane, and reuse the same shared build configs the workflow
-deploys with. Backend runs migrations + the dev schema floor first. Setup and
-gate trade-offs:
+Historical: the `dev-backend-autodeploy` and `dev-frontend-autodeploy` triggers
+previously deployed main pushes directly through Cloud Build. They were absent
+from the live inventories checked on 2026-09-27. Cloud Build remains the image
+build executor under the governed GitHub workflow; do not recreate the competing
+push triggers from the older setup instructions in
 [dev environment runbook, Phase 6c](../../../consent-protocol/docs/reference/dev-environment-setup.md).
-This lane trades the green-check assertion and verification/rollback layers
-for speed — acceptable only because dev is disposable and promotes nothing.
-UAT and production remain GitHub-Actions-only.
+The existing [integration audit](../quality/adk-orchestration-docs-audit.md)
+records release evidence and the acceptance work still required.
 
 ## Operating it
 
@@ -174,10 +185,11 @@ UAT and production remain GitHub-Actions-only.
 #   ref: feat/my-branch   sha: <exact green sha>   scope: auto
 ```
 
-- Dev drift or a broken train schema? Dev is disposable by design: re-clone the DB
-  from UAT per the
+- For dev drift or a broken schema, use the bounded recovery procedure in the
   [dev environment runbook](../../../consent-protocol/docs/reference/dev-environment-setup.md)
-  and redeploy. Never "fix" dev by hand-editing infrastructure.
+  and the governed deployment workflow. Existing reviewer history, assignments,
+  devices and owner resources must be preserved. A database reset or replacement
+  requires its own explicit scope and recovery evidence.
 - Auditing dev at any time: `python3 scripts/ops/dev_environment_doctor.py`.
 
 ### Voice verification after the September 2026 route transition

@@ -77,6 +77,31 @@ def _step(config: dict, step_id: str) -> dict:
     raise AssertionError(f"{step_id} step is missing from backend.cloudbuild.yaml")
 
 
+def test_parallel_build_keeps_release_and_readiness_before_deployment(config: dict):
+    """Independent work can overlap; no deploy can outrun its authority gates."""
+    dependencies = {}
+    preceding = []
+    for step in config["steps"]:
+        required = step.get("waitFor", preceding)  # Cloud Build's implicit ordering.
+        assert all(parent == "-" or parent in preceding for parent in required)
+        dependencies[step["id"]] = set(required) - {"-"}
+        preceding.append(step["id"])
+
+    def ancestors(step_id):
+        direct = dependencies[step_id]
+        return direct | {ancestor for parent in direct for ancestor in ancestors(parent)}
+
+    assert {"resolve-pod-image-digest", "verify-managed-vertex-runtime"} <= ancestors(
+        "deploy-backend"
+    )
+    assert {"build-backend-image", "verify-runtime-iam"} <= ancestors(
+        "verify-managed-vertex-runtime"
+    )
+    assert "build-pod-image" in ancestors("resolve-pod-image-digest")
+    assert "build-backend-image" in ancestors("build-pod-image")
+    assert "build-pod-image" not in ancestors("verify-managed-vertex-runtime")
+
+
 @pytest.fixture(scope="module")
 def pod_step(config: dict) -> dict:
     return _step(config, "build-pod-image")

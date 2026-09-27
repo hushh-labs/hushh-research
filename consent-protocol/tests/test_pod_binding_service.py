@@ -81,9 +81,17 @@ class _Registry:
         meta.setdefault("bindings", {})[device_id] = record
         return True
 
-    async def record_endpoint(self, *, user_id, endpoint):
+    async def record_endpoint(
+        self, *, user_id, hushh_id, pod_key_id, pod_public_key, service_uid, url
+    ):
+        meta = self.row.setdefault("backend_metadata", {})
+        previous = meta.get("endpoint", {})
+        if previous.get("url") == url and previous.get("podKeyId") == pod_key_id:
+            return previous
+        endpoint = {"version": previous.get("version", 0) + 1, "url": url, "podKeyId": pod_key_id}
         self.endpoints.append(endpoint)
-        self.row.setdefault("backend_metadata", {})["endpoint"] = endpoint
+        meta["endpoint"] = endpoint
+        return endpoint
 
     async def record_puppy_access(self, *, user_id, device_id, access):
         self.row.setdefault("backend_metadata", {}).setdefault("puppyAccess", {})[device_id] = (
@@ -379,6 +387,28 @@ async def test_endpoint_refuses_private_or_stale_direct_readiness(hub_key):
     with pytest.raises(pbs.PodBindingError, match="Direct access"):
         await service.endpoint(user_id=USER)
     assert registry.endpoints == []
+
+
+async def test_endpoint_never_signs_when_locked_publication_refuses(hub_key, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    registry = _Registry(_row())
+    service = pbs.PodBindingService(registry=registry, devices=_Devices({}), audit=_Audit())
+    registry.row["backend_metadata"]["endpoint"] = {
+        "version": 1,
+        "url": POD_URL,
+        "podKeyId": POD_KEY_ID,
+    }
+    registry.record_endpoint = AsyncMock(return_value=None)
+
+    def forbidden_sign(*args, **kwargs):
+        raise AssertionError("Refused endpoint must never be signed")
+
+    monkeypatch.setattr(pbs, "_sign", forbidden_sign)
+    with pytest.raises(pbs.PodBindingError) as refused:
+        await service.endpoint(user_id=USER)
+    assert refused.value.code == "POD_ENDPOINT_CHANGED"
+    registry.record_endpoint.assert_awaited_once()
 
 
 # -- the courier ----------------------------------------------------------------------

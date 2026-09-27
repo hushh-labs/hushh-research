@@ -376,12 +376,11 @@ class PodBindingService:
     async def endpoint(self, *, user_id: str) -> dict[str, Any]:
         """Where the owner's pod is, signed, with a version that only moves forward.
 
-        The version is bumped lazily, on the read that observes a change, and
-        persisted so every later read agrees. A url or key change without a bump
-        is therefore impossible to serve; an unchanged endpoint keeps its number.
+        Registry publication validates the observed deployment and allocates the
+        version under its row lock. Sign only that committed result.
         """
         row = await self._owner_row(user_id, request_id="pod-endpoint")
-        pod_key_id, _public, url = self._deployment(row)
+        pod_key_id, public, url = self._deployment(row)
         metadata = (
             row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
         )
@@ -401,21 +400,27 @@ class PodBindingService:
                 "Direct access to this pod has not been verified.",
                 status=409,
             )
-        recorded = metadata.get("endpoint") if isinstance(metadata.get("endpoint"), dict) else {}
-        version = int(recorded.get("version") or 0)
-        if version < 1 or recorded.get("url") != url or recorded.get("podKeyId") != pod_key_id:
-            version += 1
-            await self._registry.record_endpoint(
-                user_id=user_id,
-                endpoint={"version": version, "url": url, "podKeyId": pod_key_id},
+        published = await self._registry.record_endpoint(
+            user_id=user_id,
+            hushh_id=_clean(row.get("hushh_id")),
+            pod_key_id=pod_key_id,
+            pod_public_key=public,
+            service_uid=_clean(metadata.get("serviceUid")),
+            url=url,
+        )
+        if published is None:
+            raise PodBindingError(
+                "POD_ENDPOINT_CHANGED",
+                "Pod connection changed during discovery. Retry.",
+                status=409,
             )
         body = {
             "kind": ENDPOINT_KIND,
             "hushhId": _clean(row.get("hushh_id")),
-            "url": url,
-            "podKeyId": pod_key_id,
+            "url": published["url"],
+            "podKeyId": published["podKeyId"],
             "environment": hub_environment(),
-            "endpointVersion": version,
+            "endpointVersion": published["version"],
         }
         return {**body, "signature": _sign(canonical_json(body))}
 
