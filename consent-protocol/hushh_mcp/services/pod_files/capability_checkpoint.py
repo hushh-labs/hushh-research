@@ -58,7 +58,9 @@ def extend_inventory(original: dict, plan: FilesCapabilityPlan, completed: list[
         "applied": False,
         "plannedResources": resources,
         "plannedBindings": bindings,
-        "resourceIds": sorted({item["id"] for item in resources}),
+        "resourceIds": sorted(
+            set(original.get("resourceIds", [])) | {item["id"] for item in resources}
+        ),
         "planDigest": plan_digest({"resources": resources}),
         "resourceObservations": resource_observations,
         "bindingObservations": _union(original.get("bindingObservations", []), iam),

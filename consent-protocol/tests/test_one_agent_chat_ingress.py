@@ -406,3 +406,48 @@ async def test_browser_cannot_supply_system_instructions_on_either_chat_surface(
     with pytest.raises(HTTPException) as private:
         trusted_state(data, SimpleNamespace())
     assert private.value.detail["code"] == "AGENT_SYSTEM_MESSAGE_REFUSED"
+
+
+@pytest.mark.parametrize("fail", [False, True])
+async def test_private_chat_stream_has_single_sse_framing_and_safe_errors(monkeypatch, fail):
+    import json
+    from types import SimpleNamespace
+
+    from ag_ui.core import RunFinishedEvent, RunStartedEvent
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_agent_chat
+
+    closed = []
+
+    async def run(data):
+        try:
+            yield RunStartedEvent(thread_id=data.thread_id, run_id=data.run_id)
+            if fail:
+                raise RuntimeError("synthetic-private-provider-detail")
+            yield RunFinishedEvent(thread_id=data.thread_id, run_id=data.run_id)
+        finally:
+            closed.append(True)
+
+    owner = SimpleNamespace(build_agent=AsyncMock(return_value=SimpleNamespace(run=run)))
+    monkeypatch.setattr(pod_agent_chat, "trusted_state", lambda *_: ({}, None))
+    app = FastAPI()
+    app.include_router(pod_agent_chat.router)
+    app.dependency_overrides[pod_agent_chat.context] = lambda: owner
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/one/pod/agent-chat", json=incoming().model_dump(by_alias=True)
+        )
+    assert response.status_code == 200
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in events] == [
+        "RUN_STARTED",
+        "RUN_ERROR" if fail else "RUN_FINISHED",
+    ]
+    if fail:
+        assert events[-1]["code"] == "AGENT_ERROR"
+    assert "synthetic-private-provider-detail" not in response.text
+    assert closed == [True]

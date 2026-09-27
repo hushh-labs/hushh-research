@@ -110,7 +110,7 @@ describe("ApiService.apiFetch", () => {
     const url = "https://owner-pod.example/api/one/pod/status";
     mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
     const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
-    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key" });
+    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key", "content-type": "application/json" });
     await request(url, { credentials: "omit", headers });
     expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
     const sent = new Headers(mockFetch.mock.calls[0][1]?.headers);

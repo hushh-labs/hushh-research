@@ -597,10 +597,6 @@ async function apiFetch(
   const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
 
   const mergedHeaders: Record<string, string> = {};
-  if (!(options.body instanceof FormData)) {
-    mergedHeaders["Content-Type"] = "application/json";
-  }
-
   if (options.headers) {
     if (options.headers instanceof Headers) {
       options.headers.forEach((value, key) => {
@@ -617,6 +613,10 @@ async function apiFetch(
       }
     }
   }
+  if (!(options.body instanceof FormData) && !new Headers(mergedHeaders).has("Content-Type")) {
+    mergedHeaders["Content-Type"] = "application/json";
+  }
+
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
   mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 

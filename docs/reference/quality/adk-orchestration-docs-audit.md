@@ -2224,3 +2224,31 @@ Files, encryption, schema, dependency or pod-server changes; its backend change
 is the optional strict registry comparison used above. Release-contract tests
 passed 21 cases. Files still requires a new plan and exact owner approval for the
 newly published target; the completed image approval is not repurposed.
+
+### Direct chat wire verification — 2026-09-27 UTC
+
+Revision `2d41da1801e6d8714fcf4911628f6c9c3970ec22` passed
+[CI 36327487308](https://github.com/hushh-labs/hushh-research/actions/runs/36327487308)
+and [dev deployment 36328631812](https://github.com/hushh-labs/hushh-research/actions/runs/36328631812).
+Independent readback confirmed backend `consent-protocol-00106-nhx` and frontend
+`hushh-webapp-00076-flk`, each with all serving traffic. The dev-only release is
+`2026.09-dev.3+2d41da1801e6.aa149144`; publication did not install it on an owner pod.
+
+The real reviewer chat reached its pod after the authorization-header correction,
+but returned HTTP 422. The fetch wrapper duplicated JSON content type across header
+casing. A bounded diagnostic correcting that header reached HTTP 200, then failed
+stream parsing. Source and installed-library inspection confirmed that the pod
+wrapped an already encoded AG-UI SSE frame a second time. The corrections retain
+one content type and emit the encoder's bytes directly, preserving generator cleanup
+and sanitized error projection. Negative controls reproduced both defects; the
+focused checks passed 64 frontend transport and 82 backend ingress/lifecycle cases.
+These checks do not establish a completed live assistant turn.
+
+Files setup refused before approval: the legacy receipt lacks typed recovery
+inventory observations. Readback verified owner-project bucket custody, encryption,
+public-access prevention and seven-day soft deletion. Existing resources must not
+be labelled newly created without evidence. Inspection also found that a Files
+checkpoint could discard historical resource IDs absent from its typed list. The
+correction preserves those IDs through intent and observation; its negative control
+failed on the previous behavior and all 11 Files provisioning cases passed. Retaining
+an ID does not establish its type, exclusive ownership or erasure eligibility.

@@ -8,7 +8,7 @@ from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
-from sse_starlette.sse import EventSourceResponse, ServerSentEvent
+from sse_starlette.sse import EventSourceResponse
 
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
@@ -130,11 +130,11 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         try:
             async with aclosing(agent.run(admitted)) as stream:
                 async for event in stream:
-                    yield ServerSentEvent(data=encoder.encode(event), sep="\n")
+                    yield encoder.encode(event).encode("utf-8")
         except Exception as exc:
             # Admission, memory preparation and final persistence also execute
             # outside the SDK's error projection. Never serialize their details.
-            yield ServerSentEvent(data=encoder.encode(safe_exception_event(exc)), sep="\n")
+            yield encoder.encode(safe_exception_event(exc)).encode("utf-8")
 
     return EventSourceResponse(events(), headers={"Cache-Control": "no-store"})
 

@@ -438,11 +438,13 @@ def test_files_activation_requires_separate_approval_and_durable_step_acknowledg
         with pytest.raises(ValueError):
             approved_files_plan({**approval, key: value})
     original = row["backend_metadata"]["substrateReceipt"]
+    original["resourceIds"] = ["legacy-untyped-obligation"]
     state = FilesUpgradeCheckpoint(
         plan=plan, operation_id="op-one", attempt_id="a" * 64, original_inventory=original
     )
     intent, inventory = state.prepare("intent", "enable_services", [])
     assert inventory["applied"] is False and original["applied"] is True
+    assert "legacy-untyped-obligation" in inventory["resourceIds"]
     assert {
         "type": "cloud_tasks_queue",
         "id": plan.environment["POD_FILES_TASK_QUEUE"].rsplit("/", 1)[-1],
@@ -451,7 +453,8 @@ def test_files_activation_requires_separate_approval_and_durable_step_acknowledg
     with pytest.raises(ValueError, match="matching intent"):
         state.prepare("observed", "enable_services", completed)
     state.acknowledge(intent)
-    observed, _ = state.prepare("observed", "enable_services", completed)
+    observed, retained = state.prepare("observed", "enable_services", completed)
+    assert "legacy-untyped-obligation" in retained["resourceIds"]
     with pytest.raises(ValueError, match="reconciliation"):
         state.prepare("intent", "generate_files_task_identity", completed)
     state.acknowledge(observed)
