@@ -85,6 +85,9 @@ from hushh_mcp.one_adk.history_descriptors import (
     _submitted_source_id as _submitted_source_id,
 )
 from hushh_mcp.one_adk.history_projection import (
+    _ACTIVITY_TOOLS as _ACTIVITY_TOOLS,
+)
+from hushh_mcp.one_adk.history_projection import (
     _bounded_text as _bounded_text,
 )
 from hushh_mcp.one_adk.history_projection import (

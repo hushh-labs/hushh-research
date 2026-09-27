@@ -135,7 +135,8 @@
           "email"
         ],
         "one_tool_names": [
-          "ask_email_agent"
+          "ask_email_agent",
+          "propose_gmail_mailbox_change"
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,

@@ -262,6 +262,7 @@ async def test_heartbeat_records_the_report_under_observed_and_never_the_deploye
 
 
 def test_the_pod_reports_its_baked_tag_and_revision(monkeypatch) -> None:
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     from pod_server import _self_report
 
     monkeypatch.delenv("HUSSH_POD_IMAGE_TAG", raising=False)

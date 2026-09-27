@@ -102,6 +102,13 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/revoke",
         # Each command/Files route enforces its scoped session; worker verifies
         # its exact queue identity instead. Reachability grants no authority.
+        # Direct chat/history: owner app role, pkm.read, current pod session,
+        # owner-bound chat key and the encrypted recovery fence are all required.
+        "/api/one/pod/agent-chat",
+        "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/conversations/{conversation_id}",
+        "/api/one/pod/agent-chat/conversations/{user_id}",
+        "/api/one/pod/agent-chat/history/{conversation_id}",
         "/api/one/pod/commands/transcriptions",
         "/api/one/pod/commands/assess",
         "/api/one/pod/files/worker",
@@ -362,6 +369,13 @@ OWNER_REACHABLE_PATHS = frozenset(
         # Capabilities remain private; only liveness is public.
         # Each command/Files route enforces its scoped session; worker verifies
         # its exact queue identity instead. Reachability grants no authority.
+        # Direct chat/history: owner app role, pkm.read, current pod session,
+        # owner-bound chat key and the encrypted recovery fence are all required.
+        "/api/one/pod/agent-chat",
+        "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/conversations/{conversation_id}",
+        "/api/one/pod/agent-chat/conversations/{user_id}",
+        "/api/one/pod/agent-chat/history/{conversation_id}",
         "/api/one/pod/commands/transcriptions",
         "/api/one/pod/commands/assess",
         "/api/one/pod/files/jobs",

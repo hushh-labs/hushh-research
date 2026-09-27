@@ -1,4 +1,4 @@
-"""Migration 250 (chat-history BYOK cutover) deletes only platform-key chat rows.
+"""Migration 252 (chat-history BYOK cutover) deletes only platform-key chat rows.
 
 The compatibility release parks this destructive migration until BYOK-only writers
 serve and older writers are drained. It must never touch a person-key row. Static
@@ -41,7 +41,7 @@ def test_compatibility_release_defers_cutover_with_a_documented_recovery_boundar
     assert ROLLBACK.exists() and "DELETE FROM" not in ROLLBACK.read_text().upper()
     for contract in ("prod_core_schema", "uat_integrated_schema", "dev_minimum_schema"):
         data = json.loads((ROOT / f"db/contracts/{contract}.json").read_text())
-        assert data["expected_migration_version"] == 249
+        assert data["expected_migration_version"] == 251
 
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:

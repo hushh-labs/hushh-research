@@ -409,10 +409,11 @@ async def test_a_bundle_for_another_pod_is_refused(enabled, tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_the_pod_mounts_the_migration_surface():
+def test_the_pod_mounts_the_migration_surface(monkeypatch):
     """It lives on the POD, because hushh cannot perform either step: reading the
     source log needs the source pod's key and writing the destination needs the
     destination's, and the hub holds neither."""
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     pod_server = pytest.importorskip("pod_server")
     paths = {r.path for r in pod_server.app.routes if getattr(r, "path", None)}
 

@@ -2003,3 +2003,49 @@ Migration 251 is now the upstream Drive search-job migration. The unexecuted
 legacy-history cutover moves to parked 252; migration 249 retains the pod branch's
 public-profile bridge. Release/schema contracts pass. This records source
 compatibility, not live migration, cleanup, or owner-pod update evidence.
+
+
+### Reviewed integrated architecture baseline — 2026-09-27 UTC
+
+At `1bd1afdf6` plus the restored Activity tool allowlist, the fitness report
+records 1,925 advisory findings and 117 size regressions against the earlier
+baseline (13 class, 38 function and 66 module findings). There are no new
+unaccounted dependency or import-initialization regressions. The earlier
+pre-merge 77-finding sample contained 21 same-or-larger upstream findings and
+56 branch additions/growth; that classification is not presented as an upstream
+excuse for all 117. The integrated baseline is explicitly reviewed debt, as
+required by the restructuring plan. Thresholds and all checks remain unchanged;
+subsequent growth fails the ratchet against this snapshot.
+
+Preserved review debt: upgrade/reconciliation and provider replacement methods
+remain large authority owners; registry and frontend API interfaces remain broad.
+The Files checkpoint persistence adapter was extracted into its existing owner
+without copying lease authority or adopting an unacknowledged registry snapshot.
+History descriptor families remain a bounded extraction follow-up with restoration
+parity tests. Calendar's concrete-service validation-model import is pre-existing
+layering debt. These findings are not resolved by recording a baseline. Runtime
+security, migration, recovery and acceptance checks remain independent gates.
+
+### Combined candidate verification — 2026-09-27 UTC
+
+The consolidated local core run passed its secret, governance and web-core lanes.
+Its first backend run found 16 failures. Corrections preserved runtime authority:
+scoped test imports no longer leak private-pod mode into Shared tests; the unlocked
+location fixture now supplies the required consent header; route coverage lists the
+reviewed owner-admitted chat/history endpoints; generated specialist inventory and
+Activity restoration follow their current owners. Account-erasure coverage now
+checks the existing Gmail proposal and Drive search-result cascades. The cutover
+check pins active schema 251 while destructive history migration 252 stays parked.
+No consent checks, goldens, migration gates or deletion behavior were weakened.
+
+The resolved protocol lane passed 7,281 tests plus 85 database-lane tests (123 and
+116 declared skips respectively); the complete test tree also imported. Focused
+regression verification passed 352 tests, and the ordered pod-import/Shared-runtime
+isolation check passed 26. MCP package, integration and 92 PKM checks passed.
+The complete GitHub browser/full-suite gate remains required for the pushed SHA.
+
+Live canonical-reviewer preflight retained BYOC hosting and its predecessor release.
+Only the bounded wake request was allowed; no update approval or installation was
+made. Serving revision/digest/traffic rollback evidence was captured privately before
+deployment. These checks do not establish candidate deployment, Files activation,
+normal update continuity, history cutover or separate-network Puppy acceptance.

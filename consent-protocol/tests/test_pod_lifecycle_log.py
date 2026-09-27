@@ -146,7 +146,7 @@ def test_funnel_stages_have_progress_or_are_terminal(status: str):
     )
 
 
-def test_the_wake_route_mounts_on_the_hub_and_the_tick_on_the_pod():
+def test_the_wake_route_mounts_on_the_hub_and_the_tick_on_the_pod(monkeypatch):
     """Phase 5/6 placement: wake is a HUB surface (it reads the registry and
     reaches into the pod), the tick is a POD surface (it is what Cloud Scheduler
     and Pub/Sub push wake). Mounting either on the wrong plane is not a style
@@ -154,6 +154,8 @@ def test_the_wake_route_mounts_on_the_hub_and_the_tick_on_the_pod():
     wrong audience, and a pod-mounted wake would need a registry the pod
     deliberately does not have."""
     from api.routes.one import router as one_router
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     from pod_server import _POD_ROUTERS
 
     hub_paths = {getattr(r, "path", "") for r in one_router.routes}

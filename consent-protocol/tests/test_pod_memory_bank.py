@@ -316,6 +316,7 @@ async def test_an_empty_bank_answer_falls_through_to_the_log() -> None:
 
 
 def test_the_pod_reports_its_engine_on_the_beat(monkeypatch) -> None:
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     from pod_server import _self_report
 
     monkeypatch.delenv("HUSSH_POD_IMAGE_TAG", raising=False)
@@ -1739,6 +1740,7 @@ async def test_bank_erasure_survives_restart_without_recreating_or_reopening(mon
 
 @pytest.mark.parametrize("phase", ["delete_pending", "delete_submitting", "waiting"])
 async def test_pod_boot_only_observes_acknowledged_erasure(monkeypatch, phase):
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     import pod_server
     from hushh_mcp.services import pod_memory_service
 

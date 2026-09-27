@@ -294,6 +294,7 @@ async def test_a_beat_with_nothing_pending_keeps_its_old_shape(hub):
 
 
 async def test_the_pod_beat_applies_couriered_intents_and_reports_them_next_time(monkeypatch, pod):
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     import pod_server
 
     app, device = Subject("tdv_web_1", "web"), Subject("tdv_mac_1", "macos")
