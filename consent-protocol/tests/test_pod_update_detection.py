@@ -373,3 +373,32 @@ def test_conflicting_heartbeat_does_not_claim_provider_record_is_current():
     assert out["runningImage"] == "dev-older"
     assert "updateAvailable" not in out
     assert "updateVerified" not in out
+
+
+@pytest.mark.parametrize("target", [TARGET, DEPLOYED_OLD, ""])
+def test_legacy_unresolved_lease_requires_recovery_without_fabricating_approval(target):
+    import copy
+
+    row = _row(
+        source_image=DEPLOYED_OLD,
+        upgradeLease="2000-01-01T00:00:00+00:00|retained",
+        upgrade={"outcome": "unresolved", "attempts": 1},
+    )
+    original = copy.deepcopy(row)
+    out = describe_pod_update(row, target_image=target)
+    assert out["updateFailed"] is True
+    assert out["updateOfferable"] is False
+    assert out["update"]["presentationState"] == "blocked"
+    assert "operationId" not in out["update"]
+    assert "releaseId" not in out["update"]
+    assert row == original
+
+
+@pytest.mark.parametrize("lease", [None, "", "2000-01-01T00:00:00+00:00|retained"])
+def test_compatible_offer_requires_no_retained_lease(lease):
+    from hushh_mcp.services.pod_update_presentation import _update_offer
+
+    digest = "sha256:" + "a" * 64
+    release = {"descriptor": {"supportedUpgradeDigests": [digest], "summary": "Synthetic release"}}
+    result = _update_offer({"upgradeLease": lease}, "rel_next", release, digest)
+    assert result["updateOfferable"] is (lease is None)

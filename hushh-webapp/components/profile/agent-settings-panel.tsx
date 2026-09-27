@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
@@ -9,6 +9,10 @@ import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { FilesActivationPanel } from "@/components/profile/files-activation-panel";
+import {
+  snapshotValidatedAuthSessionOwner,
+  isValidatedAuthSessionOwnerCurrent,
+} from "@/lib/auth/session-owner";
 
 const HOST_LABELS = {
   shared: "Hussh Shared",
@@ -55,10 +59,16 @@ export function AgentSettingsPanel({
   const { status, update, refresh } = useAgentDeploymentFollow({ userId });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const mode: HostingMode = isHostingMode(status?.hostingMode)
     ? status.hostingMode
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
+  const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
   const working =
     !update.failed &&
     (update.inProgress || update.presentationState === "scheduled");
@@ -165,6 +175,47 @@ export function AgentSettingsPanel({
     }
   }
 
+  async function recoverExistingPod() {
+    if (busyRef.current || !needsLinkRecovery) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      mounted.current && owner?.userId === userId &&
+      owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return;
+    busyRef.current = true;
+    setBusy(true);
+    let recoveryToast: ReturnType<typeof morphyToast.promise> | undefined;
+    try {
+      recoveryToast = morphyToast.promise(
+        ApiService.adoptOrphanPod({ isEffectCurrent }).then((result) => {
+          if (!isEffectCurrent()) throw new DOMException("Session changed", "AbortError");
+          if (!result.adopted) throw new Error("POD_RECOVERY_UNAVAILABLE");
+        }),
+        {
+          loading: "Finding your existing pod…",
+          success: () => isEffectCurrent() ? "Existing pod linked. Checking its status…" : null,
+          error: () => isEffectCurrent() ? "Your existing pod could not be linked. It needs attention before setup or updates can continue." : null,
+        },
+      );
+      await recoveryToast.unwrap();
+      if (isEffectCurrent()) {
+        refresh();
+        dispatchFeedStateChanged();
+      }
+    } catch {
+      // Recovery refusal must never fall back to provisioning or reset.
+    } finally {
+      if (!isEffectCurrent()) {
+        const toastId = recoveryToast?.valueOf();
+        if (typeof toastId === "number" || typeof toastId === "string")
+          morphyToast.dismiss(toastId);
+      }
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+
   if (kind === "hosting") {
     const canManageCloud =
       mode === "shared" || mode === "pending" || mode === "byoc";
@@ -248,9 +299,9 @@ export function AgentSettingsPanel({
             <Button
               variant="muted"
               disabled={busy}
-              onClick={() => void reconnectDirectPod()}
+              onClick={() => void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())}
             >
-              Reconnect your pod
+              {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
             </Button>
           ) : null}
         </div>
@@ -328,6 +379,11 @@ export function AgentSettingsPanel({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
+        {needsLinkRecovery ? (
+          <Button variant="muted" disabled={busy} onClick={() => void recoverExistingPod()}>
+            Link existing pod
+          </Button>
+        ) : null}
         {isPod &&
         status?.updateOfferable === true &&
         update.releaseId &&

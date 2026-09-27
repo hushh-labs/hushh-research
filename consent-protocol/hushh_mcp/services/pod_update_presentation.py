@@ -14,6 +14,18 @@ def _blocked_update(row: Optional[dict]) -> dict:
     """Project unresolved provider work without changing its recovery authority."""
     metadata = (row or {}).get("backend_metadata") or {}
     approval = metadata.get("upgradeApproval")
+    if (
+        not approval
+        and metadata.get("upgradeLease") is not None
+        and (metadata.get("upgrade") or {}).get("outcome") == "unresolved"
+    ):
+        message = "An earlier update needs recovery before software updates can continue."
+        return {
+            "updateFailed": True,
+            "updateOfferable": False,
+            "updateError": message,
+            "update": {"presentationState": "blocked", "summary": message},
+        }
     if not (
         isinstance(approval, dict)
         and approval.get("status") == "blocked"
@@ -62,10 +74,14 @@ def _update_offer(
                     deferred_due = due <= datetime.now(timezone.utc)
                 except ValueError:
                     deferred_due = False
-    out["updateOfferable"] = upgrade_is_supported(release_metadata, installed_digest) and (
-        not isinstance(metadata.get("upgradeDeferral"), dict)
-        or metadata["upgradeDeferral"].get("releaseId") != release
-        or deferred_due
+    out["updateOfferable"] = (
+        metadata.get("upgradeLease") is None
+        and upgrade_is_supported(release_metadata, installed_digest)
+        and (
+            not isinstance(metadata.get("upgradeDeferral"), dict)
+            or metadata["upgradeDeferral"].get("releaseId") != release
+            or deferred_due
+        )
     )
     approval = metadata.get("upgradeApproval")
     deferral = metadata.get("upgradeDeferral")

@@ -140,6 +140,18 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     vi.useRealTimers();
   });
 
+  it("does not dispatch pod adoption after its initiating owner changed during token lookup", async () => {
+    let current = true;
+    let resolve!: (value: string) => void;
+    const promise = new Promise<string>((done) => { resolve = done; });
+    vi.spyOn(ApiService, "getFirebaseToken").mockReturnValue(promise);
+    const request = ApiService.adoptOrphanPod({ isEffectCurrent: () => current });
+    current = false;
+    resolve("synthetic-token");
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("routes chat/history through pod admission without hub fallback (stream=%s)", async (streaming) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);

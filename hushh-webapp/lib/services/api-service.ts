@@ -3632,7 +3632,7 @@ export class ApiService {
       notes: { improvements: string[]; fixes: string[]; security: string[] };
     };
     update?: {
-      releaseId: string;
+      releaseId?: string;
       summary: string;
       presentationState: "ready" | "deferred" | "scheduled" | "updating" | "blocked";
       remindAt?: string;
@@ -3707,14 +3707,18 @@ export class ApiService {
     return response.json();
   }
 
-  static async adoptOrphanPod(): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
+  static async adoptOrphanPod(options?: { isEffectCurrent?: () => boolean }): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
     const token = await ApiService.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/personal-agent/adopt", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      isEffectCurrent: options?.isEffectCurrent,
     });
     if (!response.ok) throw new Error(`pod adopt failed: HTTP ${response.status}`);
-    return response.json();
+    const result = await response.json();
+    if (options?.isEffectCurrent && !options.isEffectCurrent())
+      throw new DOMException("The connection session changed.", "AbortError");
+    return result;
   }
 
   static async getPodInfo(hushhId: string): Promise<{ hushhId: string; podStatus: number; pod: unknown }> {

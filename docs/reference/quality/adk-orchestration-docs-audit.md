@@ -2365,3 +2365,50 @@ in provisioning, the GCP adapter, bootstrap executor and image-upgrade tests wer
 individually reviewed; only their measured values changed in the debt baseline.
 The new recovery module remains bounded. No threshold or unrelated baseline
 entry changed, and no orchestration boundary was split merely for line counts.
+
+### Existing-pod link recovery and dev continuation — 2026-09-27
+
+Canonical CI `36341105436` passed for `a75d99e365`. Governed dev workflow
+`36342316407` completed in 17m52s. Readback confirmed backend
+`consent-protocol-00109-6fn` on that source and the unchanged frontend
+`hushh-webapp-00078-ztt` on `8ef90615bb`. This backend-and-pod scope correctly
+skipped the frontend build. Cloud Run traffic promotion included instance warming;
+elapsed deployment time is not entirely image-build time.
+
+The canonical reviewer's previously approved Files operation then completed in
+a bounded maintenance execution using the verified hub image. Readback bound the
+same operation and capability plan to release
+`2026.09-dev.3+9c4379f01258.22cadabe`, its installed digest and the original pod
+incarnation. The exact ready acknowledgement, enabled Files capability and released
+lease were verified. Cloud readback confirmed a new revision, unchanged service
+identity, durable public key and protected hosting/recovery configuration. This is
+recovery of an interrupted approved update; it does not establish live rollback or
+the remaining browser and device journeys.
+
+After that update, an unmodified canonical-reviewer browser completed one direct
+private-pod chat request with HTTP 200 and a completed assistant response. The
+same session retained vault continuity and the rehearsal admitted no unexpected
+mutation. The diagnostic stream-body observer could not reread the response;
+completion evidence is the live response status and finished app state, not a
+recorded model payload. Files-library and real-device acceptance remain separate.
+
+An authorized existing-owner repair exposed a Settings gap: failed BYOC assignments
+were sent to direct reconnect, which requires an active assignment. Hosting and
+Software updates now offer the existing owner-authenticated adoption endpoint for
+that failed state. Refusal does not provision, reset or bypass deletion barriers.
+Completion is bound to the initiating auth generation; linking does not establish
+direct readiness or successful installation.
+
+Live recovery used the existing composed database function and enabled registry
+trigger, verified against their authored bodies. An unstarted reservation was
+restored only after owner-project discovery and tombstone/setup checks. The saved
+assignment, pod key and unresolved upgrade lease were preserved. Subsequent cloud
+probes identified a closed billing account, so that pod's runtime and upgrade remain
+unverified pending owner billing restoration and legacy maintenance. Private owner
+identifiers and cloud evidence remain outside this public report.
+
+The status projection now distinguishes a retained legacy unresolved upgrade from
+an installable offer, even after lease age expires. It does not invent an approval,
+operation ID or verified version. Every non-null retained lease suppresses another
+offer, matching database admission. Focused checks cover the owner-switch race,
+duplicate recovery clicks, refusal and compatible-release controls.

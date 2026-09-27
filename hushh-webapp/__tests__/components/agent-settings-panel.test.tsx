@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   follow: vi.fn(),
@@ -11,7 +12,9 @@ const mocks = vi.hoisted(() => ({
   approve: vi.fn(),
   defer: vi.fn(),
   reconnect: vi.fn(),
+  adopt: vi.fn(),
   promiseToast: vi.fn(),
+  dismissToast: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/feed/use-agent-deployment-follow", async (original) => ({
@@ -24,11 +27,12 @@ vi.mock("@/lib/services/api-service", () => ({
     approvePersonalAgentUpdate: mocks.approve,
     deferPersonalAgentUpdate: mocks.defer,
     reconnectOwnerPod: mocks.reconnect,
+    adoptOrphanPod: mocks.adopt,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
   ...(await original<object>()),
-  morphyToast: { promise: mocks.promiseToast },
+  morphyToast: { promise: mocks.promiseToast, dismiss: mocks.dismissToast },
 }));
 vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: vi.fn(),
@@ -44,12 +48,65 @@ function status(mode: string, extra: object = {}, update = NO_UPDATE) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner");
   mocks.promiseToast.mockImplementation((request: Promise<unknown>) => ({
     unwrap: () => request,
+    valueOf: () => 42,
   }));
 });
 
 describe("owner hosting and software settings", () => {
+  it.each(["hosting", "software-updates"] as const)(
+    "repairs a failed BYOC link from %s without claiming direct readiness",
+    async (kind) => {
+      status("byoc", { state: "failed" });
+      let resolve!: (value: { adopted: boolean }) => void;
+      mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
+      render(<AgentSettingsPanel userId="owner" kind={kind} />);
+      const button = screen.getByRole("button", { name: "Link existing pod" });
+      fireEvent.click(button);
+      fireEvent.click(button);
+      expect(mocks.adopt).toHaveBeenCalledOnce();
+      resolve({ adopted: true });
+      await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+      expect(mocks.reconnect).not.toHaveBeenCalled();
+      expect(mocks.approve).not.toHaveBeenCalled();
+      expect(mocks.promiseToast.mock.calls[0][1].success()).toBe(
+        "Existing pod linked. Checking its status…",
+      );
+    },
+  );
+
+  it("discards recovery completion after an owner changes away and back", async () => {
+    status("byoc", { state: "failed" });
+    let resolve!: (value: { adopted: boolean }) => void;
+    mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    fireEvent.click(screen.getByRole("button", { name: "Link existing pod" }));
+    publishValidatedAuthSessionOwner("other-owner");
+    publishValidatedAuthSessionOwner("owner");
+    expect(mocks.adopt.mock.calls[0][0].isEffectCurrent()).toBe(false);
+    resolve({ adopted: true });
+    await expect(mocks.promiseToast.mock.calls[0][0]).rejects.toThrow("Session changed");
+    expect(mocks.promiseToast.mock.calls[0][1].success()).toBeNull();
+    expect(mocks.promiseToast.mock.calls[0][1].error()).toBeNull();
+    expect(mocks.dismissToast).toHaveBeenCalledWith(42);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps a refused recovery failed without falling through to direct access", async () => {
+    status("byoc", { state: "failed" });
+    mocks.adopt.mockResolvedValue({ adopted: false });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    fireEvent.click(screen.getByRole("button", { name: "Link existing pod" }));
+    await waitFor(() => expect(mocks.promiseToast).toHaveBeenCalledOnce());
+    await expect(mocks.promiseToast.mock.calls[0][0]).rejects.toThrow("POD_RECOVERY_UNAVAILABLE");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(mocks.reconnect).not.toHaveBeenCalled();
+    expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
   it("keeps a confirmed BYOC pod selected and presents the three hosting choices", () => {
     status("byoc", {
       cloudProject: "owner-project",
