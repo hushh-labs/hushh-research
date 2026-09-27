@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 1926,
+  "finding_count": 1927,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4478,7 +4478,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/drive_result_privacy.py",
       "symbol": "redact_drive_wire_event",
-      "value": 138
+      "value": 140
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7493,7 +7493,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/drive_result_privacy.py",
       "symbol": "project",
-      "value": 97
+      "value": 101
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11408,7 +11408,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2036
+      "value": 2040
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12470,7 +12470,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
       "symbol": null,
-      "value": 1221
+      "value": 1250
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14018,7 +14018,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_result_privacy.py",
       "symbol": null,
-      "value": 784
+      "value": 820
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14351,7 +14351,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_workspace_mcp_tools.py",
       "symbol": null,
-      "value": 743
+      "value": 866
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14603,7 +14603,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/workspace_mcp_tools.py",
       "symbol": null,
-      "value": 715
+      "value": 782
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15152,7 +15152,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agui-structured-experiences.ts",
       "symbol": null,
-      "value": 660
+      "value": 669
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17340,15 +17340,25 @@
       "path": "hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_adk/drive_result_privacy.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_adk/drive_result_privacy.py",
+      "symbol": null,
+      "value": 530
     }
   ],
   "inspected_files": 5131,
   "review": {
     "adk_revision": "91bc9f7cbfa9a9d544623808b9e3ab36dc3a050c",
     "date": "2026-09-27",
-    "freshness_delta": "Eight reviewed size-only findings: five upstream, three integration test/re-export corrections; thresholds unchanged.",
+    "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
+    "freshness_main_revision": "6aba9e7f7b1b6b0ea953ec19fdea324812338553",
     "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",
-    "revision": "f14121b34473b99867bab8f19f3372bff198178b",
+    "revision": "92e1301be",
     "scope": "Reviewed integrated size-debt baseline; thresholds and dependency/import checks unchanged. See adk-orchestration-docs-audit.md.",
     "source_revision": "1bd1afdf6"
   },

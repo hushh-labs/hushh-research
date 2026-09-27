@@ -2082,3 +2082,12 @@ workspace now supplies synthetic artifacts, and the suite joins the existing
 protocol manifest. Missing metadata and mutable images remain rejected. The build
 artifact reader is a small shared shell function with `/workspace` as its Cloud
 Build default. The architecture ratchet passes without refreshing its baseline.
+
+A further freshness-required merge, `92e1301be`, incorporates main `6aba9e7f7`'s
+Drive listing continuation and timezone packaging correction. Conflict resolution
+preserves private-pod adapter types and the CPU-only Torch lock; `tzdata` is now a
+direct dependency. Source review confirmed owner revalidation, private-result
+redaction, live-only continuation queries and separate background-search approval.
+141 backend and 88 frontend checks passed. Only the nine measured incoming size
+debt entries were reviewed into the baseline; other entries and thresholds remain
+unchanged. No active ADK drafts were imported during this freshness correction.
