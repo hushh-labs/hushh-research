@@ -603,6 +603,35 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(messages)).not.toContain("PRIVATE");
   });
 
+  it("forwards a workspace Drive continuation without retaining its query or files in diagnostics", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    const onSpecialistDirective = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "drive-list", toolCallName: "read_workspace_tool" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "drive-list" }, toolCallName: "read_workspace_tool",
+        toolCallArgs: { provider: "drive", query: "PRIVATE_QUERY" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "drive-list", content: JSON.stringify({
+        provider: "drive", status: "ok", files: [{ name: "PRIVATE_FILE" }], structured: {
+          schema_version: "specialist_read.v1", connector: "drive", status: "ok", sources: [],
+          truncated: true, metadata_only: true,
+          background_search_available: true, background_search_query: "PRIVATE_QUERY",
+        }, directive: { action_id: "route.profile", slots: {}, execution: "frontend" },
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Find documents", vaultOwnerToken: "fixture",
+      handlers: { onStructuredExperience, onToolResult, onToolWaiting, onSpecialistDirective } });
+    expect(onStructuredExperience).toHaveBeenCalledWith(expect.objectContaining({
+      type: "one.connector_read.v1", connector: "drive", backgroundSearchAvailable: true,
+      backgroundSearchQuery: "PRIVATE_QUERY",
+    }), "drive-list");
+    expect(onToolResult.mock.calls[0][0].message).toBe("Drive search finished.");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE");
+    expect(JSON.stringify(onToolWaiting.mock.calls)).not.toContain("PRIVATE");
+    expect(onSpecialistDirective).not.toHaveBeenCalled();
+  });
+
   it("keeps the turn Activity descriptor on assistant history only", async () => {
     const turnActivity = { activityType: "one.turn_activity.v1",
       content: { steps: [{ id: "call-1", tool: "discover_workspace_tools", status: "done", provider: "calendar" }] } };

@@ -60,6 +60,20 @@ describe("connector read receipts", () => {
     expect(parseAgentToolResultExperience("send_email", { structured: receipt })).toBeNull();
   });
 
+  it("accepts a workspace Drive receipt only when provider and outcome agree", () => {
+    const structured = { ...receipt, connector: "drive", sources: [],
+      background_search_available: true, background_search_query: "Find product documents" };
+    const result = { provider: "drive", status: "ok", structured, files: [{ name: "PRIVATE FILE" }] };
+    const parsed = parseAgentToolResultExperience("read_workspace_tool", result, { provider: "drive" });
+    expect(parsed).toMatchObject({ type: "one.connector_read.v1", connector: "drive",
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents" });
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE FILE");
+    expect(parseAgentToolResultExperience("read_workspace_tool", result, { provider: "calendar" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, provider: "gmail" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, status: "unavailable" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, structured: receipt })).toBeNull();
+  });
+
   it.each([
     { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
     { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },

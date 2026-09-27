@@ -782,3 +782,39 @@ def test_owner_search_continuation_survives_live_wire_but_not_durable_tool_histo
     assert saved["background_search_available"] is False
     assert saved["background_search_query"] is None
     assert saved["status"] == "ok" and saved["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"provider": "gmail"},
+        {"operation": "read_file_content"},
+        {"source": "google_drive_mcp"},
+        {"structured": {"connector": "drive", "status": "ok", "raw": "PRIVATE_SENTINEL"}},
+    ],
+)
+def test_workspace_receipt_requires_authored_drive_listing_wrapper(changes):
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+
+    result = {
+        "status": "ok",
+        "provider": "drive",
+        "source": "workspace_mcp",
+        "operation": "search_files",
+        "result": {"structured": {"background_search_query": "PRIVATE_SENTINEL"}},
+        "structured": SpecialistReadResult(
+            connector="drive",
+            status="ok",
+            metadata_only=True,
+            truncated=True,
+            background_search_available=True,
+            background_search_query="PRIVATE_SENTINEL",
+        ).model_dump(mode="json"),
+        **changes,
+    }
+    event = redact_drive_wire_event(
+        ToolCallResultEvent(tool_call_id="read", message_id="result", content=json.dumps(result)),
+        {"read"},
+    )
+    assert "structured" not in json.loads(event.content)
+    assert "PRIVATE_SENTINEL" not in event.content

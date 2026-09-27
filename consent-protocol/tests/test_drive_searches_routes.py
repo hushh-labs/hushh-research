@@ -118,3 +118,38 @@ def test_stop_remains_available_when_search_feature_disabled(setup, monkeypatch)
     assert client.get(BASE + f"/{JOB}").status_code == 200
     assert client.get(BASE + f"/{JOB}/results").status_code == 503
     assert client.post(BASE, json=BODY).status_code == 503
+
+
+@pytest.mark.parametrize("timezone", ["UTC", "Asia/Calcutta", "Asia/Kolkata", "America/New_York"])
+def test_create_supports_browser_timezones_without_os_timezone_database(setup, timezone):
+    import zoneinfo
+
+    app, client, service, _, planner = setup
+    unlock(app)
+    previous = zoneinfo.TZPATH
+    try:
+        # Slim runtime images need the packaged IANA database, including browser
+        # aliases such as Asia/Calcutta. A developer OS must not hide that gap.
+        zoneinfo.reset_tzpath(())
+        zoneinfo.ZoneInfo.clear_cache()
+        response = client.post(BASE, json={**BODY, "timezone": timezone})
+        assert response.status_code == 200
+        assert service.existing.await_args.kwargs["timezone"] == timezone
+        assert service.create.await_args.kwargs["timezone"] == timezone
+        assert f'"user_timezone": "{timezone}"' in planner.await_args.kwargs["prompt"]
+    finally:
+        zoneinfo.reset_tzpath(previous)
+        zoneinfo.ZoneInfo.clear_cache()
+
+
+def test_invalid_timezone_still_rejected_before_job_lookup_or_planning(setup, caplog):
+    app, client, service, _, planner = setup
+    unlock(app)
+    response = client.post(BASE, json={**BODY, "timezone": "Invalid/PrivateTimezone"})
+    assert response.status_code == 400
+    assert "PrivateTimezone" not in response.text
+    assert "drive_search.rejected reason=timezone_unavailable" in caplog.text
+    assert "PrivateTimezone" not in caplog.text
+    assert BODY["query"] not in caplog.text
+    service.existing.assert_not_awaited()
+    planner.assert_not_awaited()

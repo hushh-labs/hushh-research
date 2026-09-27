@@ -1227,7 +1227,11 @@ export async function streamAgentChat(input: {
         );
         const payload = toolPayload(event.toolCallId, toolName, safeArgs);
         payload.execution = "server";
-        payload.message = toolName === "inspect_private_connectors"
+        payload.message = experience?.type === "one.connector_read.v1"
+          ? experience.status === "ok"
+            ? experience.metadataOnly ? "Drive search finished." : "Drive read finished."
+            : experience.status === "input_required" ? "Drive needs more detail." : "Drive could not complete that read."
+          : toolName === "inspect_private_connectors"
           ? "One checked your connectors."
           : "Connector access checked.";
         payload.raw = {

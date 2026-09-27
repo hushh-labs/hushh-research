@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import uuid4
 
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
@@ -17,6 +18,7 @@ from google.genai import types as genai_types
 if TYPE_CHECKING:
     from hushh_mcp.one_adk.governed_mcp_toolset import ResolvedMcpConnection
 
+from hushh_mcp.adk_bridge.contract import SpecialistReadResult, SpecialistReadSource
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
@@ -33,7 +35,7 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
 )
-from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH
 from hushh_mcp.services.google_drive_mcp_service import (
     GOOGLE_DRIVE_MCP_ENDPOINT,
     GoogleDriveMcpService,
@@ -45,6 +47,7 @@ from hushh_mcp.services.google_gmail_mcp_service import (
     _metadata_result,
     _narrowed_capability,
 )
+from hushh_mcp.services.mcp_capability_policy import arguments_valid
 
 WorkspaceProvider = Literal["drive", "gmail", "calendar"]
 WORKSPACE_CHAT_ADMISSION_STATE = "temp:hussh:workspace_chat_admission"
@@ -327,6 +330,9 @@ class _DriveRestWorkspace:
         return [dict(item) for item in _DRIVE_REST_CATALOG]
 
     async def read_tool(self, *, user_id: str, tool_name: str, arguments: dict[str, Any]):
+        capability = next((item for item in _DRIVE_REST_CATALOG if item["name"] == tool_name), None)
+        if capability is None or not arguments_valid(capability, arguments):
+            raise DriveOAuthError("invalid_argument", status_code=400)
         return await self._transport.read_tool(
             user_id=user_id, tool_name=tool_name, arguments=arguments
         )
@@ -609,6 +615,61 @@ async def discover_workspace_tools(
     }
 
 
+def _drive_listing_receipt(result: Any, tool_context: ToolContext) -> dict[str, Any] | None:
+    """Project provenance after the exact read, without another provider call.
+
+    The continuation uses the invocation's owner message, never provider text
+    or a model-authored query. Starting it remains a separate owner action.
+    """
+    payload = result.payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+        return None
+    truncated = bool(
+        result.truncated
+        or payload.get("nextPageToken")
+        or payload.get("incompleteSearch") is True
+        or payload.get("overLimit") is True
+        or len(payload["files"]) > 25
+    )
+    ids = {
+        item["id"]
+        for item in payload["files"][:60]
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and FILE_ID.fullmatch(item["id"])
+    }
+    content = getattr(tool_context, "user_content", None)
+    query = None
+    if content is not None and getattr(content, "role", None) == "user":
+        texts = [
+            part.text
+            for part in (content.parts or [])
+            if isinstance(part.text, str) and not part.thought
+        ]
+        candidate = "\n".join(texts)
+        if (
+            candidate.strip()
+            and len(candidate.encode("utf-8")) <= 2048
+            and not re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", candidate)
+        ):
+            query = candidate
+    receipt: dict[str, Any] = SpecialistReadResult(
+        connector="drive",
+        status="ok",
+        metadata_only=True,
+        truncated=truncated,
+        sources=[
+            SpecialistReadSource(
+                source_ref=f"document:{uuid4().hex}", kind="metadata", label="Document"
+            )
+            for _ in ids
+        ],
+        background_search_available=truncated and query is not None,
+        background_search_query=query if truncated else None,
+    ).model_dump(mode="json")
+    return receipt
+
+
 async def read_workspace_tool(
     provider: WorkspaceProvider,
     tool_name: str,
@@ -663,7 +724,7 @@ async def read_workspace_tool(
         }
     except Exception:  # noqa: BLE001 - no raw provider diagnostics in model/history
         return {"status": "unavailable", "message": "The service could not be read right now."}
-    return {
+    response = {
         "status": "ok",
         "source": WORKSPACE_PRIVATE_SOURCE,
         "provider": provider,
@@ -671,6 +732,12 @@ async def read_workspace_tool(
         "result": result.payload,
         "truncated": result.truncated,
     }
+    if provider == "drive" and tool_name in {"search_files", "list_recent_files"}:
+        receipt = _drive_listing_receipt(result, tool_context)
+        if receipt is not None:
+            response["structured"] = receipt
+            response["truncated"] = receipt["truncated"]
+    return response
 
 
 def readable_workspace_providers() -> list[str]:

@@ -17,8 +17,11 @@ from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_service import interpret_live_search, plan_live_search
+from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+logger = drive_logger(__name__)
 
 
 class PrivateSearchRoute(APIRoute):
@@ -128,6 +131,7 @@ async def create_search(body: SearchRequest, owner: Owner = Depends(_owner)):
     try:
         ZoneInfo(body.timezone)
     except (ValueError, ZoneInfoNotFoundError):
+        logger.warning("drive_search.rejected reason=timezone_unavailable")
         raise _error("invalid_argument") from None
     service = _service()
     existing = await _call(
