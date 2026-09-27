@@ -2450,3 +2450,41 @@ the owner to Hosting; arbitrary transport details remain private. A focused stre
 regression fails without the correction. Request logs did not establish the owner
 of the reported screenshot, and a health-based Online indicator does not prove
 successful admission, model inference or a completed response.
+
+### Dev Files acceptance and concurrent admission — 2026-09-27
+
+Governed dev run `36348676636` completed successfully for exact source
+`8abe99d25861f15eb92ef2a132a8525744fe3e0a`. Serving-revision readback verified
+that source on both frontend and backend. The temporary maintenance hold was
+cleared; owner approval remains required and the published pod release is dev-only.
+Publication did not install another owner image.
+
+The canonical reviewer completed folder creation, interrupted upload/resume,
+download-integrity verification, rename/undo, trash/restore and same-session vault
+continuity against the existing reviewer pod. Synthetic entries were moved to
+Trash under the configured retention; three rehearsal browser identities were
+revoked. This does not establish organization-model, real-device or spoken-command
+acceptance. An earlier attempt timed out before folder creation.
+
+Concurrent cold requests exposed a separate admission race: independent calls
+could create competing app identities before enrollment and pinning completed.
+The session owner now serializes discovery, admission and renewal per owner,
+using Web Locks across browser tabs where available and an in-process queue
+otherwise. A regression fails on the former implementation and passes with the
+correction; existing signature, endpoint rollback and authority tests still pass.
+Live acceptance of this later correction remains pending its own exact-SHA release.
+
+### Frozen ADK integration — 2026-09-27
+
+The isolated candidate integrates local ADK `3bd078a8c336c77c05ba74b787e570a08fb47617`
+from merge base `6aba9e7f7b1b6b0ea953ec19fdea324812338553`. Private session,
+recovery and MCP authority remain with their original owners. Shared consent
+continuation and Drive-selection inputs are refused explicitly on the private
+route until that route supports their coordination contract. No shared fallback
+or duplicate history store was introduced. Active Calendar/Kai migrations reach
+253; the destructive history cutover remains parked and unexecuted.
+
+Focused integration checks passed: 165 backend tests (38 real-database fixture
+cases skipped), 126 frontend tests, and 28 endpoint tests. Independent read-only
+review found no remaining critical authority omission in the inspected merge.
+These checks do not substitute for hosted CI, migration execution or live rollout.

@@ -26,6 +26,7 @@
  * so nothing here can throw during a render.
  */
 
+import { withOwnerPodSessionLock } from "./owner-pod-session-lock";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
 import { OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
@@ -281,7 +282,7 @@ export async function ensureAppEnrollment(
  * Read the hub's signed endpoint record. A new endpoint is committed only after
  * the pod accepts this app's owner-bound session on that exact address.
  */
-export async function refreshEndpointFromHub(
+async function refreshEndpointFromHubUnlocked(
   userId: string,
   transport: OwnerPodTransport,
 ): Promise<PinnedEndpoint> {
@@ -530,7 +531,7 @@ async function admitEndpoint(
   return session;
 }
 
-export async function openPodSession(
+async function openPodSessionUnlocked(
   userId: string,
   transport: OwnerPodTransport,
   refreshGrant = false,
@@ -540,14 +541,14 @@ export async function openPodSession(
   return admitEndpoint(userId, transport, pin.endpoint, refreshGrant);
 }
 
-export async function renewPodSession(
+async function renewPodSessionUnlocked(
   userId: string,
   transport: OwnerPodTransport,
 ): Promise<PodSessionRecord> {
   const pin = await readPin(userId);
-  if (!pin.endpoint || !pin.session?.grantExpiresAt) return openPodSession(userId, transport);
+  if (!pin.endpoint || !pin.session?.grantExpiresAt) return openPodSessionUnlocked(userId, transport);
   const now = (transport.now ?? Date.now)();
-  if (pin.session.grantExpiresAt <= now) return openPodSession(userId, transport);
+  if (pin.session.grantExpiresAt <= now) return openPodSessionUnlocked(userId, transport);
   const response = await transport.direct(`${pin.endpoint.url}/api/one/pod/session/renew`, {
     method: "POST",
     headers: { Authorization: `Bearer ${pin.session.session}` },
@@ -558,7 +559,7 @@ export async function renewPodSession(
       await writeRecord(PIN_STORE, { ...pin, session: null });
       throw new OwnerPodError("POD_SESSION_REVOKED");
     }
-    return openPodSession(userId, transport);
+    return openPodSessionUnlocked(userId, transport);
   }
   const session = sessionFromResponse(await readJson(response), pin.session.subjectId);
   if (
@@ -573,7 +574,7 @@ export async function renewPodSession(
 }
 
 /** A session good for at least one more turn, renewing or reopening as needed. */
-export async function currentPodSession(
+async function currentPodSessionUnlocked(
   userId: string,
   transport: OwnerPodTransport,
 ): Promise<PodSessionRecord> {
@@ -583,7 +584,7 @@ export async function currentPodSession(
   if (session && session.expiresAt - now > SESSION_RENEW_MARGIN_MS) return session;
   if (session && session.expiresAt - now > SESSION_USABLE_MARGIN_MS) {
     try {
-      return await renewPodSession(userId, transport);
+      return await renewPodSessionUnlocked(userId, transport);
     } catch (error) {
       // A transport outage may keep using a still-valid admission. An explicit
       // authority/verification refusal must not be hidden by the cached bearer.
@@ -591,14 +592,14 @@ export async function currentPodSession(
       return session;
     }
   }
-  return openPodSession(userId, transport);
+  return openPodSessionUnlocked(userId, transport);
 }
 
 /** Read the matching endpoint and bearer together after any async renewal. */
-export async function currentPodConnection(userId: string, transport: OwnerPodTransport): Promise<{
+async function currentPodConnectionUnlocked(userId: string, transport: OwnerPodTransport): Promise<{
   endpoint: PinnedEndpoint; session: PodSessionRecord;
 }> {
-  const session = await currentPodSession(userId, transport);
+  const session = await currentPodSessionUnlocked(userId, transport);
   const pin = await readPin(userId);
   if (!pin.endpoint || pin.session?.session !== session.session) {
     throw new OwnerPodError("POD_CONNECTION_CHANGED");
@@ -715,4 +716,24 @@ export function decodePodSessionClaims(session: string): Record<string, unknown>
   } catch {
     return null;
   }
+}
+
+// All admission/renewal entrypoints share one owner lock. Re-read persisted state
+// inside it so concurrent Files/chat requests and browser tabs reuse admission.
+export function refreshEndpointFromHub(userId: string, transport: OwnerPodTransport): Promise<PinnedEndpoint> {
+  return withOwnerPodSessionLock(userId, () => refreshEndpointFromHubUnlocked(userId, transport));
+}
+export function openPodSession(userId: string, transport: OwnerPodTransport, refreshGrant = false): Promise<PodSessionRecord> {
+  return withOwnerPodSessionLock(userId, () => openPodSessionUnlocked(userId, transport, refreshGrant));
+}
+export function renewPodSession(userId: string, transport: OwnerPodTransport): Promise<PodSessionRecord> {
+  return withOwnerPodSessionLock(userId, () => renewPodSessionUnlocked(userId, transport));
+}
+export function currentPodSession(userId: string, transport: OwnerPodTransport): Promise<PodSessionRecord> {
+  return withOwnerPodSessionLock(userId, () => currentPodSessionUnlocked(userId, transport));
+}
+export function currentPodConnection(userId: string, transport: OwnerPodTransport): Promise<{
+  endpoint: PinnedEndpoint; session: PodSessionRecord;
+}> {
+  return withOwnerPodSessionLock(userId, () => currentPodConnectionUnlocked(userId, transport));
 }
