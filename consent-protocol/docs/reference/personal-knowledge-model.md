@@ -639,6 +639,50 @@ Protected behaviors:
 
 Freeform chat must not invent arbitrary new canonical financial structures that conflict with the governed financial contract.
 
+### Linked accounts: records for syncing, a view for people
+
+The bank-connection lane (`hushh-webapp/lib/kai/plaid-vault/`) keeps its records in
+`connections_v1` .. `derived_v1`, keyed by Plaid's own ids and typed with Plaid's
+codes, because refresh and de-duplication need exactly that. Browsed directly they
+read as `Accounts V1 > <random id>`, repeated once per re-link. Measured 2026-09-27
+on one owner's UAT memory: 479 declared finance paths, of which the six record
+branches are single opaque nodes, while Memory walked the decrypted records and
+titled every account, holding and transaction with a humanized Plaid id.
+
+`linked_accounts` is the same information for a person to browse, rebuilt from the
+records on every change:
+
+```text
+Finance > Linked Accounts > Bank Accounts | Investments | Credit Cards | Loans | Totals
+        > {institution, e.g. Tartan Bank} > Accounts > {Plaid Checking ••0000}
+        > Account Type: Checking, Current Balance, Available Balance, Transactions
+```
+
+- Lists, not id-keyed maps: every entry is named by its `name`, so no provider id is
+  ever a path segment. Plaid account, subtype and security codes become plain words.
+- A re-linked account appears once (`duplicate_of`).
+- Private, like its source: denied by the financial sharing policy, and one opaque
+  manifest node, because manifest paths are plaintext on the server and walking it
+  would publish which kinds of account a person holds. It mints no scope handle and
+  moves no existing externalizable path.
+- Memory skips the six record branches and shows this view; its cards are read-only
+  there, because the next refresh would restore anything edited or forgotten.
+- The private agent's context packet is unchanged: it keeps the records and skips
+  this view, because the packet formats list items without their names and would
+  lose which balance belongs to which account. Changing what One reads is a
+  separate, measured change.
+- Memory saved before the view existed gets it on the next unlock through the
+  existing refresh path (`refreshVaultConnections`): one recompute-only,
+  `owner_connected_source_sync` write with source `plaid_vault_view_upgrade`, no
+  Plaid call, so it also reaches an owner whose every connection needs a relink.
+  It leaves the portfolio and source copies alone, and a person's own refresh that
+  read nothing still reports failure rather than this write.
+  It is additive: every stored occurrence is kept, and removing `linked_accounts`
+  restores the prior domain exactly.
+- The PKM structure agents never write `linked_accounts`, `summary` or a `*_v1`
+  branch (`FINANCIAL_SOURCE_MANAGED_BRANCHES`); their Finance hierarchy lives in the
+  `pkm_structure` system instruction.
+
 ## Migration truth
 
 Legacy encrypted storage can only be fully repartitioned after a user unlocks their vault at least once.

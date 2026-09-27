@@ -22,6 +22,8 @@ function OrbitLayout({
   emptySlots,
   onOpenPerson,
   profileHrefForPerson,
+  onMemberDragStart,
+  onMemberDragEnd,
   className,
 }: {
   people: readonly OrbitPerson[];
@@ -32,6 +34,8 @@ function OrbitLayout({
   emptySlots: number;
   onOpenPerson?: (personRef: string) => void;
   profileHrefForPerson?: (personRef: string) => string;
+  onMemberDragStart?: (person: OrbitPerson, event: React.DragEvent) => void;
+  onMemberDragEnd?: (person: OrbitPerson, event: React.DragEvent) => void;
   className: string;
 }) {
   const count = Math.max(0, totalCount);
@@ -72,6 +76,7 @@ function OrbitLayout({
           left: `${50 + Math.cos(angle) * 38}%`,
           top: `${50 + Math.sin(angle) * 38}%`,
         };
+        const canDrag = Boolean(onMemberDragStart);
         const avatar = (
           <span className="block rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)] shadow-sm transition-transform group-hover:scale-105 motion-reduce:transition-none">
             <ConnectionPersonAvatar
@@ -84,7 +89,17 @@ function OrbitLayout({
           </span>
         );
         const sharedClass =
-          "group absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]";
+          `group absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] ${canDrag ? "sm:cursor-grab sm:active:cursor-grabbing" : ""}`;
+        const dragProps = canDrag
+          ? {
+              draggable: true,
+              onDragStart: (event: React.DragEvent) =>
+                onMemberDragStart?.(person, event),
+              onDragEnd: (event: React.DragEvent) =>
+                onMemberDragEnd?.(person, event),
+            }
+          : {};
+
         return profileHrefForPerson && person.publicPersonRef ? (
           <Link
             key={person.id}
@@ -93,6 +108,7 @@ function OrbitLayout({
             style={style}
             title={person.name}
             aria-label={`Open ${person.name}'s profile`}
+            {...dragProps}
           >
             {avatar}
           </Link>
@@ -105,6 +121,7 @@ function OrbitLayout({
             title={person.name}
             aria-label={`Open ${person.name}'s profile`}
             onClick={() => onOpenPerson(person.publicPersonRef!)}
+            {...dragProps}
           >
             {avatar}
           </button>
@@ -115,6 +132,7 @@ function OrbitLayout({
             style={style}
             title={person.name}
             aria-label={person.name}
+            {...dragProps}
           >
             {avatar}
           </span>
@@ -166,6 +184,8 @@ export function PeopleOrbit({
   emptySlots = 0,
   onOpenPerson,
   profileHrefForPerson,
+  onMemberDragStart,
+  onMemberDragEnd,
 }: {
   people: readonly OrbitPerson[];
   totalCount: number;
@@ -175,6 +195,8 @@ export function PeopleOrbit({
   emptySlots?: number;
   onOpenPerson?: (personRef: string) => void;
   profileHrefForPerson?: (personRef: string) => string;
+  onMemberDragStart?: (person: OrbitPerson, event: React.DragEvent) => void;
+  onMemberDragEnd?: (person: OrbitPerson, event: React.DragEvent) => void;
 }) {
   return (
     <div
@@ -190,6 +212,8 @@ export function PeopleOrbit({
         emptySlots={emptySlots}
         onOpenPerson={onOpenPerson}
         profileHrefForPerson={profileHrefForPerson}
+        onMemberDragStart={onMemberDragStart}
+        onMemberDragEnd={onMemberDragEnd}
         className="relative size-full sm:hidden"
       />
       <OrbitLayout
@@ -201,6 +225,8 @@ export function PeopleOrbit({
         emptySlots={emptySlots}
         onOpenPerson={onOpenPerson}
         profileHrefForPerson={profileHrefForPerson}
+        onMemberDragStart={onMemberDragStart}
+        onMemberDragEnd={onMemberDragEnd}
         className="relative hidden size-full sm:block"
       />
     </div>

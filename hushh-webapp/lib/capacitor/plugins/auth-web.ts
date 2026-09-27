@@ -82,6 +82,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     serverClientId: string;
     purpose: "read" | "send" | "compose";
     preserveSend?: boolean;
+    preserveModify?: boolean;
   }): Promise<{ serverAuthCode: string }> {
     throw new Error("Native Mail consent is only available in the mobile app.");
   }

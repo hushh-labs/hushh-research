@@ -30,6 +30,7 @@ def send_user_data_push(
     data: dict[str, str] | None = None,
     show_alert: bool = True,
     include_user_id: bool = True,
+    platforms: frozenset[str] | None = None,
 ) -> int:
     """Send a metadata push to every device registered for ``user_id``.
 
@@ -37,6 +38,8 @@ def send_user_data_push(
     returns 0 (and swallows everything) when the user is empty, Firebase is
     unconfigured, the user has no tokens, or any send fails. Firebase config is
     checked FIRST so that unconfigured environments never touch the database.
+    ``platforms`` limits delivery to those registered platforms (for example
+    native only); ``None`` keeps every registered device.
     """
     user_id = (user_id or "").strip()
     if not user_id:
@@ -89,6 +92,8 @@ def send_user_data_push(
                 continue
             seen.add(token)
             platform = str(row.get("platform") or "").strip().lower()
+            if platforms is not None and platform not in platforms:
+                continue
             message = build_push_message(
                 messaging,
                 token=token,

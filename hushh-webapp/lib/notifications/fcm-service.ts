@@ -15,6 +15,7 @@
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
 import {
   buildConsentCenterHref,
   resolveConsentNavigationTarget,
@@ -159,9 +160,52 @@ function incomingLocationShareTarget(
   return null;
 }
 
+/**
+ * "One replied" is a bare wake-up: type plus an opaque conversation id. The
+ * tap opens that conversation at `/`; the chat loads it only after unlock and
+ * only if it is in the owner's own history. `deep_link` is never trusted.
+ * The server sends this type to native devices only, so the web worker's
+ * `notificationTapTarget` deliberately has no case for it.
+ */
+export function oneReplyNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  if (type !== "one_reply") return null;
+  const conversationId = String(data?.conversation_id || "").trim();
+  if (!isAgentConversationId(conversationId)) return ROUTES.HOME;
+  return `${ROUTES.HOME}?${new URLSearchParams({ conversation: conversationId }).toString()}`;
+}
+
+const INFORMATION_REQUEST_BUNDLE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * "Your information request has an answer" is a bare wake-up for the person
+ * who asked. It carries the request bundle id only; the app finds the
+ * conversation that asked in the person's own sealed history after unlock and
+ * continues it there. `deep_link` is never trusted.
+ */
+export function informationRequestAnswerTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  if (type !== "information_request_updated") return null;
+  const bundleId = String(data?.bundle_id || "").trim();
+  if (!INFORMATION_REQUEST_BUNDLE_ID.test(bundleId)) return ROUTES.HOME;
+  return `${ROUTES.HOME}?${new URLSearchParams({ informationRequest: bundleId }).toString()}`;
+}
+
 export function buildNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string {
+  const oneReplyTarget = oneReplyNotificationTapTarget(data);
+  if (oneReplyTarget) return oneReplyTarget;
+  const answerTarget = informationRequestAnswerTapTarget(data);
+  if (answerTarget) return answerTarget;
   const locationTarget = incomingLocationShareTarget(data);
   if (locationTarget) return locationTarget;
   const documentShareTarget = documentShareNotificationTapTarget(data);
@@ -500,33 +544,14 @@ async function clearFirebaseWebPushDatabases(): Promise<void> {
   console.log("[FCM] Cleared cached Firebase web push state.");
 }
 
-async function resolveFirebaseMessagingRegistration(): Promise<ServiceWorkerRegistration | null> {
-  if (!("serviceWorker" in navigator)) {
-    return null;
-  }
-
-  try {
-    const existing = await navigator.serviceWorker.getRegistration(
-      FIREBASE_MESSAGING_SW_PATH,
-    );
-    if (existing) {
-      return existing;
-    }
-    return await navigator.serviceWorker.register(FIREBASE_MESSAGING_SW_PATH);
-  } catch (error) {
-    console.warn(
-      "[FCM] Failed to resolve Firebase messaging service worker:",
-      error,
-    );
-    return null;
-  }
-}
-
 async function clearFirebaseWebPushState(
   registration: ServiceWorkerRegistration,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   try {
     const subscription = await registration.pushManager.getSubscription();
+    if (signal?.aborted) return;
     if (subscription) {
       const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
@@ -536,7 +561,7 @@ async function clearFirebaseWebPushState(
     console.warn("[FCM] Failed to clear existing push subscription:", error);
   }
 
-  await clearFirebaseWebPushDatabases();
+  if (!signal?.aborted) await clearFirebaseWebPushDatabases();
 }
 
 /**
@@ -1372,29 +1397,27 @@ export async function clearDeliveredConsentNotifications(options: {
 export async function deleteFCMToken(
   userId?: string,
   idToken?: string,
+  options?: { signal?: AbortSignal },
 ): Promise<void> {
+  const signal = options?.signal;
+  if (signal?.aborted) return;
   const isNative = Capacitor.isNativePlatform();
 
-  try {
-    // Step 1: Tell the backend to delete our push token
-    if (userId && idToken) {
-      try {
-        await ApiService.unregisterPushToken(userId, idToken);
-      } catch (backendErr) {
-        console.warn(
-          "[FCM] Backend unregister failed (non-critical):",
-          backendErr,
-        );
-      }
-    }
-
-    // Step 2: Clear the token/subscription from the current platform
+  // A stalled backend must not prevent removal of the device's push state.
+  // Both operations start within the caller's budget, independently.
+  const unregister = userId && idToken
+    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal)
+    : Promise.resolve();
+  const clearLocalPushState = async () => {
+    if (signal?.aborted) return;
     if (isNative) {
       const { FirebaseMessaging } =
         await import("@capacitor-firebase/messaging");
+      if (signal?.aborted) return;
       await FirebaseMessaging.deleteToken();
     } else {
       const { app } = await import("@/lib/firebase/config");
+      if (signal?.aborted) return;
       if (!hasValidWebMessagingConfig(app)) {
         console.warn(
           "[FCM] Missing Firebase Messaging config. Skipping token deletion.",
@@ -1402,16 +1425,22 @@ export async function deleteFCMToken(
         return;
       }
 
-      const registration = await resolveFirebaseMessagingRegistration();
+      // Logout only removes existing push state. Registering a worker here
+      // could block teardown on a download and creates state we are removing.
+      const registration = "serviceWorker" in navigator
+        ? await navigator.serviceWorker.getRegistration(FIREBASE_MESSAGING_SW_PATH)
+        : undefined;
+      if (signal?.aborted) return;
       if (registration) {
-        await clearFirebaseWebPushState(registration);
+        await clearFirebaseWebPushState(registration, signal);
       } else {
         await clearFirebaseWebPushDatabases();
       }
     }
 
-    console.log("[FCM] Token deleted (backend + local push state)");
-  } catch (error) {
-    console.error("[FCM] Failed to delete token:", error);
+  };
+  const results = await Promise.allSettled([unregister, clearLocalPushState()]);
+  if (results.some((result) => result.status === "rejected")) {
+    console.warn("[FCM] Push cleanup did not fully complete.");
   }
 }

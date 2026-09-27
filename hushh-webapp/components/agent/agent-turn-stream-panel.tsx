@@ -6,7 +6,6 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
-import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -47,10 +46,39 @@ export function connectorBrandForTool(toolName: unknown, provider?: unknown): Co
   if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") {
     return connectorBrandFor(provider);
   }
-  if (toolName === "ask_email_agent") return "gmail";
-  if (toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") return "drive";
+  if (typeof toolName !== "string") return null;
+  if (GMAIL_TOOLS.has(toolName)) return "gmail";
+  if (DRIVE_TOOLS.has(toolName)) return "drive";
+  if (CALENDAR_TOOLS.has(toolName)) return "calendar";
   return null;
 }
+
+const GMAIL_TOOLS: ReadonlySet<string> = new Set([
+  "ask_email_agent",
+  "open_gmail_email_draft",
+  "open_gmail_information_request_reply",
+  "propose_gmail_mailbox_change",
+]);
+const DRIVE_TOOLS: ReadonlySet<string> = new Set([
+  "ask_documents_agent",
+  "inspect_selected_drive_files",
+  "propose_drive_share",
+  "propose_drive_file_share",
+  "propose_drive_file_trash",
+  "create_drive_file",
+  "copy_drive_file",
+  "move_drive_file",
+  "comment_on_drive_file",
+]);
+const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
+  "calendar_summary",
+  "calendar_events",
+  "calendar_availability",
+  "calendar_free_slots",
+  "propose_calendar_event",
+  "propose_calendar_reschedule",
+  "propose_calendar_cancellation",
+]);
 
 export const PRIVATE_MEMORY_PREPARATION_EVENT_ID = "private-memory-preparation";
 
@@ -58,7 +86,12 @@ export const PRIVATE_MEMORY_PREPARATION_EVENT_ID = "private-memory-preparation";
  * Readiness checks that run on nearly every turn. A row saying "Connector access
  * checked." on every answer tells the person nothing, so these tools are routine.
  */
-const ROUTINE_READINESS_TOOLS: ReadonlySet<string> = new Set(["discover_workspace_tools"]);
+const ROUTINE_READINESS_TOOLS: ReadonlySet<string> = new Set([
+  "discover_workspace_tools",
+  "get_current_time",
+  "report_no_app_action",
+  "resolve_onboarding_goal",
+]);
 
 export function isRoutineReadinessTool(toolName: unknown): boolean {
   return typeof toolName === "string" && ROUTINE_READINESS_TOOLS.has(toolName);
@@ -87,7 +120,6 @@ export function isInformativeActivityEvent(
 
 export type AgentTurnStreamPanelProps = {
   streamEvents: AgentVisibleStreamEvent[];
-  thinkingSummary?: string;
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
@@ -258,7 +290,6 @@ export function driveBatchProgressToVisibleStreamEvent(
 
 export function AgentTurnStreamPanel({
   streamEvents,
-  thinkingSummary = "",
   responseText,
   isStreaming,
   isError = false,
@@ -275,7 +306,6 @@ export function AgentTurnStreamPanel({
   driveCompilation,
 }: AgentTurnStreamPanelProps) {
   const turnStartedAt = useRef<number | null>(null);
-  const [firstTextMs, setFirstTextMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [timingPhase, setTimingPhase] = useState<"idle" | "running" | "done">("idle");
   // Wall clock for routine steps: one that is still running shows once it is slow.
@@ -283,7 +313,6 @@ export function AgentTurnStreamPanel({
   useEffect(() => {
     if (isStreaming && timingPhase !== "running") {
       turnStartedAt.current = performance.now();
-      setFirstTextMs(null);
       setElapsedMs(0);
       setTimingPhase("running");
     } else if (!isStreaming && timingPhase === "running") {
@@ -299,10 +328,6 @@ export function AgentTurnStreamPanel({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [isStreaming, timingPhase]);
-  useEffect(() => {
-    if (firstTextMs === null && responseText.trim() && turnStartedAt.current !== null)
-      setFirstTextMs(Math.max(0, performance.now() - turnStartedAt.current));
-  }, [firstTextMs, responseText]);
   const visibleEvents = useMemo(
     () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
     [streamEvents, clockMs],
@@ -357,19 +382,14 @@ export function AgentTurnStreamPanel({
           currentBatchProgress.phase === "summarizing" ||
           currentBatchProgress.phase === "finalizing"),
       )}
-      statusMessage={elapsedMs === null || (isStreaming ? timingPhase !== "running" : timingPhase !== "done") ? undefined : isStreaming
+      // A running turn shows its elapsed time. A finished turn shows none:
+      // its timing is never stored, so a reopened chat could not repeat it,
+      // and a completed answer must look the same live and restored.
+      statusMessage={isStreaming && timingPhase === "running" && elapsedMs !== null
         ? `Working for ${Math.floor(elapsedMs / 1000)}s`
-        : `${isError ? "Stopped" : "Response complete"} in ${(elapsedMs / 1000).toFixed(1)}s${firstTextMs === null ? "" : ` · first text in ${(firstTextMs / 1000).toFixed(1)}s`}`}
+        : undefined}
       responseText={responseText}
       response={response}
-      thinkingTitle="Thinking summary"
-      thinkingContent={thinkingSummary ? (
-        <div className="max-h-44 min-h-0 overflow-y-auto overscroll-contain text-sm text-muted-foreground">
-          {/* Provider summaries are markdown ("**Heading**" then a paragraph);
-              render them with the same renderer as the answer. */}
-          <AgentMarkdown text={thinkingSummary} className="[&_strong]:text-foreground" />
-        </div>
-      ) : undefined}
       structuredContent={
         experienceItems.length > 0 ? (
           <div className="space-y-3">

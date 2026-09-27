@@ -64,6 +64,8 @@ dependencies = [
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
+    # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
+    "tzdata==2026.1",
     "uvicorn>=0.34.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",

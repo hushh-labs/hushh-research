@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getActiveKaiDebateRun: vi.fn(),
-  startKaiDebateRun: vi.fn(),
+  startKaiDebateRunStream: vi.fn(),
   streamKaiDebateRun: vi.fn(),
+  cancelKaiDebateRun: vi.fn(),
   consumeCanonicalKaiStream: vi.fn(),
 }));
 
@@ -11,8 +12,10 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getActiveKaiDebateRun: (...args: unknown[]) =>
       apiMocks.getActiveKaiDebateRun(...args),
-    startKaiDebateRun: (...args: unknown[]) => apiMocks.startKaiDebateRun(...args),
+    startKaiDebateRunStream: (...args: unknown[]) =>
+      apiMocks.startKaiDebateRunStream(...args),
     streamKaiDebateRun: (...args: unknown[]) => apiMocks.streamKaiDebateRun(...args),
+    cancelKaiDebateRun: (...args: unknown[]) => apiMocks.cancelKaiDebateRun(...args),
   },
 }));
 
@@ -92,6 +95,23 @@ async function loadManager(tasks: unknown[]) {
   return mod.DebateRunManagerService;
 }
 
+// The backend stamps the run id into every envelope of the stream that
+// started the run; the first one is how the client learns which run it owns.
+function announceRun(runId: string) {
+  return async (...args: unknown[]) => {
+    const emit = args[1] as (envelope: Record<string, unknown>) => void;
+    emit({
+      schema_version: "1.0",
+      stream_id: `run_${runId}`,
+      stream_kind: "stock_analyze",
+      seq: 1,
+      event: "start",
+      terminal: false,
+      payload: { run_id: runId },
+    });
+  };
+}
+
 const ensureParams = {
   userId: "user-1",
   ticker: "AAPL",
@@ -104,8 +124,9 @@ describe("DebateRunManagerService start gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.getActiveKaiDebateRun.mockReset();
-    apiMocks.startKaiDebateRun.mockReset();
+    apiMocks.startKaiDebateRunStream.mockReset();
     apiMocks.streamKaiDebateRun.mockReset();
+    apiMocks.cancelKaiDebateRun.mockReset();
     apiMocks.consumeCanonicalKaiStream.mockReset();
     apiMocks.streamKaiDebateRun.mockResolvedValue(response(200));
     apiMocks.consumeCanonicalKaiStream.mockResolvedValue(undefined);
@@ -114,17 +135,39 @@ describe("DebateRunManagerService start gate", () => {
   it("recovers stale local running locks when backend has no active debate", async () => {
     const manager = await loadManager([persistedTask("stale-run")]);
     apiMocks.getActiveKaiDebateRun.mockResolvedValueOnce(response(404));
-    apiMocks.startKaiDebateRun.mockResolvedValueOnce(
-      response(200, { run: runPayload("fresh-run") }),
+    apiMocks.startKaiDebateRunStream.mockResolvedValueOnce(response(200));
+    apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(
+      announceRun("fresh-run"),
     );
 
     const result = await manager.ensureRun(ensureParams);
 
     expect(result.kind).toBe("started");
     expect(apiMocks.getActiveKaiDebateRun).toHaveBeenCalledTimes(1);
-    expect(apiMocks.startKaiDebateRun).toHaveBeenCalledTimes(1);
+    expect(apiMocks.startKaiDebateRunStream).toHaveBeenCalledTimes(1);
     expect(manager.getTask("stale-run")?.status).toBe("failed");
     expect(manager.getTask("fresh-run")?.status).toBe("running");
+  });
+
+  // UAT 2026-09-26/27: every debate started, then its separate GET .../stream
+  // reached a backend process that never held the run and got 404. A new run
+  // must be streamed by the request that starts it, never by a second request.
+  it("starts and attaches a new run in one request", async () => {
+    const manager = await loadManager([]);
+    apiMocks.startKaiDebateRunStream.mockResolvedValueOnce(response(200));
+    apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(
+      announceRun("fresh-run"),
+    );
+
+    const result = await manager.ensureRun({ ...ensureParams, pickSource: "default" });
+
+    expect(result.task.runId).toBe("fresh-run");
+    expect(apiMocks.startKaiDebateRunStream.mock.calls[0]?.[0]).toMatchObject({
+      debateSessionId: SESSION_ID,
+      ticker: "AAPL",
+      pickSource: "default",
+    });
+    expect(apiMocks.streamKaiDebateRun).not.toHaveBeenCalled();
   });
 
   it("blocks on a verified backend active debate without starting a second run", async () => {
@@ -153,16 +196,19 @@ describe("DebateRunManagerService start gate", () => {
     expect(result.task.pickSource).toBe("ria:advisor-1:package-2");
     expect(result.task.pickSourceLabel).toBe("Advisor picks");
     expect(result.task.pickSourceKind).toBe("ria");
-    expect(apiMocks.startKaiDebateRun).not.toHaveBeenCalled();
+    expect(apiMocks.startKaiDebateRunStream).not.toHaveBeenCalled();
   });
 
   it("coalesces identical in-flight starts for the same debate session", async () => {
     const manager = await loadManager([]);
     let resolveStart!: (value: ReturnType<typeof response>) => void;
-    apiMocks.startKaiDebateRun.mockReturnValueOnce(
+    apiMocks.startKaiDebateRunStream.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveStart = resolve;
       }),
+    );
+    apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(
+      announceRun("fresh-run"),
     );
 
     const first = manager.ensureRun({
@@ -175,15 +221,33 @@ describe("DebateRunManagerService start gate", () => {
     });
 
     await Promise.resolve();
-    expect(apiMocks.startKaiDebateRun).toHaveBeenCalledTimes(1);
+    expect(apiMocks.startKaiDebateRunStream).toHaveBeenCalledTimes(1);
 
-    resolveStart(response(200, { run: runPayload("fresh-run") }));
+    resolveStart(response(200));
     const results = await Promise.all([first, second]);
 
     expect(results.map((result) => result.kind)).toEqual(["started", "started"]);
     expect(results[0]?.task.runId).toBe("fresh-run");
     expect(results[1]?.task.runId).toBe("fresh-run");
-    expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(1);
+    expect(apiMocks.streamKaiDebateRun).not.toHaveBeenCalled();
+  });
+
+  it("settles a cancelled run locally even when the backend cannot reach it", async () => {
+    const manager = await loadManager([persistedTask("live-run")]);
+    apiMocks.cancelKaiDebateRun.mockResolvedValueOnce(response(404));
+
+    await expect(
+      manager.cancelRun({
+        runId: "live-run",
+        userId: "user-1",
+        vaultOwnerToken: "vault-token",
+      }),
+    ).rejects.toThrow("HTTP 404");
+
+    // Previously the failed request threw first and left the task "running",
+    // so the analysis page kept (or re-derived) a live debate after Cancel.
+    expect(manager.getTask("live-run")?.status).toBe("canceled");
+    expect(manager.getActiveTaskForUser("user-1")).toBeNull();
   });
 
   it("keeps a run active and resumes from its last cursor after a transport interruption", async () => {

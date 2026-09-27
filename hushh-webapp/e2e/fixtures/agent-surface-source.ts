@@ -163,13 +163,28 @@ const subtitleClass = one(
   WORKSPACE_PATH,
 )[1];
 
-const subtitleMatch = one(
+// The header renders `chatHeaderSubtitle(...)`; its resting wording lives in
+// that function (Puppy's literal) and in IDLE_AGENT_SUBTITLE, both read from
+// the shipped source so the fixture cannot drift from what people see.
+one(
   header,
-  /<ChatAgentSubtitle text=\{\s*isPuppySurface\s*\?\s*("[^"]*")\s*:[\s\S]*?statusText \|\| ("[^"]*")\s*\}\s*\/>/,
+  /<ChatAgentSubtitle text=\{chatHeaderSubtitle\(\{/,
   "agent subtitle expression",
   WORKSPACE_PATH,
 );
-const subtitleExpression = `isPuppySurface ? ${subtitleMatch[1]} : ${subtitleMatch[2]}`;
+const puppySubtitle = one(
+  workspace,
+  /export function chatHeaderSubtitle[\s\S]*?if \(input\.isPuppySurface\) return ("[^"]*");/,
+  "Puppy subtitle literal",
+  WORKSPACE_PATH,
+)[1];
+const idleSubtitle = one(
+  workspace,
+  /export const IDLE_AGENT_SUBTITLE = ("[^"]*");/,
+  "idle agent subtitle",
+  WORKSPACE_PATH,
+)[1];
+const subtitleExpression = `isPuppySurface ? ${puppySubtitle} : ${idleSubtitle}`;
 
 const clusterClass = one(
   header,

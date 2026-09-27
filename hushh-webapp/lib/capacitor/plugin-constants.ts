@@ -74,7 +74,6 @@ export const PluginParams = {
     USE_REMOTE_LLM: "useRemoteLLM",
     PREFERRED_LLM_PROVIDER: "preferredLLMProvider",
     REQUIRE_BIOMETRIC_UNLOCK: "requireBiometricUnlock",
-    AUTO_LOCK_TIMEOUT: "autoLockTimeout",
     THEME: "theme",
     HAPTIC_FEEDBACK: "hapticFeedback",
     SHOW_DEBUG_INFO: "showDebugInfo",

@@ -298,6 +298,56 @@ def test_chat_route_refuses_without_a_valid_key_and_strips_the_header() -> None:
     assert refused.json()["code"] == "CHAT_KEY_REQUIRED"
 
 
+def test_refusals_log_code_route_and_key_state_but_never_the_key(caplog) -> None:
+    """UAT 2026-09-27: 51 chat-key 403s logged no code, so REQUIRED vs MISMATCH was a guess."""
+    from api.middleware import require_vault_owner_token
+    from api.middlewares.chat_key import (
+        ChatKeyMiddleware,
+        chat_key_error_handler,
+        require_vault_owner_chat_key,
+    )
+    from hushh_mcp.services.chat_key import (
+        CHAT_KEY_ERRORS,
+        ChatKeyMismatchError,
+        bind_request_chat_key_owner,
+    )
+
+    async def fake_owner() -> dict:
+        bind_request_chat_key_owner("owner-1")
+        return {"user_id": "owner-1"}
+
+    app = FastAPI()
+    for error in CHAT_KEY_ERRORS:
+        app.add_exception_handler(error, chat_key_error_handler)
+    app.dependency_overrides[require_vault_owner_token] = fake_owner
+
+    @app.get("/conversations/{user_id}")
+    async def conversations(user_id: str, _t: dict = Depends(require_vault_owner_chat_key)) -> dict:
+        raise ChatKeyMismatchError("Chat history did not open with this vault.")
+
+    app.add_middleware(ChatKeyMiddleware)
+    client = TestClient(app)
+    caplog.set_level(logging.WARNING, logger="api.middlewares.chat_key")
+
+    missing = client.get("/conversations/uid-private-123")
+    assert missing.status_code == 403 and missing.json()["detail"]["code"] == "CHAT_KEY_REQUIRED"
+    wrong = client.get("/conversations/uid-private-123", headers={"X-Hussh-Chat-Key": WIRE_KEY})
+    assert wrong.json()["code"] == "CHAT_KEY_MISMATCH"
+
+    lines = [
+        record.getMessage() for record in caplog.records if "chat_key.refused" in record.message
+    ]
+    assert lines == [
+        "chat_key.refused code=CHAT_KEY_REQUIRED method=GET route=/conversations/{user_id} "
+        "key_state=absent",
+        "chat_key.refused code=CHAT_KEY_MISMATCH method=GET route=/conversations/{user_id} "
+        "key_state=bound",
+    ]
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    for private_marker in ("uid-private-123", "owner-1", PERSON_KEY.hex(), WIRE_KEY):
+        assert private_marker not in rendered
+
+
 def test_owner_mismatch_between_key_and_token_is_refused() -> None:
     from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler
     from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS, bind_request_chat_key_owner

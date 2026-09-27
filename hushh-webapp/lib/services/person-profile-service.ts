@@ -126,6 +126,17 @@ export type InformationRequestBundle = {
   }>;
 };
 
+export type SharedWithMeEntry = {
+  bundleId: string;
+  requestId: string;
+  person: string;
+  personRef: string;
+  profilePath: string | null;
+  label: string;
+  purpose: string | null;
+  expiresAt: number | null;
+};
+
 async function jsonOrThrow<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & {
     detail?: string;
@@ -167,6 +178,17 @@ export class PersonProfileService {
       ),
     );
     return payload.exports || [];
+  }
+
+  /** Current approvals other people gave this person: names and labels only. */
+  static async listSharedWithMe(input: { vaultOwnerToken: string }): Promise<SharedWithMeEntry[]> {
+    const payload = await jsonOrThrow<{ shares?: SharedWithMeEntry[] }>(
+      await ApiService.apiFetch("/api/one/information-requests/shared-with-me", {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+      }),
+    );
+    return Array.isArray(payload.shares) ? payload.shares : [];
   }
 
   static async getInformationRequest(input: {

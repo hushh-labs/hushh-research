@@ -711,7 +711,7 @@ export function AgentHistorySidebar({
             variant="pill"
             type="button"
             pressScale={false}
-            wrapperClassName="w-full shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            wrapperClassName="w-full shrink-0 border-t border-border/60 px-3 py-2 pb-[max(0.5rem,calc(env(safe-area-inset-bottom,0px)-var(--app-bottom-shell-height,0px)))]"
             className={cn(
               "h-11 min-h-11 w-full justify-start rounded-xl px-3 text-[13px] font-medium text-foreground",
               collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",

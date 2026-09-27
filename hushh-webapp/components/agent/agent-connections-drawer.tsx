@@ -205,8 +205,10 @@ export function AgentConnectionsDrawer({
         aria-hidden="true"
         className={cn(
           // Anchored below the chat header like the drawer panel, so the dim layer never
-          // covers the header controls (agent toggle, close) above it.
-          "absolute inset-x-0 bottom-0 top-[var(--agent-chat-header-height)] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          // covers the header controls (agent toggle, close) above it. It also ends at
+          // the top of the fixed bottom bar: that bar lives in a different stacking
+          // context, so no z-index here can lift the drawer above it on narrow screens.
+          "absolute inset-x-0 bottom-[var(--app-bottom-shell-height,0px)] top-[var(--agent-chat-header-height)] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
           "z-(--z-sheet-overlay)",
           historyOpen ? "opacity-100" : "pointer-events-none opacity-0",
         )}
@@ -223,7 +225,7 @@ export function AgentConnectionsDrawer({
         inert={!historyOpen || externalModalOpen}
         onKeyDown={keyDown}
         className={cn(
-          "absolute bottom-0 transform transition-transform duration-150 motion-reduce:transition-none ease-out",
+          "absolute bottom-[var(--app-bottom-shell-height,0px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
           "left-0 top-[var(--agent-chat-header-height)] z-(--z-sheet) w-[min(88vw,320px)]",
           historyOpen ? "translate-x-0" : "-translate-x-full",
         )}

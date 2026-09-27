@@ -8,15 +8,23 @@ from typing import Any
 
 from ag_ui.core import BaseEvent, EventType, ToolCallArgsEvent
 
+from hushh_mcp.adk_bridge.contract import SpecialistReadResult
 from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_NAME
 from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
 
 _OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required", "review_required"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
 _PRIVATE_TOOLS = frozenset(
-    {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
+    {
+        DRIVE_READ_TOOL_NAME,
+        "inspect_selected_drive_files",
+        "read_workspace_tool",
+        "read_selected_drive_search_result",
+    }
 )
-_PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp"})
+_PRIVATE_SOURCES = frozenset(
+    {DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp", "drive_saved_search"}
+)
 _DYNAMIC_MCP_TOOL = re.compile(r"mcp_[0-9a-f]{40}\Z")
 _CONNECTOR_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _REVIEW_OUTCOMES = frozenset({"read_only", "no_credential", "approved"})
@@ -123,7 +131,9 @@ class ConfirmationWireProjection:
                 return [
                     event.model_copy(
                         update={
-                            "content": json.dumps(_safe_result(getattr(event, "content", None))),
+                            "content": json.dumps(
+                                _safe_result(getattr(event, "content", None), live_receipt=True)
+                            ),
                             "raw_event": None,
                             "metadata": None,
                         }
@@ -136,7 +146,9 @@ class ConfirmationWireProjection:
             return [
                 event.model_copy(
                     update={
-                        "content": json.dumps(_safe_result(getattr(event, "content", None))),
+                        "content": json.dumps(
+                            _safe_result(getattr(event, "content", None), live_receipt=True)
+                        ),
                         "raw_event": None,
                         "metadata": None,
                     }
@@ -190,7 +202,7 @@ class ConfirmationWireProjection:
         ]
 
 
-def _safe_result(value: object) -> dict[str, Any]:
+def _safe_result(value: object, *, live_receipt: bool = False) -> dict[str, Any]:
     if isinstance(value, str):
         try:
             value = json.loads(value)
@@ -207,6 +219,53 @@ def _safe_result(value: object) -> dict[str, Any]:
     # card after private tool arguments and results have been removed.
     if status == "permission_required" and result.get("provider") in _WORKSPACE_PROVIDERS:
         safe["provider"] = result["provider"]
+    # Only the app-authored Workspace listing wrapper can carry this receipt.
+    # Accept our own safe output too: the live stream has two privacy passes.
+    listing = result.get("source") == "workspace_mcp" and result.get("operation") in {
+        "search_files",
+        "list_recent_files",
+    }
+    projected = result.get("private_result") == "not_retained" and set(result) <= {
+        "status",
+        "private_result",
+        "truncated",
+        "provider",
+        "structured",
+    }
+    if (
+        live_receipt
+        and status == "ok"
+        and result.get("provider") == "drive"
+        and (listing or projected)
+    ):
+        try:
+            receipt = SpecialistReadResult.model_validate(result.get("structured"))
+        except ValueError:
+            receipt = None
+        if (
+            receipt is not None
+            and receipt.connector == "drive"
+            and receipt.status == "ok"
+            and receipt.metadata_only
+        ):
+            view = receipt.model_dump(mode="json")
+            # Listing receipts cannot grant compilation or carry file names.
+            view.update(
+                owner_compile_available=False, owner_compile_query=None, owner_compile_window=None
+            )
+            for source in view["sources"]:
+                source["label"] = "Document"
+            query = view["background_search_query"]
+            if not (
+                receipt.background_search_available
+                and receipt.truncated
+                and isinstance(query, str)
+                and query.strip()
+                and len(query.encode("utf-8")) <= 2048
+                and not re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", query)
+            ):
+                view.update(background_search_available=False, background_search_query=None)
+            safe.update(provider="drive", structured=view, truncated=receipt.truncated)
     # Opaque connector id and review outcome label the owner's Activity step.
     # Neither is provider-authored text, a credential, or call content.
     connector = result.get("connectorId")
@@ -363,7 +422,9 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
         ):
             return event.model_copy(
                 update={
-                    "content": json.dumps(_safe_result(getattr(event, "content", None))),
+                    "content": json.dumps(
+                        _safe_result(getattr(event, "content", None), live_receipt=True)
+                    ),
                     "raw_event": None,
                     "metadata": None,
                 }

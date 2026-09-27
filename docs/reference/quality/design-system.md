@@ -260,9 +260,9 @@ are query-selected content inside `/one/kai`; they do not get a wider dashboard
 canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
-Persistent top chrome uses the neutral theme feather in
-`components/app-ui/ambient-chrome-mask.tsx`, with a short tail below the tab
-underline. Bottom navigation and the Agent Bar remain separate floating
+Persistent top chrome is a plain, solid neutral surface in
+`components/app-ui/ambient-chrome-mask.tsx` that stops at the tab underline
+with no fade band below it. Bottom navigation and the Agent Bar remain separate floating
 controls; no full-width bottom mask fades the page behind them. This applies
 on mobile and desktop.
 

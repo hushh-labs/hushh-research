@@ -207,6 +207,7 @@ class LiveSearchPlan(BaseModel):
         dated = self.date_from is not None or self.date_to is not None
         if not (
             self.terms
+            or self.exact_title
             or self.relative_days is not None
             or dated
             or self.file_kind != "any"

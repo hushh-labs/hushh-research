@@ -52,6 +52,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
 )
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
+    ACCOUNT_DELETION_PAUSED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
     AccountService,
@@ -1457,6 +1458,14 @@ async def delete_account(
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
                 },
+            )
+        if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:
+            # A deploy's release fence refused the erasure; it rolled back and
+            # will succeed once the release ends.
+            logger.warning("account.delete_paused user=%s reason=release_fence", user_id)
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.

@@ -1283,7 +1283,7 @@ export function PkmNaturalPanel({
           sharingPosture={memorySharingPosture(selectedCard)}
           sharingBusy={memorySharingActionId === cardImpactKey(selectedCard)}
           sharingError={memorySharingError}
-          canMutate={Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
+          canMutate={selectedCard.editable && Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
           saving={memoryActionId === `${selectedCard.id}:edited`}
           deleting={memoryActionId === `${selectedCard.id}:deleted`}
           actionError={memoryActionError}

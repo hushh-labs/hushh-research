@@ -16,6 +16,8 @@ const PRIVATE_FINANCIAL_PREFIXES = new Set([
   "securities_v1",
   "transactions_v1",
   "derived_v1",
+  // Their readable view: the same account records, organised for browsing.
+  "linked_accounts",
 ]);
 
 const PRIVATE_ARTIFACT_PARTS = new Set([

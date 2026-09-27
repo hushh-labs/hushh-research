@@ -96,6 +96,36 @@ describe("web system-notification click bridge", () => {
     expect(buildNotificationTapTarget(data)).toBe("/one/feed");
   });
 
+  it("opens the named conversation for a One replied push, never its deep_link", () => {
+    const conversationId = "0b1f6c1e-3d4a-4c8b-9a51-6f2e7d8c9b0a";
+    expect(
+      buildNotificationTapTarget({
+        type: "one_reply",
+        conversation_id: conversationId,
+        deep_link: "/one/profile?ignored=true",
+        request_url: "https://example.com/ignored",
+      }),
+    ).toBe(`/?conversation=${conversationId}`);
+    // A malformed id opens chat without selecting anything rather than Feed or a forged route.
+    expect(
+      buildNotificationTapTarget({ type: "one_reply", conversation_id: "../one/profile?x=1" }),
+    ).toBe("/");
+  });
+
+  it("opens the asking chat for an answered information request, never its deep_link", () => {
+    const bundle = "0f0e0d0c-0b0a-4908-8706-050403020100";
+    expect(
+      buildNotificationTapTarget({
+        type: "information_request_updated",
+        bundle_id: bundle,
+        deep_link: "https://evil.example/phish",
+      }),
+    ).toBe(`/?informationRequest=${bundle}`);
+    expect(
+      buildNotificationTapTarget({ type: "information_request_updated", bundle_id: "../one/profile" }),
+    ).toBe("/");
+  });
+
   it("accepts Feed navigation and acknowledges the matching click id", async () => {
     await prepareFCMListeners();
     const postMessage = vi.fn();

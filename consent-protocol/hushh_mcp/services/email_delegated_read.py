@@ -1,8 +1,9 @@
 """Nonpersisting, two-stage Mail read orchestration for One's conversation.
 
 The planner sees only the person's request. A separate tool-less interpreter
-sees the bounded metadata. No model that has read external content may select
-another operation in this hop. The existing Email/ADK genes own all semantics.
+sees the bounded metadata, or bounded message text when the person asked to
+read mail. No model that has read external content may select another
+operation in this hop. The existing Email/ADK genes own all semantics.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.agents.email.runtime import run_email_gene
 from hushh_mcp.services.gmail_metadata_reader import (
+    MAX_BODY_MESSAGES,
     GmailMetadataError,
     GmailMetadataReader,
     MailOperation,
@@ -29,9 +31,12 @@ from hushh_mcp.services.gmail_metadata_reader import (
 
 class MailReadPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    operation: Literal["list_needs_reply", "list_recent", "search_inbox", "clarify"]
+    operation: Literal[
+        "list_needs_reply", "list_recent", "search_inbox", "read_message", "read_thread", "clarify"
+    ]
     query: str = Field(default="", max_length=512)
-    limit: int = Field(default=10, ge=1, le=25)
+    # Omitted means the operation's default: ten listed, one message read.
+    limit: int | None = Field(default=None, ge=1, le=25)
     mailbox: Literal["inbox", "sent", "anywhere"] = "inbox"
     clarification: str = Field(default="", max_length=500)
 
@@ -50,7 +55,8 @@ _ERRORS = {
     "source_changed": "The inbox changed during that read. Please try again.",
     "response_too_large": "That inbox result is too large. Try a narrower search.",
     "invalid_argument": (
-        "Please ask for your recent emails, an inbox search, or messages needing a reply."
+        "Please ask for your recent emails, an inbox search, messages needing a reply, "
+        "or an email or conversation to read."
     ),
 }
 
@@ -88,7 +94,13 @@ def _epoch_date_terms(query: str, zone: ZoneInfo) -> str:
 
 
 def _result(
-    conversation_id: str, text: str, status: str, *, sources=(), truncated=False
+    conversation_id: str,
+    text: str,
+    status: str,
+    *,
+    sources=(),
+    truncated=False,
+    metadata_only=True,
 ) -> dict[str, Any]:
     return {
         "conversationId": conversation_id,
@@ -101,7 +113,7 @@ def _result(
             "status": status,
             "sources": list(sources),
             "truncated": truncated,
-            "metadata_only": True,
+            "metadata_only": metadata_only,
         },
     }
 
@@ -158,10 +170,16 @@ async def run_delegated_mail_read(
                 # never from request words; the reader still refuses an empty
                 # search expression.
                 operation = "list_recent"
-            elif operation != "search_inbox" and plan.query:
+            elif operation in {"list_recent", "list_needs_reply"} and plan.query:
                 raise GmailMetadataError("invalid_argument")
-            arguments: dict[str, Any] = {"limit": plan.limit, "mailbox": plan.mailbox}
-            if operation == "search_inbox":
+            arguments: dict[str, Any] = {"mailbox": plan.mailbox}
+            if operation == "read_message":
+                # Reading bodies is bounded tighter than listing; a larger plan
+                # limit is normalized to that bound, never widened.
+                arguments["limit"] = min(plan.limit or 1, MAX_BODY_MESSAGES)
+            elif operation != "read_thread":
+                arguments["limit"] = plan.limit or 10
+            if operation in {"search_inbox", "read_message", "read_thread"} and plan.query:
                 arguments["query"] = _epoch_date_terms(plan.query, zone)
             reader = reader_factory(gmail=gmail, user_id=user_id, require_access=require_access)
             metadata = await reader.read(operation, arguments)
@@ -185,19 +203,26 @@ async def run_delegated_mail_read(
             known_refs = {item["source_ref"] for item in metadata["untrusted_external_content"]}
             if set(answer.source_refs) - known_refs or (known_refs and not answer.source_refs):
                 raise ValueError("invalid_mail_sources")
+            kind = "metadata" if metadata["metadata_only"] else "message"
             sources = [
-                {"source_ref": ref, "label": "Mail", "kind": "metadata"}
+                {"source_ref": ref, "label": "Mail", "kind": kind}
                 for ref in dict.fromkeys(answer.source_refs)
             ]
             text = answer.answer
-            if metadata["truncated"]:
+            if metadata["truncated"] and metadata["metadata_only"]:
                 text += "\n\nThis is a bounded inbox result; some matches or metadata were omitted."
+            elif metadata["truncated"]:
+                text += (
+                    "\n\nLong or older messages were shortened to fit; open the email in "
+                    "Gmail for the full text."
+                )
             return _result(
                 conversation_id,
                 text,
                 "ok",
                 sources=sources,
                 truncated=metadata["truncated"],
+                metadata_only=metadata["metadata_only"],
             )
     except GmailMetadataError as exc:
         return _result(

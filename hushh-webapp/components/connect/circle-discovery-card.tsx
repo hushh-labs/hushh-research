@@ -7,10 +7,10 @@ import {
   Check,
   FinanceAgentIcon,
   Heart,
-  LifeBuoy,
   MapPin,
   Plus,
   ShieldCheck,
+  Siren,
   TrendingUp,
   UserPlus,
 } from "@/components/icons";
@@ -36,11 +36,11 @@ const STARTER_ICONS = {
   investor: TrendingUp,
   business: Briefcase,
   location: MapPin,
-  sms: LifeBuoy,
+  sms: Siren,
 };
 
-// Match the home palette and its duotone icon language. These colours do not
-// imply access has been granted; SMS means Save My Soul, not text messaging.
+// Match the home palette and its duotone icon language. The emergency siren
+// reads as an alert at a glance, while the SMS label names its delivery type.
 const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
   family: DASHBOARD_AGENT_ICON_STYLE_BY_ID.email,
   finance: DASHBOARD_AGENT_ICON_STYLE_BY_ID.finance,

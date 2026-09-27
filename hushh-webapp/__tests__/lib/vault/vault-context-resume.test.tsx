@@ -215,6 +215,28 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.ownerTokenStatus).toBe("valid");
   });
 
+  // Timers count awake time only: after overnight sleep the renewal timer has
+  // not fired although the wall clock is hours past expiry. Resume must renew.
+  it("renews on resume when device sleep left the renewal timer behind the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 8 * 3_600_000 + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    vi.setSystemTime(NOW + 8 * 3_600_000);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+    setVisibility("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+  });
+
   it("never returns an expired token even before a lifecycle render", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
@@ -254,6 +276,104 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.getVaultKey()).toBe("vault-key");
     expect(currentVault.getVaultOwnerToken()).toBeNull();
     expect(currentVault.ownerTokenStatus).toBe("unavailable");
+  });
+
+  // Founder rule: inactivity alone never asks for the passphrase again. There
+  // is no idle lock; the 24-hour owner token renews silently for as long as the
+  // runtime lives. Any lock timer shorter than a week fails this test.
+  it("keeps the vault unlocked through a week of inactivity", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    let renewals = 0;
+    mocks.issueVaultOwnerToken.mockImplementation(async () => ({
+      token: `renewed-token-${++renewals}`,
+      expiresAt: Date.now() + 86_400_000,
+      scope: "vault.owner",
+      renewalValidated: true,
+    }));
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    for (let hour = 0; hour < 7 * 24; hour += 1) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+    }
+    expect(renewals).toBeGreaterThanOrEqual(7);
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe(`renewed-token-${renewals}`);
+    expect(currentVault.ownerTokenStatus).toBe("valid");
+  });
+
+  // A sleeping laptop or a dead network is not a reason to lock. Renewal keeps
+  // retrying through Firebase and backend outages that outlast the token, and
+  // authority comes back without another unlock once the network does.
+  it("never locks while renewal fails offline, and renews once the network returns", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    const invalidations = vi.fn();
+    window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, invalidations);
+    try {
+      mocks.getIdToken.mockRejectedValue(Object.assign(
+        new Error("Firebase: Error (auth/network-request-failed)."),
+        { code: "auth/network-request-failed" },
+      ));
+      mocks.issueVaultOwnerToken.mockRejectedValue(new TypeError("Failed to fetch"));
+      renderVault();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+      for (let hour = 0; hour < 13; hour += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      }
+      mocks.getIdToken.mockResolvedValue("firebase-token");
+      for (let hour = 0; hour < 13; hour += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      }
+      // After 26 h of failures the loop is still alive at its 30 s cadence.
+      const attemptsBefore = mocks.issueVaultOwnerToken.mock.calls.length;
+      for (let step = 0; step < 5; step += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      }
+      expect(mocks.issueVaultOwnerToken.mock.calls.length - attemptsBefore).toBe(5);
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(currentVault.getVaultOwnerToken()).toBeNull();
+      expect(currentVault.ownerTokenStatus).toBe("unavailable");
+
+      mocks.issueVaultOwnerToken.mockResolvedValue({
+        token: "renewed-token", expiresAt: Date.now() + 86_400_000, scope: "vault.owner", renewalValidated: true,
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+      expect(currentVault.ownerTokenStatus).toBe("valid");
+      expect(invalidations).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(AUTH_SESSION_INVALIDATED_EVENT, invalidations);
+    }
+  });
+
+  // The retry loop is bounded by custody: once the vault locks, failed-renewal
+  // history must not keep calling the token endpoint for a session that ended.
+  it.each([
+    ["an explicit lock request", () => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "VAULT_OWNER token revoked" },
+    }))],
+    ["terminal session invalidation", () => window.dispatchEvent(new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+      detail: { code: "session_invalid", path: "test", userId: "vault-owner" },
+    }))],
+  ])("stops retrying renewal after %s", async (_label, lock) => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(2);
+    act(lock);
+    expect(currentVault.getVaultKey()).toBeNull();
+    for (let step = 0; step < 10; step += 1) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    }
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(2);
   });
 
   it("renews an expired token after an ambiguous native invalid-owner lock request", async () => {

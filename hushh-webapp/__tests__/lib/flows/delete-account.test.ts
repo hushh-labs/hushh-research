@@ -74,6 +74,8 @@ import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   ACCOUNT_DELETION_FAILED_CODE,
   ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
+  ACCOUNT_DELETION_PAUSED_CODE,
+  ACCOUNT_DELETION_PAUSED_MESSAGE,
   AccountDeletionNotCompletedError,
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE,
   AccountDeletionOutcomeUncertainError,
@@ -694,5 +696,34 @@ describe("banks sealed in the vault are revoked before the account is erased", (
       sessionUser: makeSessionUser("uid-deleted"),
     });
     expect(isAccountDeletionActive("uid-deleted")).toBe(true);
+  });
+
+  it("keeps the session with a short paused message when a release fence refuses deletion", async () => {
+    mockDeleteAccount.mockRejectedValue(
+      new ApiError("Account deletion paused", 503, {
+        detail: "Account deletion paused",
+        code: ACCOUNT_DELETION_PAUSED_CODE,
+      }),
+    );
+    mockGetAccountSessionStatus.mockResolvedValue(
+      Response.json({ active: true }, { status: 200 }),
+    );
+
+    const error = await executeVerifiedAccountDeletion({
+      userId: "uid-paused",
+      vaultOwnerToken: "vault-token",
+      sessionUser: makeSessionUser("uid-paused"),
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(AccountDeletionNotCompletedError);
+    expect((error as AccountDeletionNotCompletedError).paused).toBe(true);
+    expect(accountDeletionErrorMessage(error)).toBe(ACCOUNT_DELETION_PAUSED_MESSAGE);
+    expect(ACCOUNT_DELETION_PAUSED_MESSAGE).toBe(
+      "Deletion paused while One updates. Try again soon.",
+    );
+    expect(ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE).toBe("Account not deleted. Try again.");
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
+    expect(isAccountDeletionActive("uid-paused")).toBe(false);
   });
 });

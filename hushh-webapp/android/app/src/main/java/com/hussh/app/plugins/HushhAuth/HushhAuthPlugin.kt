@@ -415,6 +415,11 @@ class HushhAuthPlugin : Plugin() {
             call.reject("Unsupported Mail access level")
             return
         }
+        // The backend refuses a grant that drops a scope the connection already
+        // holds, so carry a modify grant made on the web through any reconnect.
+        if (call.getBoolean("preserveModify") == true) {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.modify"))
+        }
         val gmailOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)
             .requestEmail()

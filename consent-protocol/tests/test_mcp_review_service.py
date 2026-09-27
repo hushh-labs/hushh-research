@@ -146,7 +146,8 @@ async def test_vault_configuration_reviews_without_private_registry(harness, mon
             "revision": "rev1",
             "fingerprint": module.mcp_tool_fingerprint(h.tool.descriptor),
             "permission": "ask_first",
-            "review": "required",
+            # The person's own server, with their credential: runs freely.
+            "review": "not_required",
         }
     ]
     assert "synthetic-secret" not in str(catalog)
@@ -389,8 +390,13 @@ async def test_pending_confirmation_rejects_mismatched_call(pending_harness, fai
 @pytest.mark.parametrize(
     ("authentication", "annotations", "review"),
     [
+        # Founder, 2026-09-27: every tool on the person's own server runs freely.
         ({"kind": "none"}, None, "not_required"),
-        ({"kind": "api_key", "header": "Authorization", "value": "synthetic"}, None, "required"),
+        (
+            {"kind": "api_key", "header": "Authorization", "value": "synthetic"},
+            None,
+            "not_required",
+        ),
         (
             {"kind": "api_key", "header": "Authorization", "value": "synthetic"},
             {"readOnlyHint": True},
@@ -399,7 +405,7 @@ async def test_pending_confirmation_rejects_mismatched_call(pending_harness, fai
         (
             {"kind": "oauth", "accessToken": "synthetic", "expiresAt": 4102444800},
             {"readOnlyHint": True, "destructiveHint": True},
-            "required",
+            "not_required",
         ),
     ],
 )

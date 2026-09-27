@@ -25,7 +25,12 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
-from hushh_mcp.services.google_drive_rest_transport import PARSE_REASONS, GoogleDriveRestTransport
+from hushh_mcp.services.google_drive_rest_transport import (
+    PARSE_REASONS,
+    GoogleDriveRestTransport,
+    compile_search_terms,
+    quote_literal,
+)
 
 MAX_SEARCH_RESULTS = 25
 MAX_OWNER_LIST_RESULTS = 100
@@ -208,7 +213,9 @@ class DriveLiveReader:
             not isinstance(query, list)
             or not (0 if date_bounded else 1) <= len(query) <= 3
             or any(
-                not isinstance(term, str) or not re.fullmatch(r"[\w -]{2,50}", term.strip())
+                not isinstance(term, str)
+                or not 1 <= len(term.strip()) <= 50
+                or any(ord(char) < 32 or ord(char) == 127 for char in term)
                 for term in query
             )
         ):
@@ -226,7 +233,7 @@ class DriveLiveReader:
         if time_field is None and start_time is None and end_time is None:
             if term is None:
                 raise DriveReadError("narrow_selection_required")
-            return f"(title contains '{term}' or fullText contains '{term}')"
+            return compile_search_terms([term])
         if time_field not in SEARCH_TIME_FIELDS or not all(
             isinstance(value, str) and UTC_TIMESTAMP.fullmatch(value)
             for value in (start_time, end_time)
@@ -244,7 +251,7 @@ class DriveLiveReader:
         date_clause = f"({time_field} >= '{start_time}' and {time_field} < '{end_time}')"
         if term is None:
             return date_clause
-        return f"(title contains '{term}' or fullText contains '{term}') and {date_clause}"
+        return f"{compile_search_terms([term])} and {date_clause}"
 
     @classmethod
     def _in_time_bounds(
@@ -271,6 +278,13 @@ class DriveLiveReader:
         end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
         return start <= observed_time < end
 
+    async def _shared_drive_inventory(self) -> ExternalMcpToolResult:
+        """One owner-fenced inventory page; larger memberships continue in background."""
+        await self.require_access()
+        return await self.mcp.read_tool(
+            user_id=self.user_id, tool_name="list_shared_drives", arguments={"pageSize": 25}
+        )
+
     async def find(
         self,
         *,
@@ -284,6 +298,7 @@ class DriveLiveReader:
         title_dates: list[str] | tuple[str, ...] = (),
         max_results: int = MAX_SEARCH_RESULTS,
         title_only: bool = False,
+        exact_title: str | None = None,
     ) -> dict:
         """Search bounded file metadata; no content read, selection, or index.
 
@@ -306,8 +321,17 @@ class DriveLiveReader:
             raise DriveReadError("narrow_selection_required")
         if any(not isinstance(day, str) or not TITLE_DATE.fullmatch(day) for day in title_dates):
             raise DriveReadError("narrow_selection_required")
+        if exact_title is not None and (
+            not isinstance(exact_title, str)
+            or not 1 <= len(exact_title) <= 1024
+            or not exact_title.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in exact_title)
+        ):
+            raise DriveReadError("narrow_selection_required")
         filtered = date_bounded or file_kind != "any" or shared_with_me
-        terms = self._validate_query(query, date_bounded=filtered or recent)
+        terms = self._validate_query(
+            query, date_bounded=filtered or recent or exact_title is not None
+        )
         base = [MIME_CLAUSES[file_kind]] if file_kind != "any" else []
         if shared_with_me:
             base.append("sharedWithMe = true")
@@ -318,14 +342,13 @@ class DriveLiveReader:
                     None, time_field=time_field, start_time=start_time, end_time=end_time
                 )
             )
-        term_clauses = [
-            f"title contains '{term}'"
-            if title_only
-            else f"(title contains '{term}' or fullText contains '{term}')"
-            for term in terms
-        ]
-        # A date window ranks by its requested file time. A recent keyword
-        # search must ask Drive for newest files before the bounded page cut.
+        term_clauses = (
+            [f"name = {quote_literal(exact_title)}"]
+            if exact_title is not None
+            else [compile_search_terms([term], title_only=title_only) for term in terms]
+        )
+        # Metadata-only queries can rank by file time before the page cut.
+        # The REST transport leaves full-text searches in provider relevance order.
         if date_bounded:
             order = {"orderBy": f"{time_field} desc"}
         elif recent:
@@ -352,12 +375,14 @@ class DriveLiveReader:
         truncated = False
         pages = 0
         transient_retry_available = True
+        incomplete_search = False
+        continuation = None
 
         async def read_search_page(tool_name: str, arguments: dict) -> ExternalMcpToolResult:
             """Retry one transient metadata GET within this bounded owner read."""
-            nonlocal transient_retry_available
+            nonlocal transient_retry_available, incomplete_search
             try:
-                return await self.mcp.read_tool(
+                result = await self.mcp.read_tool(
                     user_id=self.user_id, tool_name=tool_name, arguments=arguments
                 )
             except DriveReadError as error:
@@ -371,72 +396,159 @@ class DriveLiveReader:
                 await asyncio.sleep(0.5)
                 # A reconnect during backoff must not retry against a new grant.
                 await self._credential()
-                return await self.mcp.read_tool(
+                result = await self.mcp.read_tool(
                     user_id=self.user_id, tool_name=tool_name, arguments=arguments
                 )
+            incomplete = result.payload.get("incompleteSearch", False)
+            if not isinstance(incomplete, bool):
+                raise DriveReadError("provider_response_invalid")
+            incomplete_search = incomplete_search or incomplete
+            return result
 
-        for tool_name, request in requests:
-            page_token = None
-            while pages < MAX_SEARCH_PAGES and len(matches) < max_results:
-                await self.require_access()
-                arguments = {
-                    **request,
-                    "pageSize": SEARCH_PAGE_SIZE,
-                    "excludeContentSnippets": True,
+        async def scan(drive_id: str | None = None) -> None:
+            nonlocal pages, truncated, continuation
+            for tool_name, base_request in requests:
+                request = {
+                    **base_request,
+                    **({"driveId": drive_id} if drive_id is not None else {}),
                 }
-                if page_token:
-                    arguments["pageToken"] = page_token
-                result = await read_search_page(tool_name, arguments)
-                if (
-                    result.is_error
-                    or result.truncated
-                    or not isinstance(result.payload.get("files"), list)
-                    or result.payload.get("overLimit") is True
-                ):
-                    raise DriveReadError("provider_response_invalid")
-                candidates = result.payload["files"]
-                if len(candidates) > SEARCH_PAGE_SIZE:
-                    raise DriveReadError("provider_response_invalid")
-                for candidate in candidates:
-                    if len(matches) >= max_results:
-                        truncated = True
+                if drive_id is not None and tool_name == "list_recent_files":
+                    tool_name = "search_files"
+                    request.update(query="trashed = false", orderBy="modifiedTime desc")
+                request_has_matches = False
+                page_token = None
+                page_tokens: set[str] = set()
+                while pages < MAX_SEARCH_PAGES and len(matches) < max_results:
+                    await self.require_access()
+                    arguments = {
+                        **request,
+                        "pageSize": min(SEARCH_PAGE_SIZE, max_results - len(matches)),
+                        "excludeContentSnippets": True,
+                    }
+                    if page_token:
+                        arguments["pageToken"] = page_token
+                    result = await read_search_page(tool_name, arguments)
+                    if (
+                        result.is_error
+                        or result.truncated
+                        or not isinstance(result.payload.get("files"), list)
+                        or result.payload.get("overLimit") is True
+                    ):
+                        raise DriveReadError("provider_response_invalid")
+                    candidates = result.payload["files"]
+                    if len(candidates) > arguments["pageSize"]:
+                        raise DriveReadError("provider_response_invalid")
+                    for candidate in candidates:
+                        if len(matches) >= max_results:
+                            truncated = True
+                            break
+                        match = self._match(candidate)
+                        if match is None:
+                            truncated = True
+                            continue
+                        request_has_matches = True
+                        if match["file_id"] not in seen:
+                            seen.add(match["file_id"])
+                            matches.append(match)
+                    pages += 1
+                    next_token = result.payload.get("nextPageToken")
+                    if next_token is not None and (
+                        not isinstance(next_token, str) or len(next_token) > 1024
+                    ):
+                        raise DriveReadError("provider_response_invalid")
+                    if not next_token:
+                        page_token = None
                         break
-                    match = self._match(candidate)
-                    if match is None:
+                    if next_token in page_tokens:
+                        raise DriveReadError("provider_response_invalid")
+                    page_tokens.add(next_token)
+                    page_token = next_token
+                if page_token:
+                    truncated = True
+                    continuation = {
+                        "tool_name": tool_name,
+                        "arguments": {**request, "pageToken": page_token},
+                    }
+                if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
+                    # An unattempted OR fallback is not a complete empty search.
+                    if not request_has_matches and (tool_name, base_request) != requests[-1]:
                         truncated = True
-                        continue
-                    if match["file_id"] not in seen:
-                        seen.add(match["file_id"])
-                        matches.append(match)
+                    break
+                if request_has_matches:
+                    # All terms matched; the broader any-term search is only a fallback.
+                    break
+
+        await scan()
+        shared_drives: list[str] = []
+        shared_complete = False
+        if pages < MAX_SEARCH_PAGES and not truncated:
+            try:
+                inventory = await self._shared_drive_inventory()
+            except DriveReadError as error:
+                if str(error) != "provider_unavailable":
+                    raise
+                truncated = True
+            else:
                 pages += 1
-                next_token = result.payload.get("nextPageToken")
-                if next_token is not None and (
-                    not isinstance(next_token, str) or len(next_token) > 1024
+                drives = inventory.payload.get("drives")
+                next_inventory = inventory.payload.get("nextPageToken")
+                if (
+                    inventory.is_error
+                    or inventory.truncated
+                    or not isinstance(drives, list)
+                    or len(drives) > 25
+                    or any(
+                        not isinstance(item, dict)
+                        or not isinstance(item.get("id"), str)
+                        or not FILE_ID.fullmatch(item["id"])
+                        for item in drives
+                    )
+                    or next_inventory is not None
+                    and (not isinstance(next_inventory, str) or len(next_inventory) > 1024)
                 ):
                     raise DriveReadError("provider_response_invalid")
-                if not next_token:
-                    page_token = None
-                    break
-                if next_token == page_token:
-                    raise DriveReadError("provider_response_invalid")
-                page_token = next_token
-            if page_token:
-                truncated = True
-            if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
-                truncated = True
-                break
-            if matches:
-                # All terms matched; the broader any-term search is only a fallback.
-                break
+                shared_drives = list(dict.fromkeys(item["id"] for item in drives))
+                shared_complete = not next_inventory
+                for drive_id in shared_drives:
+                    if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
+                        shared_complete = False
+                        continuation = continuation or {
+                            "tool_name": "search_files",
+                            "arguments": {
+                                **(
+                                    requests[0][1]
+                                    if requests[0][0] == "search_files"
+                                    else {
+                                        "query": "trashed = false",
+                                        "orderBy": "modifiedTime desc",
+                                    }
+                                ),
+                                "driveId": drive_id,
+                            },
+                        }
+                        break
+                    await scan(drive_id)
+                if next_inventory:
+                    continuation = continuation or {
+                        "tool_name": "list_shared_drives",
+                        "arguments": {"pageSize": 25, "pageToken": next_inventory},
+                    }
+        if not shared_complete:
+            truncated = True
+            continuation = continuation or {
+                "tool_name": "list_shared_drives",
+                "arguments": {"pageSize": 25},
+            }
         dated: list[dict] = []
         title_pages = 0
         for day in title_dates:
             token = day.replace("-", "/")
             page_token = None
+            title_tokens: set[str] = set()
             while title_pages < MAX_SEARCH_PAGES:
                 await self.require_access()
                 arguments = {
-                    "query": " and ".join([*term_clauses, *untimed, f"title contains '{token}'"]),
+                    "query": " and ".join([*term_clauses, *untimed, compile_search_terms([token])]),
                     "pageSize": SEARCH_PAGE_SIZE,
                     "excludeContentSnippets": True,
                 }
@@ -469,19 +581,33 @@ class DriveLiveReader:
                     raise DriveReadError("provider_response_invalid")
                 if not next_token:
                     break
-                if next_token == page_token:
+                if next_token in title_tokens:
                     raise DriveReadError("provider_response_invalid")
+                title_tokens.add(next_token)
                 page_token = next_token
             else:
                 truncated = True
+        if title_dates and shared_drives:
+            truncated = True
         if dated:
             truncated = truncated or len(dated) + len(matches) > max_results
             matches = [*dated, *matches][:max_results]
-        if recent and tool_name == "search_files":
+        if (
+            recent
+            and requests[0][0] == "search_files"
+            and (not terms or title_only or exact_title is not None)
+        ):
             field = "created_time" if time_field == "createdTime" else "modified_time"
             matches.sort(key=lambda item: item.get(field) or "", reverse=True)
         await self.require_current()
-        return {"matches": matches, "truncated": truncated}
+        return {
+            "matches": matches,
+            "truncated": truncated or incomplete_search,
+            "incomplete_search": incomplete_search
+            or not shared_complete
+            or bool(title_dates and shared_drives),
+            "continuation": continuation,
+        }
 
     async def find_compilation_folder_children(self, *, folder_ids: list[str]) -> dict:
         """Search only validated, provider-discovered note folders for A's compilation.
@@ -505,6 +631,7 @@ class DriveLiveReader:
             matches: list[dict] = []
             seen: set[str] = set()
             page_token = None
+            page_tokens: set[str] = set()
             truncated = False
             for _ in range(MAX_COMPILATION_FOLDER_PAGES):
                 await self.require_access()
@@ -528,6 +655,10 @@ class DriveLiveReader:
                     or result.payload.get("overLimit") is True
                 ):
                     raise DriveReadError("provider_response_invalid")
+                incomplete = result.payload.get("incompleteSearch", False)
+                if not isinstance(incomplete, bool):
+                    raise DriveReadError("provider_response_invalid")
+                truncated = truncated or incomplete
                 for candidate in candidates:
                     match = self._match(candidate)
                     if match is None:
@@ -544,8 +675,9 @@ class DriveLiveReader:
                 if not next_token:
                     page_token = None
                     break
-                if next_token == page_token:
+                if next_token in page_tokens:
                     raise DriveReadError("provider_response_invalid")
+                page_tokens.add(next_token)
                 page_token = next_token
             if page_token:
                 truncated = True
@@ -636,7 +768,10 @@ class DriveLiveReader:
             if len(candidates) > MAX_SEARCH_RESULTS:
                 raise DriveReadError("provider_response_invalid")
             files.extend(candidates)
-            truncated = truncated or bool(result.payload.get("nextPageToken"))
+            incomplete = result.payload.get("incompleteSearch", False)
+            if not isinstance(incomplete, bool):
+                raise DriveReadError("provider_response_invalid")
+            truncated = truncated or incomplete or bool(result.payload.get("nextPageToken"))
         unique_files: list[str] = []
         seen: set[str] = set()
         for candidate in files:
@@ -852,43 +987,75 @@ class DriveLiveReader:
             if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
                 raise DriveReadError("provider_response_invalid")
 
-        async def read_one(file_id: str):
+        transient_retry_available = True
+
+        async def provider_read(call, **kwargs):
+            nonlocal transient_retry_available
+            try:
+                return await call(**kwargs)
+            except DriveReadError as error:
+                if (
+                    str(error) == "provider_unavailable"
+                    and error.retryable
+                    and transient_retry_available
+                ):
+                    # Atomic until the first await: sibling reads share one budget.
+                    transient_retry_available = False
+                elif str(error) in UNREADABLE or str(error) == "provider_unavailable":
+                    return error
+                else:
+                    raise
+            await asyncio.sleep(0.5)
+            # Authority checks are outside provider exception handling. Even a
+            # gate using a provider error code must fail the entire batch.
+            await self.require_current()
             await self.require_access()
             try:
-                metadata = await self.adapter.get_metadata(
-                    file_id=file_id,
-                    access_token=credential["accessToken"],
-                    require_app_authorized=False,
-                    require_genai_eligibility=False,
-                )
-                if expected_names is not None and metadata.name != expected_names[file_id]:
-                    raise DriveReadError("source_changed")
-                read = await self.mcp.read_tool(
-                    user_id=self.user_id,
-                    tool_name="read_file_content",
-                    arguments={"fileId": file_id},
-                )
+                return await call(**kwargs)
+            except DriveReadError as error:
+                if str(error) in UNREADABLE or str(error) == "provider_unavailable":
+                    return error
+                raise
+
+        async def read_one(file_id: str):
+            await self.require_access()
+            metadata = await provider_read(
+                self.adapter.get_metadata,
+                file_id=file_id,
+                access_token=credential["accessToken"],
+                require_app_authorized=False,
+                require_genai_eligibility=False,
+            )
+            if isinstance(metadata, DriveReadError):
+                return None, None, str(metadata)
+            if expected_names is not None and metadata.name != expected_names[file_id]:
+                raise DriveReadError("source_changed")
+            read = await provider_read(
+                self.mcp.read_tool,
+                user_id=self.user_id,
+                tool_name="read_file_content",
+                arguments={"fileId": file_id},
+            )
+            if isinstance(read, DriveReadError):
+                return None, None, str(read)
+            try:
                 body = self._content(read)
             except DriveReadError as error:
                 if str(error) in UNREADABLE:
                     return None, None, str(error)
                 raise
-            # Authority failure is never an unreadable document, even when a
-            # gate happens to use an allowlisted provider error code.
             await self.require_access()
-            try:
-                after = await self.adapter.get_metadata(
-                    file_id=file_id,
-                    access_token=credential["accessToken"],
-                    require_app_authorized=False,
-                    require_genai_eligibility=False,
-                )
-                if after != metadata:
-                    raise DriveReadError("source_changed")
-            except DriveReadError as error:
-                if str(error) in UNREADABLE:
-                    return None, None, str(error)
-                raise
+            after = await provider_read(
+                self.adapter.get_metadata,
+                file_id=file_id,
+                access_token=credential["accessToken"],
+                require_app_authorized=False,
+                require_genai_eligibility=False,
+            )
+            if isinstance(after, DriveReadError):
+                return None, None, str(after)
+            if after != metadata:
+                raise DriveReadError("source_changed")
             return metadata, body, None
 
         pending: dict[int, asyncio.Task] = {}

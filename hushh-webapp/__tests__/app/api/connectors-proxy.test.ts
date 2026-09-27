@@ -128,14 +128,19 @@ describe("connector proxy privacy", () => {
     await post(["google_drive", "sharing", "requests", id, "prepare"]);
     await post(["google_drive", "sharing", "queries", id, "deny"]);
     await post(["google_drive", "sharing", "queries"]);
+    await post(["google_drive", "searches"]);
+    await post(["google_drive", "searches", id, "stop"]);
     expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([
       170_000,
       170_000,
       expect.any(Number),
       expect.any(Number),
+      170_000,
+      expect.any(Number),
     ]);
     expect(timeout.mock.calls[2][0]).toBeLessThan(170_000);
     expect(timeout.mock.calls[3][0]).toBeLessThan(170_000);
+    expect(timeout.mock.calls[5][0]).toBeLessThan(170_000);
   });
 
   it("does not log upstream exception messages containing private material", async () => {

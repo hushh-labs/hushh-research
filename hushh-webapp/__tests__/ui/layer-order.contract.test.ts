@@ -133,6 +133,11 @@ describe("layer ladder", () => {
       // itself, instead of the safe-top it is built from, would split them.
       const drawer = read("components/agent/agent-connections-drawer.tsx");
       expect(drawer.match(/top-\[var\(--agent-chat-header-height\)\]/g)).toHaveLength(2);
+      // The fixed bottom bar is a separate stacking context that no drawer z-index
+      // can rise above, so the panel and its dim layer end where the bar begins
+      // (the chat list sat under the bar in narrow layouts).
+      expect(drawer.match(/bottom-\[var\(--app-bottom-shell-height,0px\)\]/g)).toHaveLength(2);
+      expect(drawer).not.toMatch(/absolute (inset-x-0 )?bottom-0/);
       expect(read("components/agent/agent-chat-workspace.tsx")).toContain(
         "h-[var(--agent-chat-header-height)]",
       );
