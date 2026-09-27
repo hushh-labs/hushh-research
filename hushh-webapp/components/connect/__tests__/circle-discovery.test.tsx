@@ -139,7 +139,7 @@ describe("circle discovery actions", () => {
     expect(
       screen.getByRole("button", { name: "Explore Finance Circle" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/help with your money and taxes/)).toBeVisible();
+    expect(screen.getByText(/accountant and advisors/)).toBeVisible();
 
     // Browsing the card must not cancel the tour; only an actual circle choice
     // is an intentional interaction.
@@ -297,9 +297,9 @@ describe("circle discovery actions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Explore Finance Circle" }),
     );
-    expect(screen.getByText(/help with your money and taxes/)).toBeTruthy();
+    expect(screen.getByText(/accountant and advisors/)).toBeTruthy();
     expect(mocks.create).not.toHaveBeenCalled();
-    expect(screen.getByText(/add people after they accept/)).toBeTruthy();
+    expect(screen.getByText(/Add connections to start sharing/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));
     expect(callbacks.onFindPeople).toHaveBeenCalledOnce();
     const create = screen.getByRole("button", {
