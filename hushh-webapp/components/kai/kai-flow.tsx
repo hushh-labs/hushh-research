@@ -3989,6 +3989,13 @@ export function KaiFlow({
             plaidLocalDualEnvironmentEnabled={
               plaidStatus?.local_dual_environment_enabled ?? false
             }
+            // This is the dashboard's own empty-state picker, not a setup
+            // flow -- there's nothing to defer "until later" (the person
+            // already finished setup, or skipped it, and just opened the
+            // Portfolio tab). "I'll link this later" doesn't fit here, and
+            // handleSkipImport is a no-op in dashboard mode besides (it only
+            // resets state the empty-state condition already implies).
+            showSkip={false}
           />
         )}
 
