@@ -70,8 +70,9 @@ function SectionTocRows({
  *
  * Measured against `--top-shell-mask-visible-height`, not
  * `--top-shell-reserved-height`: the shell is solid to the reserved height and
- * then dissolves over `--top-fade-active`, so pinning to the reserved height
- * plus 1rem parked the rail's first row inside that dissolve, under the header.
+ * keeps a `--top-fade-active` clearance band below it (a painted fade until
+ * 2026-09-27), so pinning to the reserved height plus 1rem parked the rail's
+ * first row inside that band, under the header.
  * Exported so `e2e/app-shell-top-clearance.layout.spec.ts` measures the string
  * that actually ships. See safe-changes R21.
  */

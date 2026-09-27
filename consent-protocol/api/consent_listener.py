@@ -695,6 +695,90 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         return data
 
 
+# The answers a requester's chat continues from. Revocation and withdrawal stay
+# silent: they change state but have no answer to open.
+_REQUESTER_ALERT_ACTIONS = frozenset({"CONSENT_GRANTED", "CONSENT_DENIED", "TIMEOUT"})
+REQUESTER_ANSWER_TITLE = "Hussh One"
+REQUESTER_ANSWER_BODY = "Your information request has an answer"
+
+
+def build_consent_push_content(
+    user_id: str, data: Dict[str, Any]
+) -> tuple[str, str, Dict[str, str], bool]:
+    """Title, body, data and alert flag for one consent push.
+
+    A push is a bare wake-up. Its visible text names who is asking and nothing
+    else, and its data carries identifiers only: no scope, scope description,
+    purpose or grant list, because a lock screen and the push provider see all
+    of it before the vault is unlocked. The app loads the details after unlock
+    from the owner-scoped pending list (fcm-notifications.md, trust rule).
+    """
+    request_id = data.get("request_id", "")
+    action = str(data.get("action", "REQUESTED"))
+    normalized_action = action.upper()
+    agent_id = data.get("agent_id", "")
+    agent_label = data.get("requester_label", "") or data.get("agent_label", "") or agent_id
+    bundle_id = data.get("bundle_id", "")
+    request_url = data.get("request_url", "") or build_consent_request_url(
+        request_id=str(request_id or "").strip() or None,
+        bundle_id=str(bundle_id or "").strip() or None,
+    )
+    deep_link = data.get("deep_link", "") or build_consent_request_path(
+        request_id=str(request_id or "").strip() or None,
+        bundle_id=str(bundle_id or "").strip() or None,
+    )
+    delivery_reason = str(data.get("delivery_reason", "")).strip()
+    who = str(agent_label or "Someone").strip() or "Someone"
+
+    if data.get("type") == "information_request_updated":
+        message_type = "information_request_updated"
+        # The requester's answer opens the conversation that asked, after unlock.
+        request_url = deep_link = f"/?informationRequest={bundle_id}"
+        show_alert = normalized_action in _REQUESTER_ALERT_ACTIONS
+        title, body = REQUESTER_ANSWER_TITLE, REQUESTER_ANSWER_BODY
+        tag = f"information-request:{bundle_id}"
+    else:
+        message_type = {
+            "REQUESTED": "consent_request",
+            "NOTIFICATION_OPENED": "consent_opened",
+        }.get(normalized_action, "consent_resolved")
+        show_alert = normalized_action == "REQUESTED"
+        if show_alert and delivery_reason == "final_reminder":
+            title, body = "Consent expires soon", f"{who}'s request is still waiting for you."
+        elif show_alert:
+            title, body = "Consent request", f"{who} asked to see your information"
+        else:
+            title, body = "Consent updated", "A request changed"
+        tag = f"consent-request:{bundle_id or request_id}"
+
+    message_data = _as_string_map(
+        {
+            "type": message_type,
+            "request_id": request_id,
+            "message_id": data.get("message_id"),
+            "action": action,
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "agent_label": agent_label,
+            "requester_label": data.get("requester_label"),
+            "requester_image_url": data.get("requester_image_url"),
+            "requester_website_url": data.get("requester_website_url"),
+            "bundle_id": bundle_id,
+            "bundle_scope_count": str(data.get("bundle_scope_count", "1")),
+            "request_url": request_url,
+            "deep_link": deep_link,
+            "expiry_hours": data.get("expiry_hours"),
+            "approval_timeout_at": data.get("approval_timeout_at"),
+            "approval_timeout_minutes": data.get("approval_timeout_minutes"),
+            "notification_sequence": data.get("notification_sequence", ""),
+            "delivery_reason": delivery_reason,
+            "notification_tag": tag,
+            "notification_category": "CONSENT_REQUEST" if message_type == "consent_request" else "",
+        }
+    )
+    return title, body, message_data, show_alert
+
+
 async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
     """Fetch tokens from user_push_tokens and send FCM data message."""
     try:
@@ -721,99 +805,8 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
             return
         from firebase_admin import messaging
 
-        request_id = data.get("request_id", "")
-        action = str(data.get("action", "REQUESTED"))
-        scope = data.get("scope", "")
-        agent_id = data.get("agent_id", "")
-        agent_label = data.get("requester_label", "") or data.get("agent_label", "") or agent_id
-        scope_description = data.get("scope_description", "")
-        bundle_id = data.get("bundle_id", "")
-        bundle_label = data.get("bundle_label", "")
-        bundle_scope_count = str(data.get("bundle_scope_count", "1"))
-        request_url = data.get("request_url", "") or build_consent_request_url(
-            request_id=str(request_id or "").strip() or None,
-            bundle_id=str(bundle_id or "").strip() or None,
-        )
-        deep_link = data.get("deep_link", "") or build_consent_request_path(
-            request_id=str(request_id or "").strip() or None,
-            bundle_id=str(bundle_id or "").strip() or None,
-        )
-        notification_sequence = data.get("notification_sequence", "")
-        delivery_reason = str(data.get("delivery_reason", "")).strip()
-        reason = str(data.get("reason", "")).strip()
-        additional_access_summary = str(data.get("additional_access_summary", "")).strip()
-        title = "Consent request"
-        if delivery_reason == "final_reminder":
-            title = "Consent expires soon"
-
-        if action.upper() == "REQUESTED":
-            if delivery_reason == "final_reminder":
-                body = (
-                    f"{agent_label or 'An agent'} still needs approval for "
-                    f"{scope_description or scope or 'your data'}. Expires soon."
-                )
-            else:
-                body = (
-                    f"{agent_label or 'An agent'} is requesting access to your "
-                    f"{scope_description or scope or 'data'}."
-                )
-            if additional_access_summary:
-                body = f"{body} {additional_access_summary}"
-            if reason:
-                body = f"{body} Reason: {reason}"
-        else:
-            title = "Consent updated"
-            body = f"Request {request_id}: {action}"
-
-        message_type = "consent_resolved"
-        normalized_action = action.upper()
-        if data.get("type") == "information_request_updated":
-            message_type = "information_request_updated"
-        elif normalized_action == "REQUESTED":
-            message_type = "consent_request"
-        elif normalized_action == "NOTIFICATION_OPENED":
-            message_type = "consent_opened"
-
-        message_data = _as_string_map(
-            {
-                "type": message_type,
-                "request_id": request_id,
-                "message_id": data.get("message_id"),
-                "action": action,
-                "user_id": user_id,
-                "scope": scope,
-                "agent_id": agent_id,
-                "agent_label": agent_label,
-                "requester_label": data.get("requester_label"),
-                "requester_image_url": data.get("requester_image_url"),
-                "requester_website_url": data.get("requester_website_url"),
-                "scope_description": scope_description,
-                "bundle_id": bundle_id,
-                "bundle_label": bundle_label,
-                "bundle_scope_count": bundle_scope_count,
-                "request_url": request_url,
-                "deep_link": deep_link,
-                "reason": data.get("reason"),
-                "expiry_hours": data.get("expiry_hours"),
-                "approval_timeout_at": data.get("approval_timeout_at"),
-                "approval_timeout_minutes": data.get("approval_timeout_minutes"),
-                "is_scope_upgrade": data.get("is_scope_upgrade"),
-                "existing_granted_scopes": ",".join(
-                    [
-                        str(item).strip()
-                        for item in (data.get("existing_granted_scopes") or [])
-                        if str(item).strip()
-                    ]
-                ),
-                "additional_access_summary": data.get("additional_access_summary"),
-                "notification_sequence": notification_sequence,
-                "delivery_reason": delivery_reason,
-                "notification_tag": f"consent-request:{bundle_id or request_id}",
-                "notification_category": "CONSENT_REQUEST"
-                if message_type == "consent_request"
-                else "",
-            }
-        )
+        title, body, message_data, show_alert = build_consent_push_content(user_id, data)
+        request_url = message_data["request_url"]
         seen_tokens: set[str] = set()
         for row in result.data:
             token = row.get("token")
@@ -832,7 +825,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
                 body=body,
                 request_url=request_url,
                 notification_tag=message_data["notification_tag"],
-                show_alert=action.upper() == "REQUESTED",
+                show_alert=show_alert,
             )
             try:
                 messaging.send(message)

@@ -94,6 +94,7 @@ def test_drive_catalog_is_app_authored_and_passes_the_schema_sanitizer():
         "search_files",
         "list_recent_files",
         "read_file_content",
+        "get_file_metadata",
     ]
 
 

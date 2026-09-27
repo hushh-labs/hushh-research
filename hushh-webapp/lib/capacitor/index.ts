@@ -105,6 +105,7 @@ export interface HushhAuthPlugin {
     serverClientId: string;
     purpose: "read" | "send" | "compose";
     preserveSend?: boolean;
+    preserveModify?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;
@@ -683,7 +684,6 @@ export interface HushhSettingsData {
   useRemoteLLM: boolean;
   preferredLLMProvider: "local" | "mlx" | "openai" | "anthropic" | "google";
   requireBiometricUnlock: boolean;
-  autoLockTimeout: number;
   theme: "system" | "light" | "dark";
   hapticFeedback: boolean;
   showDebugInfo: boolean;

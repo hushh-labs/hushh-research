@@ -309,14 +309,22 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert len(tools) == 2
         assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
         assert all(tool.name.startswith("mcp_") for tool in tools)
-        assert await tools[0].run_async(args={}, tool_context=candidate) == {
-            "status": "review_required",
-            "connectorId": record["connectorId"],
-        }
-        native_call.assert_not_awaited()
-        authorize.return_value = None
-        assert (await tools[0].run_async(args={}, tool_context=candidate))["status"] == "ok"
-        native_call.assert_awaited_once()
+        # Founder, 2026-09-27: the person's own connector runs without review.
+        first = await tools[0].run_async(args={}, tool_context=candidate)
+        assert first["status"] == "ok" and first["review"] == "own_connector"
+        assert "synthetic-secret" not in repr(first)
+        second = await tools[1].run_async(args={}, tool_context=candidate)
+        assert second["status"] == "ok"
+        authorize.assert_not_awaited()
+        assert native_call.await_count == 2
+        # Negative control: another owner's turn cannot use this connector.
+        intruder = context()
+        intruder.user_id = "intruder"
+        intruder.state["hussh:consent_token"] = "synthetic-owner-token"
+        assert (await tools[0].run_async(args={}, tool_context=intruder))["error"] == (
+            "MCP_OWNER_MISMATCH"
+        )
+        assert native_call.await_count == 2
         acquired[0].refresh()
         assert (await tools[0].run_async(args={}, tool_context=candidate))["error"] == (
             "MCP_CATALOG_CHANGED"

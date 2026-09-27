@@ -20,6 +20,7 @@ from hushh_mcp.services.gmail_delivery_service import (
     get_gmail_delivery_service,
     normalize_draft,
 )
+from hushh_mcp.services.gmail_mailbox_actions import get_gmail_mailbox_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
     get_personal_gmail_information_request_service,
 )
@@ -66,6 +67,12 @@ class EmailPrepareRequest(EmailEnvelope):
         max_length=128,
         pattern=r"^[A-Za-z0-9-]+$",
     )
+
+
+class MailboxProposalExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=8, max_length=256, pattern=r"^gmod_[A-Za-z0-9_-]+$")
 
 
 class EmailSaveDraftRequest(EmailEnvelope):
@@ -239,6 +246,24 @@ async def gmail_save_draft(
         return {"status": status_value, "draft_id": draft_id}
     except Exception as exc:
         logger.warning("one.gmail_delivery.save_draft_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from None
+
+
+@router.post("/email/mailbox/execute")
+async def gmail_mailbox_execute(
+    payload: MailboxProposalExecuteRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Apply the exact reviewed mailbox change the owner confirmed in chat."""
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        result: dict[str, Any] = await get_gmail_mailbox_actions().execute(
+            user_id=owner, proposal_id=payload.proposal_id
+        )
+        return result
+    except Exception as exc:
+        logger.warning("one.gmail_mailbox.execute_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from None
 
 

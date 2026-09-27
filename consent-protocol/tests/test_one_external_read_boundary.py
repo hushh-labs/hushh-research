@@ -717,3 +717,185 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
         assert session.state[agent_tree.STATE_CONVERSATION_ID] == "same-conversation"
     finally:
         await runner.close()
+
+
+@pytest.mark.parametrize("parallel_retry", [False, True])
+@pytest.mark.parametrize("tool_name", ["ask_documents_agent", "read_workspace_tool"])
+@pytest.mark.parametrize("failure_status", ["scope_required", "unavailable", "reconnect_required"])
+async def test_failed_current_drive_read_cannot_answer_from_previous_success(
+    monkeypatch, tool_name, failure_status, parallel_retry
+):
+    from google.adk.events import Event
+
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+    response = {"status": failure_status, "message": "PRIVATE_FAILURE_DETAILS"}
+    executed = []
+
+    async def ask_documents_agent(tool_context: ToolContext) -> dict:
+        executed.append("drive")
+        return response
+
+    async def read_workspace_tool(provider: str, tool_context: ToolContext) -> dict:
+        executed.append(provider)
+        return response
+
+    call = types.Part(
+        function_call=types.FunctionCall(
+            name=tool_name, args={"provider": "drive"} if tool_name == "read_workspace_tool" else {}
+        )
+    )
+    calls = [call, call.model_copy(deep=True)] if parallel_retry else [call]
+    model = _Model([calls, [types.Part(text="WRONG: the old file is present now.")]])
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [ask_documents_agent, read_workspace_tool]
+    sessions = InMemorySessionService()
+    session = await sessions.create_session(app_name="one", user_id="owner", session_id="replay")
+    await sessions.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="earlier-turn",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        text="Previously found Explain For Product: https://drive.google.com/file/d/old/view"
+                    )
+                ],
+            ),
+        ),
+    )
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="replay",
+            new_message=types.Content(
+                role="user", parts=[types.Part(text="Check Drive again now.")]
+            ),
+            state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+        )
+    ]
+    visible = " ".join(
+        part.text
+        for event in events
+        if event.content
+        for part in event.content.parts or []
+        if part.text and not part.thought
+    )
+    assert "couldn’t complete a fresh Drive check" in visible
+    assert "have not been verified again" in visible
+    assert "WRONG" not in visible and "drive.google.com" not in visible
+    assert "PRIVATE_FAILURE_DETAILS" not in visible
+    assert len(model._advertised) == 1  # No second provider call to reinterpret old evidence.
+    assert executed == ["drive"]
+
+    # A new owner turn gets its normal current evidence and answer generation.
+    response = {
+        "status": "ok",
+        "structured": {
+            "connector": "drive",
+            "status": "ok",
+            "metadata_only": True,
+            "truncated": True,
+        },
+    }
+    model._steps = [[call], [types.Part(text="Fresh partial matches are available.")]]
+    next_events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="replay",
+            new_message=types.Content(role="user", parts=[types.Part(text="Try again.")]),
+            state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+        )
+    ]
+    assert any(
+        part.text == "Fresh partial matches are available."
+        for event in next_events
+        if event.content
+        for part in event.content.parts or []
+    )
+    assert executed == ["drive", "drive"]
+    assert len(model._advertised) == 3
+
+
+@pytest.mark.parametrize("status", ["ok", "input_required"])
+async def test_current_drive_partial_or_clarification_survives_blocked_parallel_retry(
+    monkeypatch, status
+):
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+    executed = []
+
+    async def ask_documents_agent(tool_context: ToolContext) -> dict:
+        # Yield so the SDK's parallel blocked result can finish first.
+        import asyncio
+
+        await asyncio.sleep(0)
+        executed.append("read")
+        return {
+            "status": status,
+            "structured": {
+                "connector": "drive",
+                "status": status,
+                "metadata_only": True,
+                "truncated": True,
+            },
+        }
+
+    model = _Model(
+        [
+            [_call("ask_documents_agent"), _call("ask_documents_agent")],
+            [types.Part(text="Current partial results or a needed clarification.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [ask_documents_agent]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="partial")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="partial",
+            new_message=types.Content(role="user", parts=[types.Part(text="Find the document.")]),
+            state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+        )
+    ]
+    assert executed == ["read"]
+    assert len(model._advertised) == 2
+    responses = [response for event in events for response in event.get_function_responses()]
+    assert any(
+        response.response.get("reason") == "connector_read_complete" for response in responses
+    )
+    assert any(
+        part.text == "Current partial results or a needed clarification."
+        for event in events
+        if event.content
+        for part in event.content.parts or []
+    )
+
+
+def test_drive_evidence_guard_does_not_capture_other_provider_failures():
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    context = SimpleNamespace(
+        invocation_id="current", state={STATE_EXECUTION_SURFACE: "typed_chat"}
+    )
+    for name, arguments in [
+        ("ask_email_agent", {}),
+        ("read_workspace_tool", {"provider": "gmail"}),
+        ("read_workspace_tool", {"provider": "calendar"}),
+    ]:
+        boundary.after_external_read_tool(
+            SimpleNamespace(name=name), arguments, context, {"status": "unavailable"}
+        )
+    assert boundary.STATE_DRIVE_READ_OUTCOME not in context.state

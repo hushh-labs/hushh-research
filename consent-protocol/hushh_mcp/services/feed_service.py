@@ -97,6 +97,9 @@ _SAFE_METADATA_KEYS = frozenset(
         "invite_id",
         "added_by_label",
         "ticker",
+        # The Kai run a completion item announces, so the Feed opens that run's
+        # own saved result. An opaque id owned by the same person.
+        "run_id",
         "user_facing_status",
         "new_status",
         "actor_is_self",

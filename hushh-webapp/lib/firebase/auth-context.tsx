@@ -24,7 +24,6 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { useRouter } from "next/navigation";
 import { User, ConfirmationResult, onAuthStateChanged } from "firebase/auth";
 import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
 import { NativeAuthRestoreEpoch } from "./native-auth-restore-epoch";
@@ -73,6 +72,8 @@ import {
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
+import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -403,7 +404,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Hussh state
   const [userId, setUserId] = useState<string | null>(null);
 
-  const router = useRouter();
   const userRef = useRef<User | null>(null);
   const phoneNumberRef = useRef<string | null>(null);
   const verifiedPhoneResolutionRef = useRef<{
@@ -422,12 +422,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // before the new identity has been validated and published.
   const webAuthObserverPendingRef = useRef(false);
   const signOutPromiseRef = useRef<Promise<void> | null>(null);
+  const signingOutUserIdRef = useRef<string | null>(null);
   // Makes a completed UID-scoped terminal sign-out idempotent. A deleting UI
   // can finish its slower local cleanup after the central invalidation handler
   // has already navigated; its fallback must not replace the reason-bearing
   // login route or show the notice twice.
   const completedScopedSignOutUserIdRef = useRef<string | null>(null);
   const postAuthSettlementEpochRef = useRef(0);
+  const signOutEpochRef = useRef(0);
   const activePostAuthSettlementRef = useRef<number | null>(null);
   // Firebase JS commonly emits `null` before the native keychain/provider has
   // finished restoring. Until this flips, native restoration owns the loading
@@ -436,6 +438,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const nativeRestoreEpochRef = useRef(new NativeAuthRestoreEpoch());
 
   const applyAuthUser = useCallback((nextUser: User | null) => {
+    if (nextUser && nextUser.uid === signingOutUserIdRef.current) return;
     const terminalLatch = terminalInvalidationLatchRef.current;
     if (nextUser && terminalLatch?.invalidatedUserId === nextUser.uid) {
       // A late observer/native callback from the invalidated auth generation
@@ -909,6 +912,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         nativeRestoreEpochRef.current.invalidate();
         nativeRestoreSettledRef.current = true;
         postAuthSettlementEpochRef.current += 1;
+        signOutEpochRef.current += 1;
         activePostAuthSettlementRef.current = null;
         const currentUser = userRef.current;
         // A terminal native cold-restore event is dispatched before the restored
@@ -921,41 +925,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const redirectTo = options?.redirectTo || ROUTES.HOME;
         let ownsExpectedSession = true;
         setLoading(true);
+        signingOutUserIdRef.current = currentUid;
+        // Withdraw the published owner immediately. Vault and realtime
+        // consumers must tear down while optional notification cleanup waits.
+        applyAuthUser(null);
 
         try {
-          // The sign-out mail must be asked for while the credential is still
-          // valid — a moment later `AuthService.signOut()` invalidates it and the
-          // route would reject the token. Not awaited: sign-out is a security
-          // action and must never wait on, or be failed by, a mail. Deliberately
-          // skipped for account deletion, where mailing "you signed out" to an
-          // account that no longer exists would be wrong.
+          // Preserve notification cleanup before credential invalidation, with
+          // a short budget instead of the general network-request timeout.
           if (currentUser && !options?.skipFcmCleanup) {
-            const signOutToken = await currentUser
-              ?.getIdToken()
-              .catch(() => undefined);
-            if (signOutToken) {
-              void ApiService.notifyAuthMail("signed_out", {
-                idToken: signOutToken,
-              });
-            }
-          }
-
-          // Delete FCM token before signing out (requires auth). Skipped for the
-          // account-deletion flow: the backend already removes the account and its
-          // push tokens, so this would only add a redundant network round-trip to
-          // the wait before redirect.
-          if (currentUser && !options?.skipFcmCleanup) {
-            try {
-              const idToken = await currentUser.getIdToken();
-              const { deleteFCMToken } =
-                await import("@/lib/notifications/fcm-service");
-              await deleteFCMToken(currentUser.uid, idToken);
-            } catch (fcmErr) {
-              console.warn(
-                "FCM token cleanup on signOut failed (non-critical):",
-                fcmErr,
-              );
-            }
+            await settleSignOutNotifications(currentUser);
           }
 
           // Clear the server-owned httpOnly session independently from the
@@ -1038,16 +1017,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             completedScopedSignOutUserIdRef.current = expectedUserId;
           }
 
-          if (IS_NATIVE && typeof window !== "undefined") {
-            // Logout is a terminal security boundary. A document replacement
-            // prevents App Router history, delayed transition callbacks, or a
-            // stale WebView tree from re-entering the authenticated route.
-            terminalNavigationCommitted = true;
-            window.location.replace(redirectTo);
-          } else {
-            router.replace(redirectTo);
-            setLoading(false);
-          }
+          // End the authenticated document on web as well as native. Profile
+          // sheets, cached router state and old stream callbacks cannot retain
+          // the previous screen and require a manual refresh to leave it.
+          // Keep the loading gate held until the document unloads: releasing
+          // it lets route guards issue a competing client-side /login replace
+          // that cancels this navigation and strands the page on a loader.
+          terminalNavigationCommitted = true;
+          replaceWindowLocation(redirectTo);
         }
       })();
 
@@ -1060,10 +1037,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           (!IS_NATIVE || !terminalNavigationCommitted)
         ) {
           signOutPromiseRef.current = null;
+          signingOutUserIdRef.current = null;
         }
       }
     },
-    [applyAuthUser, router],
+    [applyAuthUser],
   );
 
   /**
@@ -1467,6 +1445,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const revision = ++webAuthRevision;
+      const authEpoch = signOutEpochRef.current;
+      if (firebaseUser && firebaseUser.uid === signingOutUserIdRef.current) return;
       if (!firebaseUser) {
         webAuthObserverPendingRef.current = false;
         applyAuthUser(null);
@@ -1483,7 +1463,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setLoading(true);
       void validateAccountSession(firebaseUser).then(
         (validation) => {
-          if (!mounted || revision !== webAuthRevision) {
+          if (!mounted || revision !== webAuthRevision ||
+              authEpoch !== signOutEpochRef.current) {
             return;
           }
           if (validation.outcome === "terminal") {
@@ -1506,7 +1487,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         },
         () => {
-          if (!mounted || revision !== webAuthRevision) return;
+          if (!mounted || revision !== webAuthRevision ||
+              authEpoch !== signOutEpochRef.current) return;
           // The validator is intentionally fail-soft for untyped availability
           // errors. Preserve the persisted identity and let API calls retry.
           setSessionVerificationRequired(true);

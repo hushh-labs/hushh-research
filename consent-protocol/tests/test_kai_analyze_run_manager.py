@@ -194,37 +194,69 @@ def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_imm
 
     run_manager_module.FeedService = _FeedRecorder
     manager = run_manager_module.KaiAnalyzeRunManager(retention_seconds=300, store=False)
-    run = run_manager_module.AnalyzeRunRecord(
-        run_id="run_stable",
-        user_id="user_feed",
-        debate_session_id="session_feed",
-        ticker="AAPL",
-        risk_profile="balanced",
-        context={},
-        consent_token=f"consent_{uuid.uuid4().hex}",
-    )
+
+    def _run(run_id: str):
+        return run_manager_module.AnalyzeRunRecord(
+            run_id=run_id,
+            user_id="user_feed",
+            debate_session_id="session_feed",
+            ticker="AAPL",
+            risk_profile="balanced",
+            context={},
+            consent_token=f"consent_{uuid.uuid4().hex}",
+        )
+
+    async def _deliver(run: Any) -> None:
+        async for _frame_out in manager.stream_run_events(
+            run=run, start_cursor=0, request=_FakeRequest()
+        ):
+            pass
+
+    completed = _run("run_stable")
+    canceled = _run("run_canceled")
+    failed = _run("run_failed")
+    undelivered = _run("run_nobody_attached")
 
     async def _scenario() -> None:
         decision = {"ticker": "AAPL", "decision": "hold", "confidence": 0.7}
-        await manager._append_frame(run, _frame(1, "decision", decision, terminal=True))
-        await manager._append_frame(run, _frame(2, "decision", decision, terminal=True))
+        await manager._append_frame(completed, _frame(1, "decision", decision, terminal=True))
+        await manager._append_frame(completed, _frame(2, "decision", decision, terminal=True))
         await manager._append_frame(
-            run,
+            completed,
             _frame(3, "error", {"code": "LATE_ERROR"}, terminal=True),
         )
+        await manager._append_frame(
+            canceled, _frame(1, "aborted", {"code": "ANALYZE_RUN_CANCELED"}, terminal=True)
+        )
+        await manager._append_frame(
+            failed, _frame(1, "error", {"code": "ANALYZE_RUN_WORKER_FAILED"}, terminal=True)
+        )
+        await manager._append_frame(undelivered, _frame(1, "decision", decision, terminal=True))
+        # Negative controls: a cancelled or failed run is never announced as
+        # ready, and neither is a completed run nobody received (its result was
+        # never saved, so "Analysis ready" would point at nothing).
+        for run in (canceled, failed):
+            await _deliver(run)
+        assert feed_calls == []
+
+        # Delivered twice (reattach): announced exactly once.
+        await _deliver(completed)
+        await _deliver(completed)
 
     asyncio.run(_scenario())
 
-    assert run.status == "completed"
-    assert run.terminal_event == "decision"
-    assert run.terminal_payload is not None
-    assert run.terminal_payload["decision"] == "hold"
-    assert len(feed_calls) == 1
-    assert feed_calls[0] == {
-        "user_id": "user_feed",
-        "source_domain": "kai",
-        "event_type": "kai_analysis_completed",
-        "actor_label": "Kai",
-        "metadata": {"ticker": "AAPL"},
-        "source_row_id": "run_stable",
-    }
+    assert completed.status == "completed"
+    assert completed.terminal_event == "decision"
+    assert completed.terminal_payload is not None
+    assert completed.terminal_payload["decision"] == "hold"
+    assert undelivered.completion_feed_recorded is False
+    assert feed_calls == [
+        {
+            "user_id": "user_feed",
+            "source_domain": "kai",
+            "event_type": "kai_analysis_completed",
+            "actor_label": "Kai",
+            "metadata": {"ticker": "AAPL", "run_id": "run_stable"},
+            "source_row_id": "run_stable",
+        }
+    ]

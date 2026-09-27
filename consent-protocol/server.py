@@ -147,6 +147,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    drive_searches,
     drive_sharing,
     drive_work_drain,
     external_connectors,
@@ -320,6 +321,7 @@ app.include_router(connected_systems.router)
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
 app.include_router(drive_sharing.router)
+app.include_router(drive_searches.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.
 app.include_router(drive_work_drain.router)
@@ -623,6 +625,40 @@ async def startup_ticker_cache():
             )
 
     _track_startup_background_task(asyncio.create_task(_load_cache(), name="ticker-cache-preload"))
+
+
+@app.on_event("startup")
+async def startup_action_retrieval_warmup() -> None:
+    """Load One's action-search model after startup so no first turn pays for it.
+
+    ``list_app_actions`` ranks the generated action catalog with a small
+    embedding model. Loaded lazily, the first search on each instance paid for
+    the model load and for embedding the whole catalog. Only an image that
+    bakes the model warms it (the Dockerfile sets its directory), so local
+    runs and tests never load a model at startup. Runs in a worker thread and
+    never blocks readiness or health; a failure leaves the lazy path in place.
+    """
+    from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    if os.getenv(BAKED_MODEL_DIR_ENV) != BAKED_MODEL_DIR or not os.path.isdir(BAKED_MODEL_DIR):
+        return
+
+    async def _warm() -> None:
+        started_at = time.perf_counter()
+        try:
+            from hushh_mcp.one_adk.action_retrieval import warm_action_retrieval
+
+            available = await asyncio.to_thread(warm_action_retrieval)
+        except Exception as exc:
+            logger.warning("startup.action_retrieval_warm_failed reason=%s", type(exc).__name__)
+            return
+        logger.info(
+            "startup.action_retrieval_warmed available=%s duration_ms=%.0f",
+            available,
+            (time.perf_counter() - started_at) * 1000,
+        )
+
+    _track_startup_background_task(asyncio.create_task(_warm(), name="action-retrieval-warmup"))
 
 
 @app.on_event("startup")

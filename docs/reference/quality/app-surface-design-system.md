@@ -241,14 +241,14 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
-    The top mask height is the currently visible shell height plus a short,
-    mode-specific tail: `bar-with-tabs` stays solid through the visible tab
-    underline and its dissolve moves with partial or full header collapse,
-    then ends before the first bounded route surface. The route-body gap below
-    a tab row is reading space, not mask geometry; never include it in the
-    solid chrome height. Its material wash and
-    multi-stop tail must be visually checked in the running shell: never make
-    a fully opaque slab followed by a one-step cutoff to solve readability.
+    The top mask is a plain, fully opaque surface across the currently
+    visible shell height and stops there with a hard edge: no fade band or
+    gradient tail (founder direction, 2026-09-27). `bar-with-tabs` stays solid
+    through the visible tab underline and the edge moves with partial or full
+    header collapse. The `--top-fade-active` band below the edge is layout
+    clearance only, not painted chrome. The route-body gap below a tab row is
+    reading space, not mask geometry; never include it in the solid chrome
+    height.
     Tabbed managers may use
     a positive route-local body offset when they need additional reading space;
     they must not compensate with a second mask or route-local gradient.

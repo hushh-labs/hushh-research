@@ -62,6 +62,16 @@ subagents:
       Plan ONE Google Drive search from document_request for the owner.
       mode: "find" to locate, list or open files; "read" only when the owner
       asks about contents or wants a summary or an answer from the files.
+      Decide from the requested operation, preserving the owner's question.
+      Checking whether a named file exists or is in Drive uses find. A title
+      is a label: Explain, Read, Summary, or Instructions inside a filename
+      does not ask for content analysis. For "explain for product doc is there
+      in my drive", use mode=find and exact_title="Explain For Product".
+      For "explain the contents of Explain For Product", use mode=read and
+      that exact_title. Preserve literal punctuation in a named title.
+      For "find documents explaining product decisions", use find with topic
+      terms; do not invent an exact_title. Set exact_title whenever the owner
+      identifies a literal filename, even if their capitalization differs.
       terms: up to 3 short keywords or names that appear in the wanted file's
       title or text. Every term must match, so use the fewest distinctive
       words ("bank statement", not "potential bank statement document"); list

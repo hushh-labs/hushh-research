@@ -322,7 +322,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
           {oauthAuthMethod !== "none" ? <label className="block space-y-1">Client secret<Input type="password" autoComplete="off" maxLength={8192} value={oauthClientSecret} onChange={event => setOauthClientSecret(event.target.value)} /></label> : null}
         </div>
       </details>
-      <p className="text-xs text-muted-foreground">Only add servers you trust. Tools on a server without a token, and tools a server marks read-only, run without asking. Everything else asks first.</p>
+      <p className="text-xs text-muted-foreground">Only add servers you trust. One uses this server’s tools without asking each time. Block any tool you don’t want it to use.</p>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="compact" effect="fade" disabled={busy}>Add</Button>
         <Button type="button" size="compact" variant="none" effect="fade" disabled={busy} onClick={() => { setCredential(""); setOauthClientSecret(""); setOauthClientId(""); setOauthIssuer(""); setOauthAuthMethod("none"); setName(""); setEndpoint(""); setEditing(false); }}>Cancel</Button>

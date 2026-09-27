@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -30,6 +31,16 @@ from hushh_mcp.services.google_drive_adapter import (
     GoogleDriveAdapter,
 )
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
+from hushh_mcp.services.google_drive_write_adapter import (
+    MAX_COMMENT_CHARS,
+    MAX_CONTENT_BYTES,
+    MUTATION_SENT,
+    DriveWriteError,
+    GoogleDriveWriteAdapter,
+    bounded_text,
+    file_id,
+    file_name,
+)
 
 # Parse failures the owner can act on (unlock, use a text PDF, split a file,
 # re-save a damaged or mis-encoded file). Only these codes leave the transport;
@@ -37,8 +48,8 @@ from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 PARSE_REASONS = frozenset(
     {"encrypted_document", "no_extractable_text", "file_too_large", "invalid_document"}
 )
-_MAX_ARGUMENT_BYTES = 4_096
-_MAX_QUERY_CHARS = 1_800
+_MAX_ARGUMENT_BYTES = 8_192
+_MAX_QUERY_CHARS = 4_096
 # A search may only rank by a file time, newest first; anything else is refused.
 _SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
@@ -48,23 +59,103 @@ _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 _FULL_TEXT = re.compile(r"\bfullText\b")
 
 
+# Quoted values are opaque: compatibility field translation and operator
+# detection must never rewrite a filename or mistake its words for syntax.
+_QUERY_PARTS = re.compile(r"('(?:\\.|[^'\\])*')")
+
+
 def has_full_text_term(query: str) -> bool:
-    return _FULL_TEXT.search(query) is not None
+    return any(_FULL_TEXT.search(part) for part in _QUERY_PARTS.split(query)[::2])
 
 
-def _newest_first(files: list[Any], order: str) -> list[Any]:
-    """Sort one relevance-ordered page by the requested file time, newest first.
+# Friendly type names the model can use instead of exact MIME types.
+MIME_FAMILIES = {
+    "document": "mimeType = 'application/vnd.google-apps.document'",
+    "spreadsheet": "mimeType = 'application/vnd.google-apps.spreadsheet'",
+    "presentation": "mimeType = 'application/vnd.google-apps.presentation'",
+    "folder": "mimeType = 'application/vnd.google-apps.folder'",
+    "pdf": "mimeType = 'application/pdf'",
+    "image": "mimeType contains 'image/'",
+    "video": "mimeType contains 'video/'",
+    "audio": "mimeType contains 'audio/'",
+}
+_MIME_TYPE = re.compile(r"[a-z]{1,32}/[A-Za-z0-9.+-]{1,120}\Z")
+_OWNERS = {"me": "'me' in owners", "shared_with_me": "sharedWithMe = true", "any": None}
+_MAX_TEXT_CHARS = 200
 
-    Only the returned page is reordered; Drive still chooses which files make
-    the page, by relevance. Items without the time sort last, never dropped.
+
+def quote_literal(value: str) -> str:
+    """One Drive ``q`` string literal: backslash and quote escaped, nothing else."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def full_text_literal(term: str) -> str:
+    """A token or a quoted phrase, according to Drive's fullText grammar."""
+    phrase = ('"' + term.replace('"', '\\"') + '"') if any(not c.isalnum() for c in term) else term
+    return quote_literal(phrase)
+
+
+def compile_search_terms(terms: list[str], *, title_only: bool = False) -> str:
+    """Compile literal terms; token separators require a full-text phrase."""
+    clauses = []
+    for term in terms:
+        title = f"title contains {quote_literal(term)}"
+        clauses.append(
+            title if title_only else f"({title} or fullText contains {full_text_literal(term)})"
+        )
+    return " and ".join(clauses)
+
+
+def _rfc3339(value: object) -> str:
+    if not isinstance(value, str) or not 10 <= len(value) <= 40:
+        raise DriveOAuthError("invalid_argument", status_code=400)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise DriveOAuthError("invalid_argument", status_code=400) from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def structured_query(arguments: dict[str, Any]) -> list[str]:
+    """Drive REST ``q`` clauses from typed filters. Every value is escaped or enumerated.
+
+    The model never has to write query syntax to filter by words, type, owner,
+    folder or modified time; a raw ``query`` remains for the live reader.
     """
-    field = order.split(" ", 1)[0]
-
-    def key(item: Any) -> tuple[bool, str]:
-        value = item.get(field) if isinstance(item, dict) else None
-        return (isinstance(value, str) and bool(value), value if isinstance(value, str) else "")
-
-    return sorted(files, key=key, reverse=True)
+    clauses: list[str] = []
+    text = arguments.get("text")
+    if text is not None:
+        if not isinstance(text, str) or not text.strip() or len(text) > _MAX_TEXT_CHARS:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        term = " ".join(text.split())
+        clauses.append(
+            f"(name contains {quote_literal(term)} or fullText contains {full_text_literal(term)})"
+        )
+    mime = arguments.get("mimeType")
+    if mime is not None:
+        if isinstance(mime, str) and mime in MIME_FAMILIES:
+            clauses.append(MIME_FAMILIES[mime])
+        elif isinstance(mime, str) and _MIME_TYPE.fullmatch(mime):
+            clauses.append(f"mimeType = {quote_literal(mime)}")
+        else:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+    owner = arguments.get("owner")
+    if owner is not None:
+        if not isinstance(owner, str) or owner not in _OWNERS:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        if _OWNERS[owner]:
+            clauses.append(str(_OWNERS[owner]))
+    for key, operator in (("modifiedAfter", ">="), ("modifiedBefore", "<")):
+        if arguments.get(key) is not None:
+            clauses.append(f"modifiedTime {operator} {quote_literal(_rfc3339(arguments[key]))}")
+    folder = arguments.get("folderId")
+    if folder is not None:
+        if not isinstance(folder, str) or not FILE_ID.fullmatch(folder):
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        clauses.append(f"{quote_literal(folder)} in parents")
+    return clauses
 
 
 def rest_query(query: str) -> str:
@@ -73,8 +164,17 @@ def rest_query(query: str) -> str:
     The live reader only compiles title, fullText, mimeType, sharedWithMe and
     time clauses from validated terms, so only ``title`` and ``owner`` differ.
     """
-    translated = _TITLE.sub(lambda match: f"name {match.group(1)} ", query)
-    translated = translated.replace("owner = 'me'", "'me' in owners")
+    parts = _QUERY_PARTS.split(query)
+    for index in range(0, len(parts), 2):
+        parts[index] = _TITLE.sub(lambda match: f"name {match.group(1)} ", parts[index])
+        if (
+            index + 1 < len(parts)
+            and parts[index + 1] == "'me'"
+            and re.search(r"\bowner = $", parts[index])
+        ):
+            parts[index] = re.sub(r"\bowner = $", "", parts[index])
+            parts[index + 1] += " in owners"
+    translated = "".join(parts)
     return f"({translated}) and trashed = false"
 
 
@@ -90,9 +190,10 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class GoogleDriveRestTransport:
-    def __init__(self, *, oauth=None, adapter=None) -> None:
+    def __init__(self, *, oauth=None, adapter=None, writer=None) -> None:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self.adapter = adapter or GoogleDriveAdapter()
+        self.writer = writer or GoogleDriveWriteAdapter()
 
     async def probe(self, *, access_token: str) -> None:
         """Prove the granted owner can search Drive before the grant is verified."""
@@ -112,12 +213,65 @@ class GoogleDriveRestTransport:
     async def read_tool(
         self, *, user_id: str, tool_name: str, arguments: dict[str, Any]
     ) -> ExternalMcpToolResult:
-        if not user_id or not isinstance(tool_name, str) or tool_name not in REST_TOOLS:
+        return await self._fenced(user_id, tool_name, arguments, _OPERATIONS, _MAX_ARGUMENT_BYTES)
+
+    async def write_tool(
+        self,
+        *,
+        user_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        expected_generation: int | None = None,
+    ) -> ExternalMcpToolResult:
+        """One owner write through the same live-grant fence as every read.
+
+        Callers own review: sharing and trashing reach here only from the
+        reviewed-proposal executor, never from a model tool call, and pass the
+        connection generation the owner reviewed under. Once the request has
+        left for Google, any failure is an unknown outcome, never a plain
+        error, so nothing downstream retries it into a duplicate.
+        """
+        sent = {"sent": False}
+        marker = MUTATION_SENT.set(sent)
+        try:
+            return await self._fenced(
+                user_id,
+                tool_name,
+                arguments,
+                _WRITE_OPERATIONS,
+                _MAX_WRITE_ARGUMENT_BYTES,
+                expected_generation=expected_generation,
+            )
+        except DriveWriteError as error:
+            if sent["sent"] and not error.outcome_unknown and not error.provider_answered:
+                raise DriveWriteError("write_outcome_unknown", outcome_unknown=True) from None
+            raise
+        except Exception:
+            if sent["sent"]:
+                raise DriveWriteError("write_outcome_unknown", outcome_unknown=True) from None
+            raise
+        finally:
+            MUTATION_SENT.reset(marker)
+
+    async def _fenced(
+        self,
+        user_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        operations: dict[str, str],
+        max_bytes: int,
+        *,
+        expected_generation: int | None = None,
+    ) -> ExternalMcpToolResult:
+        if not user_id or not isinstance(tool_name, str) or tool_name not in operations:
             raise DriveOAuthError("connector_unavailable", status_code=403)
         if not isinstance(arguments, dict):
             raise DriveOAuthError("invalid_argument", status_code=400)
         try:
-            if len(json.dumps(arguments, allow_nan=False).encode("utf-8")) > _MAX_ARGUMENT_BYTES:
+            if (
+                len(json.dumps(arguments, allow_nan=False, ensure_ascii=False).encode("utf-8"))
+                > max_bytes
+            ):
                 raise ValueError("oversized")
         except (TypeError, ValueError, RecursionError):
             raise DriveOAuthError("invalid_argument", status_code=400) from None
@@ -132,7 +286,14 @@ class GoogleDriveRestTransport:
             or row["verified_policy_hash"] != LIVE_POLICY_HASH
         ):
             raise DriveOAuthError("reconnect_required", status_code=401)
-        payload = await self._call(tool_name, arguments, credential["accessToken"])
+        if expected_generation is not None and row["connection_generation"] != expected_generation:
+            # Reviewed under another Drive connection: refuse before sending.
+            raise DriveOAuthError("connection_changed", status_code=409)
+        # One method per operation. A new operation is one entry in its table
+        # plus its method; these owner, grant and generation checks wrap every
+        # entry without change.
+        operation = getattr(self, operations[tool_name])
+        payload: dict = await operation(arguments, credential["accessToken"])
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (
             not current
@@ -140,27 +301,34 @@ class GoogleDriveRestTransport:
             or current["status"] != "connected"
             or current["verified_policy_hash"] != LIVE_POLICY_HASH
         ):
+            if operations is _WRITE_OPERATIONS:
+                # The write was sent under the grant that was current then. Do
+                # not call it failed: "reconnect and retry" could repeat it.
+                raise DriveWriteError("write_outcome_unknown", outcome_unknown=True)
             raise DriveOAuthError("connection_changed", status_code=409)
         return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
-
-    async def _call(self, tool_name: str, arguments: dict[str, Any], token: str) -> dict:
-        # One method per operation. A new operation is one entry in
-        # _OPERATIONS plus its method; read_tool's owner, grant and
-        # generation checks wrap every entry without change.
-        operation = getattr(self, _OPERATIONS[tool_name])
-        result: dict = await operation(arguments, token)
-        return result
 
     async def _read_file_content(self, arguments: dict[str, Any], token: str) -> dict:
         file_id = arguments.get("fileId")
         if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
             raise DriveOAuthError("invalid_argument", status_code=400)
-        metadata = await self.adapter.get_metadata(
-            file_id=file_id,
-            access_token=token,
-            require_app_authorized=False,
-            require_genai_eligibility=False,
-        )
+        try:
+            metadata = await self.adapter.get_metadata(
+                file_id=file_id,
+                access_token=token,
+                require_app_authorized=False,
+                require_genai_eligibility=False,
+            )
+        except DriveReadError as error:
+            if str(error) != "unsupported_format":
+                raise
+            # A video, image, archive, folder or other file with no text:
+            # what it is and where to open it, never its bytes.
+            return {
+                "textFormattingNotSupported": True,
+                "metadataOnly": True,
+                "file": await self.adapter.get_file_facts(file_id=file_id, access_token=token),
+            }
         mime_type, content = await self.adapter.read_live_bytes(
             file_id=file_id, mime_type=metadata.mime_type, access_token=token
         )
@@ -176,6 +344,16 @@ class GoogleDriveRestTransport:
             "fileContent": text,
             **({"contentTruncated": True} if parsed.truncated else {}),
         }
+
+    async def _get_file_metadata(self, arguments: dict[str, Any], token: str) -> dict:
+        target = arguments.get("fileId")
+        if (
+            set(arguments) != {"fileId"}
+            or not isinstance(target, str)
+            or not FILE_ID.fullmatch(target)
+        ):
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        return {"file": await self.adapter.get_file_facts(file_id=target, access_token=token)}
 
     async def _list_recent_files(self, arguments: dict[str, Any], token: str) -> dict:
         page_size, page_token = _page_arguments(arguments)
@@ -193,36 +371,198 @@ class GoogleDriveRestTransport:
         query = arguments.get("query")
         order = arguments.get("orderBy", "modifiedTime desc")
         if (
-            not isinstance(query, str)
-            or not 1 <= len(query) <= _MAX_QUERY_CHARS
+            query is not None
+            and (not isinstance(query, str) or not 1 <= len(query) <= _MAX_QUERY_CHARS)
             or not isinstance(order, str)
             or order not in _SEARCH_ORDERS
         ):
             raise DriveOAuthError("invalid_argument", status_code=400)
-        # A metadata-only search keeps the requested file-time order on the
-        # provider side, so the page cut itself is newest first. Drive rejects
-        # orderBy with a fullText term and ranks those by relevance; that page
-        # is then reordered locally by file time.
-        full_text = has_full_text_term(query)
+        # The raw dialect (the live reader's compiled query) is translated as
+        # before; typed filters are compiled here with every value escaped.
+        clauses = [rest_query(query)] if query is not None else []
+        clauses.extend(structured_query(arguments))
+        if not clauses:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        q = " and ".join(clauses)
+        if query is None:
+            q += " and trashed = false"
+        # Full-text pages retain Google's relevance order. Sorting a bounded
+        # page locally cannot establish the newest files across the corpus.
+        full_text = has_full_text_term(q)
+        drive_id = arguments.get("driveId")
+        if drive_id is not None and (
+            not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id)
+        ):
+            raise DriveOAuthError("invalid_argument", status_code=400)
         page = await self.adapter.list_files(
             access_token=token,
-            query=rest_query(query),
+            query=q,
             page_size=page_size,
             page_token=page_token,
             order_by=None if full_text else order,
+            **({"drive_id": drive_id} if drive_id is not None else {}),
         )
-        files = _page_files(page)
-        return _project_page(page, _newest_first(files, order) if full_text else files)
+        return _project_page(page, _page_files(page))
+
+    async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
+        _only(arguments, {"pageSize", "pageToken"})
+        page_size, page_token = _page_arguments(arguments)
+        page = await self.adapter.list_drives(
+            access_token=token, page_size=page_size, page_token=page_token
+        )
+        drives = page.get("drives", [])
+        next_token = page.get("nextPageToken")
+        if (
+            not isinstance(drives, list)
+            or len(drives) > page_size
+            or next_token is not None
+            and (not isinstance(next_token, str) or len(next_token) > 1024)
+            or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not FILE_ID.fullmatch(item["id"])
+                or not isinstance(item.get("name"), str)
+                or not 1 <= len(item["name"]) <= 1024
+                for item in drives
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        return {
+            "drives": [{"id": item["id"], "name": item["name"]} for item in drives],
+            "nextPageToken": next_token,
+        }
+
+    async def _private_destination(self, folder: object, token: str) -> str:
+        """A folder only the owner can see. Filing into any other folder shares the file.
+
+        Sharing is a reviewed write, so a direct create, copy or move may not
+        change who can see a file by choosing where it goes.
+        """
+        target = file_id(folder)
+        facts = await self.writer.facts(target=target, access_token=token)
+        if not facts.private_folder:
+            raise DriveWriteError("destination_shared")
+        return target
+
+    async def _create_file(self, arguments: dict[str, Any], token: str) -> dict:
+        _only(arguments, {"name", "kind", "content", "contentFormat", "folderId"})
+        kind = arguments.get("kind")
+        content = arguments.get("content", "")
+        content_format = arguments.get(
+            "contentFormat", "csv" if kind == "spreadsheet" else "markdown"
+        )
+        if kind not in {"document", "spreadsheet", "folder"} or (kind == "folder" and content):
+            raise DriveWriteError("invalid_argument")
+        folder = arguments.get("folderId")
+        parent = await self._private_destination(folder, token) if folder is not None else None
+        created = await self.writer.create(
+            access_token=token,
+            name=file_name(arguments.get("name")),
+            kind=kind,
+            parent=parent,
+            content=bounded_text(content, limit=MAX_CONTENT_BYTES, allow_empty=True),
+            content_format=content_format,
+        )
+        return {"file": created}
+
+    async def _copy_file(self, arguments: dict[str, Any], token: str) -> dict:
+        _only(arguments, {"fileId", "name", "folderId"})
+        folder = arguments.get("folderId")
+        name = arguments.get("name")
+        return {
+            "file": await self.writer.copy(
+                access_token=token,
+                source=file_id(arguments.get("fileId")),
+                name=file_name(name) if name is not None else None,
+                parent=await self._private_destination(folder, token)
+                if folder is not None
+                else None,
+            )
+        }
+
+    async def _move_file(self, arguments: dict[str, Any], token: str) -> dict:
+        """Move into a private folder, rename, or both, in one update."""
+        _only(arguments, {"fileId", "folderId", "name"})
+        target = file_id(arguments.get("fileId"))
+        folder, name = arguments.get("folderId"), arguments.get("name")
+        if folder is None and name is None:
+            raise DriveWriteError("invalid_argument")
+        destination, current = None, ()
+        if folder is not None:
+            destination = await self._private_destination(folder, token)
+            current = (await self.writer.facts(target=target, access_token=token)).parents
+        return {
+            "file": await self.writer.update(
+                access_token=token,
+                target=target,
+                name=file_name(name) if name is not None else None,
+                add_parent=destination,
+                remove_parents=tuple(item for item in current if item != destination),
+            )
+        }
+
+    async def _add_comment(self, arguments: dict[str, Any], token: str) -> dict:
+        _only(arguments, {"fileId", "text"})
+        return {
+            "comment": await self.writer.comment(
+                access_token=token,
+                target=file_id(arguments.get("fileId")),
+                text=bounded_text(arguments.get("text"), limit=MAX_COMMENT_CHARS),
+            )
+        }
+
+    async def _share_file(self, arguments: dict[str, Any], token: str) -> dict:
+        # Reached only from the reviewed-proposal executor (write_tool's caller).
+        _only(arguments, {"fileId", "email", "role", "notify", "message"})
+        return {
+            "shared": await self.writer.share(
+                access_token=token,
+                target=file_id(arguments.get("fileId")),
+                email=arguments.get("email"),
+                role=arguments.get("role"),
+                notify=arguments.get("notify", True),
+                message=arguments.get("message", ""),
+            )
+        }
+
+    async def _trash_file(self, arguments: dict[str, Any], token: str) -> dict:
+        # Reached only from the reviewed-proposal executor (write_tool's caller).
+        _only(arguments, {"fileId"})
+        return {
+            "file": await self.writer.update(
+                access_token=token, target=file_id(arguments.get("fileId")), trash=True
+            )
+        }
+
+
+def _only(arguments: dict[str, Any], allowed: set[str]) -> None:
+    if not set(arguments) <= allowed:
+        raise DriveWriteError("invalid_argument")
 
 
 # Tool name -> transport method. REST_TOOLS is derived from it so the admitted
 # set and the implemented set cannot drift apart.
 _OPERATIONS = {
+    "list_shared_drives": "_list_shared_drives",
     "search_files": "_search_files",
     "list_recent_files": "_list_recent_files",
     "read_file_content": "_read_file_content",
+    "get_file_metadata": "_get_file_metadata",
 }
 REST_TOOLS = frozenset(_OPERATIONS)
+# Owner writes. Create, copy, move/rename and comment run when the owner's agent
+# calls them; share and trash run only after the owner reviews the exact call.
+_WRITE_OPERATIONS = {
+    "create_file": "_create_file",
+    "copy_file": "_copy_file",
+    "move_file": "_move_file",
+    "add_comment": "_add_comment",
+    "share_file": "_share_file",
+    "trash_file": "_trash_file",
+}
+REVIEWED_WRITE_TOOLS = frozenset({"share_file", "trash_file"})
+DIRECT_WRITE_TOOLS = frozenset(_WRITE_OPERATIONS) - REVIEWED_WRITE_TOOLS
+_MAX_WRITE_ARGUMENT_BYTES = MAX_CONTENT_BYTES + 8_192
 
 
 def _page_arguments(arguments: dict[str, Any]) -> tuple[int, str | None]:
@@ -233,7 +573,7 @@ def _page_arguments(arguments: dict[str, Any]) -> tuple[int, str | None]:
         or isinstance(page_size, bool)
         or not 1 <= page_size <= 25
         or page_token is not None
-        and not isinstance(page_token, str)
+        and (not isinstance(page_token, str) or len(page_token) > 1024)
     ):
         raise DriveOAuthError("invalid_argument", status_code=400)
     return page_size, page_token
@@ -241,7 +581,11 @@ def _page_arguments(arguments: dict[str, Any]) -> tuple[int, str | None]:
 
 def _page_files(page: dict[str, Any]) -> list[Any]:
     files = page.get("files", [])
-    if not isinstance(files, list):
+    if (
+        not isinstance(files, list)
+        or len(files) > 25
+        or any(not isinstance(item, dict) for item in files)
+    ):
         raise DriveReadError("provider_response_invalid")
     return files
 
@@ -251,6 +595,7 @@ def _project_page(page: dict[str, Any], files: list[Any]) -> dict:
         {
             "files": [_as_mcp_file(item) for item in files if isinstance(item, dict)],
             "nextPageToken": page.get("nextPageToken"),
+            "incompleteSearch": page.get("incompleteSearch", False),
         }
     )
     return projected

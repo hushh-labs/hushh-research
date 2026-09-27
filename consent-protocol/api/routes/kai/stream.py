@@ -177,6 +177,14 @@ class StreamAnalyzeRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
     run_id: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
     resume_cursor: Optional[int] = Field(default=0, ge=0)
+    # Present => start the session's resumable run and stream it in THIS
+    # response (409 when the session already has one, as /analyze/run/start).
+    # See ``analyze_stream_post`` for why the start and the first attach must
+    # share one request.
+    debate_session_id: Optional[str] = Field(
+        default=None, min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN
+    )
+    pick_source: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
 
 
 class StartAnalyzeRunRequest(BaseModel):
@@ -2800,13 +2808,10 @@ async def analyze_stream_post(
             raise HTTPException(status_code=403, detail="Token user mismatch")
 
         start_cursor = _parse_cursor(body.resume_cursor)
-        if getattr(run, "is_durable_replay", False):
-            # Durable replay carries only the terminal frame; the client's
-            # resume cursor came from a live buffer on another (now-missed)
-            # instance. Replay the terminal frame from 0 rather than 410-ing on
-            # a stale cursor -- otherwise recovery would trade a 404 for a 410.
-            start_cursor = 0
-        elif start_cursor > run.latest_cursor:
+        # A run held by another process is followed, not replayed from a local
+        # buffer; its cursor only numbers the terminal frame past what the
+        # client has seen, so the stale-cursor 410 does not apply.
+        if not getattr(run, "is_durable_replay", False) and start_cursor > run.latest_cursor:
             raise HTTPException(
                 status_code=410,
                 detail={
@@ -2820,6 +2825,32 @@ async def analyze_stream_post(
             _RUN_MANAGER.stream_run_events(
                 run=run,
                 start_cursor=start_cursor,
+                request=request,
+            )
+        )
+
+    if body.debate_session_id:
+        # Start-and-attach. The live run exists only in the memory of the
+        # process that created it, and production serves each instance with
+        # several worker processes behind several instances. A start followed
+        # by a separate GET .../stream therefore lands on a process that never
+        # saw the run and 404s -- on UAT that was every debate. Streaming the
+        # run from the request that created it pins the first attach to the
+        # owning process, the same way POST /portfolio/import/stream does.
+        _state, run = await _start_analyze_run(
+            user_id=body.user_id,
+            debate_session_id=body.debate_session_id,
+            ticker=ticker,
+            risk_profile=body.risk_profile,
+            context=body.context,
+            pick_source=body.pick_source,
+            consent_token=consent_token,
+            endpoint="stream/analyze",
+        )
+        return _create_sse_response(
+            _RUN_MANAGER.stream_run_events(
+                run=run,
+                start_cursor=0,
                 request=request,
             )
         )
@@ -2852,6 +2883,66 @@ async def analyze_stream_post(
     )
 
 
+async def _start_analyze_run(
+    *,
+    user_id: str,
+    debate_session_id: str,
+    ticker: str,
+    risk_profile: str,
+    context: Optional[Dict[str, Any]],
+    pick_source: Optional[str],
+    consent_token: str,
+    endpoint: Optional[str] = None,
+) -> tuple[str, Any]:
+    """Audit and start a session-locked run; 409 when the session already has one.
+
+    ``ticker`` must already be normalized and membership-gated by the caller.
+    Shared by ``/analyze/run/start`` and the start-and-attach mode of
+    ``POST /analyze/stream`` so both record the same audit operation and honor
+    the same one-run-per-session lock.
+    """
+    consent_service = ConsentDBService()
+    next_context = await _canonicalize_pick_source_context(
+        user_id=user_id,
+        context=context,
+        requested_source=pick_source,
+    )
+    metadata: Dict[str, Any] = {
+        "risk_profile": risk_profile,
+        "debate_session_id": debate_session_id,
+        "has_context": bool(next_context),
+        "pick_source": next_context.get("pick_source"),
+        "pick_source_kind": next_context.get("pick_source_kind"),
+    }
+    if endpoint:
+        metadata["endpoint"] = endpoint
+    await consent_service.log_operation(
+        user_id=user_id,
+        operation="kai.analyze.run.start",
+        target=ticker,
+        metadata=metadata,
+    )
+    state, run = await _RUN_MANAGER.start_or_get_active(
+        user_id=user_id,
+        debate_session_id=debate_session_id,
+        ticker=ticker,
+        risk_profile=risk_profile,
+        context=next_context or None,
+        consent_token=consent_token,
+        generator_factory=_stream_factory,
+    )
+    if state == "active":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ANALYZE_RUN_ALREADY_ACTIVE",
+                "message": "A debate run is already active for this client session.",
+                "active_run": run.to_public_dict(),
+            },
+        )
+    return state, run
+
+
 @router.post("/analyze/run/start")
 async def analyze_run_start(
     body: StartAnalyzeRunRequest,
@@ -2867,42 +2958,15 @@ async def analyze_run_start(
     # Membership gate runs after auth so unauthenticated callers cannot probe
     # which symbols exist.
     ticker = _require_known_ticker_or_422(ticker)
-    consent_service = ConsentDBService()
-    next_context = await _canonicalize_pick_source_context(
-        user_id=body.user_id,
-        context=body.context,
-        requested_source=body.pick_source,
-    )
-    await consent_service.log_operation(
-        user_id=body.user_id,
-        operation="kai.analyze.run.start",
-        target=ticker,
-        metadata={
-            "risk_profile": body.risk_profile,
-            "debate_session_id": body.debate_session_id,
-            "has_context": bool(next_context),
-            "pick_source": next_context.get("pick_source"),
-            "pick_source_kind": next_context.get("pick_source_kind"),
-        },
-    )
-    state, run = await _RUN_MANAGER.start_or_get_active(
+    _state, run = await _start_analyze_run(
         user_id=body.user_id,
         debate_session_id=body.debate_session_id,
         ticker=ticker,
         risk_profile=body.risk_profile,
-        context=next_context or None,
+        context=body.context,
+        pick_source=body.pick_source,
         consent_token=consent_token,
-        generator_factory=_stream_factory,
     )
-    if state == "active":
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "ANALYZE_RUN_ALREADY_ACTIVE",
-                "message": "A debate run is already active for this client session.",
-                "active_run": run.to_public_dict(),
-            },
-        )
     return {"run": run.to_public_dict()}
 
 
@@ -2943,13 +3007,10 @@ async def analyze_run_stream(
         )
 
     start_cursor = _parse_cursor(cursor)
-    if getattr(run, "is_durable_replay", False):
-        # Durable replay carries only the terminal frame; the client's resume
-        # cursor came from a live buffer on another (now-missed) instance.
-        # Replay the terminal frame from 0 rather than 410-ing on a stale cursor
-        # -- otherwise recovery would trade a 404 for a 410.
-        start_cursor = 0
-    elif start_cursor > run.latest_cursor:
+    # A run held by another process is followed, not replayed from a local
+    # buffer; its cursor only numbers the terminal frame past what the client
+    # has seen, so the stale-cursor 410 does not apply.
+    if not getattr(run, "is_durable_replay", False) and start_cursor > run.latest_cursor:
         raise HTTPException(
             status_code=410,
             detail={

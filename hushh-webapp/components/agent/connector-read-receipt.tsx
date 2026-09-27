@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { ContinueDriveSearch } from "@/components/agent/drive-background-search";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
@@ -74,6 +75,9 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
           ) : null}
           {experience.truncated ? <p>{drive && !experience.metadataOnly ? "Some document content was omitted." : "Some matches or metadata were omitted."}</p> : null}
         </>
+      ) : null}
+      {drive && experience.backgroundSearchAvailable && experience.backgroundSearchQuery ? (
+        <ContinueDriveSearch query={experience.backgroundSearchQuery} />
       ) : null}
       {needsConnection && onOpenConnections ? (
         <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(drive ? "drive" : "gmail", event.currentTarget)}>

@@ -9,7 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { LifeBuoy } from "@/components/icons";
+import { Siren } from "@/components/icons";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleMember,
@@ -268,12 +268,12 @@ describe("circle discovery actions", () => {
     expect(mocks.sms).not.toHaveBeenCalled();
   });
 
-  it("uses the Save My Soul lifebuoy for SMS instead of a message bubble", () => {
+  it("uses a recognizable emergency siren for SMS", () => {
     render(ui());
     const icon = screen.getByTestId("circle-starter-sms").querySelector("[data-circle-icon-style='duotone']");
     expect(icon).toBeTruthy();
     const expected = document.createElement("div");
-    expected.innerHTML = renderToStaticMarkup(<LifeBuoy weight="duotone" />);
+    expected.innerHTML = renderToStaticMarkup(<Siren weight="duotone" />);
     expect(icon?.querySelector("path:last-child")?.getAttribute("d")).toBe(
       expected.querySelector("path:last-child")?.getAttribute("d"),
     );

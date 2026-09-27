@@ -69,6 +69,8 @@ _PRODUCT_UNAVAILABLE_CODES = frozenset(
 )
 _PRODUCT_NOT_ON_ITEM = "PRODUCTS_NOT_SUPPORTED"
 _ITEM_ALREADY_REMOVED_CODES = frozenset({"ITEM_NOT_FOUND"})
+# A snapshot for one of these returns 200 with ``item.error`` (see vault_snapshot).
+_DEAD_ACCESS_TOKEN_CODES = frozenset({"INVALID_ACCESS_TOKEN"})
 _LOCAL_SANDBOX_PROOF_DEPLOYMENTS = frozenset({"local", "test"})
 
 # Plaid tokens and cursors are opaque ASCII; bound and constrain them so a
@@ -309,6 +311,17 @@ def _is_item_error(error: PlaidApiError) -> bool:
     return (error.error_type or "") == "ITEM_ERROR"
 
 
+def _is_connection_state(error: PlaidApiError) -> bool:
+    """A Plaid verdict on the sealed connection, not on the request's shape.
+
+    The request already passed validation, so ``INVALID_ACCESS_TOKEN`` means
+    this token cannot be used by this deployment's Plaid client (for example a
+    token sealed against the Sandbox, read from UAT). Like an item error it is
+    the connection's state, which the device must record rather than retry.
+    """
+    return _is_item_error(error) or (error.error_code or "") in _DEAD_ACCESS_TOKEN_CODES
+
+
 def _item_products(item: dict[str, Any]) -> list[str]:
     products = [*_string_list(item.get("products")), *_string_list(item.get("billed_products"))]
     return list(dict.fromkeys(products))
@@ -524,14 +537,35 @@ async def vault_snapshot(
     """Fetch a fresh snapshot for one connection, statelessly.
 
     A connection that needs re-authentication (e.g. ``ITEM_LOGIN_REQUIRED``)
-    returns HTTP 200 with ``item.error`` set so the device can prompt re-link.
+    or whose sealed token Plaid no longer accepts (``INVALID_ACCESS_TOKEN``)
+    returns HTTP 200 with ``item.error`` set so the device records the state
+    instead of re-reading the connection on every unlock.
     """
     del token_data  # Auth gate only; no per-user state exists for this flow.
     access_token = payload.access_token
     try:
         _require_configured()
         client = _plaid_client()
-        item_response = await client.post("/item/get", {"access_token": access_token})
+        try:
+            item_response = await client.post("/item/get", {"access_token": access_token})
+        except PlaidApiError as exc:
+            if not _is_connection_state(exc):
+                raise
+            _log_plaid_failure("snapshot_item", exc, status.HTTP_200_OK)
+            error = _item_error_from_exception(exc)
+            blocked = {"unavailable": error["code"]}
+            return {
+                "item": {
+                    "item_id": None,
+                    "institution_id": None,
+                    "products": [],
+                    "consented_products": [],
+                    "error": error,
+                },
+                "accounts": [],
+                "investments": dict(blocked),
+                "transactions": dict(blocked),
+            }
         item_raw = item_response.get("item") if isinstance(item_response.get("item"), dict) else {}
         item: dict[str, Any] = {
             "item_id": _clean(item_raw.get("item_id")),

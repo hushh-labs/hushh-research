@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "reviewer-a", getIdToken: vi.fn(async () => "test-token") },
   unlocked: true, getViewer: vi.fn(), create: vi.fn(), getInformationRequest: vi.fn(),
   getInformationRequestExports: vi.fn(), readStoredConnector: vi.fn(), decryptScopedExport: vi.fn(),
+  consentOutcomes: vi.fn(async (): Promise<Record<string, string>> => ({})),
 }));
+vi.mock("@/lib/services/agent-chat-client", () => ({ getAgentChatConsentOutcomes: mocks.consentOutcomes }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
@@ -31,7 +33,8 @@ vi.mock("@/components/consent/consent-scope-nested-list", () => ({
     <div>{items.map(item => <button key={item.id} aria-pressed={selection?.selectedIds.has(item.id)} onClick={() => selection?.onToggleMany([item.id], !selection.selectedIds.has(item.id))}>{item.label}</button>)}</div>,
 }));
 
-import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
+import { AgentConsentContinuationContext, AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
+import { clearSentInformationRequests } from "@/lib/agent/consent-continuation";
 
 const person = "1234567890abcdef";
 const experience: ScopeDiscoveryExperience = {
@@ -148,7 +151,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: purpose } });
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent to Synthetic Recipient")).toBeInTheDocument();
-    expect(await screen.findByText("Waiting for their decision")).toBeInTheDocument();
+    expect(await screen.findByText("Waiting for Synthetic Recipient's approval")).toBeInTheDocument();
     expect(onInformationRequestSubmitted).toHaveBeenCalledWith({
       bundleId, subjectRef: person, idempotencyKey: expect.any(String),
     });
@@ -361,7 +364,7 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={restored} />);
     expect(await screen.findByText("Current label")).toBeInTheDocument();
     expect(screen.queryByText("Stale label")).toBeNull();
-    expect(screen.getByText("Access granted")).toBeInTheDocument();
+    expect(screen.getByText("Consent approved")).toBeInTheDocument();
   });
 
   it("opens an approved value inside Chat using the stored browser connector", async () => {
@@ -435,7 +438,7 @@ describe("current-authority inline Chat catalog", () => {
     mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
 
     render(<AgentStructuredExperienceView experience={restored} />);
-    expect(await screen.findByText("Waiting for their decision")).toBeInTheDocument();
+    expect(await screen.findByText("Waiting for Synthetic Recipient's approval")).toBeInTheDocument();
     mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: "another-bundle", requestId: "request_12345678",
@@ -446,6 +449,63 @@ describe("current-authority inline Chat catalog", () => {
     } })));
     expect(await screen.findByTestId("chat-shared-information")).toHaveTextContent("Synthetic analyst");
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for the owner's approval, then continues the asking chat exactly once", async () => {
+    clearSentInformationRequests(null);
+    const sent: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Plan a dinner.", durationLabel: "1 day",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "0f0e0d0c-0b0a-4908-8706-050403020100", requestId: null, status: "pending",
+      fields: [{ label: "Allergies", domain: "Health", sensitivity: "sensitive", requestId: "request_12345678" }],
+    };
+    const bundle = (status: "pending" | "granted" | "denied") => ({
+      bundleId: sent.bundleId, personRef: person, purpose: sent.purpose, durationSeconds: 86400, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Allergies", sensitivity: "sensitive", status }],
+    });
+    const continueWithOutcome = vi.fn(async () => true);
+    mocks.getInformationRequest.mockResolvedValue(bundle("pending"));
+    render(
+      <AgentConsentContinuationContext.Provider value={{ conversationId: "conversation-1", continueWithOutcome }}>
+        <AgentStructuredExperienceView experience={sent} />
+      </AgentConsentContinuationContext.Provider>,
+    );
+    expect(await screen.findByText("Waiting for Synthetic Recipient's approval")).toBeInTheDocument();
+    expect(continueWithOutcome).not.toHaveBeenCalled();
+
+    mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
+    const doorbell = () => act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: sent.bundleId, requestId: "request_12345678",
+    } })));
+    doorbell();
+    expect(await screen.findByText("Consent approved")).toBeInTheDocument();
+    await waitFor(() => expect(continueWithOutcome).toHaveBeenCalledTimes(1));
+    expect(continueWithOutcome).toHaveBeenCalledWith(expect.objectContaining({ bundleId: sent.bundleId, outcome: "granted", subjectRef: person }));
+    doorbell();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(continueWithOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it("never replays an answer for an old chat it did not see waiting", async () => {
+    clearSentInformationRequests(null);
+    const continueWithOutcome = vi.fn(async () => true);
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: "1f0e0d0c-0b0a-4908-8706-050403020100", personRef: person, purpose: "Old.", durationSeconds: 86400, cancelled: false,
+      items: [{ requestId: "request_old", scopeRef: "scope-1", label: "Allergies", sensitivity: "sensitive", status: "denied" }],
+    });
+    render(
+      <AgentConsentContinuationContext.Provider value={{ conversationId: "conversation-1", continueWithOutcome }}>
+        <AgentStructuredExperienceView experience={{
+          type: "one.information_request_review.v1", personName: "Synthetic Recipient", purpose: "Old.", durationLabel: "1 day",
+          direction: "outgoing", phase: "submitted", subjectRef: person, bundleId: "1f0e0d0c-0b0a-4908-8706-050403020100",
+          requestId: null, status: "pending", fields: [{ label: "Allergies", domain: "Health", sensitivity: "sensitive", requestId: "request_old" }],
+        }} />
+      </AgentConsentContinuationContext.Provider>,
+    );
+    expect(await screen.findByText("Request declined")).toBeInTheDocument();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(continueWithOutcome).not.toHaveBeenCalled();
   });
 
   it("rejects a swapped export scope before decrypting it", async () => {

@@ -23,7 +23,6 @@ export interface HushhSettings {
 
   // Security
   requireBiometricUnlock: boolean;
-  autoLockTimeout: number;
 
   // UI Preferences
   theme: "system" | "light" | "dark";
@@ -46,7 +45,6 @@ export const DEFAULT_SETTINGS: HushhSettings = {
 
   // Security defaults
   requireBiometricUnlock: true,
-  autoLockTimeout: 5,
 
   // UI defaults
   theme: "system",
@@ -64,7 +62,6 @@ export const PRODUCTION_SETTINGS: HushhSettings = {
   useRemoteLLM: false,
   preferredLLMProvider: "local", // or 'mlx' when ready
   requireBiometricUnlock: true,
-  autoLockTimeout: 5,
   theme: "system",
   hapticFeedback: true,
   showDebugInfo: false,
