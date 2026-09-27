@@ -265,8 +265,8 @@ import {
   type PendingConsent,
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
-import { DriveBackgroundSearches, type SelectedDriveSearchFile } from "@/components/agent/drive-background-search";
-import { clearGeneratedDriveSearchDraft, DEFAULT_DRIVE_SEARCH_DRAFT } from "@/lib/agent/drive-search-draft";
+import { DriveRecentSharing, type SelectedDriveSearchFile } from "@/components/agent/drive-background-search";
+import { clearGeneratedDriveSearchDraft } from "@/lib/agent/drive-search-draft";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
@@ -6822,17 +6822,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const handleUseDriveSearchFile = (selection: SelectedDriveSearchFile) => {
-    if (!user?.uid || !isVaultUnlocked || !getVaultOwnerToken()) return;
-    const pending = { ...selection, ownerUid: user.uid, vaultEpoch: snapshotVaultSessionEpoch() };
-    pendingDriveSearchSelectionRef.current = pending;
-    setPendingDriveSearchSelection(pending);
-    if (!input.trim()) {
-      generatedDriveSearchDraftRef.current = true;
-      setInput(DEFAULT_DRIVE_SEARCH_DRAFT);
-    }
-    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  };
   const toggleHistoryDrawer = useCallback(() => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -7220,7 +7209,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          {!isPuppySurface ? <DriveBackgroundSearches onUseInChat={handleUseDriveSearchFile} /> : null}
+          {!isPuppySurface ? <DriveRecentSharing /> : null}
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

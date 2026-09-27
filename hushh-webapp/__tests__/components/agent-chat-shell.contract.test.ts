@@ -10,6 +10,11 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
+  it("keeps recent Drive searches out of the chat workspace", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).not.toContain("<DriveBackgroundSearches");
+  });
   it("exposes connections from chat history in the shared drawer", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     expect(workspace).toContain('setDrawerMode("connections")');

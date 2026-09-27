@@ -103,7 +103,13 @@ export function DriveBackgroundSearches({ onUseInChat }: SearchSelectionProps = 
   if (!user || !isVaultUnlocked) return null;
   return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
 }
-function RecentSearches({ getToken, onUseInChat }: OwnerProps & SearchSelectionProps) {
+export function DriveRecentSharing() {
+  const { user } = useAuth();
+  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
+  if (!user || !isVaultUnlocked) return null;
+  return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} getToken={getVaultOwnerToken} sharingOnly />;
+}
+function RecentSearches({ getToken, onUseInChat, sharingOnly = false }: OwnerProps & SearchSelectionProps & { sharingOnly?: boolean }) {
   const owner = useOwnerGuard(getToken);
   const serial = useRef(0);
   const bulkSerial = useRef(0);
@@ -146,15 +152,16 @@ function RecentSearches({ getToken, onUseInChat }: OwnerProps & SearchSelectionP
   }, [owner]);
   const invalidate = useCallback(() => { ++serial.current; ++bulkSerial.current; }, []);
   useEffect(() => {
-    void load(); void loadBulk();
-    const changed = () => { seen.current = true; void load(); void loadBulk(); };
+    if (!sharingOnly) void load();
+    void loadBulk();
+    const changed = () => { if (!sharingOnly) { seen.current = true; void load(); } void loadBulk(); };
     window.addEventListener(CHANGED, changed);
     return () => { invalidate(); window.removeEventListener(CHANGED, changed); };
-  }, [load, loadBulk, invalidate]);
-  const detached = bulkShares.filter(share => !jobs.some(job => job.jobId === share.searchJobId));
+  }, [load, loadBulk, invalidate, sharingOnly]);
+  const detached = sharingOnly ? bulkShares : bulkShares.filter(share => !jobs.some(job => job.jobId === share.searchJobId));
   if (!jobs.length && !error && !detached.length && !bulkError) return null;
   return <div className="mx-auto w-full max-w-4xl space-y-2">
-    {jobs.length || error ? <details open className="rounded-2xl bg-foreground/[0.035] px-4 py-2 text-sm" aria-label="Drive searches">
+    {!sharingOnly && (jobs.length || error) ? <details open className="rounded-2xl bg-foreground/[0.035] px-4 py-2 text-sm" aria-label="Drive searches">
     <summary className="min-h-11 cursor-pointer content-center font-medium">Recent Drive searches{jobs.length ? ` · ${jobs.length}` : ""}</summary>
     {error ? <div className="space-y-2 py-2"><HelperText role="status">Couldn’t load your searches.</HelperText>
       <Button variant="muted" size="compact" onClick={() => void load()}>Try again</Button></div> : null}
