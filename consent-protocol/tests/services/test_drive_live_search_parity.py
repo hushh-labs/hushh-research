@@ -76,6 +76,9 @@ def reader_with(responses):
         adapter=SimpleNamespace(get_share_metadata=AsyncMock(), get_metadata=AsyncMock()),
     )
     reader.require_current = AsyncMock()
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(False, {"drives": []}, False)
+    )
     return reader, calls
 
 
@@ -91,8 +94,18 @@ async def test_multi_word_terms_must_all_match_before_any_term_may():
 
 
 async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
-    both = TERM.format("salary slip") + " and " + TERM.format("payslip")
-    either = "(" + TERM.format("salary slip") + " or " + TERM.format("payslip") + ")"
+    both = (
+        "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
+        + " and "
+        + TERM.format("payslip")
+    )
+    either = (
+        "("
+        + "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
+        + " or "
+        + TERM.format("payslip")
+        + ")"
+    )
     reader, calls = reader_with(
         {("search_files", both): [], ("search_files", either): [file("f2", "payslip-aug.pdf")]}
     )
@@ -260,7 +273,7 @@ async def test_most_recent_files_use_the_recency_listing():
     assert calls[0][2]["excludeContentSnippets"] is True
 
 
-async def test_latest_sorts_search_matches_newest_first():
+async def test_full_text_keeps_provider_relevance_even_when_recent_requested():
     reader, calls = reader_with(
         {
             ("search_files", TERM.format("statement")): [
@@ -271,7 +284,7 @@ async def test_latest_sorts_search_matches_newest_first():
         }
     )
     found = await reader.find(query=["statement"], recent=True)
-    assert [item["name"] for item in found["matches"]][0] == "Aug statement.pdf"
+    assert [item["name"] for item in found["matches"]][0] == "Jan statement.pdf"
     assert calls[0][2]["orderBy"] == "modifiedTime desc"
 
 
@@ -499,7 +512,12 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
     assert outcome["status"] == "ok" and outcome["titles"] == [
         "Standup - 2026/09/24 10:00 PDT - Recording"
     ]
-    assert outcome["selection"] == {"stage": "completed", "candidates": 1, "selected": 1}
+    assert outcome["selection"] == {
+        "stage": "completed",
+        "candidates": 1,
+        "selected": 1,
+        "mode": "find",
+    }
     # The owner sees the day the recording was made, in their own window text.
     text = drive_chat_service._found_files(
         outcome["files"],
@@ -523,7 +541,10 @@ async def test_a_meeting_named_for_the_day_is_found_across_timezones():
             ("search_files", "mimeType contains 'video/' and " + window): [
                 file("s9", "Standup - 2026/09/09 10:01 PDT - Recording", mime="video/mp4")
             ],
-            ("search_files", "mimeType contains 'video/' and title contains '2026/09/10'"): [
+            (
+                "search_files",
+                "mimeType contains 'video/' and (title contains '2026/09/10' or fullText contains '\"2026/09/10\"')",
+            ): [
                 file("s18", "Standup - 2026/09/18 10:00 PDT - Recording", mime="video/mp4"),
                 file(
                     "a10",
@@ -609,7 +630,10 @@ async def test_the_exact_title_date_is_found_on_a_later_page():
     reader, calls = reader_with(
         {
             ("search_files", "mimeType contains 'video/' and " + window): [],
-            ("search_files", "mimeType contains 'video/' and title contains '2026/09/10'"): [
+            (
+                "search_files",
+                "mimeType contains 'video/' and (title contains '2026/09/10' or fullText contains '\"2026/09/10\"')",
+            ): [
                 noise,
                 [file("a10", "Anoushka - 2026/09/10 15:48 PDT - Recording", mime="video/mp4")],
             ],
@@ -747,7 +771,13 @@ async def test_a_file_date_window_asks_drive_to_rank_by_that_date_before_the_cut
 
     day = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-18T00:00:00Z')"
     reader, calls = reader_with(
-        {("search_files", day): [], ("search_files", "title contains '2026/09/17'"): []}
+        {
+            ("search_files", day): [],
+            (
+                "search_files",
+                "(title contains '2026/09/17' or fullText contains '\"2026/09/17\"')",
+            ): [],
+        }
     )
     await reader.find(
         query=[],
@@ -758,7 +788,7 @@ async def test_a_file_date_window_asks_drive_to_rank_by_that_date_before_the_cut
     )
     assert calls[0][2]["orderBy"] == f"{time_field} desc"
     # The title-date lookup is not a time window; it keeps Drive's own order.
-    assert calls[-1][1] == "title contains '2026/09/17'"
+    assert calls[-1][1] == "(title contains '2026/09/17' or fullText contains '\"2026/09/17\"')"
     assert "orderBy" not in calls[-1][2]
 
     # Without a date window the transport keeps its own default order.
@@ -962,3 +992,176 @@ async def test_connection_question_does_not_enter_owner_compilation_listing(monk
     )
     parser.assert_not_called()
     assert (outcome.get("selection") or {}).get("stage") != "owner_title_date_listing"
+
+
+async def test_exact_title_retrieval_precedes_the_broad_candidate_cap():
+    title = "Explain For Product"
+    reader, calls = reader_with(
+        {
+            ("search_files", "name = 'Explain For Product'"): [file("target", title)],
+            ("search_files", TERM.format("product")): [
+                file(f"noise-{i}", f"Other {i}") for i in range(25)
+            ],
+        }
+    )
+    found = await reader.find(query=["product"], exact_title=title)
+    assert [item["file_id"] for item in found["matches"]] == ["target"]
+    assert found["truncated"] is False
+    assert len(calls) == 1 and "fullText" not in calls[0][1]
+
+
+async def test_exact_name_pagination_keeps_duplicate_names_and_dedupes_only_ids():
+    query = "name = 'Same.pdf'"
+    reader, calls = reader_with(
+        {
+            ("search_files", query): [
+                [],
+                [file("first", "Same.pdf")],
+                [file("first", "Same.pdf"), file("second", "Same.pdf")],
+            ]
+        }
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert [item["file_id"] for item in found["matches"]] == ["first", "second"]
+    assert found["truncated"] is False and len(calls) == 3
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+async def test_exactly_full_terminal_page_is_complete_unless_provider_says_otherwise(incomplete):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [file(f"f{i}", "Same.pdf") for i in range(25)],
+            "incompleteSearch": incomplete,
+        },
+        False,
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert found["truncated"] is incomplete
+    assert found["incomplete_search"] is incomplete
+    assert found["continuation"] is None
+
+
+async def test_bounded_search_retains_the_exact_query_cursor():
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [file(f"f{i}", "Same.pdf") for i in range(25)],
+            "nextPageToken": "next",
+        },
+        False,
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert found["truncated"] is True
+    assert found["continuation"] == {
+        "tool_name": "search_files",
+        "arguments": {
+            "query": "name = 'Same.pdf'",
+            "pageToken": "next",
+        },
+    }
+
+
+async def test_pagination_cycle_cannot_hide_an_incomplete_exact_search():
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(False, {"files": [], "nextPageToken": token}, False)
+        for token in ["a", "b", "a"]
+    ]
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        await reader.find(query=[], exact_title="Same.pdf")
+
+
+async def test_exact_title_missing_from_user_corpus_is_found_in_member_drive():
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": [{"id": "team", "name": "Team"}],
+            },
+            False,
+        )
+    )
+    calls = []
+
+    async def search(*, arguments, **kwargs):
+        calls.append(arguments)
+        assert arguments["query"] == "name = '  Explain For Product  '"
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [file("target", "  Explain For Product  ")]
+                if arguments.get("driveId") == "team"
+                else [],
+            },
+            False,
+        )
+
+    reader.mcp.read_tool.side_effect = search
+    found = await reader.find(query=[], exact_title="  Explain For Product  ")
+    assert [item["file_id"] for item in found["matches"]] == ["target"]
+    assert found["truncated"] is False
+    assert [call.get("driveId") for call in calls] == [None, "team"]
+
+
+async def test_shared_drive_query_dedupes_identity_but_preserves_same_name_ambiguity():
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": [{"id": "team", "name": "Team"}],
+            },
+            False,
+        )
+    )
+
+    async def search(*, arguments, **kwargs):
+        files = [file("one", "Same.pdf")]
+        if arguments.get("driveId"):
+            files.append(file("two", "Same.pdf"))
+        return ExternalMcpToolResult(False, {"files": files}, False)
+
+    reader.mcp.read_tool.side_effect = search
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert [item["file_id"] for item in found["matches"]] == ["one", "two"]
+    assert found["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    "drives,next_token", [([], "next-inventory"), ([{"id": f"team-{i}"} for i in range(25)], None)]
+)
+async def test_unfinished_shared_drive_coverage_is_incomplete_even_with_zero_matches(
+    drives, next_token
+):
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": drives,
+                "nextPageToken": next_token,
+            },
+            False,
+        )
+    )
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(False, {"files": []}, False)
+    found = await reader.find(query=[], exact_title="Only in another drive")
+    assert found["matches"] == [] and found["truncated"] is True
+    assert found["continuation"] is not None
+    # The inventory and file pages share the original six-page budget.
+    assert reader.mcp.read_tool.await_count + reader._shared_drive_inventory.await_count <= 6
+
+
+async def test_inventory_unavailable_preserves_initial_matches_as_incomplete():
+    reader, _ = reader_with({("search_files", "name = 'Plan'"): [file("one", "Plan")]})
+    reader._shared_drive_inventory = AsyncMock(side_effect=DriveReadError("provider_unavailable"))
+    found = await reader.find(query=[], exact_title="Plan")
+    assert [item["file_id"] for item in found["matches"]] == ["one"]
+    assert found["truncated"] is True and found["continuation"]["tool_name"] == "list_shared_drives"

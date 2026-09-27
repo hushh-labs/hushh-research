@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  LINKED_ACCOUNTS_BRANCH,
+  PLAID_VAULT_RECORD_BRANCHES,
+  PLAID_VAULT_SOURCE_MANAGED_BRANCHES,
+} from "@/lib/kai/plaid-vault/types";
 import type {
   DomainSummary,
   PersonalKnowledgeModelMetadata,
@@ -83,6 +88,13 @@ const AGENT_CONTEXT_SENSITIVE_KEY_PATTERN =
   /(?:^|[_-])(account[_-]?(?:number|no)|routing[_-]?(?:number|no)|iban|swift|ssn|social[_-]?security|tax[_-]?(?:id|number)|passport(?:[_-]?(?:number|no))?|driver(?:s)?[_-]?licen[cs]e(?:[_-]?(?:number|no))?|licen[cs]e[_-]?(?:number|no)|identity[_-]?document|document[_-]?(?:number|no)|card[_-]?number|pan|cvv|cvc|pin|otp|one[_-]?time[_-]?(?:password|code)|aadhaar|aadhar|national[_-]?id|government[_-]?id)(?:$|[_-])/i;
 const AGENT_CONTEXT_SOURCE_KEY_PATTERN =
   /(?:^|[_-])(source[_-]?(?:text|document|file|artifact|extract|content)|document[_-]?(?:text|content|file)|raw[_-]?(?:text|content|document)|transcript|provenance)(?:$|[_-])/i;
+/**
+ * The Plaid lane's machine records, keyed by Plaid's ids. Browsed directly they
+ * read as "Accounts V1 > <random id>", once per re-link; `linked_accounts` holds
+ * the same information named and organised for a person.
+ */
+const PLAID_RECORD_BRANCHES: ReadonlySet<string> = new Set(PLAID_VAULT_RECORD_BRANCHES);
+const PLAID_SOURCE_MANAGED_BRANCHES: ReadonlySet<string> = new Set(PLAID_VAULT_SOURCE_MANAGED_BRANCHES);
 const INTERNAL_PKM_DOMAINS = new Set([
   "kyc_connector",
   "kyc_workflow",
@@ -150,15 +162,8 @@ function parseDomainSummary(metadata: PersonalKnowledgeModelMetadata | null): Ma
   return new Map((metadata?.domains || []).map((domain) => [domain.key, domain]));
 }
 
-/**
- * Returns whether a PKM key/domain is private runtime or protocol material
- * that must never enter a user-facing memory projection or an LLM context.
- *
- * Keep this as the single client-side classifier for readable PKM consumers.
- * In particular, `runtime_secrets` may be decrypted by the vault owner only
- * to resolve a turn-local provider credential; it is never agent memory.
- */
-export function shouldSkipPkmMemoryKey(key: string): boolean {
+/** Private runtime or protocol material: never a memory, never model context. */
+function isInternalPkmKey(key: string): boolean {
   // A leading underscore marks a private/internal key by convention. Check it on
   // the raw key: normalizeKey() strips underscores, so this must run before it.
   if (String(key ?? "").trim().startsWith("_")) return true;
@@ -172,19 +177,48 @@ export function shouldSkipPkmMemoryKey(key: string): boolean {
 }
 
 /**
+ * Returns whether a PKM key/domain must stay out of the owner's Memory screen.
+ *
+ * Keep this as the single client-side classifier for readable PKM consumers.
+ * In particular, `runtime_secrets` may be decrypted by the vault owner only
+ * to resolve a turn-local provider credential; it is never agent memory.
+ * The Plaid lane's id-keyed records are hidden here too: Memory shows their
+ * readable view, `linked_accounts`, instead.
+ */
+export function shouldSkipPkmMemoryKey(key: string): boolean {
+  return isInternalPkmKey(key) || PLAID_RECORD_BRANCHES.has(normalizeKey(key));
+}
+
+/**
  * Returns whether a PKM key/domain must be omitted from the full profile
  * packet that is supplied to One on every unlocked chat turn. This is stricter
  * than the memory UI: an always-on model packet must never include regulated
  * identifiers or raw imported source material.
+ *
+ * The packet keeps its existing view of linked banks (the Plaid records) and
+ * leaves out `linked_accounts`, which repeats them: the packet formats list
+ * items without their names, so the view would lose which balance belongs to
+ * which account. Changing what One reads is a separate, measured change.
  */
 export function shouldSkipPkmAgentContextKey(key: string): boolean {
   const normalized = normalizeKey(key);
   return (
-    shouldSkipPkmMemoryKey(key) ||
+    isInternalPkmKey(key) ||
+    normalized === LINKED_ACCOUNTS_BRANCH ||
     normalized === "source_library" ||
     AGENT_CONTEXT_SENSITIVE_KEY_PATTERN.test(normalized) ||
     AGENT_CONTEXT_SOURCE_KEY_PATTERN.test(normalized)
   );
+}
+
+/**
+ * Finance branches the bank connection rebuilds whole on every refresh. An edit
+ * or a "forget" there would come straight back, so Memory offers neither.
+ * Mirrors FINANCIAL_SOURCE_MANAGED_BRANCHES in the backend domain contracts.
+ */
+function isSourceManagedMemoryPath(domain: string, pathSegments: readonly PkmPathSegment[]): boolean {
+  const root = pathSegments[0];
+  return normalizeKey(domain) === "financial" && typeof root === "string" && PLAID_SOURCE_MANAGED_BRANCHES.has(normalizeKey(root));
 }
 
 function primitiveValue(value: unknown): string | null {
@@ -224,7 +258,10 @@ function cardTitle(params: {
   const label = titleize(lastKey);
   const value = params.value;
 
-  if (/\b(full_?name|display_?name|name)\b/.test(path)) return `Your name is ${value}`;
+  // A `name` inside a list item names that item (a bank, an account, a
+  // milestone), not the person: "Your name is Plaid Checking" is not a memory.
+  const insideListItem = params.pathSegments.some((segment) => typeof segment === "number");
+  if (!insideListItem && /\b(full_?name|display_?name|name)\b/.test(path)) return `Your name is ${value}`;
   if (/\b(roll|student_?id|roll_?no)\b/.test(path)) return `Roll number: ${value}`;
   if (/\b(iit|college|university|school|institution|institute)\b/.test(path)) {
     return `You study at ${value}`;
@@ -306,7 +343,7 @@ function flattenCards(params: {
       updatedAt: params.updatedAt,
       confidence: kind === "memory" ? 0.72 : 0.88,
       kind,
-      editable: true,
+      editable: !isSourceManagedMemoryPath(params.domain, pathSegments),
       searchText: `${params.domain} ${params.domainTitle} ${path} ${title} ${primitive}`.toLowerCase(),
     });
     return cards;

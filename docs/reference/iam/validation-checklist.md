@@ -1,5 +1,11 @@
 # Validation Checklist
 
+- [ ] Sign-out withdraws the live identity immediately so vault and realtime
+  consumers dispose their session. Token retrieval and notification cleanup share
+  a two-second best-effort budget; expired cleanup cannot start later push deletion.
+  Auth credentials, the web session cookie, and local owner state are still cleared
+  before terminal document replacement. A late auth validation cannot republish
+  the signed-out identity, and Profile does not issue a competing navigation.
 - [ ] Owner renewal: expired same-user self-owner evidence can renew only with
   an intact durable grant; wrong user/scope/device, unknown grant, and any later
   revocation fail closed. An outage must not fall back to bootstrap issuance.
@@ -91,8 +97,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Security and Privacy Checks
 
-- Native custom MCP calls set the external-content barrier before dispatch;
-  parallel unreviewed calls are blocked. Subsequent model requests retain only
+- Native custom MCP calls set the external-content barrier before dispatch. The
+  person's own connectors run without review, budget or first-call limits
+  (founder decision 2026-09-27); another owner's connector is refused with
+  `MCP_OWNER_MISMATCH`. Subsequent model requests retain only
   real native tool objects with the canonical exact-call review authority, not
   same-named impostors, arbitrary approval callbacks or provider built-ins.
   Verify reviewed composition through the installed ADK Runner separately from

@@ -186,6 +186,19 @@ def get_embedding_client() -> EmbeddingClient:
     return _embedding_client
 
 
+def warm_action_retrieval() -> bool:
+    """Load the model and embed the catalog before any person's first search.
+
+    Blocking; run it in a worker thread. It makes the exact call
+    ``list_app_actions`` makes, so the catalog vectors it caches are the ones a
+    real turn reads. Returns whether semantic retrieval is available.
+    """
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    search_actions("open settings", {"actions": list_action_gateway_actions()}, limit=1)
+    return _retrieval_available
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------

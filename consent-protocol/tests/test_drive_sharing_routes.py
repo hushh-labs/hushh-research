@@ -597,3 +597,41 @@ async def test_prepare_stream_deadline_closes_without_a_terminal_frame(monkeypat
     assert len(pending) == 1 and not pending[0].done()
     release.set()
     await asyncio.gather(*pending)
+
+
+def _reviewed_drive_app(monkeypatch):
+    from api.routes.one import drive_actions
+
+    app = FastAPI()
+    app.include_router(drive_actions.router)
+    execute = AsyncMock(return_value={"status": "ok", "action": "share"})
+    monkeypatch.setattr(drive_actions, "execute_reviewed_drive_action", execute)
+    return TestClient(app), app, execute
+
+
+def _reviewed_body(**changes):
+    return {
+        "user_id": "owner",
+        "conversation_id": "thread-a",
+        "directive_id": "dir_" + "0" * 32,
+        "action": "share",
+        "arguments": {"fileId": "file_1", "email": "a@example.invalid", "role": "reader"},
+        "confirmed": True,
+        **changes,
+    }
+
+
+def test_a_reviewed_drive_write_needs_the_unlocked_owner_and_an_explicit_confirmation(
+    monkeypatch,
+):
+    client, app, execute = _reviewed_drive_app(monkeypatch)
+    path = "/api/one/drive/reviewed-actions/execute"
+    assert client.post(path, json=_reviewed_body()).status_code in {401, 403}
+    unlock(app, "owner")
+    assert client.post(path, json=_reviewed_body(confirmed=False)).status_code == 400
+    assert client.post(path, json=_reviewed_body(user_id="someone-else")).status_code == 403
+    assert client.post(path, json=_reviewed_body(action="delete")).status_code == 422
+    execute.assert_not_awaited()
+    assert client.post(path, json=_reviewed_body()).status_code == 200
+    execute.assert_awaited_once()
+    assert execute.await_args.kwargs["owner_id"] == "owner"

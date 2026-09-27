@@ -3437,7 +3437,10 @@ async def stream_portfolio_import_run(
         )
 
     start_cursor = _parse_import_cursor(cursor)
-    if start_cursor > run.latest_cursor:
+    # A run held by another process is followed, not replayed from a local
+    # buffer; its cursor only numbers the terminal frame past what the client
+    # has seen, so the stale-cursor 410 does not apply.
+    if not run.is_durable_replay and start_cursor > run.latest_cursor:
         raise HTTPException(
             status_code=410,
             detail={

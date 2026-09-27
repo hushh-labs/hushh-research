@@ -774,7 +774,9 @@ class KaiPlugin : Plugin() {
                 }
                 activity.runOnUiThread { pluginCall.resolve(JSObject().put("success", true)) }
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "streamPortfolioImportRun error", e)
+                // The request URL carries user_id in its query, and Log.e is not
+                // silenced by Capacitor's loggingBehavior; log the type only.
+                android.util.Log.e(TAG, "streamPortfolioImportRun error: ${e.javaClass.simpleName}")
                 activity.runOnUiThread { pluginCall.reject("Stream error: ${e.message}") }
             }
         }.start()

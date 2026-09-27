@@ -2,7 +2,8 @@
 
 The scope carries request-only configuration, not permission to execute tools.
 Each acquisition resolves the current owner's connection; tool calls independently
-revalidate owner authority and pass through application review. Vault projections
+revalidate owner authority. The person's own connectors run without review;
+curated first-party rows keep exact-call review. Vault projections
 replace private DB definitions when supplied. The HTTP/review callers must admit
 them outside persisted ADK state and discard their original request references.
 No authenticated toolset is retained on the process-wide root agent.
@@ -41,10 +42,6 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 logger = logging.getLogger(__name__)
-# Most calls one request may send to connectors without exact-call review.
-# A backstop: the external-read boundary already admits at most one unreviewed
-# call per conversation. A code constant, never an environment flag.
-UNREVIEWED_CALL_BUDGET = 6
 _CURRENT: ContextVar[McpTurnResources | None] = ContextVar("one_mcp_turn_resources", default=None)
 STATE_MCP_CONFIGURATION = "temp:hussh:mcp_configuration"
 
@@ -222,7 +219,6 @@ class McpTurnResources:
             validate_mcp_turn_configurations(configurations) if configurations is not None else {}
         )
         self._closed = False
-        self._unreviewed_calls = 0
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}
         self._catalog_views: list[Any] = []
 
@@ -315,17 +311,10 @@ class McpTurnResources:
             ),
             headers,
             catalog_policy=admitted,
-            # Holding no person credential means no person authority is used.
+            # The person's own connector either way; this only labels Activity.
             review_policy="credentialless" if auth["kind"] == "none" else "credentialed",
             forced_review_tool_ids=frozenset(item["id"] for item in record.get("blockedTools", [])),
         )
-
-    def admit_unreviewed(self) -> bool:
-        """Claim one unreviewed call from this turn's budget; False means review."""
-        if self._closed or self._unreviewed_calls >= UNREVIEWED_CALL_BUDGET:
-            return False
-        self._unreviewed_calls += 1
-        return True
 
     def track_catalog_view(self, view: Any) -> None:
         if self._closed:
@@ -358,7 +347,6 @@ class McpTurnResources:
             result_policy=resolved.result_policy,
             review_policy=resolved.review_policy,
             forced_review_tool_ids=resolved.forced_review_tool_ids,
-            admit_unreviewed=self.admit_unreviewed,
         )
         self._toolsets[resolved.binding] = toolset
         return toolset

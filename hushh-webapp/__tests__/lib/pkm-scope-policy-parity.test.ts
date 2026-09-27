@@ -18,6 +18,8 @@ describe("financial export policy (mirror of the server's domain_contracts)", ()
     "attr.financial.securities_v1.*",
     "attr.financial.transactions_v1.*",
     "attr.financial.derived_v1.*",
+    "attr.financial.linked_accounts.*",
+    "attr.financial.linked_accounts.bank_accounts",
   ])("keeps %s private", (scope) => {
     expect(isPrivatePkmExportScope(scope)).toBe(true);
   });

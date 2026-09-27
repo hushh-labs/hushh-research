@@ -98,6 +98,7 @@ export interface GmailConnectionStatus {
   scope_csv: string;
   /** Provider-side draft creation is separate from local composition and sending. */
   compose_permission_granted?: boolean;
+  modify_permission_granted?: boolean;
   /** Google granted the Gmail send provider scope during the shared connection. */
   send_permission_granted?: boolean;
   last_sync_at?: string | null;
@@ -321,7 +322,7 @@ export class GmailReceiptsService {
     userId: string;
     loginHint?: string | null;
     includeGrantedScopes: boolean;
-    purpose?: "read" | "send" | "compose";
+    purpose?: "read" | "send" | "compose" | "modify";
   }): Promise<GmailConnectStartResponse> {
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",

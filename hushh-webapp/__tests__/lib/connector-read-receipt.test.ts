@@ -9,6 +9,33 @@ const receipt = {
 };
 
 describe("connector read receipts", () => {
+  it("offers continuation only for a bounded partial owner Drive metadata result", () => {
+    const partial = { ...receipt, connector: "drive", sources: [],
+      background_search_available: true, background_search_query: "Find product documents" };
+    expect(parseConnectorReadReceipt(partial)).toMatchObject({
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents",
+    });
+    for (const override of [{ connector: "mail" }, { truncated: false }, { metadata_only: false },
+      { status: "unavailable" }, { background_search_query: null },
+      { background_search_query: "x".repeat(2049) }, { background_search_available: false }]) {
+      expect(parseConnectorReadReceipt({ ...partial, ...override })).not.toHaveProperty("backgroundSearchAvailable");
+    }
+  });
+
+  it("preserves the literal multiline continuation and drops only an invalid action", () => {
+    const partial = { ...receipt, connector: "drive", sources: [], background_search_available: true };
+    for (const query of ["Find product docs\nfrom last week\tplease", "x".repeat(2048)]) {
+      expect(parseConnectorReadReceipt({ ...partial, background_search_query: query }))
+        .toMatchObject({ backgroundSearchAvailable: true, backgroundSearchQuery: query });
+    }
+    for (const query of ["x".repeat(2049), "é".repeat(1025), "private\u0000query"]) {
+      const parsed = parseConnectorReadReceipt({ ...partial, background_search_query: query });
+      expect(parsed).toMatchObject({ status: "ok", metadataOnly: true, truncated: true });
+      expect(parsed).not.toHaveProperty("backgroundSearchQuery");
+      expect(parsed).not.toHaveProperty("backgroundSearchAvailable");
+    }
+  });
+
   it("preserves only opaque Drive citations and bounded page provenance", () => {
     const ref = `document:${"a".repeat(32)}`;
     const structured = { ...receipt, connector: "drive", metadata_only: false,
@@ -31,6 +58,20 @@ describe("connector read receipts", () => {
       sourceRefs: ["mail:1"], truncated: true, metadataOnly: true });
     expect(JSON.stringify(value)).not.toContain("PRIVATE");
     expect(parseAgentToolResultExperience("send_email", { structured: receipt })).toBeNull();
+  });
+
+  it("accepts a workspace Drive receipt only when provider and outcome agree", () => {
+    const structured = { ...receipt, connector: "drive", sources: [],
+      background_search_available: true, background_search_query: "Find product documents" };
+    const result = { provider: "drive", status: "ok", structured, files: [{ name: "PRIVATE FILE" }] };
+    const parsed = parseAgentToolResultExperience("read_workspace_tool", result, { provider: "drive" });
+    expect(parsed).toMatchObject({ type: "one.connector_read.v1", connector: "drive",
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents" });
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE FILE");
+    expect(parseAgentToolResultExperience("read_workspace_tool", result, { provider: "calendar" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, provider: "gmail" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, status: "unavailable" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, structured: receipt })).toBeNull();
   });
 
   it.each([

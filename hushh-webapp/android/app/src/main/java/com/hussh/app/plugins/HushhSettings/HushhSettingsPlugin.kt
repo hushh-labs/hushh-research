@@ -26,7 +26,6 @@ class HushhSettingsPlugin : Plugin() {
         "useRemoteLLM" to true,
         "preferredLLMProvider" to "google",
         "requireBiometricUnlock" to false,
-        "autoLockTimeout" to 5,
         "theme" to "system",
         "hapticFeedback" to true,
         "showDebugInfo" to false,
@@ -49,7 +48,6 @@ class HushhSettingsPlugin : Plugin() {
             put("useRemoteLLM", prefs.getBoolean("useRemoteLLM", defaultSettings["useRemoteLLM"] as Boolean))
             put("preferredLLMProvider", prefs.getString("preferredLLMProvider", defaultSettings["preferredLLMProvider"] as String))
             put("requireBiometricUnlock", prefs.getBoolean("requireBiometricUnlock", defaultSettings["requireBiometricUnlock"] as Boolean))
-            put("autoLockTimeout", prefs.getInt("autoLockTimeout", defaultSettings["autoLockTimeout"] as Int))
             put("theme", prefs.getString("theme", defaultSettings["theme"] as String))
             put("hapticFeedback", prefs.getBoolean("hapticFeedback", defaultSettings["hapticFeedback"] as Boolean))
             put("showDebugInfo", prefs.getBoolean("showDebugInfo", defaultSettings["showDebugInfo"] as Boolean))
@@ -78,9 +76,6 @@ class HushhSettingsPlugin : Plugin() {
         }
         if (call.hasOption("requireBiometricUnlock")) {
             editor.putBoolean("requireBiometricUnlock", call.getBoolean("requireBiometricUnlock", false) ?: false)
-        }
-        if (call.hasOption("autoLockTimeout")) {
-            editor.putInt("autoLockTimeout", call.getInt("autoLockTimeout", 5) ?: 5)
         }
         if (call.hasOption("theme")) {
             editor.putString("theme", call.getString("theme"))

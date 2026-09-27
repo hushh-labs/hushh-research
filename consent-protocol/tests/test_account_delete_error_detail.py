@@ -116,6 +116,27 @@ class TestAccountDeleteErrorDetail:
         }
         assert self._SENTINEL not in resp.text
 
+    def test_release_fence_refusal_returns_paused(self):
+        """A deploy's release fence is temporary; the client shows a distinct message."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={
+                "success": False,
+                "error": self._SENTINEL,
+                "error_code": "ACCOUNT_DELETION_PAUSED",
+            },
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 503
+        assert resp.json() == {
+            "detail": "Account deletion paused",
+            "code": "ACCOUNT_DELETION_PAUSED",
+        }
+        assert self._SENTINEL not in resp.text
+
     def test_successful_deletion_returns_200(self):
         """A successful deletion must return 200 (not 422 or 500)."""
         with patch.object(

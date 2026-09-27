@@ -2,7 +2,11 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from api.consent_listener import _notify_information_requester
+from api.consent_listener import (
+    REQUESTER_ANSWER_BODY,
+    _notify_information_requester,
+    build_consent_push_content,
+)
 from api.utils.consent_notifications import (
     FINAL_REMINDER_LEAD_MS,
     next_pending_notification,
@@ -163,3 +167,62 @@ def test_unresolved_or_unbound_person_request_never_wakes_a_requester():
             },
         ):
             asyncio.run(_notify_information_requester(payload))
+
+
+# --- Bare consent push (fcm-notifications.md trust rule) ---------------------
+
+_PRIVATE_WORDS = ("penicillin", "attr.health.allergies", "Allergies", "birthday dinner")
+
+
+def test_owner_consent_push_names_the_requester_and_carries_no_request_content():
+    # Negative control: every private field is present in the event, and none
+    # may reach the title, body or data that the push provider and lock screen see.
+    title, body, data, show_alert = build_consent_push_content(
+        "owner-uid",
+        {
+            "request_id": "req-1",
+            "action": "REQUESTED",
+            "requester_label": "Kushal",
+            "scope": "attr.health.allergies",
+            "scope_description": "Allergies",
+            "reason": "Planning a birthday dinner",
+            "additional_access_summary": "Also asks about penicillin",
+            "existing_granted_scopes": ["attr.health.allergies"],
+            "bundle_label": "Allergies",
+            "bundle_id": "b1",
+        },
+    )
+
+    assert show_alert is True
+    assert body == "Kushal asked to see your information"
+    rendered = " ".join([title, body, *data.keys(), *data.values()])
+    for word in _PRIVATE_WORDS:
+        assert word not in rendered
+    assert data["type"] == "consent_request"
+    assert data["request_id"] == "req-1"
+
+
+def test_requester_answer_push_is_bare_and_opens_the_asking_chat():
+    bundle = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    title, body, data, show_alert = build_consent_push_content(
+        "requester-uid",
+        {
+            "type": "information_request_updated",
+            "action": "CONSENT_GRANTED",
+            "bundle_id": bundle,
+            "request_id": "req-1",
+            "scope_description": "Allergies",
+        },
+    )
+
+    assert show_alert is True
+    assert (title, body) == ("Hussh One", REQUESTER_ANSWER_BODY)
+    assert data["request_url"] == data["deep_link"] == f"/?informationRequest={bundle}"
+    assert "Allergies" not in " ".join(data.values())
+
+    # A revocation changes state but has no answer to open: it stays silent.
+    _t, _b, _d, revoked_alert = build_consent_push_content(
+        "requester-uid",
+        {"type": "information_request_updated", "action": "REVOKED", "bundle_id": bundle},
+    )
+    assert revoked_alert is False

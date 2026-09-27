@@ -328,4 +328,70 @@ describe("Connect circle growth", () => {
     expect(onLoadMore).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
   });
+
+  it("allows dragging a circle member down to remove them from the circle", () => {
+    const onRemove = vi.fn();
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[
+          {
+            userId: "owner",
+            displayName: "Taylor Kim",
+            role: "owner",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+          {
+            userId: "member-1",
+            displayName: "Jordan Lee",
+            publicPersonRef: "jordan-profile",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+        ]}
+        memberCount={2}
+        canInvite
+        candidates={[]}
+        availableCount={0}
+        remainingCapacity={4}
+        loading={false}
+        error={null}
+        addingUserId={null}
+        onAdd={vi.fn()}
+        onRemove={onRemove}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      types: ["application/x-hushh-circle-remove-member"],
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? "",
+    };
+
+    const memberLink = screen.getAllByRole("link", {
+      name: "Open Jordan Lee's profile",
+    })[0];
+    expect(memberLink).toHaveAttribute("draggable", "true");
+
+    fireEvent.dragStart(memberLink, { dataTransfer });
+    expect(screen.getByText("Drag down to remove from circle")).toBeTruthy();
+
+    const removeZone = screen.getByTestId("connect-circle-remove-drop-zone");
+    fireEvent.dragOver(removeZone, { dataTransfer });
+    expect(screen.getAllByText("Release to remove from circle").length).toBeGreaterThan(0);
+
+    fireEvent.drop(removeZone, { dataTransfer });
+    expect(onRemove).toHaveBeenCalledWith("member-1");
+  });
 });

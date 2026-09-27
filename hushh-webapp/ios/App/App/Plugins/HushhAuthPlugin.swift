@@ -608,6 +608,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             googleInteractiveInFlight = false
             return
         }
+        // The backend refuses a grant that drops a scope the connection already
+        // holds, so carry a modify grant made on the web through any reconnect.
+        if call.getBool("preserveModify") == true {
+            gmailScopes.append("https://www.googleapis.com/auth/gmail.modify")
+        }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
             hint: nil,

@@ -49,6 +49,11 @@ type EmailDraftCardProps = {
   sourceBoundReply?: SourceBoundEmailReplyAdapter | null;
   /** Owner-visible, server-derived envelope for a source-bound reply. */
   sourceBoundEnvelope?: { to: string; subject: string } | null;
+  /**
+   * Reports the draft as it is on screen, including the person's own edits,
+   * so a follow-up chat turn can revise it. Observing only; never sends.
+   */
+  onDraftChange?: (draft: EmailDraft) => void;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -78,6 +83,7 @@ export function EmailDraftCard({
   onSendFailed,
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
+  onDraftChange,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -107,6 +113,10 @@ export function EmailDraftCard({
   const attachmentIdempotencyKeyRef = useRef<string | null>(null);
   const autoDraftStartedRef = useRef(false);
   const sendStartedRef = useRef(false);
+
+  useEffect(() => {
+    onDraftChange?.(draft);
+  }, [draft, onDraftChange]);
 
   useEffect(() => {
     let active = true;

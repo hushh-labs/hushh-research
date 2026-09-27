@@ -193,6 +193,26 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
   });
 
+  it("aborts the live stream and stops reconnecting when sign-out withdraws the user", async () => {
+    let streamSignal: AbortSignal | undefined;
+    mocks.apiFetchStream.mockImplementation((_path: string, init: RequestInit) => {
+      streamSignal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        streamSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    });
+    const view = render(<ConsentNotificationProvider><div>Profile</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledOnce();
+    expect(streamSignal?.aborted).toBe(false);
+
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(streamSignal?.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledOnce();
+  });
+
   it("still retries a status that can genuinely recover, then stops", async () => {
     // 503 is transient. The fix must not turn every failure into a give-up --
     // but it must not retry forever either.

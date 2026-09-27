@@ -63,6 +63,9 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     next_page = payload.get("nextPageToken")
     if next_page is not None and not isinstance(next_page, str):
         raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    incomplete = payload.get("incompleteSearch", False)
+    if not isinstance(incomplete, bool) or next_page is not None and len(next_page) > 1024:
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
     # Metadata fields are scalar strings, not a channel for nested content.
     if any(
         value is not None and not isinstance(value, str)
@@ -78,6 +81,7 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         ],
         "nextPageToken": next_page,
         "overLimit": len(files) > 25,
+        "incompleteSearch": incomplete,
     }
 
 

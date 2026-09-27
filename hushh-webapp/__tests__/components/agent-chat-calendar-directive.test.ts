@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPendingEmailDraftContext,
   getCalendarDirectiveFromToolEvent,
   getGmailEmailDraftPayload,
   getGmailInformationRequestReplyPayload,
@@ -329,5 +330,56 @@ describe("getGmailEmailDraftPayload", () => {
     );
 
     expect(draft?.initialDraft).toBeNull();
+  });
+});
+
+describe("buildPendingEmailDraftContext", () => {
+  const draft = {
+    to: "pat@example.com",
+    cc: "priya@example.com",
+    bcc: "",
+    subject: "Details",
+    body: "The details are attached.",
+    driveFileId: "drive-file-1",
+  };
+
+  it("tells One exactly what the person sees on the card", () => {
+    expect(buildPendingEmailDraftContext(draft, null, false)).toEqual({
+      to: "pat@example.com",
+      cc: "priya@example.com",
+      bcc: "",
+      subject: "Details",
+      body: "The details are attached.",
+      driveFileId: "drive-file-1",
+      sourceBound: false,
+    });
+  });
+
+  it("uses the server-derived envelope for a reply to the selected Gmail request", () => {
+    expect(
+      buildPendingEmailDraftContext(
+        { ...draft, to: "", cc: "", subject: "" },
+        { to: "requester@example.com", subject: "Re: Verification" },
+        true,
+      ),
+    ).toEqual({
+      to: "requester@example.com",
+      cc: "",
+      bcc: "",
+      subject: "Re: Verification",
+      body: "The details are attached.",
+      sourceBound: true,
+    });
+  });
+
+  it("sends nothing when no draft is on screen", () => {
+    expect(buildPendingEmailDraftContext(null, null, false)).toBeNull();
+    expect(
+      buildPendingEmailDraftContext(
+        { to: "", cc: "", bcc: "", subject: "", body: "  " },
+        null,
+        false,
+      ),
+    ).toBeNull();
   });
 });

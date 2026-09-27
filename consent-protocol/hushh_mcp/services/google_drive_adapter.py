@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -20,7 +19,9 @@ from typing import Any
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
-logger = logging.getLogger(__name__)
+from hushh_mcp.services.drive_telemetry import drive_logger
+
+logger = drive_logger(__name__)
 
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
@@ -60,8 +61,13 @@ SHARE_METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,createdTime,trashed,"
     "capabilities(canShare),clientEncryptionDetails(encryptionState)"
 )
+# Metadata-only live read for a file with no readable text (a video, an image,
+# an archive, a folder): what it is and where to open it, never its bytes.
+FACT_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,trashed"
 # Live search: one bounded files.list shape, never a caller-chosen field set.
-LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+LIST_FIELDS = (
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+)
 # Drive sorts each key ascending unless told "desc"; live results are newest
 # first by the file time the owner asked about. modifiedTime is the default and
 # the time sort Drive optimizes on large collections.
@@ -183,6 +189,8 @@ class GoogleDriveAdapter:
         operation = (
             "list"
             if path == "/files"
+            else "list_drives"
+            if path == "/drives"
             else "account"
             if path == "/about"
             else "export"
@@ -238,12 +246,29 @@ class GoogleDriveAdapter:
             allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
         elif path == "/files":
             allowed = (
-                all(params.get(key) == value for key, value in LIST_FIXED.items())
-                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy"}
+                all(
+                    params.get(key) == value
+                    for key, value in LIST_FIXED.items()
+                    if key != "corpora"
+                )
+                and (
+                    params.get("corpora") == "user"
+                    and "driveId" not in params
+                    or params.get("corpora") == "drive"
+                    and FILE_ID.fullmatch(params.get("driveId", "")) is not None
+                )
+                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
                 and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
-                and len(params.get("q", "")) <= 2000
+                and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
+            )
+        elif path == "/drives":
+            allowed = (
+                params.get("fields") == "nextPageToken,drives(id,name)"
+                and set(params) <= {"fields", "pageSize", "pageToken"}
+                and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
+                and len(params.get("pageToken", "")) <= 1024
             )
         elif re.fullmatch(r"/files/[A-Za-z0-9_-]{1,200}(?:/export)?", path):
             allowed = (
@@ -252,6 +277,7 @@ class GoogleDriveAdapter:
                 in (
                     {"fields": METADATA_FIELDS, "supportsAllDrives": "true"},
                     {"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
+                    {"fields": FACT_FIELDS, "supportsAllDrives": "true"},
                     {"alt": "media", "supportsAllDrives": "true"},
                 )
             ) or (
@@ -403,6 +429,36 @@ class GoogleDriveAdapter:
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
 
+    async def get_file_facts(self, *, file_id: str, access_token: str) -> dict[str, Any]:
+        """Name, type, time, size and opening link of one live file, without content."""
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": FACT_FIELDS, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        name, mime = result.get("name"), result.get("mimeType")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or not isinstance(name, str)
+            or not isinstance(mime, str)
+        ):
+            raise DriveReadError("source_unavailable")
+        size, modified, link = (result.get(key) for key in ("size", "modifiedTime", "webViewLink"))
+        return {
+            "id": file_id,
+            "title": name[:1024],
+            "mimeType": mime[:255],
+            "modifiedTime": modified if isinstance(modified, str) and len(modified) <= 64 else None,
+            "size": int(size)
+            if isinstance(size, str) and re.fullmatch(r"[0-9]{1,20}", size)
+            else None,
+            "viewUrl": link if isinstance(link, str) and link.startswith("https://") else None,
+        }
+
     async def get_share_metadata(self, *, file_id: str, access_token: str) -> DriveMetadata:
         """Check an exact live file for sharing without requiring content access."""
         result = _decode_json(
@@ -458,11 +514,22 @@ class GoogleDriveAdapter:
         page_size: int,
         page_token: str | None = None,
         order_by: str | None = None,
+        drive_id: str | None = None,
     ) -> dict[str, Any]:
         """One bounded Drive REST search page (the GA API the picker lane already uses)."""
-        if not 1 <= page_size <= 25:
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 25
+        ):
+            raise DriveReadError("invalid_argument")
+        if drive_id is not None and (
+            not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id)
+        ):
             raise DriveReadError("invalid_argument")
         params = {**LIST_FIXED, "q": query, "pageSize": str(page_size)}
+        if drive_id is not None:
+            params.update(corpora="drive", driveId=drive_id)
         if page_token:
             params["pageToken"] = page_token
         if order_by:
@@ -470,6 +537,25 @@ class GoogleDriveAdapter:
         return _decode_json(
             await self._get(
                 "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def list_drives(
+        self, *, access_token: str, page_size: int = 25, page_token: str | None = None
+    ) -> dict[str, Any]:
+        """One bounded page of shared drives visible under the current owner grant."""
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 25
+        ):
+            raise DriveReadError("invalid_argument")
+        params = {"fields": "nextPageToken,drives(id,name)", "pageSize": str(page_size)}
+        if page_token:
+            params["pageToken"] = page_token
+        return _decode_json(
+            await self._get(
+                "/drives", access_token=access_token, params=params, limit=METADATA_LIMIT
             )
         )
 

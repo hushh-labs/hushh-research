@@ -764,7 +764,8 @@ class DebateRunManager {
       return { kind: "blocked", task: refreshedActiveTask };
     }
 
-    const response = await ApiService.startKaiDebateRun({
+    const controller = new AbortController();
+    const response = await ApiService.startKaiDebateRunStream({
       userId,
       debateSessionId: this.debateSessionId,
       ticker,
@@ -772,6 +773,7 @@ class DebateRunManager {
       userContext: userContext || undefined,
       pickSource,
       vaultOwnerToken,
+      signal: controller.signal,
     });
 
     if (response.status === 409) {
@@ -800,23 +802,104 @@ class DebateRunManager {
       throw new Error(`Failed to start analyze run: HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as {
-      run?: Record<string, unknown>;
-    };
-    if (!payload.run) {
-      throw new Error("Run start response missing run payload.");
-    }
-
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
-    this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
-    await this.connectRunStream(task.runId, {
+    return this.attachStartedRunStream(response, controller, {
       userId,
+      ticker,
+      pickSource,
       vaultOwnerToken,
       vaultKey,
-      cursor: 0,
-      resetBuffer: true,
     });
-    return { kind: "started", task };
+  }
+
+  /**
+   * Consume the stream that started the run. The run id arrives on the first
+   * envelope (the backend stamps it into every payload), which is when the task
+   * exists and `ensureRun` resolves; the stream keeps flowing afterwards. If the
+   * transport drops mid-run, fall back to the resumable attach path.
+   */
+  private attachStartedRunStream(
+    response: Response,
+    controller: AbortController,
+    params: {
+      userId: string;
+      ticker: string;
+      pickSource?: string;
+      vaultOwnerToken: string;
+      vaultKey?: string;
+    },
+  ): Promise<EnsureRunResult> {
+    return new Promise<EnsureRunResult>((resolve, reject) => {
+      let runId: string | null = null;
+
+      const onEnvelope = (envelope: KaiStreamEnvelope) => {
+        if (!runId) {
+          const payload =
+            envelope.payload && typeof envelope.payload === "object"
+              ? (envelope.payload as Record<string, unknown>)
+              : {};
+          const announced =
+            typeof payload.run_id === "string" ? payload.run_id.trim() : "";
+          if (!announced) return;
+          runId = announced;
+          const task = this.upsertTask({
+            ...this.makeTaskFromServer({
+              run_id: announced,
+              user_id: params.userId,
+              debate_session_id: this.debateSessionId,
+              ticker: params.ticker,
+              status: "running",
+              latest_cursor: 0,
+              pick_source: params.pickSource,
+            }),
+            streamState: "connected",
+            streamMessage: null,
+          });
+          this.resetRunBuffer(announced);
+          this.runSecrets.set(announced, {
+            vaultOwnerToken: params.vaultOwnerToken,
+            vaultKey: params.vaultKey,
+          });
+          this.streamControllers.set(announced, controller);
+          resolve({ kind: "started", task });
+        }
+        this.handleEnvelope(runId, envelope);
+      };
+
+      consumeCanonicalKaiStream(response, onEnvelope, {
+        signal: controller.signal,
+        idleTimeoutMs: 360000,
+        requireTerminal: true,
+      })
+        .then(() => {
+          if (!runId) {
+            reject(new Error("Analyze run stream ended before announcing its run."));
+          }
+        })
+        .catch((error: unknown) => {
+          if (!runId) {
+            reject(error);
+            return;
+          }
+          if ((error as Error)?.name === "AbortError") return;
+          const current = this.tasks.get(runId);
+          if (!current || current.status !== "running") return;
+          if (this.streamControllers.get(runId) === controller) {
+            this.streamControllers.delete(runId);
+          }
+          void this.connectRunStream(runId, {
+            userId: params.userId,
+            vaultOwnerToken: params.vaultOwnerToken,
+            vaultKey: params.vaultKey,
+            cursor: current.latestCursor,
+            resetBuffer: false,
+          });
+        })
+        .finally(() => {
+          if (runId && this.streamControllers.get(runId) === controller) {
+            this.streamControllers.delete(runId);
+          }
+        });
+    });
   }
 
   private async connectRunStream(
@@ -1092,6 +1175,19 @@ class DebateRunManager {
     vaultOwnerToken: string;
   }): Promise<void> {
     const { runId, userId, vaultOwnerToken } = params;
+    // The person asked to stop: detach and settle the task before the network
+    // round trip. Previously a failed cancel request (the run held by another
+    // backend process) threw first and left the task "running" and attached.
+    this.streamControllers.get(runId)?.abort();
+    const task = this.tasks.get(runId);
+    if (task && task.status === "running") {
+      this.upsertTask({
+        ...task,
+        status: "canceled",
+        completedAt: task.completedAt || nowIso(),
+        updatedAt: nowIso(),
+      });
+    }
     const response = await ApiService.cancelKaiDebateRun({
       runId,
       userId,
@@ -1100,18 +1196,6 @@ class DebateRunManager {
     if (!response.ok) {
       throw new Error(`Failed to cancel run: HTTP ${response.status}`);
     }
-    const controller = this.streamControllers.get(runId);
-    if (controller) {
-      controller.abort();
-    }
-    const task = this.tasks.get(runId);
-    if (!task) return;
-    this.upsertTask({
-      ...task,
-      status: "canceled",
-      completedAt: task.completedAt || nowIso(),
-      updatedAt: nowIso(),
-    });
   }
 
   dismissTask(runId: string): void {

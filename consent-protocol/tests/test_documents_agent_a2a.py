@@ -41,6 +41,56 @@ def pick(*refs):
     return AsyncMock(return_value={"selected": list(refs)})
 
 
+async def test_incident_presence_uses_exact_rest_lookup_and_never_reads_contents(monkeypatch):
+    source = reader()
+    source.find.return_value["matches"][0]["name"] = "Explain For Product"
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **_: source)
+    planner = AsyncMock(
+        return_value={
+            "terms": ["Explain For Product"],
+            "mode": "find",
+            "exact_title": "Explain For Product",
+        }
+    )
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=AsyncMock(
+            side_effect=AssertionError("exact REST matches need no selector")
+        ),
+        interpreter=AsyncMock(side_effect=AssertionError("presence must not read")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="explain for product doc is there in my drive")
+    )
+    assert response.structured.status == "ok"
+    assert "Open in Drive" in response.text
+    assert source.find.await_args.kwargs["exact_title"] == "Explain For Product"
+    source.read_matches.assert_not_awaited()
+    assert json.loads(planner.await_args.kwargs["prompt"])["document_request"]["purpose"] == (
+        "explain for product doc is there in my drive"
+    )
+
+
+async def test_incomplete_empty_search_can_continue_without_claiming_absence(monkeypatch):
+    source = reader()
+    source.find.return_value = {"matches": [], "truncated": True, "incomplete_search": True}
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **_: source)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value={"terms": ["product"], "mode": "find"}),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="find my product documents")
+    )
+    assert response.structured.status == "ok"
+    assert response.structured.background_search_available is True
+    assert response.structured.background_search_query == "find my product documents"
+    assert "Search incomplete" in response.text
+    assert "couldn't find" not in response.text
+    source.read_matches.assert_not_awaited()
+
+
 @pytest.fixture(autouse=True)
 def admission(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
@@ -768,7 +818,12 @@ async def test_metadata_only_and_exact_title_plans_never_call_the_selector(
     )
     assert outcome["status"] == "ok"
     assert selector.called is False
-    assert outcome["selection"] == {"stage": stage, "candidates": 1, "selected": 1}
+    assert outcome["selection"] == {
+        "stage": stage,
+        "candidates": 1,
+        "selected": 1,
+        **({"mode": "find"} if plan.get("mode", "find") == "find" else {}),
+    }
 
 
 async def test_a_none_relevant_answer_is_honest_not_unavailable():

@@ -1086,7 +1086,12 @@ export function KaiFlow({
         parsedPortfolio: snapshot.parsedPortfolio,
       }));
       setError(null);
-      setState("import_complete");
+      // setState changes identity with every ?stage= navigation, so this
+      // restore re-runs when the person opens the review. Supplying the
+      // extracted result is idempotent; forcing the stage back is not.
+      if (stateRef.current !== "reviewing") {
+        setState("import_complete");
+      }
       return;
     }
 
@@ -1116,7 +1121,9 @@ export function KaiFlow({
           parsedPortfolio: snapshot.parsedPortfolio,
         }));
         setError(null);
-        setState("import_complete");
+        if (stateRef.current !== "reviewing") {
+          setState("import_complete");
+        }
         return;
       }
 
@@ -3152,6 +3159,29 @@ export function KaiFlow({
     effectiveVaultOwnerToken,
   ]);
 
+  // Drop a finished (or abandoned) extraction: the stored snapshot, its
+  // background task, and the parsed result. Without this the snapshot restore
+  // brings the same "import complete" card back on the next render or visit.
+  const discardImportResult = useCallback(() => {
+    const snapshot = loadImportBackgroundSnapshot(userId);
+    if (snapshot?.taskId) {
+      AppBackgroundTaskService.dismissTask(snapshot.taskId);
+    }
+    clearImportBackgroundSnapshot(userId);
+    importResumeAppliedRef.current = false;
+    importSnapshotUpdatedAtRef.current = null;
+    activeImportTaskIdRef.current = null;
+    activeImportRunIdRef.current = null;
+    activeImportCursorRef.current = 0;
+    lastImportFileRef.current = null;
+    setStreaming(createInitialStreamingState());
+    setError(null);
+    setFlowData((prev) => ({
+      ...prev,
+      parsedPortfolio: undefined,
+    }));
+  }, [userId]);
+
   // Handle cancel import
   const handleCancelImport = useCallback(() => {
     userRequestedImportCancelRef.current = true;
@@ -3227,7 +3257,22 @@ export function KaiFlow({
 
   const handleBackToDashboardFromImport = useCallback(async () => {
     if (mode === "import") {
-      if (await finishFinanceSetupIfActive("later")) return;
+      // Cancel on the finished card discards the extraction and shows the
+      // source chooser at once. Finance setup keeps this flow mounted, so a
+      // settled "later" must leave the person there to upload again or finish
+      // setup from the footer; returning with the card still up was the bug.
+      discardImportResult();
+      setState("import_required");
+      const handledBySetup = await finishFinanceSetupIfActive("later").catch(
+        (settleError: unknown) => {
+          console.warn(
+            "[KaiFlow] Could not settle Finance setup after cancel:",
+            settleError,
+          );
+          return true;
+        },
+      );
+      if (handledBySetup) return;
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
@@ -3238,6 +3283,7 @@ export function KaiFlow({
       setState("import_required");
     }
   }, [
+    discardImportResult,
     finishFinanceSetupIfActive,
     flowData.portfolioData,
     mode,
@@ -3629,30 +3675,13 @@ export function KaiFlow({
 
   // Handle re-import (upload new statement)
   const handleReimport = useCallback(() => {
-    const snapshot = loadImportBackgroundSnapshot(userId);
-    if (snapshot?.taskId) {
-      AppBackgroundTaskService.dismissTask(snapshot.taskId);
-    }
-    clearImportBackgroundSnapshot(userId);
-    importResumeAppliedRef.current = false;
-    importSnapshotUpdatedAtRef.current = null;
-    activeImportTaskIdRef.current = null;
-    activeImportRunIdRef.current = null;
-    activeImportCursorRef.current = 0;
-    lastImportFileRef.current = null;
-    setStreaming(createInitialStreamingState());
-    setError(null);
-    setFlowData((prev) => ({
-      ...prev,
-      parsedPortfolio: undefined,
-    }));
-
+    discardImportResult();
     if (mode === "dashboard") {
       router.push(ROUTES.KAI_IMPORT);
       return;
     }
     setState("import_required");
-  }, [mode, router, setState, userId]);
+  }, [discardImportResult, mode, router, setState]);
 
   const handlePreloadSchema = useCallback(async () => {
     if (isPreloadingSchema) return;

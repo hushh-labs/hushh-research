@@ -59,7 +59,11 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
-import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
+import {
+  deriveAnalysisRouteIntent,
+  pickCancelledAnalysisReturnEntry,
+  shouldShowAnalysisPreview,
+} from "@/lib/kai/analysis-route-intent";
 import { getAnalysisSuggestions } from "@/lib/kai/analysis-suggestions";
 import { getStockContext } from "@/lib/services/kai-service";
 import {
@@ -174,6 +178,9 @@ export function KaiAnalysisPageContent() {
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
+  // The `analysis_id`/`debate_id` a lookup finished without finding, e.g. a
+  // Feed link to a result that expired, was deleted or never finished saving.
+  const [missingEntryRouteId, setMissingEntryRouteId] = useState<string | null>(null);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [historyFallbackEntry, setHistoryFallbackEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [activeRunTask, setActiveRunTask] = useState<DebateRunTask | null>(null);
@@ -202,6 +209,11 @@ export function KaiAnalysisPageContent() {
   const [previewPickSource, setPreviewPickSource] = useState("default");
   const analysisSearchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
+  // The URL (as a string) at the moment a live debate was cancelled. While the
+  // URL still reads the same, the cancelled run's `focus`/`ticker` must not
+  // reopen the stock preview. Cleared as soon as the URL moves on.
+  const [closingRouteKey, setClosingRouteKey] = useState<string | null>(null);
+  const closeNavigationRef = useRef(0);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -349,6 +361,7 @@ export function KaiAnalysisPageContent() {
     if ((!debateId && !analysisEntryId) || !userId || !vaultKey) {
       setResolvedEntry(null);
       setResolvingEntry(false);
+      setMissingEntryRouteId(null);
       return;
     }
     const resolvedUserId = userId;
@@ -372,6 +385,7 @@ export function KaiAnalysisPageContent() {
               .flat()
               .find((entry) => extractDebateId(entry) === debateId) ?? null;
         setResolvedEntry(match || null);
+        setMissingEntryRouteId(match ? null : analysisEntryId || debateId);
       } finally {
         if (!cancelled) {
           setResolvingEntry(false);
@@ -386,6 +400,10 @@ export function KaiAnalysisPageContent() {
     };
   }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken]);
 
+  const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
+  useEffect(() => {
+    searchParamsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
   const handleSelectTicker = useCallback(
     (ticker: string) => {
       const normalizedTicker = String(ticker || "").trim().toUpperCase();
@@ -429,6 +447,11 @@ export function KaiAnalysisPageContent() {
   );
 
   const handleCloseLiveDebate = useCallback(() => {
+    const cancelledTicker = String(
+      activeRunTask?.ticker || focusedRunTask?.ticker || analysisParams?.ticker || "",
+    )
+      .trim()
+      .toUpperCase();
     if (activeRunTask && vaultOwnerToken) {
       void DebateRunManagerService.cancelRun({
         runId: activeRunTask.runId,
@@ -436,13 +459,68 @@ export function KaiAnalysisPageContent() {
         vaultOwnerToken,
       }).catch(() => undefined);
     }
+    const closingKey = searchParams.toString();
+    setClosingRouteKey(closingKey);
     setAnalysisParams(null);
     setLiveEntry(null);
     setFocusedRunId(null);
     setFocusedRunTask(null);
     setShowHistoryWhileActive(false);
-    setDebateIdParam(null);
-  }, [activeRunTask, setAnalysisParams, setDebateIdParam, vaultOwnerToken]);
+
+    // Return to the analysis the person was on: the newest saved analysis for
+    // this ticker, else the analysis landing. The target never names the
+    // ticker, so the preview and its research-source picker cannot reopen.
+    const token = ++closeNavigationRef.current;
+    const loadHistory =
+      cancelledTicker && userId && vaultKey
+        ? KaiHistoryService.getAllHistory({
+            userId,
+            vaultKey,
+            vaultOwnerToken: vaultOwnerToken || "",
+          }).catch(() => ({}))
+        : Promise.resolve({});
+    void loadHistory.then((history) => {
+      if (closeNavigationRef.current !== token) return;
+      if (searchParamsRef.current.toString() !== closingKey) return;
+      const entry = pickCancelledAnalysisReturnEntry(
+        cancelledTicker,
+        Object.values(history).flat(),
+      );
+      if (entry) setWorkspaceTab("summary");
+      router.replace(
+        buildKaiMarketRoute(
+          "analysis",
+          entry ? { analysis_id: getAnalysisHistoryEntryRouteId(entry) } : {},
+        ),
+        { scroll: false },
+      );
+    });
+  }, [
+    activeRunTask,
+    analysisParams?.ticker,
+    focusedRunTask?.ticker,
+    router,
+    searchParams,
+    setAnalysisParams,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (closingRouteKey !== null && closingRouteKey !== searchParams.toString()) {
+      setClosingRouteKey(null);
+    }
+  }, [closingRouteKey, searchParams]);
+
+  useEffect(
+    () => () => {
+      // A pending cancel navigation must not pull the person back after they
+      // have left the analysis surface.
+      closeNavigationRef.current += 1;
+    },
+    [],
+  );
 
   const handleReanalyze = useCallback(
     (ticker: string) => {
@@ -467,10 +545,6 @@ export function KaiAnalysisPageContent() {
     [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
-  const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
-  useEffect(() => {
-    searchParamsRef.current = new URLSearchParams(searchParams.toString());
-  }, [searchParams]);
   const setWorkspaceView = useCallback(
     (value: WorkspaceTab) => {
       if (workspaceTabRef.current !== value) {
@@ -591,16 +665,19 @@ export function KaiAnalysisPageContent() {
     [searchParams]
   );
   const hasConfirmedAnalysisIntent = analysisParams?.launchConfirmed === true;
-  const shouldShowPreview =
-    Boolean(previewTickerRaw) &&
-    !hasRunRouteIntent &&
-    (!hasActiveRouteIntent || !hasConfirmedAnalysisIntent) &&
-    !showHistoryWhileActive &&
-    !debateId &&
-    !activeRunTask &&
-    !hasFocusedRun &&
-    !liveEntry &&
-    !resolvedEntry;
+  const shouldShowPreview = shouldShowAnalysisPreview({
+    previewTicker: previewTickerRaw,
+    hasRunRouteIntent,
+    hasActiveRouteIntent,
+    hasConfirmedAnalysisIntent,
+    showHistoryWhileActive,
+    hasDebateId: Boolean(debateId),
+    hasActiveRun: Boolean(activeRunTask),
+    hasFocusedRun,
+    hasOpenEntry: Boolean(liveEntry || resolvedEntry),
+    closingLiveDebate:
+      closingRouteKey !== null && closingRouteKey === searchParams.toString(),
+  });
   const showWorkspace =
     !showHistoryWhileActive &&
     !shouldShowPreview &&
@@ -695,7 +772,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis.cancel_active", actionId: "analysis.cancel_active", label: "Cancel analysis", purpose: "Cancel the active analysis." }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
+            ...(previewTickerFromQuery ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
             ...(activeRunTask ? [{ id: "analysis.resume_active", actionId: "analysis.resume_active", label: "Open active analysis", purpose: "Resume the active analysis workspace." }] : []),
           ]),
     ];
@@ -734,7 +811,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis_cancel", label: "Cancel analysis", purpose: "Cancel the active analysis.", actionId: "analysis.cancel_active", role: "button" }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis_start_preview", label: "Start debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
+            ...(previewTickerFromQuery ? [{ id: "analysis_start_preview", label: "Start analysis debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
             ...(activeRunTask ? [{ id: "analysis_open_active", label: "Open active analysis", purpose: "Resume the active analysis.", actionId: "analysis.resume_active", role: "button" }] : []),
           ]),
     ];
@@ -1379,6 +1456,31 @@ export function KaiAnalysisPageContent() {
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
+          {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
+            <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
+              <SurfaceCardContent className="p-5 text-center">
+                <h2 className="text-lg font-semibold">This analysis is no longer available</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  It may have expired, been deleted, or never finished saving to your history.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <MorphyButton
+                    onClick={() =>
+                      openKaiCommandBar({
+                        intent: "finance_stock_analysis",
+                        initialQuery: "Analyze ",
+                      })
+                    }
+                  >
+                    Start a new analysis
+                  </MorphyButton>
+                  <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
+                    Back to history
+                  </MorphyButton>
+                </div>
+              </SurfaceCardContent>
+            </SurfaceCard>
+          ) : null}
           <SurfaceCard className="w-full">
             <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
                 <button
@@ -1450,7 +1552,7 @@ export function KaiAnalysisPageContent() {
                   onClick={handleStartDebateFromPreview}
                   disabled={stockPreviewLoading || startingPreviewDebate || !stockPreview}
                 >
-                  {startingPreviewDebate ? "Preparing debate..." : "Start debate"}
+                  {startingPreviewDebate ? "Preparing debate..." : "Start analysis debate"}
                 </MorphyButton>
               </div>
             }

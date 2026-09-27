@@ -346,7 +346,7 @@ export function maskPhoneNumberForOtp(
   if (!localPhoneNumber) return "";
   if (localPhoneNumber.length <= 4) return localPhoneNumber;
 
-  return `${"•".repeat(localPhoneNumber.length - 4)} ${localPhoneNumber.slice(-4)}`;
+  return `${"•".repeat(localPhoneNumber.length - 4)}${localPhoneNumber.slice(-4)}`;
 }
 
 export function resolvePhoneInputChange(value: string): {
@@ -1294,7 +1294,7 @@ export function PhoneVerificationFlow({
             data-figma-otp-intro="true"
           >
             {codePresentation === "onboarding" ? "To confirm your account, enter the 6-digit code we sent to " : "Enter the code sent to "}
-            <span className="font-semibold text-foreground">
+            <span className="whitespace-nowrap font-semibold text-foreground">
               {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
             .{" "}

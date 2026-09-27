@@ -69,7 +69,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("drainOperationQueue");
     expect(workspace).toContain("agent-chat-prompt-queue");
     expect(workspace).toContain("enqueueCalendarDirective");
-    expect(workspace).toContain('text: "Scheduling…"');
+    // Calendar and reviewed Gmail changes share one serialized runner.
+    expect(workspace).toContain('pendingText: "Scheduling…"');
+    expect(workspace).toContain("enqueueWorkspaceOperation({");
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
@@ -154,7 +156,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain('return "Ready";');
     // Status belongs below One, not beside the profile avatar. The subtitle
     // crossfades without moving the right-hand controls.
-    expect(workspace).toContain('statusText || "Your private agent"');
+    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = "Your private agent"');
+    expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
+    expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
     expect(workspace).not.toContain('title={statusText || undefined}');
   });
 

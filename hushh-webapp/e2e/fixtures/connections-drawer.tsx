@@ -8,6 +8,7 @@ import {
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
+import ExternalConnectorsPage from "../../app/one/profile/connectors/page";
 
 type RecoveryFixtureWindow = Window & {
   __driveRecoveryReadiness?: "busy" | "unavailable";
@@ -179,4 +180,9 @@ function Fixture() {
     </main>
   );
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+const root = createRoot(document.getElementById("root")!);
+root.render(<Fixture />);
+// The shipped Profile > Connectors route, mounted in place of the chat fixture.
+Object.assign(window, {
+  __renderConnectorsSettingsPage: () => root.render(<ExternalConnectorsPage />),
+});

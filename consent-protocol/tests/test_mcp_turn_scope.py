@@ -437,7 +437,7 @@ def test_invalid_blocked_tool_configuration_fails_closed(blocked):
         ({"kind": "oauth", "accessToken": "synthetic", "expiresAt": 4102444800}, "credentialed"),
     ],
 )
-async def test_review_policy_follows_whether_the_person_gave_a_credential(
+async def test_own_connector_policy_labels_whether_the_person_gave_a_credential(
     runtime, monkeypatch, authentication, policy
 ):
     monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
@@ -449,12 +449,6 @@ async def test_review_policy_follows_whether_the_person_gave_a_credential(
             authorized_context(), record["connectorId"], authorize_call=AsyncMock()
         )
         assert toolset.review_policy == policy
-
-
-async def test_registered_database_connector_keeps_review_for_every_call(runtime):
-    async with module.mcp_turn_scope("thread") as scope:
-        resolved = await scope.resolve_connection(authorized_context(), "custom_one")
-        assert resolved.review_policy == "always"
 
 
 async def test_owner_blocked_tool_ids_force_review_in_chat(runtime, monkeypatch):
@@ -470,21 +464,17 @@ async def test_owner_blocked_tool_ids_force_review_in_chat(runtime, monkeypatch)
         assert toolset.forced_review_tool_ids == frozenset({blocked["id"]})
 
 
-async def test_turn_budget_admits_at_most_six_unreviewed_calls():
-    async with module.mcp_turn_scope("thread") as scope:
-        assert [scope.admit_unreviewed() for _ in range(8)] == [True] * 6 + [False] * 2
-    assert module.UNREVIEWED_CALL_BUDGET == 6
-    assert scope.admit_unreviewed() is False  # a closed turn admits nothing
-
-
-async def test_turn_scope_hands_its_budget_to_each_toolset(runtime, monkeypatch):
+async def test_turn_scope_hands_out_no_unreviewed_call_budget(runtime, monkeypatch):
+    """Founder, 2026-09-27: the person's own connector calls are not rationed."""
     monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
     record = {**configuration(), "authentication": {"kind": "none"}}
     async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
         toolset = await scope.acquire(
             authorized_context(), record["connectorId"], authorize_call=AsyncMock()
         )
-        assert toolset.admit_unreviewed == scope.admit_unreviewed
+        assert not hasattr(toolset, "admit_unreviewed")
+        assert not hasattr(scope, "admit_unreviewed")
+    assert not hasattr(module, "UNREVIEWED_CALL_BUDGET")
 
 
 @pytest.mark.parametrize("value", ["HCT:synthetic.signature", "Bearer HCT:synthetic.signature"])

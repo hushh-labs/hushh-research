@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Mail, MailCheck, RefreshCw } from "@/components/icons";
+import { Loader2, MailCheck, RefreshCw } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
@@ -36,6 +36,7 @@ import {
 import { apiErrorCode } from "@/lib/services/api-client";
 
 type Props = {
+  active?: boolean;
   userId: string | null;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
@@ -464,6 +465,7 @@ function ActivityCard({
  * intentionally not used by this workflow.
  */
 export default function GmailInformationRequestsSection({
+  active = true,
   userId,
   vaultKey,
   vaultOwnerToken,
@@ -603,15 +605,27 @@ export default function GmailInformationRequestsSection({
     }
   }, [isConnected, userId, vaultOwnerToken]);
 
+  // Retain the warm workspace across tabs without restarting its first-load UI.
+  const loadedForRef = useRef<typeof load | null>(null);
   useEffect(() => {
+    if (!active || loadedForRef.current === load) return;
+    loadedForRef.current = load;
     void load();
-  }, [load]);
+  }, [active, load]);
 
   useEffect(() => {
-    if (!isConnected || !userId || !vaultOwnerToken) return;
+    if (active) return;
+    scanAbortControllerRef.current?.abort();
+    setSelectedWorkflowId(null);
+    setShowEnableConfirm(false);
+    setShowDisableConfirm(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || !isConnected || !userId || !vaultOwnerToken) return;
     const timer = window.setInterval(() => void load(), 60_000);
     return () => window.clearInterval(timer);
-  }, [isConnected, load, userId, vaultOwnerToken]);
+  }, [active, isConnected, load, userId, vaultOwnerToken]);
 
   const scanInbox = useCallback(async () => {
     if (!vaultOwnerToken || !idTokenProvider || scanInFlightRef.current) {
@@ -663,6 +677,10 @@ export default function GmailInformationRequestsSection({
       setActivityLoaded(true);
       return true;
     } catch (scanError) {
+      if (controller.signal.aborted) {
+        automaticScanSessionRef.current = null;
+        return false;
+      }
       setError(
         scanError instanceof Error
           ? scanError.message
@@ -681,6 +699,7 @@ export default function GmailInformationRequestsSection({
   }, [idTokenProvider, vaultOwnerToken]);
 
   useEffect(() => {
+    if (!active || scanningInbox || scanInFlightRef.current) return;
     if (!preference?.monitoring_enabled || !userId || !vaultOwnerToken) {
       automaticScanSessionRef.current = null;
       return;
@@ -689,7 +708,7 @@ export default function GmailInformationRequestsSection({
     if (automaticScanSessionRef.current === sessionKey) return;
     automaticScanSessionRef.current = sessionKey;
     void scanInbox();
-  }, [preference?.monitoring_enabled, scanInbox, userId, vaultOwnerToken]);
+  }, [active, preference?.monitoring_enabled, scanInbox, scanningInbox, userId, vaultOwnerToken]);
 
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
@@ -1101,8 +1120,8 @@ export default function GmailInformationRequestsSection({
   ) : (
     <Button
       type="button"
-      size="sm"
-      className="min-h-11 w-full sm:w-auto"
+      size="prominent"
+      className="w-full justify-center"
       variant="blue-gradient"
       disabled={updating || loading || scanningInbox}
       onClick={() => {
@@ -1115,21 +1134,21 @@ export default function GmailInformationRequestsSection({
     >
       {updating ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-      ) : (
-        <Mail className="mr-2 h-4 w-4" />
-      )}
+      ) : null}
       {vaultKey && vaultOwnerToken
         ? "Start monitoring"
         : "Unlock to start"}
     </Button>
   );
   return (
-    <SurfaceInset className="space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5">
-      <div className="flex items-start justify-between gap-3">
+    <SurfaceInset className="space-y-4 !border-0 !bg-transparent !p-0 text-sm !shadow-none">
+      <div className={enabled ? "flex items-start justify-between gap-3" : "mx-auto max-w-md pt-8 text-center"}>
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">KYC requests</h2>
+          <h2 className={enabled ? "text-lg font-semibold tracking-tight text-foreground" : "text-2xl font-semibold tracking-tight text-foreground"}>KYC requests</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Review requests and approve every reply before it sends.
+            {enabled
+              ? "Review requests and approve every reply before it sends."
+              : "One checks emails for KYC requests. You approve before sending."}
           </p>
         </div>
         {enabled ? (
@@ -1175,19 +1194,9 @@ export default function GmailInformationRequestsSection({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 rounded-[var(--app-card-radius-sm)] border border-border/60 bg-background/60 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <Mail className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="font-medium text-foreground">Find KYC requests in Gmail</p>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Nothing is shared without your approval.
-              </p>
-            </div>
-          </div>
-          <div className="w-full sm:w-auto">{monitoringActions}</div>
+        <div className="mx-auto flex w-full max-w-xs flex-col items-center gap-4 pb-8 pt-2">
+          {monitoringActions}
+          <p className="text-sm text-muted-foreground">Stop anytime.</p>
         </div>
       )}
 
@@ -1329,7 +1338,7 @@ export default function GmailInformationRequestsSection({
       )}
 
       <AdaptiveDetailSurface
-        open={Boolean(selectedWorkflow)}
+        open={active && Boolean(selectedWorkflow)}
         onOpenChange={(open) => {
           if (!open) setSelectedWorkflowId(null);
         }}
@@ -1362,7 +1371,7 @@ export default function GmailInformationRequestsSection({
         ) : null}
       </AdaptiveDetailSurface>
       <AlertDialog
-        open={showEnableConfirm}
+        open={active && showEnableConfirm}
         onOpenChange={(open) => setShowEnableConfirm(open)}
       >
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
@@ -1390,7 +1399,7 @@ export default function GmailInformationRequestsSection({
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog
-        open={showDisableConfirm}
+        open={active && showDisableConfirm}
         onOpenChange={(open) => setShowDisableConfirm(open)}
       >
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">

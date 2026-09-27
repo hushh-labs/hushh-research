@@ -46,7 +46,7 @@ export default function ExternalConnectorsPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="reading"
       className="flex min-h-[calc(100dvh-var(--app-bottom-nav-height,0px))] flex-col"
       nativeTest={{
         routeId: "profile-connectors",

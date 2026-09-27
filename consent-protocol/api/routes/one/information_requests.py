@@ -56,6 +56,22 @@ async def create_information_request(
         raise _http(exc) from exc
 
 
+@router.get("/shared-with-me")
+async def list_information_shared_with_me(
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Current approvals other people gave this person: names and labels only.
+
+    The values stay in each encrypted export and are opened on the person's own
+    device from the per-person page.
+    """
+    try:
+        shares = await _service().list_granted_shares(requester_user_id=str(token["user_id"]))
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+    return {"shares": shares}
+
+
 @router.get("/{bundle_id}")
 async def get_information_request(
     bundle_id: UUID,

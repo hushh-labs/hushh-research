@@ -116,8 +116,9 @@ function isRetryableConsentOpenStatus(status: number): boolean {
 
 /**
  * Build a PendingConsent object from an FCM data payload.
- * The backend now includes scope, agent_id, and scope_description in the
- * FCM data message so the frontend can render the toast without fetching.
+ * The push is a bare wake-up (identifiers and the requester's name only); scope,
+ * purpose and grant details are never in it and load after unlock from the
+ * owner-scoped pending list, so the scope fields here are normally empty.
  */
 function consentFromFCMPayload(
   data: Record<string, string>,
