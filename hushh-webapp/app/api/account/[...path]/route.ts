@@ -113,6 +113,15 @@ export async function POST(
   return proxyRequest(request, await props.params);
 }
 
+// The display-name editor saves with PATCH /api/account/identity/display-name.
+// Without this export Next answered 405 and the edit never reached the backend.
+export async function PATCH(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  return proxyRequest(request, await props.params);
+}
+
 export async function DELETE(
   request: NextRequest,
   props: { params: Promise<{ path: string[] }> }
