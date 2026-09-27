@@ -285,3 +285,24 @@ async def test_unwired_or_malformed_graph_cannot_enter_the_domain_adapter() -> N
     assert result.reason_code == "contract_unavailable"
     assert circle.created_run_ids == []
     assert store.runs == {}
+
+
+def test_real_circle_service_offers_the_calls_the_executor_makes() -> None:
+    """The executor's fake defined create_or_get_circle / get_circle_for_capability_run,
+    so these tests passed while the real service had neither and every direct
+    create-circle run failed with AttributeError. Bind the executor's actual call
+    shapes against the production class."""
+    import inspect
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    create = inspect.signature(OneLocationCircleService.create_or_get_circle)
+    create.bind(
+        object(),
+        owner_user_id="owner-1",
+        name="Family",
+        kind="other",
+        capability_run_id="run-1",
+    )
+    receipt = inspect.signature(OneLocationCircleService.get_circle_for_capability_run)
+    receipt.bind(object(), owner_user_id="owner-1", capability_run_id="run-1")

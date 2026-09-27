@@ -418,6 +418,17 @@ def _clean_kind(value: str | None) -> str:
     return kind
 
 
+def _clean_capability_run_id(value: str | None) -> str:
+    run_id = str(value or "").strip()
+    if not run_id or len(run_id) > 128:
+        raise OneLocationCircleError(
+            "LOCATION_CAPABILITY_RUN_INVALID",
+            "This request can no longer be completed.",
+            status_code=422,
+        )
+    return run_id
+
+
 class OneLocationCircleService:
     """Owns named Circle state and atomic membership transitions."""
 
@@ -1322,6 +1333,94 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("create", exc) from exc
 
+    def create_or_get_circle(
+        self,
+        *,
+        owner_user_id: str,
+        name: str,
+        kind: str | None = None,
+        capability_run_id: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Create one Circle for a capability run, or return the one it already made.
+
+        The run id is the replay key, kept in the Circle's metadata, so a relay
+        retry of the same run cannot create a second Circle. The owner's
+        membership lock is taken before the lookup, which serializes concurrent
+        retries of one run. Returns the Circle and whether this call created it.
+        """
+        run_id = _clean_capability_run_id(capability_run_id)
+        cleaned_name = _clean_name(name)
+        cleaned_kind = _clean_kind(kind)
+        try:
+            with self._db.engine.begin() as conn:
+                self._lock_user_circle_memberships(conn, user_id=owner_user_id)
+                circle_id = self._circle_id_for_capability_run(
+                    conn, owner_user_id=owner_user_id, capability_run_id=run_id
+                )
+                created = circle_id is None
+                if circle_id is None:
+                    circle_id = self.create_circle_in_transaction(
+                        conn,
+                        owner_user_id=owner_user_id,
+                        name=cleaned_name,
+                        kind=cleaned_kind,
+                        metadata={"capability_run_id": run_id},
+                    )
+            if created:
+                logger.info(
+                    "one_location.circle_created owner=%s source=capability_run",
+                    redact_log_field("user_id", owner_user_id),
+                )
+            return self.get_circle(user_id=owner_user_id, circle_id=circle_id), created
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("create", exc) from exc
+
+    def get_circle_for_capability_run(
+        self, *, owner_user_id: str, capability_run_id: str
+    ) -> dict[str, Any]:
+        """Read the Circle a capability run created (its receipt). Never writes.
+
+        Raises LOCATION_CAPABILITY_RUN_INVALID when the run created nothing, so a
+        caller never reports completion without the Circle to show for it.
+        """
+        run_id = _clean_capability_run_id(capability_run_id)
+        try:
+            with self._db.engine.connect() as conn:
+                circle_id = self._circle_id_for_capability_run(
+                    conn, owner_user_id=owner_user_id, capability_run_id=run_id
+                )
+        except Exception as exc:
+            raise self._safe_db_failure("capability_receipt", exc) from exc
+        if circle_id is None:
+            raise OneLocationCircleError(
+                "LOCATION_CAPABILITY_RUN_INVALID",
+                "No Circle was created for this request.",
+                status_code=404,
+            )
+        return self.get_circle(user_id=owner_user_id, circle_id=circle_id)
+
+    @staticmethod
+    def _circle_id_for_capability_run(
+        conn: Any, *, owner_user_id: str, capability_run_id: str
+    ) -> str | None:
+        row = _first(
+            conn.execute(
+                text(
+                    """
+                    SELECT id FROM one_location_circles
+                    WHERE owner_user_id = :owner_user_id
+                      AND metadata ->> 'capability_run_id' = :capability_run_id
+                    ORDER BY created_at, id
+                    LIMIT 1
+                    """
+                ),
+                {"owner_user_id": owner_user_id, "capability_run_id": capability_run_id},
+            )
+        )
+        return str(row["id"]) if row else None
+
     def create_circle_in_transaction(
         self,
         conn: Any,
@@ -1330,6 +1429,7 @@ class OneLocationCircleService:
         name: str,
         kind: str | None = None,
         reuse_existing: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Existing circle mutation with a caller-owned transaction and receipt."""
         cleaned_name = _clean_name(name)
@@ -1364,7 +1464,7 @@ class OneLocationCircleService:
                     )
                     VALUES (
                       :owner_user_id, :name, :kind, 'active',
-                      :member_limit, NOW(), NOW(), '{}'::jsonb
+                      :member_limit, NOW(), NOW(), CAST(:metadata AS JSONB)
                     )
                     RETURNING id
                     """
@@ -1374,6 +1474,7 @@ class OneLocationCircleService:
                     "name": cleaned_name,
                     "kind": cleaned_kind,
                     "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                    "metadata": json.dumps(metadata or {}),
                 },
             )
         )

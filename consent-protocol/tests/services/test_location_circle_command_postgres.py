@@ -365,3 +365,53 @@ async def test_expiry_while_acceptance_waits_for_profile_rolls_back_membership_a
     assert db.execute_raw("SELECT effect_receipt FROM one_action_directive_ledger").data == [
         {"effect_receipt": None}
     ]
+
+
+def test_capability_run_creates_one_circle_and_reads_back_its_receipt(db, monkeypatch):
+    """The direct create-circle capability's replay key is the run id: a retry of
+    the same run returns the Circle it already made, and the receipt read never
+    writes. A run that created nothing raises, so the executor cannot report
+    completion without a Circle."""
+    service, _ = circle_fixture(db, monkeypatch, "rename_circle")
+
+    first, created = service.create_or_get_circle(
+        owner_user_id="owner", name="Family", kind="other", capability_run_id="run-1"
+    )
+    again, created_again = service.create_or_get_circle(
+        owner_user_id="owner", name="Family", kind="other", capability_run_id="run-1"
+    )
+    receipt = service.get_circle_for_capability_run(
+        owner_user_id="owner", capability_run_id="run-1"
+    )
+
+    assert (created, created_again) == (True, False)
+    assert again["id"] == first["id"] == receipt["id"]
+    assert first["name"] == "Family"
+    families = db.execute_raw(
+        "SELECT COUNT(*) AS n FROM one_location_circles WHERE owner_user_id='owner' AND name='Family'"
+    ).data[0]["n"]
+    assert families == 1
+    with pytest.raises(OneLocationCircleError) as missing:
+        service.get_circle_for_capability_run(owner_user_id="owner", capability_run_id="run-2")
+    assert missing.value.code == "LOCATION_CAPABILITY_RUN_INVALID"
+
+
+def test_concurrent_retries_of_one_capability_run_create_one_circle(db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, _ = circle_fixture(db, monkeypatch, "rename_circle")
+
+    def attempt(_):
+        return service.create_or_get_circle(
+            owner_user_id="owner", name="Trip", kind="friends", capability_run_id="run-race"
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(attempt, range(4)))
+
+    assert sorted(created for _, created in results) == [False, False, False, True]
+    assert len({circle["id"] for circle, _ in results}) == 1
+    trips = db.execute_raw(
+        "SELECT COUNT(*) AS n FROM one_location_circles WHERE owner_user_id='owner' AND name='Trip'"
+    ).data[0]["n"]
+    assert trips == 1
