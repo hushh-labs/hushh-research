@@ -237,11 +237,15 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ).rejects.toThrow("PUPPY_OFFLINE");
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
-    mockFetch.mockResolvedValueOnce(json({ detail: { code: "revoked", message: "no" } }, 403));
-    await expect(ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello" })).rejects.toThrow(
-      "AGENT_NOT_YOURS:revoked",
+    mockFetch.mockResolvedValueOnce(
+      json({ detail: { code: "revoked", message: "no" } }, 403)
     );
-    expect(mockFetch.mock.calls.every(([u]) => String(u).startsWith(POD_URL))).toBe(true);
+    await expect(
+      ApiService.runPodTurn({ hushhId: "ha1_owner", message: "hello" })
+    ).rejects.toThrow("AGENT_NOT_YOURS:revoked");
+    expect(
+      mockFetch.mock.calls.every(([u]) => String(u).startsWith(POD_URL))
+    ).toBe(true);
   });
 
   it("names a session that could not be opened", async () => {
@@ -283,18 +287,38 @@ describe("ApiService.revokeTrustedDeviceEverywhere", () => {
     ownerPodMocks.revokeAtPod.mockReset();
   });
 
-  it("revokes at the pod first and reports pending delivery when the pod was unreachable", async () => {
+  it("fences hub issuance first and revokes the issued-version ceiling at the pod", async () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     const pending = { intentId: "pti_1", subjectId: "tdv_mac_1", atVersion: 1, queuedAt: 1, couriered: true };
     ownerPodMocks.revokeAtPod.mockResolvedValue({ delivered: false, pending });
-    mockFetch.mockResolvedValue(json({ success: true, device_id: "tdv_mac_1" }));
+    mockFetch.mockResolvedValue(
+      json({ success: true, device_id: "tdv_mac_1", podBindingVersion: 7 })
+    );
 
     const result = await ApiService.revokeTrustedDeviceEverywhere("tdv_mac_1");
 
-    expect(ownerPodMocks.revokeAtPod).toHaveBeenCalledWith("uid-owner", "tdv_mac_1", expect.anything());
+    expect(ownerPodMocks.revokeAtPod).toHaveBeenCalledWith(
+      "uid-owner",
+      "tdv_mac_1",
+      expect.anything(),
+      { atVersion: 7 }
+    );
+    expect(mockFetch.mock.invocationCallOrder[0]).toBeLessThan(
+      ownerPodMocks.revokeAtPod.mock.invocationCallOrder[0]
+    );
     expect(result.pod).toEqual({ delivered: false, pending });
     expect(result.hub.ok).toBe(true);
-    expect(String(mockFetch.mock.calls[0][0])).toContain("/api/account/trusted-devices/tdv_mac_1");
+    expect(String(mockFetch.mock.calls[0][0])).toContain(
+      "/api/account/trusted-devices/tdv_mac_1"
+    );
+  });
+
+  it("does not revoke or report completion after a refused hub revocation", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    mockFetch.mockResolvedValue(json({ detail: "refused" }, 403));
+    const result = await ApiService.revokeTrustedDeviceEverywhere("tdv_mac_1");
+    expect(result.hub.ok).toBe(false);
+    expect(ownerPodMocks.revokeAtPod).not.toHaveBeenCalled();
   });
 
   it("runs only the hub leg without a pin", async () => {

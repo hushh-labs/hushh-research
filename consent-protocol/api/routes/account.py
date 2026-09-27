@@ -629,6 +629,34 @@ async def issue_pod_binding(
         ) from exc
 
 
+class PodTombstoneRequest(BaseModel):
+    intent: dict[str, Any]
+    signature: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/trusted-devices/{device_id}/pod-tombstone")
+async def courier_pod_tombstone(
+    device_id: str,
+    payload: PodTombstoneRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Queue the app-signed owner intent; this endpoint cannot mint revocations."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().courier_tombstone(
+            user_id=firebase_uid,
+            device_id=device_id,
+            intent=payload.intent,
+            signature=payload.signature,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
 @router.get("/trusted-devices/{device_id}/puppy-access")
 async def get_puppy_access(
     device_id: str,
@@ -959,12 +987,23 @@ async def revoke_trusted_device(
 ):
     # Revocation is a recovery operation, not an enrollment operation. Keep it
     # available even when the feature flag or rollout allowlist is withdrawn.
+    devices = TrustedDeviceService()
     revoked = await run_in_threadpool(
-        TrustedDeviceService().revoke_device,
+        devices.revoke_device,
         user_id=firebase_uid,
         device_id=device_id,
     )
-    if not revoked:
+    # An interrupted cross-plane revoke may safely retry for this same owner.
+    existing = (
+        None
+        if revoked
+        else await run_in_threadpool(
+            devices.device_status,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    )
+    if not revoked and (not existing or existing.get("status") != "revoked"):
         raise HTTPException(
             status_code=404,
             detail={
@@ -1022,7 +1061,18 @@ async def revoke_trusted_device(
             )
     except Exception:  # noqa: BLE001 - device revocation and active-row checks remain authoritative
         logger.warning("trusted_device.puppy_grant_revoke_failed")
-    return {"success": True, "device_id": device_id}
+    # Fresh statement after device revocation commits: a preceding issuer may
+    # have completed while the revoke waited for its device lock.
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    pod = await PersonalAgentRegistryRepo().get(firebase_uid)
+    metadata = (pod or {}).get("backend_metadata") or {}
+    binding = (metadata.get("bindings") or {}).get(device_id) or {}
+    return {
+        "success": True,
+        "device_id": device_id,
+        "podBindingVersion": int(binding.get("version") or 0),
+    }
 
 
 @router.post("/identity/refresh")

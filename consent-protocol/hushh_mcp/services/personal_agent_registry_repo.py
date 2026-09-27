@@ -1257,37 +1257,31 @@ class PersonalAgentRegistryRepo:
 
     async def clear_pending_tombstones(self, *, hushh_id: str, intent_ids: list[str]) -> None:
         """Drop the intents a pod reported applied. Keyed by HusshID: the beat knows no user."""
-        row = await self.get_by_hushh_id(hushh_id)
-        if not row:
+        if not intent_ids:
             return
-        metadata = row.get("backend_metadata") or {}
-        pending = metadata.get("pendingTombstones") if isinstance(metadata, dict) else None
-        if not isinstance(pending, list) or not pending:
-            return
-        applied = {str(i) for i in intent_ids}
-        remaining = [
-            entry
-            for entry in pending
-            if not (
-                isinstance(entry, dict)
-                and str((entry.get("intent") or {}).get("intentId") or "") in applied
-            )
-        ]
-        if len(remaining) == len(pending):
-            return
+        # Filter the row version held by this UPDATE. A prior read followed by
+        # replacement could erase a concurrently appended, unacknowledged intent.
         await asyncio.to_thread(
             self._db().execute_raw,
             """
             UPDATE personal_agent_registry
             SET backend_metadata = jsonb_set(
-                    coalesce(backend_metadata, '{}'::jsonb),
-                    '{pendingTombstones}',
-                    CAST(:remaining AS jsonb),
-                    true
-                )
+                backend_metadata,
+                '{pendingTombstones}',
+                coalesce((
+                    SELECT jsonb_agg(item ORDER BY ordinal)
+                    FROM jsonb_array_elements(backend_metadata->'pendingTombstones')
+                         WITH ORDINALITY AS queue(item, ordinal)
+                    WHERE NOT coalesce(
+                        CAST(:applied AS jsonb) ? (item->'intent'->>'intentId'), false
+                    )
+                ), '[]'::jsonb),
+                true
+            )
             WHERE hushh_id = :hushh_id
+              AND jsonb_typeof(backend_metadata->'pendingTombstones') = 'array'
             """,
-            {"hushh_id": hushh_id, "remaining": json.dumps(remaining)},
+            {"hushh_id": hushh_id, "applied": json.dumps(intent_ids)},
         )
 
     async def set_health_state(

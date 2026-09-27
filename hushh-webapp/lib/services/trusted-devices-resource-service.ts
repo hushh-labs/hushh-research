@@ -57,7 +57,7 @@ export class TrustedDevicesResourceService {
     CacheService.getInstance().set(
       CACHE_KEYS.TRUSTED_DEVICES(userId),
       devices,
-      CACHE_TTL.SHORT,
+      CACHE_TTL.SHORT
     );
     return devices;
   }
@@ -65,10 +65,17 @@ export class TrustedDevicesResourceService {
   static async revoke(userId: string, deviceId: string): Promise<Response> {
     if (AuthService.getCurrentUser()?.uid !== userId)
       throw new Error("Sign in to manage devices.");
-    const response = await ApiService.revokeTrustedDevice(deviceId);
+    const { hub: response, pod } =
+      await ApiService.revokeTrustedDeviceEverywhere(deviceId);
     if (response.ok) {
       this.mutationRevision += 1;
       CacheSyncService.onTrustedDevicesMutated(userId);
+      const receipt = await response.json().catch(() => ({}));
+      const noPodGrant = "unpinned" in pod && receipt.podBindingVersion === 0;
+      return Response.json({
+        ...receipt,
+        podRevocationPending: !pod.delivered && !noPodGrant,
+      });
     }
     return response;
   }

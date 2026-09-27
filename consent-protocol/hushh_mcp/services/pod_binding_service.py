@@ -314,6 +314,7 @@ class PodBindingService:
             device_id=device_id,
             record={
                 "version": version,
+                "serviceUid": (row.get("backend_metadata") or {}).get("serviceUid"),
                 "role": role,
                 "scopes": list(scopes),
                 "issuedAt": now_ms,
@@ -330,9 +331,9 @@ class PodBindingService:
         )
         if recorded is False:
             raise PodBindingError(
-                "PUPPY_OWNER_APPROVAL_REQUIRED",
-                "Puppy access changed while the binding was being issued.",
-                status=403,
+                "POD_BINDING_CHANGED",
+                "Device or pod authority changed while the binding was being issued.",
+                status=409,
             )
         try:
             self._devices.audit_event(

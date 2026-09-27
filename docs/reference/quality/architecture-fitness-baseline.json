@@ -1,5 +1,5 @@
 {
-  "finding_count": 1886,
+  "finding_count": 1888,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -809,7 +809,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": "PodBindingService",
-      "value": 374
+      "value": 375
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7118,7 +7118,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": "issue",
-      "value": 99
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10556,7 +10556,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 5819
+      "value": 5842
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11312,7 +11312,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 1808
+      "value": 1858
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14417,7 +14417,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_trusted_device_routes.py",
       "symbol": null,
-      "value": 705
+      "value": 726
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14489,7 +14489,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_service.py",
       "symbol": null,
-      "value": 698
+      "value": 708
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16928,7 +16928,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": null,
-      "value": 501
+      "value": 502
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16974,6 +16974,24 @@
       "path": "consent-protocol/tests/test_gcp_backend.py",
       "symbol": null,
       "value": 529
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_direct_admission.py|record_binding|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/personal_agent_direct_admission.py",
+      "symbol": "record_binding",
+      "value": 102
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/routes/account.py|revoke_trusted_device|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/routes/account.py",
+      "symbol": "revoke_trusted_device",
+      "value": 92
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -18159,6 +18177,75 @@
         "value": 503
       }
     ],
+    "revocation_repair_20260926": {
+      "accepted_findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "class_size|consent-protocol/hushh_mcp/services/pod_binding_service.py|PodBindingService|class exceeds the advisory operon budget",
+          "previous_value": 374,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 375
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_direct_admission.py|record_binding|function exceeds the advisory gene budget",
+          "previous_value": null,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 102
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/hushh_mcp/services/pod_binding_service.py|issue|function exceeds the advisory gene budget",
+          "previous_value": 99,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 100
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "function_size|consent-protocol/api/routes/account.py|revoke_trusted_device|function exceeds the advisory gene budget",
+          "previous_value": null,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 92
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+          "previous_value": 5819,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 5842
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+          "previous_value": 1808,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 1858
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_trusted_device_routes.py||module exceeds the advisory operon budget",
+          "previous_value": 705,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 726
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_pod_binding_service.py||module exceeds the advisory operon budget",
+          "previous_value": 698,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 708
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/hushh_mcp/services/pod_binding_service.py||module exceeds the advisory operon budget",
+          "previous_value": 501,
+          "reason": "Bounded device-revocation correction in existing ownership: serialize issuer against revoke, fence issued versions, wire signed courier, and verify refusal/retry behavior. No authority relocation or threshold change.",
+          "value": 502
+        }
+      ],
+      "source_base": "c4e04a11c",
+      "verification": "Independent retained_recovery_verification review; PostgreSQL concurrency, issued-ceiling and UI boundary checks. Complete CI required."
+    },
     "scope": "Frozen main/ADK plus Files integration after compatibility-preserving extractions; no budget, dependency or import-initialization rules relaxed.",
     "writer_voice_20260926": {
       "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#compatibility-validation-and-next-stage-guards--2026-09-26",

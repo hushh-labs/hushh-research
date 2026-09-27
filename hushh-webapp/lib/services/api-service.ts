@@ -4009,10 +4009,33 @@ export class ApiService {
       pending: null,
       unpinned: true,
     };
-    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
-      pod = await ownerPod.revokeAtPod(uid, deviceId, await ApiService.ownerPodTransport());
-    }
+    // Stop new grants first, then fence every grant already issued at the pod.
     const hub = await ApiService.revokeTrustedDevice(deviceId);
+    if (!hub.ok) return { hub, pod };
+    const receipt = await hub
+      .clone()
+      .json()
+      .catch(() => ({}));
+    const version = receipt.podBindingVersion;
+    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
+      if (!Number.isInteger(version) || version < 0) {
+        return { hub, pod: { delivered: false, pending: null } };
+      }
+      try {
+        pod = await ownerPod.revokeAtPod(
+          uid,
+          deviceId,
+          await ApiService.ownerPodTransport(),
+          {
+            atVersion: Math.max(1, version),
+          }
+        );
+      } catch {
+        // Hub revocation committed. Preserve that receipt, but never report pod
+        // completion when direct delivery or the signed courier was refused.
+        pod = { delivered: false, pending: null };
+      }
+    }
     return { hub, pod };
   }
 

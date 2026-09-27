@@ -1530,3 +1530,41 @@ rather than introducing a structural migration into the release repair.
 The affected private Wiki section was updated and read back. Real Hermes access,
 separate-network Puppy acceptance, normal software-update continuity, live BYOK
 writer acceptance and destructive-history cutover remain separate open gates.
+
+
+### Dev writer serving and revocation repair — 2026-09-26
+
+Writer `3d2e95e869c05054c45bd736ad844ea7d0816013` passed canonical CI
+and GitHub run 36286167834. Governed dev deployment 36287199197 completed
+successfully; serving readback verified both services at 100% traffic on that
+exact source revision. The upgrade sweep is enabled and exact owner approval
+remains required. Cleanup 250 remains parked.
+
+The reviewer chat journey is **not accepted**: the rich chat client still posts
+to the shared endpoint and a BYOC owner receives
+`AGENT_PRIVATE_RUNTIME_REQUIRED`. The existing JSON pod-turn adapter does not
+preserve ADK pending calls, MCP review/resume or the rich event contract. The
+owning `product-agent-development` correction must reuse the AG-UI subscriber,
+a durable owner-pod ADK session adapter and the existing hub action ledger
+through scoped authority ports. Neither shared fallback nor mounting the
+Postgres-dependent shared router into the pod is a correct fix.
+
+The follow-up to `c4e04a11c` serializes binding publication with device revocation,
+checks the exact owner/pod/device tuple and previous version under row locks,
+and reports only sanitized storage errors. The device screen now revokes hub
+issuance first, then fences the highest issued binding at the pod. Delayed
+lower-version bindings are refused. An undelivered pod revocation remains
+explicitly pending; cross-network revocation is not claimed atomic. The existing
+signed-intent courier is wired, and acknowledgment atomically filters the current
+queue so concurrent additions survive. Nine real PostgreSQL checks and seven
+pod courier checks pass, alongside the earlier 53 focused binding/route checks,
+43 frontend checks and TypeScript. Full candidate CI remains required. The
+courier fixture now explicitly declares BYOC instead of relying on test order.
+
+The personal dev pod retains its image, service identity and durable key after
+configuration maintenance. Public verification keys, environment and dev CORS
+were reconciled; ingress/IAM and anonymous machine-route refusal were checked.
+Its direct-readiness publication, owner Puppy grant and separate-network
+inference remain pending. Registration and heartbeat are not relay acceptance.
+Normal Settings-approved upgrade continuity and destructive-history cutover
+remain open gates, with no application merge or UAT/production deployment.

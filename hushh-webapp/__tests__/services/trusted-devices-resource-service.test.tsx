@@ -1,8 +1,19 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ owner: { uid: "owner" } as { uid: string } | null, list: vi.fn(), revoke: vi.fn() }));
-vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => mocks.owner } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: mocks.list, revokeTrustedDevice: mocks.revoke } }));
+const mocks = vi.hoisted(() => ({
+  owner: { uid: "owner" } as { uid: string } | null,
+  list: vi.fn(),
+  revoke: vi.fn(),
+}));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getCurrentUser: () => mocks.owner },
+}));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: {
+    listTrustedDevices: mocks.list,
+    revokeTrustedDeviceEverywhere: mocks.revoke,
+  },
+}));
 vi.mock("@/lib/cache/cache-sync-service", async () => {
   const { CacheService, CACHE_KEYS } = await import("@/lib/services/cache-service");
   return { CacheSyncService: { onTrustedDevicesMutated: (id: string) => CacheService.getInstance().invalidate(CACHE_KEYS.TRUSTED_DEVICES(id)) } };
@@ -24,26 +35,50 @@ it("keeps a confirmed empty list warm across navigation", async () => {
   expect(second.result.current.data).toEqual([]);
   expect(second.result.current.loading).toBe(false);
 });
-it.each(["owner", "epoch", "revocation"])("refuses a stale response after %s changes", async boundary => {
-  let resolve!: (response: Response) => void;
-  mocks.list.mockReturnValue(new Promise<Response>(r => { resolve = r; }));
-  const request = Resource.load("owner");
-  if (boundary === "owner") mocks.owner = { uid: "other" };
-  if (boundary === "epoch") advanceVaultSessionEpoch();
-  if (boundary === "revocation") {
-    mocks.revoke.mockResolvedValue(new Response(null, { status: 204 }));
-    await Resource.revoke("owner", "synthetic-device");
+it.each(["owner", "epoch", "revocation"])(
+  "refuses a stale response after %s changes",
+  async (boundary) => {
+    let resolve!: (response: Response) => void;
+    mocks.list.mockReturnValue(
+      new Promise<Response>((r) => {
+        resolve = r;
+      })
+    );
+    const request = Resource.load("owner");
+    if (boundary === "owner") mocks.owner = { uid: "other" };
+    if (boundary === "epoch") advanceVaultSessionEpoch();
+    if (boundary === "revocation") {
+      mocks.revoke.mockResolvedValue({
+        hub: Response.json({ success: true, podBindingVersion: 0 }),
+        pod: { delivered: false, pending: null, unpinned: true },
+      });
+      await Resource.revoke("owner", "synthetic-device");
+    }
+    resolve(new Response(JSON.stringify({ devices: [] })));
+    await expect(request).rejects.toThrow("Device status changed");
+    expect(cache.peek(key)).toBeNull();
   }
-  resolve(new Response(JSON.stringify({ devices: [] })));
-  await expect(request).rejects.toThrow("Device status changed");
-  expect(cache.peek(key)).toBeNull();
-});
+);
 it("clears owner metadata on revocation and account invalidation", async () => {
   cache.set(key, []);
-  mocks.revoke.mockResolvedValue(new Response(null, { status: 204 }));
+  mocks.revoke.mockResolvedValue({
+    hub: Response.json({ success: true, podBindingVersion: 0 }),
+    pod: { delivered: false, pending: null, unpinned: true },
+  });
   await Resource.revoke("owner", "synthetic-device");
   expect(cache.peek(key)).toBeNull();
   cache.set(key, []);
   cache.invalidateUser("owner");
+  expect(cache.peek(key)).toBeNull();
+});
+
+it("reports pending pod delivery while invalidating hub device metadata", async () => {
+  cache.set(key, []);
+  mocks.revoke.mockResolvedValue({
+    hub: Response.json({ success: true, podBindingVersion: 7 }),
+    pod: { delivered: false, pending: null },
+  });
+  const result = await Resource.revoke("owner", "synthetic-device");
+  expect((await result.json()).podRevocationPending).toBe(true);
   expect(cache.peek(key)).toBeNull();
 });

@@ -668,6 +668,11 @@ async def test_the_binding_and_endpoint_routes_delegate_to_the_service(monkeypat
         async def latest(self, *, user_id, device_id):
             return None if device_id == "tdv_none" else {"version": 2}
 
+        async def courier_tombstone(self, *, user_id, device_id, intent, signature):
+            assert user_id == "uid-1" and device_id == "tdv_mac_1"
+            assert intent == {"synthetic": True} and signature == "synthetic-signature"
+            return {"queued": True}
+
         async def endpoint(self, *, user_id):
             if user_id == "uid-nokey":
                 raise pbs.PodBindingError("POD_IDENTITY_NOT_DURABLE", "no key", status=409)
@@ -679,6 +684,11 @@ async def test_the_binding_and_endpoint_routes_delegate_to_the_service(monkeypat
         "tdv_mac_1", account.PodBindingIssueRequest(puppyInference=True), firebase_uid="uid-1"
     )
     assert issued["puppy"] is True and issued["binding"]["subject_id"] == "tdv_mac_1"
+    assert await account.courier_pod_tombstone(
+        "tdv_mac_1",
+        account.PodTombstoneRequest(intent={"synthetic": True}, signature="synthetic-signature"),
+        firebase_uid="uid-1",
+    ) == {"queued": True}
     assert (await account.read_pod_binding("tdv_mac_1", firebase_uid="uid-1"))["version"] == 2
     with pytest.raises(HTTPException) as caught:
         await account.read_pod_binding("tdv_none", firebase_uid="uid-1")

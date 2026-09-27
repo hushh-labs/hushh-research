@@ -1482,7 +1482,7 @@ describe("ConnectedSystemsPanel", () => {
       await screen.findByRole("region", { name: "CRM record fields" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit Email" })).toBeNull();
-    expect(screen.getByText("Primary CRM lookup field is locked")).toBeTruthy();
+    expect(await screen.findByText("Primary CRM lookup field is locked")).toBeTruthy();
     expect(
       screen.getByText("Primary CRM lookup field is locked").parentElement,
     ).toHaveClass("w-full", "justify-end");

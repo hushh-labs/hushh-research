@@ -50,6 +50,7 @@ export default function TrustedDevicesPage() {
   const [pendingRevocation, setPendingRevocation] =
     useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [pendingPodRevocations, setPendingPodRevocations] = useState<string[]>([]);
 
   // Cache-first: a warm cache paints the list immediately and the refresh runs
   // in the background, so revisiting this screen never shows a blocking spinner
@@ -133,8 +134,18 @@ export default function TrustedDevicesPage() {
         );
         return;
       }
+      const receipt = await response.json();
+      setPendingPodRevocations((current) =>
+        receipt.podRevocationPending
+          ? [...new Set([...current, deviceId])]
+          : current.filter((id) => id !== deviceId)
+      );
       setPendingRevocation(null);
-      setError("");
+      setError(
+        receipt.podRevocationPending
+          ? "Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again."
+          : ""
+      );
       await devicesResource.refresh({ force: true });
     } finally {
       setRevoking(false);
@@ -164,7 +175,9 @@ export default function TrustedDevicesPage() {
           {visibleError ? (
             <p className="text-sm text-destructive">{visibleError}</p>
           ) : null}
-          {puppyNotice ? <p className="text-sm text-muted-foreground">{puppyNotice}</p> : null}
+          {puppyNotice ? (
+            <p className="text-sm text-muted-foreground">{puppyNotice}</p>
+          ) : null}
           {devices.length > 0 ? (
             <SettingsGroup separatorInset>
               {devices.map((device) => {
@@ -177,9 +190,13 @@ export default function TrustedDevicesPage() {
                     title={device.device_name}
                     description={sync.label}
                     trailing={
-                      isActive ? (
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id) ? (
                         <div className="flex items-center gap-2">
-                          {byocReady && device.platform === "macos" && puppyAccess[device.device_id] !== undefined ? (
+                          {isActive &&
+                          byocReady &&
+                          device.platform === "macos" &&
+                          puppyAccess[device.device_id] !== undefined ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -190,7 +207,7 @@ export default function TrustedDevicesPage() {
                             </Button>
                           ) : null}
                           <Button
-                            aria-label={`Unlink ${device.device_name}`}
+                            aria-label={`${pendingPodRevocations.includes(device.device_id) ? "Retry unlinking" : "Unlink"} ${device.device_name}`}
                             onClick={() => setPendingRevocation(device)}
                             size="icon"
                             variant="ghost"
@@ -200,7 +217,10 @@ export default function TrustedDevicesPage() {
                         </div>
                       ) : undefined
                     }
-                    trailingInteractive={isActive}
+                    trailingInteractive={
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id)
+                    }
                   />
                 );
               })}

@@ -20,40 +20,100 @@ async def record_binding(
     record: dict,
     puppy_approval: Optional[dict] = None,
 ) -> bool:
-    """`backend_metadata.bindings[device_id] = record` (merge; other subjects kept)."""
-    response = await asyncio.to_thread(
-        db.execute_raw,
-        """
-        UPDATE personal_agent_registry
-        SET backend_metadata = jsonb_set(
-                coalesce(backend_metadata, '{}'::jsonb),
-                '{bindings}',
-                coalesce(backend_metadata->'bindings', '{}'::jsonb)
-                    || CAST(:record AS jsonb),
-                true
-            )
-        WHERE user_id = :user_id
-          AND (
-                :requires_approval = false
-                OR (
-                    deployment_target = 'user_gcp'
-                    AND backend_metadata->'puppyAccess'->:device_id->>'enabled' = 'true'
-                    AND backend_metadata->'puppyAccess'->:device_id->>'podKeyId' = :pod_key_id
-                    AND backend_metadata->'puppyAccess'->:device_id->>'serviceUid' = :service_uid
+    """Serialize issuance with device revocation and other issuers.
+
+    Lock registry before device, matching account erasure. A signed envelope is
+    published only after its exact owner, pod, key and previous version still
+    match under these locks. Revocation's device UPDATE uses the same row lock.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from db.db_client import DatabaseExecutionError
+
+    binding = record["envelope"]["binding"]
+
+    def commit() -> bool:
+        with db.engine.begin() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '5s'"))
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            owner = (
+                conn.execute(
+                    text(
+                        "SELECT hushh_id, status, deployment_target, pod_key_id, pod_pubkey, "
+                        "backend_metadata FROM personal_agent_registry "
+                        "WHERE user_id = :user_id FOR UPDATE"
+                    ),
+                    {"user_id": user_id},
                 )
-              )
-        RETURNING user_id
-        """,
-        {
-            "user_id": user_id,
-            "device_id": device_id,
-            "record": json.dumps({device_id: record}),
-            "requires_approval": puppy_approval is not None,
-            "pod_key_id": (puppy_approval or {}).get("podKeyId", ""),
-            "service_uid": (puppy_approval or {}).get("serviceUid", ""),
-        },
-    )
-    return bool(getattr(response, "data", None))
+                .mappings()
+                .one_or_none()
+            )
+            if owner is None:
+                return False
+            metadata = owner["backend_metadata"] or {}
+            device = (
+                conn.execute(
+                    text(
+                        "SELECT device_public_key, platform, status FROM trusted_devices "
+                        "WHERE user_id = :user_id AND device_id = :device_id FOR UPDATE"
+                    ),
+                    {"user_id": user_id, "device_id": device_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                device is None
+                or device["status"] != "active"
+                or owner["status"] != "provisioned"
+                or "erasure" in metadata
+                or binding.get("user_id") != user_id
+                or binding.get("subject_id") != device_id
+                or binding.get("subject_public_key")
+                != str(device["device_public_key"] or "").strip()
+                or binding.get("platform") != str(device["platform"] or "").strip().lower()
+                or binding.get("hushh_id") != str(owner["hushh_id"] or "").strip()
+                or binding.get("deployment_target") != owner["deployment_target"]
+                or binding.get("pod_key_id") != str(owner["pod_key_id"] or "").strip()
+                or binding.get("pod_public_key") != str(owner["pod_pubkey"] or "").strip()
+                or binding.get("url") != str(metadata.get("url") or "").strip().rstrip("/")
+                or record.get("serviceUid") != metadata.get("serviceUid")
+            ):
+                return False
+            previous = (metadata.get("bindings") or {}).get(device_id) or {}
+            if record["version"] != int(previous.get("version") or 0) + 1:
+                return False
+            if puppy_approval is not None:
+                approval = (metadata.get("puppyAccess") or {}).get(device_id) or {}
+                if (
+                    owner["deployment_target"] != "user_gcp"
+                    or approval.get("enabled") is not True
+                    or approval.get("podKeyId") != puppy_approval["podKeyId"]
+                    or approval.get("serviceUid") != puppy_approval["serviceUid"]
+                ):
+                    return False
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET backend_metadata = jsonb_set("
+                    "coalesce(backend_metadata, '{}'::jsonb), '{bindings}', "
+                    "coalesce(backend_metadata->'bindings', '{}'::jsonb) || "
+                    "CAST(:record AS jsonb), true) WHERE user_id = :user_id"
+                ),
+                {"user_id": user_id, "record": json.dumps({device_id: record})},
+            )
+            return True
+
+    try:
+        return await asyncio.to_thread(commit)
+    except SQLAlchemyError:
+        raise DatabaseExecutionError(
+            table_name="personal_agent_registry",
+            operation="pod_binding_publication",
+            details="Pod binding storage is unavailable.",
+            status_code=503,
+            code="POD_BINDING_STORAGE_UNAVAILABLE",
+        ) from None
 
 
 async def record_direct_readiness(

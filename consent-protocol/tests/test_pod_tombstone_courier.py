@@ -97,6 +97,7 @@ async def pod(tmp_path, hub_key):
             "hushh_id": OWNER,
             "user_id": "uid-1",
             "environment": "dev",
+            "deployment_target": "user_gcp",
             "pod_key_id": "podk_c",
             "pod_public_key": base64.b64encode(b"Q" * 32).decode(),
             "url": "https://pod.example",
@@ -161,6 +162,23 @@ async def test_a_trusted_app_signed_intent_revokes_the_device_and_is_reported_ap
     with pytest.raises(psa.PodSessionRefused) as caught:
         pod["authority"].verify_session(device_token)
     assert caught.value.code == "revoked"
+
+
+async def test_issued_ceiling_refuses_a_delayed_grant_not_yet_seen_by_the_pod(pod):
+    app, device = Subject("tdv_web_1", "web"), Subject("tdv_mac_1", "macos")
+    await pod["admit"](app)
+    await pod["admit"](device, version=1)
+    # Hub issuance reached version 7 before account revocation committed, while
+    # this pod has only observed version 1. Fence the issued, not observed, ceiling.
+    applied = await psa.apply_pending_tombstones(
+        {"pendingTombstones": [_entry(app, _intent(atVersion=7))]},
+        authority=pod["authority"],
+    )
+    assert applied == ["pti_1"]
+    for version in (2, 7):
+        with pytest.raises(psa.PodSessionRefused) as caught:
+            await pod["admit"](device, version=version)
+        assert caught.value.code == "revoked"
 
 
 async def test_untrusted_foreign_or_forged_intents_apply_nothing_and_are_not_reported(pod):
