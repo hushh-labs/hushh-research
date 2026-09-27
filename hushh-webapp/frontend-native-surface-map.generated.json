@@ -132,6 +132,10 @@
       "file": "app/api/consent/pending/opened/route.ts"
     },
     {
+      "template": "/api/consent/relationships/disconnect",
+      "file": "app/api/consent/relationships/disconnect/route.ts"
+    },
+    {
       "template": "/api/consent/requests",
       "file": "app/api/consent/requests/route.ts"
     },
@@ -9523,5 +9527,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b1c6a7214be29922b912e18601c0ca60b309faf10aa07cace1927ea3922f44f8"
+  "content_sha256": "400bbd5d32aa4b71b8e30bc3ef1ed74e8b0349dd62a39b6b34d5dc136fa84e2a"
 }
