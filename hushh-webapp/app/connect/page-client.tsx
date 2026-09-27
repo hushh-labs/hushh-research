@@ -243,19 +243,15 @@ const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(
 );
 
 /**
- * Which half of the directory each tab pages through.
+ * Which directory audience each tab pages through.
  *
- * The split is a server-side audience rather than a filter over the rendered
- * page, because a filter applied after the page is cut can only ever subtract
- * from a page that was already chosen wrongly: pages of uneven size, and every
- * advisor past the first one unreachable.
- *
- * People and Advisors partition the directory, so putting advisors in their own
- * tab hides nobody -- everyone findable before is still findable, in exactly
- * one of the two.
+ * People includes every eligible profile, including verified RIAs. RIAs is a
+ * narrower view of that same directory. The narrower audience is applied by
+ * the server before pagination; filtering a rendered page would leave later
+ * advisors unreachable and make page sizes misleading.
  */
 const CONNECT_TAB_AUDIENCE: Record<ConnectTab, DirectoryAudience> = {
-  people: "people",
+  people: "all",
   advisors: "ria",
   // Around you runs its own directories; the value is never used for it.
   nearby: "all",
@@ -3255,14 +3251,14 @@ export default function ConnectPageClient() {
                                 ) : hasQuery ? (
                                   "Send a request."
                                 ) : (
-                                  "Search by name."
+                                  "Search people by name."
                                 )
                               }
                               separatorInset
                               // The search row belongs to THIS list, so it is read after
                               // the heading that names the list -- not before it. It used
                               // to sit above "People", which put the sentence that
-                              // instructs it ("Search by name.") underneath the box it
+                              // instructs it underneath the box it
                               // instructs, and gave the reader a field before anything on
                               // screen had said what it searched. It still pins under the
                               // tab strips on scroll; it just no longer arrives first.

@@ -1223,7 +1223,7 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Search people by name.")).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -1251,7 +1251,7 @@ describe("Connect — People", () => {
       expect(mocks.searchDirectory).toHaveBeenCalledTimes(before + 1);
       expect(mocks.searchDirectory.mock.calls.at(-1)?.[0]).toMatchObject({
         page: 2,
-        audience: directory === "RIAs" ? "ria" : "people",
+        audience: directory === "RIAs" ? "ria" : "all",
       });
       expect(
         screen.queryByRole("button", { name: /previous page/i }),
@@ -1268,7 +1268,7 @@ describe("Connect — People", () => {
     // before anything on screen had said what it searched.
     render(<ConnectPageClient />);
 
-    const supporting = await screen.findByText("Search by name.");
+    const supporting = await screen.findByText("Search people by name.");
     const heading = screen.getByRole("button", {
       name: "Current directory: People",
     });
@@ -1420,7 +1420,7 @@ describe("Connect — People", () => {
     // The empty-query description disappearing is the unambiguous signal that
     // this is no longer the bounded discovery surface.
     await waitFor(() =>
-      expect(screen.queryByText("Search by name.")).toBeNull(),
+      expect(screen.queryByText("Search people by name.")).toBeNull(),
     );
     expect(screen.queryByLabelText("People per page")).toBeNull();
   });
@@ -2114,15 +2114,15 @@ describe("Connect — People", () => {
     expect(mocks.getScopeCatalog).not.toHaveBeenCalled();
   });
 
-  it("pages advisors as their own audience, not as a filter over everyone", async () => {
+  it("searches every eligible person in People and narrows RIAs at the server", async () => {
     // A filter applied after the page is cut can only subtract from a page that
     // was already chosen wrongly: uneven pages, and every advisor past the
-    // first one unreachable. The tab therefore asks the server for its own
-    // half of the directory.
+    // first one unreachable. People requests all eligible profiles; the RIAs
+    // tab asks the server for its narrower audience.
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
-      expect.objectContaining({ audience: "people" }),
+      expect.objectContaining({ audience: "all" }),
     );
 
     chooseDirectory("RIAs");
@@ -2132,6 +2132,46 @@ describe("Connect — People", () => {
         expect.objectContaining({ audience: "ria", page: 1 }),
       ),
     );
+  });
+
+  it("finds a verified RIA in People search alongside regular people", async () => {
+    // UAT regression: a verified RIA was absent from People even though the
+    // eligible profile matched the query. The former `people`
+    // audience excluded that profile before the client received any results.
+    const matches = [
+      { ...person("ada-ria", "Ada Advisor"), isRia: true },
+      { ...person("ada-person", "Ada Person"), isRia: false },
+    ];
+    mocks.searchDirectory.mockImplementation(async ({ query, audience }) => {
+      const queried = query === "Ada" ? matches : [];
+      const items =
+        audience === "ria"
+          ? queried.filter((entry) => entry.isRia)
+          : audience === "people"
+            ? queried.filter((entry) => !entry.isRia)
+            : queried;
+      return { items, page: 1, hasMore: false, totalCount: items.length };
+    });
+
+    render(<ConnectPageClient />);
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Ada" },
+    });
+
+    expect(await screen.findByText("Ada Advisor")).toBeTruthy();
+    expect(screen.getByText("Ada Person")).toBeTruthy();
+    expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "Ada", audience: "all", page: 1 }),
+    );
+
+    chooseDirectory("RIAs");
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "Ada", audience: "ria", page: 1 }),
+      ),
+    );
+    expect(await screen.findByText("Ada Advisor")).toBeTruthy();
+    expect(screen.queryByText("Ada Person")).toBeNull();
   });
 
   it("lists only verified advisers under My connections on the RIAs tab", async () => {
@@ -2837,7 +2877,7 @@ describe("Connect — Circles", () => {
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Search people by name.")).toBeTruthy();
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");
