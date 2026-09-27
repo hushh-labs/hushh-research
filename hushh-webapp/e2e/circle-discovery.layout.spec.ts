@@ -402,7 +402,9 @@ for (const width of [320, 390, 640, 768, 1440]) {
       expect(primaryAction!.width).toBeLessThanOrEqual(width);
     }
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
-    await expect(page.getByText(/help with your money and taxes/)).toBeVisible();
+    await expect(
+      page.getByText(/Share financial data securely with your accountant and advisors/),
+    ).toBeVisible();
     await hero.screenshot({
       path: testInfo.outputPath("new-user-finance.png"),
       animations: "disabled",
