@@ -67,4 +67,39 @@ describe("buildBackgroundShareSession", () => {
     });
     expect(session.grants).toEqual([]);
   });
+
+  // The native publisher sends raw, untagged points, which the backend rejects
+  // for an Approximate owner (409). SOS grants are always precise and exempt, so
+  // they are the only ones native may publish under Approximate.
+  it("keeps only SOS grants when sharing precision is approximate", () => {
+    const session = buildBackgroundShareSession({
+      activeGrants: [
+        grant({ id: "friend", shareKind: "share" }),
+        grant({ id: "sos", shareKind: "sos" }),
+      ],
+      recipients: [recipient()],
+      vaultOwnerToken: "tok",
+      backendBaseUrl: "https://api.example.com",
+      minMoveMeters: 25,
+      minIntervalMs: 8000,
+      precision: "approximate",
+    });
+    expect(session.grants.map((item) => item.grantId)).toEqual(["sos"]);
+  });
+
+  it("keeps every publishable grant when sharing precision is precise", () => {
+    const session = buildBackgroundShareSession({
+      activeGrants: [
+        grant({ id: "friend", shareKind: "share" }),
+        grant({ id: "sos", shareKind: "sos" }),
+      ],
+      recipients: [recipient()],
+      vaultOwnerToken: "tok",
+      backendBaseUrl: "https://api.example.com",
+      minMoveMeters: 25,
+      minIntervalMs: 8000,
+      precision: "precise",
+    });
+    expect(session.grants.map((item) => item.grantId)).toEqual(["friend", "sos"]);
+  });
 });

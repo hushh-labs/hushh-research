@@ -426,8 +426,6 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
-import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
-import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { locationPreviewFreshness } from "@/lib/one-location/freshness";
 import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
@@ -436,7 +434,6 @@ import {
   DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS,
   DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS,
 } from "@/lib/one-location/eta-recompute";
-import { getApiBaseUrl } from "@/lib/services/api-service";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import { useContactInvitations } from "@/lib/contacts/use-contact-invitations";
 import { createContactGraphReconciler } from "@/lib/contacts/reconcile-contact-graph";
@@ -7131,32 +7128,11 @@ export function OneLocationAgentPageContent({
     return () => window.clearInterval(interval);
   }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
-  // Keep native background publishing in sync with the opt-in toggle + grants.
-  // Web returns { started:false } and this is a no-op there.
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    const session = buildBackgroundShareSession({
-      activeGrants: activeOwnerGrants,
-      recipients,
-      vaultOwnerToken,
-      backendBaseUrl: getApiBaseUrl(),
-      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
-      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
-    });
-    void syncBackgroundShare({
-      enabled: backgroundShareEnabled && !locationControl.paused,
-      session,
-    });
-    return () => {
-      void OneLocationService.stopBackgroundShare();
-    };
-  }, [
-    backgroundShareEnabled,
-    activeOwnerGrants,
-    locationControl.paused,
-    recipients,
-    vaultOwnerToken,
-  ]);
+  // Native background publishing is owned by LocationPublisherBridge, which is
+  // mounted once and survives navigation. This page used to run its own
+  // start/stop effect as well; its enable flag sits behind a hidden toggle, so
+  // it could only ever stop -- and it stopped the bridge's live session on
+  // every visit and on leaving the page.
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
