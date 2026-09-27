@@ -22,6 +22,51 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Topology audit ownership: [Runtime topology maintenance](../architecture/runtime-topology-maintenance.md).
 This report records revision-bound evidence; it does not establish deployment acceptance.
 
+## Active pod completion plan — 2026-09-27 UTC
+
+**Branch:** `claude/hushh-infrastructure-analysis-7o991c`. Evidence base
+`5ee902e92` contains the clean local ADK worktree at `b45d15f48`. Preserve concurrent
+PDF work and independently active worktrees. Freeze this implementation baseline;
+recheck ADK once before the combined candidate is submitted, integrating any
+new delta deliberately rather than restarting the work after every upstream edit.
+
+The target is the owner's existing GCP pod: One and its admitted specialists run
+there, encrypted recovery and the Files library live in the owner's bucket, and
+Hussh retains identity, consent and release coordination. Files is an encrypted
+object library, not a mounted POSIX filesystem. Drive remains a connector.
+Shared stays the default only for accounts without an assignment or pending setup.
+Hussh Pods provisioning remains disabled. No Azure/AWS implementation is included;
+the separate CRM connector is retained.
+
+| Order | Implementation to finish | Completion evidence |
+|---|---|---|
+| 1. Private runtime | Bind the existing AG-UI transport, owner model, encrypted session repository and history routes to app-role pod admission. Use the same Firebase owner identity for chat encryption and an explicit HusshID boundary for pod memory. Finish specialist service ports; no shared database or model fallback. | A local browser turn and specialist invocation use the same owner pod; history survives a restart; foreign, expired and withdrawn authority refuse. Each manifest-admitted specialist has a documented usable path or an explicit product gate. |
+| 2. Connector and command authority | Inject the existing MCP approval/session dependencies. Keep the hub's one-use action ledger and atomic command checkpoints authoritative through narrow authenticated ports. Preserve exact browser confirmation and structured failure states. | Approved resume executes once; changed arguments, lost responses and revocation cannot duplicate or authorize an effect. Typed/spoken commands use pod inference. |
+| 3. Existing-pod Files activation | Extend the current update operation with an exact configuration-plan digest, distinct from image-only approval. Bind owner, service UID, project, region, resource identities, immutable image and Files additions. Reuse bootstrap resources, partial receipts and the existing operation lease. Support configuration-only updates. | Image approval alone cannot add resources. Queue/IAM/bucket checks precede activation; interruption leaves recoverable inventory. Activation preserves compute, ingress, keys and recovery prefixes. |
+| 4. Storage and Files experience | Finish bounded chat recovery/retention, Files transfers, folder/search/history operations, analysis opt-in and exclusions, background jobs and usage estimates in existing screens. Resolve the current chat replay ceiling before rollout; describe logical deletion accurately. | Local transfer resume/integrity, concurrent revisions, restart, cancellation, undo, trash/restore, model failure and malicious-content boundaries. No credentials or file contents in hub jobs/logs. |
+| 5. Upgrade and device continuity | Keep one durable Settings/Feed operation through approval, authenticated drain, restart, recovery, reconnect and verified digest. Reuse the existing trusted Puppy identity and signed same-owner/pod binding. | Local update interruption and duplicate-request checks; normal success requires installed-digest readback. No re-enrollment or silent Shared fallback. Real-device/network acceptance remains a dev check. |
+| 6. Combined acceptance and dev | Run affected local contracts once after implementation, complete a local reviewer journey, then validate the exact combined SHA in GitHub CI. Deploy that branch SHA through governed dev; publish only the dev channel and exercise the normal owner approval flow. | Terminal CI/deployment results plus actual serving revisions, update receipt, retained-information continuity and real browser/device journeys. Unperformed scenarios remain unverified. |
+
+**Compute and cost:** preserve existing owners' selected configurations. New
+on-demand selection uses 1 vCPU, 1 GiB, minimum zero, maximum one, one worker and
+bounded concurrency; measure its memory/socket behavior before accepting that
+concurrency in dev. Files activation does not silently opt an existing pod into
+that sizing. Storage of 25–50 GiB is an illustrative usage range, not a quota.
+Usage and spending thresholds warn without stopping service. Close idle transport
+leases as specified; a sleeping physical device is not remotely wakeable by this
+software. Hub/shared capacity is evaluated independently of owner compute.
+
+**Execution cadence:** implement cohesive changes first; use cheap static checks
+and focused real-contract tests to resolve a specific risk. Do not repeatedly run
+full local CI. The final combined SHA must pass canonical GitHub validation before
+dev deployment. No application merge to main, UAT/production deployment, stable
+release or unrelated owner upgrade is part of this pass.
+
+**Current progress:** ADK synchronization is source-verified. The encrypted ADK
+repository is implemented but unmounted. The Nav/model correction below is locally
+verified; it is not proof that all specialists or complete private chat are ready.
+Existing-owner Files activation and the combined update journey remain unfinished.
+
 ## Current integration checkpoint — 2026-09-24
 
 The existing pod branch is at `7d38d0d67`, containing remote main
@@ -1760,3 +1805,53 @@ connector approval ports using the existing action authority, and explicit
 owner-approved Files activation on existing pods. Normal software-update and
 real-device journeys follow on the combined candidate. No new deployment or owner
 update is established by these local checks.
+
+
+### Pod Nav and model transport correction — 2026-09-27 UTC
+
+Against `5ee902e92`, private Nav now uses explicit invocation and consent-read
+ports. Its tool no longer constructs the shared Consent Center in pod mode.
+The owner and information grant are rechecked before returning the answer;
+private Connections remains refused until its own port is supplied. Shared Nav
+retains its existing owner-token validation.
+
+The provider adapter now carries the owner's selected Vertex API-key transport,
+project and location into the existing client factory. Connected Systems receives
+the selected pod model instead of choosing its shared default. An optional explicit
+ADK session-owner binding prepares the Firebase chat/HusshID memory boundary
+without changing legacy pod text turns.
+
+The focused Nav, pod-specialist and provider group passed 135 tests, including a
+real scripted ADK Consent-child turn, no-hub-database negative controls and revoked
+admission after a read. No full local CI or new deployment was run for this batch.
+
+### Upgrade custody and Files checkpoint boundary — 2026-09-27 UTC
+
+Image-only BYOC updates now preserve the observed encrypted storage coordinates,
+wrapped-key and signing-secret references, durable identity selection and owner
+Vertex/ADC settings, including absent settings. A changed runtime service account
+refuses before image copy, draining or replacement; it requires reconciliation.
+These rules do not authorize enabling Files or changing the owner's compute tier.
+The upgrade suite passed 62 tests, including configuration drift and identity refusal.
+
+The existing bootstrap applier has a separate mandatory checkpoint callback for
+step intent and qualified observations. Callback failure stops subsequent cloud
+work; the existing best-effort narrative callback retains its behavior. Provider
+error bodies, request bodies and credentials are excluded from checkpoint payloads.
+Creation-observation qualification was extracted behind the same substrate validators;
+the combined bootstrap/substrate suite passed 160 tests after that extraction.
+
+**Remaining activation work:** connect this hook to the exact approved Files plan
+and existing upgrade lease. Advance the captured registry observation only after
+an acknowledged conditional write. Erasure can reserve the registry during cloud
+work; its existing late compute acknowledgement cannot represent queue/IAM receipts.
+The backend/erasure owner must add a bounded retention transition and terminal
+reconciliation before activation can safely become available. The hook alone does
+not activate Files or establish recovery. Do not replay whole-pod bootstrap to work
+around this gap, resize existing pods, or clear an unresolved upgrade lease.
+
+The architecture fitness check identified additional measured size findings in
+the touched legacy modules and tests. The bootstrap observation extraction reduces
+that source hotspot; the remaining findings still need reconciliation before the
+combined candidate is submitted. No threshold or baseline was relaxed. No full
+local CI, push, deployment, main merge or owner update occurred in this batch.

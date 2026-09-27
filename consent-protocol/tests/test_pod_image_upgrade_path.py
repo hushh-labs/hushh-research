@@ -314,12 +314,22 @@ async def test_image_update_preserves_observed_policy_despite_registry_drift(
         "POD_MEMORY_BANK_LOCATION": "owner-region",
         "POD_LOCAL_PKM_ENABLED": "false",
         "HUSSH_POD_MIGRATION_ENABLED": "false",
+        "POD_STORAGE_BACKEND": "commit_log",
+        "POD_STORAGE_GCS_BUCKET": "existing-owner-recovery",
+        "POD_STORAGE_GCS_PREFIX": "existing-owner-prefix",
+        "HUSSH_POD_KMS_KEY": "projects/acme-user-proj/locations/us-central1/keyRings/owner/cryptoKeys/recovery",
+        "HUSSH_POD_WRAPPED_LOG_KEY_OBJECT": "existing-wrapped-key",
+        "GOOGLE_CLOUD_PROJECT": "owner-model-project",
+        "GOOGLE_CLOUD_LOCATION": "global",
+        "HUSSH_POD_USER_ADC_ENABLED": "true",
     }
     env = old["spec"]["containers"][0]["env"]
     env[:] = [e for e in env if e["name"] not in {*policy, "CORS_ALLOWED_ORIGINS"}]
     env.append({"name": "CORS_ALLOWED_ORIGINS", "value": "https://dev.example.test"})
     if explicit_policy:
         env.extend({"name": key, "value": value} for key, value in policy.items())
+    signing = next(e for e in env if e["name"] == "APP_SIGNING_KEY")
+    signing["valueFrom"]["secretKeyRef"] = {"name": "existing-owner-signing", "key": "7"}
     run.services[name]["spec"] = copy.deepcopy(existing["spec"])
     observed = copy.deepcopy(run.services[name])
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://different.example.test")
@@ -341,6 +351,21 @@ async def test_image_update_preserves_observed_policy_despite_registry_drift(
     assert handle.backend_metadata["livenessMode"] == "economy"
     assert _image_of(updated).endswith(NEW)
     assert observed["spec"] == existing["spec"]
+    after_env = actual["spec"]["containers"][0]["env"]
+    assert next(e for e in after_env if e["name"] == "APP_SIGNING_KEY") == signing
+
+
+@pytest.mark.asyncio
+async def test_image_update_refuses_changed_runtime_identity(copy_log):
+    name = ugb._service_name(HUSHH_ID)
+    run = FakeRun(name, existing_digest=OLD)
+    run.services[name]["spec"]["template"]["spec"]["serviceAccountName"] = (
+        "independent-account@acme-user-proj.iam.gserviceaccount.com"
+    )
+    with pytest.raises(ValueError, match="runtime identity changed"):
+        await _backend(run).upgrade(_spec())
+    assert not run.replaced
+    assert not copy_log.resolved
 
 
 @pytest.mark.asyncio

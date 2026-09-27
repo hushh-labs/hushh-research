@@ -25,6 +25,7 @@ import base64
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -791,7 +792,12 @@ class UserGcpBootstrap:
     # -- execution -----------------------------------------------------------------
 
     def apply(
-        self, plan: dict[str, Any], *, dry_run: bool = True, on_step: Any = None
+        self,
+        plan: dict[str, Any],
+        *,
+        dry_run: bool = True,
+        on_step: Any = None,
+        checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
     ) -> dict[str, Any]:
         """Create the plan's resources. ``dry_run`` is the default on purpose.
 
@@ -805,6 +811,13 @@ class UserGcpBootstrap:
         synchronous too and is guarded here: a listener's bug must never turn a
         16-step bootstrap into a partial apply. It fires only on live runs -- a dry
         run resolves nothing, so it has no steps to narrate.
+
+        ``checkpoint(phase, step, completed_steps)`` is a separate authority port.
+        It must durably accept intent before a step and qualified observations
+        afterward. Its failures propagate: no later provider step may execute
+        after persistence or owner authority is lost. It receives no credentials,
+        request bodies or raw provider errors. The caller binds it to the exact
+        approved plan and existing operation; a callback is not itself approval.
         """
 
         def _observe(step: str, ok: bool) -> None:
@@ -825,6 +838,32 @@ class UserGcpBootstrap:
             )
 
         results: list[dict[str, Any]] = []
+
+        def _checkpoint(phase: str, step: str) -> None:
+            if checkpoint is None:
+                return
+            from copy import deepcopy
+
+            # Only qualified resource/IAM observations leave the applier. Error
+            # text and provider response bodies can contain private configuration.
+            safe = [
+                {
+                    key: deepcopy(value)
+                    for key, value in result.items()
+                    if key
+                    in {
+                        "step",
+                        "status",
+                        "ok",
+                        "skipped",
+                        "resourceObservation",
+                        "bindingObservations",
+                    }
+                }
+                for result in results
+            ]
+            checkpoint(phase, step, safe)
+
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
         unmet: set[str] = set()
         for index, call in enumerate(calls):
@@ -847,9 +886,11 @@ class UserGcpBootstrap:
                 unmet.add(call["step"])
                 continue
 
+            _checkpoint("intent", call["step"])
             if call.get("kind") == "merge_binding":
                 merged = self._merge_binding(call, headers)
                 results.append(merged)
+                _checkpoint("observed", call["step"])
                 _observe(call["step"], bool(merged["ok"]))
                 if not merged["ok"]:
                     unmet.add(call["step"])
@@ -858,6 +899,7 @@ class UserGcpBootstrap:
             if call.get("kind") == "generate_secret_version":
                 seeded = self._seed_secret_version(call, headers)
                 results.append(seeded)
+                _checkpoint("observed", call["step"])
                 _observe(call["step"], bool(seeded["ok"]))
                 if not seeded["ok"]:
                     unmet.add(call["step"])
@@ -904,6 +946,7 @@ class UserGcpBootstrap:
                         }
                     )
                     logger.warning("byoc_bootstrap.bucket_name_collision step=%s", call["step"])
+                    _checkpoint("observed", call["step"])
                     _observe(call["step"], False)
                     unmet.add(call["step"])
                     continue
@@ -940,137 +983,20 @@ class UserGcpBootstrap:
                 result["resourceObservation"] = waited["resourceObservation"]
             if ok and files_observation:
                 result["resourceObservation"] = files_observation
-            if ok and code in (200, 201) and call["step"] == "cmek_bucket":
-                from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
+            if ok and code in (200, 201):
+                from hushh_mcp.services.byoc_bootstrap_observation import qualify_created_resource
 
-                bucket_name = (call.get("body") or {}).get("name")
-                if isinstance(bucket_name, str) and bucket_name:
-                    bucket_body = _json_or_empty(response)
-                    if "name" in bucket_body and bucket_body["name"] != bucket_name:
-                        ok = False
-                        result.update(ok=False, detail="bucket creation identity mismatch")
-                    identity = _bucket_creation_identity(bucket_body, bucket_name)
-                    if identity:
-                        result["resourceObservation"] = {
-                            "type": "gcs_bucket",
-                            "id": bucket_name,
-                            "disposition": "created",
-                            "identity": identity,
-                        }
-            if (
-                ok
-                and code in (200, 201)
-                and call["step"] in {"pod_service_account", "files_worker_account"}
-            ):
-                from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
-
-                account_id = (call.get("body") or {}).get("accountId")
-                expected_email = f"{account_id}@{self._project}.iam.gserviceaccount.com"
-                account_body = _json_or_empty(response)
-                if ("email" in account_body and account_body["email"] != expected_email) or (
-                    "projectId" in account_body and account_body["projectId"] != self._project
-                ):
-                    ok = False
-                    result.update(ok=False, detail="service account creation identity mismatch")
-                identity = _service_account_creation_identity(account_body, expected_email)
-                if identity:
-                    result["resourceObservation"] = {
-                        "type": "service_account",
-                        "id": expected_email,
-                        "disposition": "created",
-                        "identity": identity,
-                    }
-            if ok and code in (200, 201) and call["step"] == "kms_key":
-                from hushh_mcp.services.byoc_substrate import _kms_key_creation_identity
-
-                key_id = call["params"]["cryptoKeyId"]
-                expected_name = (
-                    f"{call['url'].removeprefix('https://cloudkms.googleapis.com/v1/')}/{key_id}"
-                )
-                key_body = _json_or_empty(response)
-                if ("name" in key_body and key_body["name"] != expected_name) or (
-                    "purpose" in key_body and key_body["purpose"] != "ENCRYPT_DECRYPT"
-                ):
-                    ok = False
-                    result.update(ok=False, detail="KMS key creation identity mismatch")
-                identity = _kms_key_creation_identity(key_body, expected_name)
-                if identity:
-                    result["resourceObservation"] = {
-                        "type": "kms_key",
-                        "id": key_id,
-                        "disposition": "created",
-                        "identity": identity,
-                    }
-            if ok and code in (200, 201) and call["step"] == "pod_signing_secret":
-                from hushh_mcp.services.byoc_substrate import _secret_creation_identity
-
-                secret_id = call["params"]["secretId"]
-                secret_body = _json_or_empty(response)
-                # Project-number aliases come only from the preceding Resource
-                # Manager lookup, never from an unverified response attribute.
-                candidate = {
-                    "name": secret_body.get("name"),
-                    "createTime": secret_body.get("createTime"),
-                    "projectId": self._project,
-                    **({"projectNumber": self._project_number} if self._project_number else {}),
-                }
-                identity = _secret_creation_identity(candidate, secret_id, self._project)
-                if identity:
-                    result["resourceObservation"] = {
-                        "type": "secret",
-                        "id": secret_id,
-                        "disposition": "created",
-                        "identity": identity,
-                    }
-            mail_types = {
-                "mail_topic": "pubsub_topic",
-                "mail_subscription": "pubsub_subscription",
-                "watch_renew_job": "cloud_scheduler_job",
-            }
-            if ok and code in (200, 201) and call["step"] in mail_types:
-                from hushh_mcp.services.byoc_substrate import _mail_creation_identity
-
-                resource_type = mail_types[call["step"]]
-                expected_name = (
-                    (call.get("body") or {}).get("name")
-                    if resource_type == "cloud_scheduler_job"
-                    else call["url"].partition("/v1/")[2]
-                )
-                identity = _mail_creation_identity(
-                    _json_or_empty(response), resource_type, expected_name
-                )
-                request_body = call.get("body") or {}
-                if (
-                    identity
-                    and resource_type == "pubsub_subscription"
-                    and identity["topic"] != request_body.get("topic")
-                ):
-                    identity = None
-                if (
-                    identity
-                    and resource_type == "cloud_scheduler_job"
-                    and any(
-                        identity[key] != request_body.get(key) for key in ("schedule", "timeZone")
+                result.update(
+                    qualify_created_resource(
+                        call,
+                        _json_or_empty(response),
+                        project=self._project,
+                        project_number=self._project_number,
                     )
-                ):
-                    identity = None
-                if (
-                    identity
-                    and resource_type == "cloud_scheduler_job"
-                    and identity["pubsubTarget"]["topicName"]
-                    != request_body.get("pubsubTarget", {}).get("topicName")
-                ):
-                    identity = None
-                if identity:
-                    result["resourceObservation"] = {
-                        "type": resource_type,
-                        "id": expected_name.rsplit("/", 1)[-1],
-                        "disposition": "created",
-                        "identity": identity,
-                    }
-                # Missing acknowledgement conveys no cleanup ownership. Preserve
-                # bootstrap compatibility without qualifying later deletion.
+                )
+                ok = result["ok"]
             results.append(result)
+            _checkpoint("observed", call["step"])
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)
             if not ok:

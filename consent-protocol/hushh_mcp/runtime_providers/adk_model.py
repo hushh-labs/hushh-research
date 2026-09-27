@@ -41,6 +41,9 @@ class ProviderAdkModel(BaseLlm):
     # Managed pod runtimes use workload ADC; BYOK and Puppy relay runtimes
     # continue through the explicit credential transport.
     runtime_mode: str | None = None
+    gemini_byok_transport: str = "developer_api"
+    vertex_project: str | None = None
+    vertex_location: str | None = None
 
     @staticmethod
     def _parts(*, text: str = "", function_calls: Any = ()) -> list[types.Part]:
@@ -96,6 +99,9 @@ class ProviderAdkModel(BaseLlm):
             self.provider,
             self.credential,
             puppy_device_id=self.device_id,
+            gemini_byok_transport=self.gemini_byok_transport,
+            vertex_project=self.vertex_project,
+            vertex_location=self.vertex_location,
         )
 
     def _request_config(self, config: Any) -> Any:

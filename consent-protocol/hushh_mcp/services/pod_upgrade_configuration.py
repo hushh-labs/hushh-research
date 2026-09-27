@@ -20,6 +20,17 @@ _POLICY_ENV = frozenset(
         "HUSSH_POD_MIGRATION_ENABLED",
         "CORS_ALLOWED_ORIGINS",
         "POD_IDLE_GRACE_SECONDS",
+        "POD_STORAGE_BACKEND",
+        "POD_STORAGE_GCS_BUCKET",
+        "POD_STORAGE_GCS_PREFIX",
+        "POD_DURABLE_IDENTITY_ENABLED",
+        "HUSSH_POD_KMS_KEY",
+        "HUSSH_POD_WRAPPED_LOG_KEY_OBJECT",
+        "APP_SIGNING_KEY",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "HUSSH_POD_USER_ADC_ENABLED",
     }
 )
 
@@ -30,6 +41,13 @@ def _owner_policy(name: str) -> bool:
 
 def preserve_image_upgrade_configuration(existing: dict[str, Any], desired: dict[str, Any]) -> None:
     """Keep observed policy, including absence/defaults; never mutate observation."""
+    old_spec = existing["spec"]["template"]["spec"]
+    new_spec = desired["spec"]["template"]["spec"]
+    # The registry and machine-token authority bind this exact runtime account.
+    # An independently changed account needs reconciliation, not an image update
+    # that silently restores a derived account or publishes a false identity.
+    if old_spec.get("serviceAccountName") != new_spec.get("serviceAccountName"):
+        raise ValueError("pod runtime identity changed; reconcile before updating")
     preserve_existing_configuration(existing, desired)
     old = existing["spec"]["template"]
     new = desired["spec"]["template"]

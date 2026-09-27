@@ -1511,3 +1511,38 @@ async def test_provider_adk_model_never_fabricates_a_version_when_unreported(mon
     model, _ = _puppy_model(monkeypatch, models, model="local")
     full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
     assert full[0].model_version is None
+
+
+def test_adk_adapter_preserves_owner_vertex_key_transport(monkeypatch):
+    from hushh_mcp.runtime_providers import adk_model
+
+    calls = []
+    sentinel = object()
+
+    def build(provider, credential, **options):
+        calls.append((provider, credential, options))
+        return sentinel
+
+    monkeypatch.setattr(adk_model, "build_runtime_client", build)
+    model = adk_model.ProviderAdkModel(
+        model="synthetic-model",
+        provider="gemini",
+        credential="synthetic-key",
+        runtime_mode="byok",
+        gemini_byok_transport="vertex_api_key",
+        vertex_project="synthetic-owner-project",
+        vertex_location="global",
+    )
+    assert model._client() is sentinel
+    assert calls == [
+        (
+            "gemini",
+            "synthetic-key",
+            {
+                "puppy_device_id": None,
+                "gemini_byok_transport": "vertex_api_key",
+                "vertex_project": "synthetic-owner-project",
+                "vertex_location": "global",
+            },
+        )
+    ]

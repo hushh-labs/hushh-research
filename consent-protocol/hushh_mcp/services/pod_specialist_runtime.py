@@ -477,6 +477,7 @@ def build_pod_specialist_runtime(
     data_door_grants: dict[str, str],
     puppy_device_id: str | None = None,
     verifier: Any = None,
+    session_owner_id: str | None = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
     # ``verifier`` is the second consent seam: a turn admitted by the pod's own
@@ -504,6 +505,9 @@ def build_pod_specialist_runtime(
         credential=credential or "",
         device_id=puppy_device_id,
         runtime_mode=runtime_mode,
+        gemini_byok_transport=credential_transport,
+        vertex_project=vertex_project,
+        vertex_location=vertex_location,
     )
 
     async def require_access() -> None:
@@ -578,11 +582,29 @@ def build_pod_specialist_runtime(
         if agent_id == "agent_nav":
             from hushh_mcp.adk_bridge.nav_agent import NavAgent
 
-            return NavAgent(model=adk_model)
+            async def nav_access(task: Any) -> None:
+                if task.user_id != user_id:
+                    raise PermissionError("Nav owner mismatch")
+                await require_access()
+                verdict = await require_owner_scope(
+                    data_door_grants.get("nav", ""),
+                    expected_scope="agent.nav.review",
+                    user_id=user_id,
+                )
+                if verdict.hushh_id != hushh_id:
+                    raise PermissionError("Nav pod owner mismatch")
+
+            return NavAgent(
+                model=adk_model,
+                consent_service=PodConsentCenterReadPort(user_id, data_door_grants.get("nav", "")),
+                admit_owner=admit_owner,
+                require_read=nav_access,
+                scope_tokens={"agent.nav.review": data_door_grants.get("nav", "")},
+            )
         if agent_id == "agent_connected_systems":
             from hushh_mcp.adk_bridge.connected_systems_agent import ConnectedSystemsAgentA2A
 
-            return ConnectedSystemsAgentA2A()
+            return ConnectedSystemsAgentA2A(model=adk_model)
         # Never substitute a hub singleton when an owner adapter is absent.
         if agent_id not in {"agent_location", "agent_personal_information", "agent_email"}:
             raise RuntimeError("Pod specialist information adapter unavailable")
@@ -692,4 +714,6 @@ def build_pod_specialist_runtime(
             },
         )
 
-    return SpecialistRuntime(user_id, require_access, service_for, hushh_id, admit_owner)
+    return SpecialistRuntime(
+        user_id, require_access, service_for, session_owner_id or hushh_id, admit_owner
+    )

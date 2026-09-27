@@ -144,6 +144,43 @@ class _Session:
 # -- the credential model -----------------------------------------------------------
 
 
+@pytest.mark.parametrize("refuse_phase,expected_calls", [("intent", 0), ("observed", 1), (None, 2)])
+def test_checkpoint_failure_stops_cloud_work_and_excludes_provider_errors(
+    monkeypatch, refuse_phase, expected_calls
+):
+    session = _Session([_Response(403, text="private-provider-detail"), _Response(200)])
+    bootstrap = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
+    monkeypatch.setattr(
+        bootstrap,
+        "plan_calls",
+        lambda _plan: [
+            {"step": name, "method": "POST", "url": "https://example.test/" + name}
+            for name in ("first", "second")
+        ],
+    )
+    observations = []
+
+    def checkpoint(phase, step, completed):
+        observations.append((phase, step, completed))
+        if phase == refuse_phase:
+            raise RuntimeError("durable authority lost")
+
+    if refuse_phase:
+        with pytest.raises(RuntimeError, match="durable authority lost"):
+            bootstrap.apply({}, dry_run=False, checkpoint=checkpoint)
+    else:
+        bootstrap.apply({}, dry_run=False, checkpoint=checkpoint)
+    assert len(session.calls) == expected_calls
+    assert "private-provider-detail" not in repr(observations)
+    assert BORROWED not in repr(observations)
+    if refuse_phase != "intent":
+        assert observations[1] == (
+            "observed",
+            "first",
+            [{"step": "first", "status": 403, "ok": False}],
+        )
+
+
 def test_a_revoked_grant_fails_loudly_instead_of_falling_back() -> None:
     """The control being tested IS revocability.
 

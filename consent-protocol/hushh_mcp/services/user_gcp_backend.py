@@ -1512,6 +1512,13 @@ class UserGcpBackend:
                 "provision (or adopt) it instead"
             )
         GcpRunClient.require_service_uid(existing, expected_uid)
+        observed_runtime = (
+            existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
+        )
+        if observed_runtime != self._pod_service_account(spec):
+            # Do not copy an image, drain work or restore a derived identity on
+            # a service whose runtime authority has changed independently.
+            raise ValueError("pod runtime identity changed; reconcile before updating")
         previous_digest = _digest_from_service(existing)
         handoff = None
         handoff_incarnation = None
