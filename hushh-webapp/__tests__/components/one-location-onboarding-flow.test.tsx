@@ -146,7 +146,7 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
       screen.getByRole("heading", { name: "Can’t explain where you are?" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Stuck waiting in line?" }),
+      screen.getByRole("heading", { name: "Arrived at your spot?" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Need help but can’t talk?" }),
