@@ -46,7 +46,7 @@ def test_compatibility_release_defers_cutover_with_a_documented_recovery_boundar
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:
     sql = _sql()
-    deletes = re.findall(r"DELETE FROM\s+(\w+)(?:\s+AS\s+\w+)?\s+WHERE([^;]+);", sql)
+    deletes = re.findall(r"DELETE FROM\s+(?:public\.)?(\w+)(?:\s+AS\s+\w+)?\s+WHERE([^;]+);", sql)
     assert {table for table, _ in deletes} == {
         "agent_chat_messages",
         "agent_chat_conversations",
@@ -197,11 +197,38 @@ def test_cutover_deletes_only_platform_key_rows_and_is_idempotent(conn) -> None:
     assert _counts(conn, ids["owner"]) == after
 
 
-def test_rows_written_moments_ago_by_old_code_are_still_removed(conn) -> None:  # noqa: ANN001
-    ids = _seed(conn, stale_legacy=False)
-    _run(conn)
-    counts = _counts(conn, ids["owner"])
-    assert counts["legacy_sessions"] == 0 and counts["new_sessions"] == 1
+@pytest.mark.parametrize(
+    "table", ["agent_chat_messages", "agent_chat_conversations", "one_adk_sessions"]
+)
+def test_recent_legacy_writer_refuses_without_deleting(conn, table):
+    ids = _seed(conn)
+    before = _counts(conn, ids["owner"])
+    column = "created_at" if table == "agent_chat_messages" else "updated_at"
+    with conn.cursor() as cursor:
+        cursor.execute(f"UPDATE {table} SET {column}=NOW() WHERE user_id=%s", (ids["owner"],))
+        cursor.execute("SAVEPOINT refusal")
+    with pytest.raises(Exception, match="recent legacy writes"):
+        _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("ROLLBACK TO SAVEPOINT refusal")
+    assert _counts(conn, ids["owner"]) == before
+
+
+@pytest.mark.parametrize("status", ["ready", "admitted"])
+def test_live_checkpoint_refuses_without_deleting(conn, status):
+    ids = _seed(conn)
+    before = _counts(conn, ids["owner"])
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE one_adk_sessions SET command_status=%s WHERE user_id=%s AND session_id='old-command'",
+            (status, ids["owner"]),
+        )
+        cursor.execute("SAVEPOINT refusal")
+    with pytest.raises(Exception, match="live legacy command"):
+        _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("ROLLBACK TO SAVEPOINT refusal")
+    assert _counts(conn, ids["owner"]) == before
 
 
 def test_a_legacy_conversation_holding_a_person_key_message_is_kept(conn) -> None:  # noqa: ANN001
@@ -242,3 +269,174 @@ def test_self_guard_rolls_back_if_any_person_key_row_would_go(conn) -> None:  # 
     with pytest.raises(psycopg2.Error, match="person-key rows changed"):
         _run(conn)
     assert ids["owner"]
+
+
+@pytest.mark.parametrize("channel", ["typed_chat", "adk_chat", "command"])
+@pytest.mark.parametrize(
+    "state,expired,consumed,refused",
+    [
+        ("issued", False, False, True),
+        ("confirmed", False, False, True),
+        ("consumed", True, True, True),
+        ("issued", True, True, True),
+        ("confirmed", True, True, True),
+        ("issued", True, False, False),
+        ("settled", True, True, False),
+        ("cancelled", True, False, False),
+    ],
+)
+def test_affected_authority_controls_deletion(conn, channel, state, expired, consumed, refused):
+    ids = _seed(conn)
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """INSERT INTO one_action_directive_ledger
+            (directive_id,user_id,channel,conversation_id,session_id,adk_app_name,
+             action_id,context_revision,action_contract_digest,slots_hmac,
+             resource_binding_hmac,requires_confirmation,trusted_activation_required,
+             state,expires_at,consumed_at,command_step,operation_id)
+            VALUES (%s,%s,%s,%s,%s,%s,'synthetic','r1','d1','h1','binding',true,true,
+                    %s,NOW() + (%s * INTERVAL '1 hour'),
+                    CASE WHEN %s THEN NOW() - INTERVAL '2 hours' ELSE NULL END,%s,%s)""",
+            (
+                str(uuid.uuid4()),
+                ids["owner"],
+                channel,
+                ids["legacy_conversation"] if channel == "typed_chat" else None,
+                "legacy-thread"
+                if channel == "adk_chat"
+                else "old-command"
+                if channel == "command"
+                else None,
+                "hussh_one" if channel == "adk_chat" else None,
+                state,
+                -1 if expired else 1,
+                consumed,
+                0 if channel == "command" else None,
+                str(uuid.uuid4()) if channel == "command" else None,
+            ),
+        )
+        cursor.execute("SAVEPOINT refusal")
+    before = _counts(conn, ids["owner"])
+    if refused:
+        with pytest.raises(Exception, match="unsettled authority"):
+            _run(conn)
+        with conn.cursor() as cursor:
+            cursor.execute("ROLLBACK TO SAVEPOINT refusal")
+        assert _counts(conn, ids["owner"]) == before
+    else:
+        _run(conn)
+        assert _counts(conn, ids["owner"])["legacy_sessions"] == 0
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM public.one_action_directive_ledger WHERE user_id=%s AND channel=%s",
+                (ids["owner"], channel),
+            )
+            assert cursor.fetchone()[0] == (1 if channel == "command" else 0)
+
+
+def test_cutover_targets_public_tables_despite_shadow_search_path(conn):
+    ids = _seed(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("CREATE TEMP TABLE one_adk_sessions AS TABLE public.one_adk_sessions")
+        cursor.execute("SELECT count(*) FROM pg_temp.one_adk_sessions")
+        shadow_before = cursor.fetchone()[0]
+        cursor.execute("SET LOCAL search_path = pg_temp, public")
+    _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM pg_temp.one_adk_sessions")
+        assert cursor.fetchone()[0] == shadow_before
+        cursor.execute("SET LOCAL search_path = pg_catalog, public, pg_temp")
+    assert _counts(conn, ids["owner"])["legacy_sessions"] == 0
+
+
+def test_unreviewed_session_namespace_refuses_without_deletion(conn):
+    ids = _seed(conn)
+    before = _counts(conn, ids["owner"])
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE public.one_adk_sessions SET app_name='future_unknown' WHERE user_id=%s AND session_id='old-command'",
+            (ids["owner"],),
+        )
+        cursor.execute("SAVEPOINT refusal")
+    with pytest.raises(Exception, match="unreviewed legacy session namespace"):
+        _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("ROLLBACK TO SAVEPOINT refusal")
+    assert _counts(conn, ids["owner"]) == before
+
+
+@pytest.mark.parametrize("proof", ["execution", "active_run"])
+def test_expired_directive_with_effect_evidence_refuses(conn, proof):
+    ids = _seed(conn)
+    directive = str(uuid.uuid4())
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """INSERT INTO public.one_action_directive_ledger
+          (directive_id,user_id,channel,session_id,action_id,context_revision,
+           action_contract_digest,slots_hmac,resource_binding_hmac,
+           requires_confirmation,trusted_activation_required,state,expires_at,
+           command_step,operation_id,execution_receipt_hash)
+          VALUES (%s,%s,'command','old-command','synthetic','r1','d1','h1','binding',
+           true,true,'issued',NOW()-INTERVAL '1 hour',0,%s,%s)""",
+            (
+                directive,
+                ids["owner"],
+                str(uuid.uuid4()),
+                "synthetic-proof" if proof == "execution" else None,
+            ),
+        )
+        if proof == "active_run":
+            cursor.execute(
+                """INSERT INTO public.one_capability_runs
+              (run_id,user_id,capability_id,capability_version,graph_revision,status,
+               pending_directive_id,idempotency_key,slots_hmac,expires_at)
+              VALUES (%s,%s,'synthetic',1,'test','executing',%s,%s,%s,NOW()+INTERVAL '1 hour')""",
+                ("run_" + uuid.uuid4().hex, ids["owner"], directive, "c" * 64, "d" * 64),
+            )
+        cursor.execute("SAVEPOINT refusal")
+    before = _counts(conn, ids["owner"])
+    with pytest.raises(Exception, match="unsettled authority"):
+        _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("ROLLBACK TO SAVEPOINT refusal")
+        cursor.execute(
+            "SELECT count(*) FROM public.one_action_directive_ledger WHERE directive_id=%s",
+            (directive,),
+        )
+        assert cursor.fetchone()[0] == 1
+    assert _counts(conn, ids["owner"]) == before
+
+
+def test_concurrent_writer_blocks_cutover_without_partial_deletion(conn):
+    from concurrent.futures import ThreadPoolExecutor
+
+    import psycopg2
+
+    ids = _seed(conn)
+    before = _counts(conn, ids["owner"])
+    other = psycopg2.connect(os.environ["CHAT_CUTOVER_TEST_DATABASE_URL"])
+    try:
+        # The seed transaction holds real write locks while the migration waits.
+        # Exercise the SQL's actual 10-second lock bound, with no shortened copy.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(_run, other)
+            with pytest.raises(psycopg2.errors.LockNotAvailable):
+                pending.result(timeout=15)
+        other.rollback()
+        assert _counts(conn, ids["owner"]) == before
+    finally:
+        other.rollback()
+        other.close()
+
+
+def test_missing_required_table_refuses_cutover(conn):
+    ids = _seed(conn)
+    before = _counts(conn, ids["owner"])
+    with conn.cursor() as cursor:
+        cursor.execute("SAVEPOINT schema_refusal")
+        cursor.execute("ALTER TABLE public.agent_chat_messages RENAME TO cutover_hidden_messages")
+    with pytest.raises(Exception, match="required chat tables absent"):
+        _run(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("ROLLBACK TO SAVEPOINT schema_refusal")
+    assert _counts(conn, ids["owner"]) == before

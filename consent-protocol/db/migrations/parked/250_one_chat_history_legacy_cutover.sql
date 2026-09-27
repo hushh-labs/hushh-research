@@ -25,17 +25,23 @@
 --
 -- Cascades (existing foreign keys, accepted with the founder decision): for a
 -- deleted session, its one_agent_message_feedback rows (197) and adk_chat rows
--- of one_action_directive_ledger (248); for a deleted conversation, its
--- typed_chat directive rows (114). All metadata only.
+-- of public.one_action_directive_ledger (248); for a deleted conversation, its
+-- typed_chat directive rows (114). Terminal command-channel directive receipts
+-- have no session FK and remain in their owning ledger; cleanup does not erase
+-- them or make a deleted checkpoint resumable. Active effects must be resolved
+-- before cleanup; their authority cannot be inferred from expiry alone.
 --
 -- Rollback: irreversible by design. The rollback file is a documented no-op;
 -- recovering deleted rows means restoring the database from backup, and the
 -- restored rows would still be unreadable to the new code.
 
 BEGIN;
+SET LOCAL statement_timeout = '30s';
+SET LOCAL search_path = pg_catalog, public, pg_temp;
 
 DO $$
 DECLARE
+  cutover_at TIMESTAMPTZ;
   person_sessions_before BIGINT;
   person_conversations_before BIGINT;
   person_messages_before BIGINT;
@@ -47,51 +53,127 @@ BEGIN
   IF to_regclass('public.one_adk_sessions') IS NULL
      OR to_regclass('public.agent_chat_conversations') IS NULL
      OR to_regclass('public.agent_chat_messages') IS NULL THEN
-    RAISE NOTICE 'migration 250: chat tables absent; nothing to cut over';
-    RETURN;
+    RAISE EXCEPTION 'migration 250: required chat tables absent; cutover refused';
   END IF;
 
-  -- Hold writers off for the few milliseconds this takes, so the before/after
+  -- Block writers only within the measured, bounded cutover transaction; before/after
   -- person-key counts below cannot move under concurrent traffic. Readers are
   -- not blocked. Fail fast instead of queueing behind a long transaction.
   SET LOCAL lock_timeout = '10s';
-  LOCK TABLE agent_chat_messages, agent_chat_conversations, one_adk_sessions
-    IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.agent_chat_conversations, public.agent_chat_messages, public.one_adk_sessions,
+    public.one_action_directive_ledger, public.one_capability_runs IN SHARE ROW EXCLUSIVE MODE;
+  cutover_at := clock_timestamp();
+
+  IF EXISTS (
+    SELECT 1 FROM public.one_adk_sessions
+    WHERE substr(payload_ciphertext, 1, 14) <> 'hussh-chat-v1:'
+      AND app_name NOT IN ('hussh_one', 'one.location.commands.v1')
+  ) THEN
+    RAISE EXCEPTION 'migration 250: unreviewed legacy session namespace';
+  END IF;
+
+  -- These refusals supplement the required serving-revision/worker drain.
+  -- A quiet interval alone cannot establish that an old writer is disabled.
+  IF EXISTS (
+    SELECT 1 FROM public.one_adk_sessions
+    WHERE substr(payload_ciphertext, 1, 14) <> 'hussh-chat-v1:'
+      AND GREATEST(created_at, updated_at) > cutover_at - INTERVAL '15 minutes'
+  ) OR EXISTS (
+    SELECT 1 FROM public.agent_chat_messages
+    WHERE substr(content_ciphertext, 1, 14) <> 'hussh-chat-v1:'
+      AND created_at > cutover_at - INTERVAL '15 minutes'
+  ) OR EXISTS (
+    SELECT 1 FROM public.agent_chat_conversations c
+    WHERE (c.title_ciphertext IS NULL OR substr(c.title_ciphertext, 1, 14) <> 'hussh-chat-v1:')
+      AND GREATEST(c.created_at, c.updated_at) > cutover_at - INTERVAL '15 minutes'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.agent_chat_messages m WHERE m.conversation_id = c.id
+          AND substr(m.content_ciphertext, 1, 14) = 'hussh-chat-v1:'
+      )
+  ) THEN
+    RAISE EXCEPTION 'migration 250: recent legacy writes; writer drain not established';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.one_adk_sessions
+    WHERE app_name = 'one.location.commands.v1'
+      AND substr(payload_ciphertext, 1, 14) <> 'hussh-chat-v1:'
+      AND command_status IN ('ready', 'admitted')
+      AND created_at > cutover_at - INTERVAL '24 hours'
+  ) THEN
+    RAISE EXCEPTION 'migration 250: live legacy command checkpoints remain';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.one_action_directive_ledger d
+    WHERE (
+      EXISTS (
+        SELECT 1 FROM public.one_capability_runs r
+        WHERE r.user_id = d.user_id
+          AND (r.pending_directive_id = d.directive_id OR r.run_id = d.workflow_run_id)
+          AND r.status NOT IN ('verified_succeeded', 'verified_failed', 'cancelled', 'expired')
+      ) OR d.state = 'consumed'
+      OR (d.state IN ('issued', 'confirmed')
+        AND (d.expires_at > cutover_at OR d.consumed_at IS NOT NULL
+          OR d.execution_receipt_hash IS NOT NULL OR d.effect_receipt IS NOT NULL
+          OR (d.membership_receipts IS NOT NULL AND d.membership_receipts <> '{}'::jsonb) OR (d.audience_receipts IS NOT NULL AND d.audience_receipts <> '{}'::jsonb)
+          OR d.workflow_run_id IS NOT NULL))
+    ) AND (
+      (d.channel IN ('adk_chat', 'command') AND EXISTS (
+        SELECT 1 FROM public.one_adk_sessions s
+        WHERE s.user_id = d.user_id AND s.session_id = d.session_id
+          AND s.app_name = CASE WHEN d.channel = 'adk_chat'
+            THEN d.adk_app_name ELSE 'one.location.commands.v1' END
+          AND substr(s.payload_ciphertext, 1, 14) <> 'hussh-chat-v1:'
+      )) OR (d.channel = 'typed_chat' AND EXISTS (
+        -- Match the real conversation FK; owner metadata does not limit cascade.
+        SELECT 1 FROM public.agent_chat_conversations c
+        WHERE c.id = d.conversation_id
+          AND (c.title_ciphertext IS NULL OR substr(c.title_ciphertext, 1, 14) <> 'hussh-chat-v1:')
+          AND NOT EXISTS (
+            SELECT 1 FROM public.agent_chat_messages m WHERE m.conversation_id = c.id
+              AND substr(m.content_ciphertext, 1, 14) = 'hussh-chat-v1:'
+          )
+      ))
+    )
+  ) THEN
+    RAISE EXCEPTION 'migration 250: unsettled authority attached to legacy history';
+  END IF;
 
   SELECT COUNT(*) INTO person_sessions_before
-  FROM one_adk_sessions WHERE substr(payload_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.one_adk_sessions WHERE substr(payload_ciphertext, 1, 14) = 'hussh-chat-v1:';
   SELECT COUNT(*) INTO person_conversations_before
-  FROM agent_chat_conversations WHERE substr(title_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.agent_chat_conversations WHERE substr(title_ciphertext, 1, 14) = 'hussh-chat-v1:';
   SELECT COUNT(*) INTO person_messages_before
-  FROM agent_chat_messages WHERE substr(content_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.agent_chat_messages WHERE substr(content_ciphertext, 1, 14) = 'hussh-chat-v1:';
 
-  DELETE FROM agent_chat_messages
+  DELETE FROM public.agent_chat_messages
   WHERE substr(content_ciphertext, 1, 14) <> 'hussh-chat-v1:';
 
   SELECT COUNT(*) INTO kept_conversations
-  FROM agent_chat_conversations AS c
+  FROM public.agent_chat_conversations AS c
   WHERE (c.title_ciphertext IS NULL OR substr(c.title_ciphertext, 1, 14) <> 'hussh-chat-v1:')
-    AND EXISTS (SELECT 1 FROM agent_chat_messages AS m WHERE m.conversation_id = c.id);
+    AND EXISTS (SELECT 1 FROM public.agent_chat_messages AS m WHERE m.conversation_id = c.id);
   IF kept_conversations > 0 THEN
     RAISE NOTICE
       'migration 250: kept % platform-key conversation(s) that hold person-key messages',
       kept_conversations;
   END IF;
 
-  DELETE FROM agent_chat_conversations AS c
+  DELETE FROM public.agent_chat_conversations AS c
   WHERE (c.title_ciphertext IS NULL OR substr(c.title_ciphertext, 1, 14) <> 'hussh-chat-v1:')
-    AND NOT EXISTS (SELECT 1 FROM agent_chat_messages AS m WHERE m.conversation_id = c.id);
+    AND NOT EXISTS (SELECT 1 FROM public.agent_chat_messages AS m WHERE m.conversation_id = c.id);
 
   -- One chat sessions and command checkpoints (app_name 'one.location.commands.v1').
-  DELETE FROM one_adk_sessions
+  DELETE FROM public.one_adk_sessions
   WHERE substr(payload_ciphertext, 1, 14) <> 'hussh-chat-v1:';
 
   SELECT COUNT(*) INTO person_sessions_after
-  FROM one_adk_sessions WHERE substr(payload_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.one_adk_sessions WHERE substr(payload_ciphertext, 1, 14) = 'hussh-chat-v1:';
   SELECT COUNT(*) INTO person_conversations_after
-  FROM agent_chat_conversations WHERE substr(title_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.agent_chat_conversations WHERE substr(title_ciphertext, 1, 14) = 'hussh-chat-v1:';
   SELECT COUNT(*) INTO person_messages_after
-  FROM agent_chat_messages WHERE substr(content_ciphertext, 1, 14) = 'hussh-chat-v1:';
+  FROM public.agent_chat_messages WHERE substr(content_ciphertext, 1, 14) = 'hussh-chat-v1:';
 
   IF person_sessions_after <> person_sessions_before
      OR person_conversations_after <> person_conversations_before
