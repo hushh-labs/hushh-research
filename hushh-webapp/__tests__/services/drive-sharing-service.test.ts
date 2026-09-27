@@ -55,6 +55,45 @@ const rawReview = () => ({
   reviewDigest: "a".repeat(64),
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
 });
+
+describe("saved-search bulk sharing boundary", () => {
+  const view = {
+    shareId: documentId, searchJobId: requestId, status: "review_ready", revision: 4,
+    reviewDigest: "a".repeat(64), fileCount: 4, recipientCount: 1,
+    recipients: [{ name: "Alex", email: "alex@example.com" }], excluded: [],
+    counts: { total: 4, processed: 0, shared: 0, alreadyShared: 0, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 4 },
+    notifications: { settled: 0, pending: 0, unavailable: 0 }, canApprove: true, canStop: true,
+    createdAt: "2026-09-27T00:00:00Z", updatedAt: "2026-09-27T00:00:00Z", expiresAt: "2026-09-28T00:00:00Z",
+  };
+  beforeEach(() => vi.resetAllMocks());
+
+  it("binds a complete saved search to a reviewed share and sends only its digest on approval", async () => {
+    fetcher.mockResolvedValueOnce(reply(view));
+    const prepared = await DriveSharingService.prepareBulkShare("vault", requestId, guard);
+    expect(fetcher.mock.calls[0][0]).toBe("/api/connectors/google_drive/sharing/bulk");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ searchJobId: requestId,
+      clientRequestId: requestId, audience: "trusted_circle" });
+    fetcher.mockResolvedValueOnce(reply({ ...view, status: "queued", revision: 5, canApprove: false }));
+    await DriveSharingService.approveBulkShare("vault", prepared, guard);
+    expect(fetcher.mock.calls[1][0]).toBe(`/api/connectors/google_drive/sharing/bulk/${documentId}/approve`);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 4, reviewDigest: "a".repeat(64), confirmed: true });
+    await expect(DriveSharingService.approveBulkShare("vault", { ...prepared, canApprove: false }, guard))
+      .rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("rejects a foreign search, invalid review and unsafe recipient links", async () => {
+    fetcher.mockResolvedValueOnce(reply({ shares: [{ ...view, searchJobId: documentId }] }));
+    await expect(DriveSharingService.bulkSharesForSearch("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ ...view, counts: { ...view.counts, processed: 5 } }));
+    await expect(DriveSharingService.bulkShareStatus("vault", documentId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ shareId: documentId, sharedCount: 1,
+      files: [{ name: "Private", openUrl: "https://evil.invalid/file", modifiedTime: null }], nextCursor: null }));
+    await expect(DriveSharingService.receivedBulkFiles("vault", documentId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+});
 const reply = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), { status });
 
@@ -827,6 +866,10 @@ describe("streamed preparation", () => {
     expect(error).toBeInstanceOf(DriveSharingError);
     expect(error.code).toBe("reconnect_required");
     expect(error.message).not.toContain("provider");
+    streamer.mockResolvedValueOnce(
+      streamOf([frame("error", { code: "bulk_changed", message: "private detail" })]).response,
+    );
+    await expect(run()).rejects.toMatchObject({ code: "bulk_changed" });
     for (const code of ["session_changed", "request_failed", "made_up"]) {
       streamer.mockResolvedValueOnce(
         streamOf([frame("error", { code, message: "x" })]).response,

@@ -224,7 +224,8 @@
     "250_gmail_mailbox_action_proposals.sql",
     "251_drive_owner_search_jobs.sql",
     "252_calendar_mail_feed_projection.sql",
-    "253_kai_run_state.sql"
+    "253_kai_run_state.sql",
+    "254_drive_bulk_shares.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -464,6 +465,7 @@
     "246_drive_feed_projection.sql": "rollback/246_drive_feed_projection.rollback.sql",
     "247_private_mcp_registration.sql": "rollback/247_private_mcp_registration.rollback.sql",
     "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql",
-    "251_drive_owner_search_jobs.sql": "rollback/251_drive_owner_search_jobs.rollback.sql"
+    "251_drive_owner_search_jobs.sql": "rollback/251_drive_owner_search_jobs.rollback.sql",
+    "254_drive_bulk_shares.sql": "rollback/254_drive_bulk_shares.rollback.sql"
   }
 }

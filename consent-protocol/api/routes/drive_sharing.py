@@ -209,6 +209,28 @@ class QueryShareRequest(StrictRequest):
         return self
 
 
+class BulkShareCreateRequest(StrictRequest):
+    searchJobId: UUID
+    clientRequestId: UUID
+    audience: Literal["trusted_circle"]
+
+
+class BulkShareApprovalRequest(StrictRequest):
+    revision: int = Field(ge=1, strict=True)
+    reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
+class BulkShareStopRequest(StrictRequest):
+    pass
+
+
 class ApprovalRequest(DecisionRequest):
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
@@ -287,6 +309,14 @@ def _error(error):
         ),
         "drive_share_unavailable": (503, "Couldn't prepare these files. Try again."),
         "drive_share_in_progress": (409, "Sharing is already in progress."),
+        "bulk_not_found": (404, "This share review is unavailable."),
+        "bulk_expired": (410, "This share review expired. Start a new one."),
+        "bulk_conflict": (409, "This share review changed. Refresh it."),
+        "bulk_changed": (409, "This share review changed. Refresh it."),
+        "search_in_progress": (409, "Wait for the complete Drive search before sharing all files."),
+        "search_incomplete": (409, "This Drive search is incomplete. Narrow or restart it."),
+        "search_not_found": (404, "This Drive search is unavailable."),
+        "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -967,6 +997,100 @@ async def share_owner_files(
         request_id=str(request_id),
         file_refs=body.fileRefs,
     )
+
+
+def _bulk_share_service():
+    from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
+
+    return DriveBulkShareService()
+
+
+@router.post("/bulk")
+async def create_bulk_share(body: BulkShareCreateRequest, owner: Owner = Depends(_owner)):
+    """Freeze one complete saved search for a separate exact-set owner review."""
+    return await _call(
+        "prepare",
+        owner=owner,
+        factory=_bulk_share_service,
+        search_job_id=str(body.searchJobId),
+        client_request_id=str(body.clientRequestId),
+    )
+
+
+@router.get("/bulk")
+async def list_bulk_shares(searchJobId: UUID | None = None, owner: Owner = Depends(_owner)):
+    return await _call(
+        "list",
+        owner=owner,
+        factory=_bulk_share_service,
+        search_job_id=str(searchJobId) if searchJobId else None,
+    )
+
+
+@router.get("/bulk/received")
+async def received_bulk_shares(owner: Owner = Depends(_owner)):
+    """The recipient's confirmed share collections, including non-Drive users."""
+    return await _call("received", owner=owner, factory=_bulk_share_service)
+
+
+@router.get("/bulk/received/{share_id}/files")
+async def received_bulk_share_files(
+    share_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "received_files",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        cursor=cursor,
+    )
+
+
+@router.get("/bulk/{share_id}")
+async def bulk_share_status(share_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("review", owner=owner, factory=_bulk_share_service, share_id=str(share_id))
+
+
+@router.get("/bulk/{share_id}/files")
+async def bulk_share_files(
+    share_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "files",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        cursor=cursor,
+    )
+
+
+@router.post("/bulk/{share_id}/approve", status_code=202)
+async def approve_bulk_share(
+    share_id: UUID,
+    body: BulkShareApprovalRequest,
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "approve",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        revision=body.revision,
+        review_digest=body.reviewDigest,
+    )
+
+
+@router.post("/bulk/{share_id}/stop")
+async def stop_bulk_share(
+    share_id: UUID,
+    body: BulkShareStopRequest,
+    owner: Owner = Depends(_owner),
+):
+    return await _call("stop", owner=owner, factory=_bulk_share_service, share_id=str(share_id))
 
 
 @router.post("/queries/{request_id}/deny")

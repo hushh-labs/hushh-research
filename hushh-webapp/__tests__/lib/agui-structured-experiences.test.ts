@@ -95,6 +95,18 @@ describe("AG-UI structured experience registry", () => {
       filesRequest: "the Chris onboarding recordings",
     });
   });
+  it("stages a complete saved-search share review only from its explicit proposal", () => {
+    const proposal = { status: "proposal_ready", audience: "trusted_circle",
+      searchJobId: "11111111-1111-4111-8111-111111111111",
+      clientRequestId: "22222222-2222-4222-8222-222222222222" };
+    const expected = { type: "one.drive_bulk_share_review.v1", audience: "trusted_circle",
+      searchJobId: proposal.searchJobId, clientRequestId: proposal.clientRequestId };
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", proposal)).toEqual(expected);
+    expect(parseAgentActivityExperience("one.drive_bulk_share_review.v1", proposal)).toEqual(expected);
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, status: "search_in_progress" })).toBeNull();
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, searchJobId: "bad" })).toBeNull();
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, audience: "person" })).toBeNull();
+  });
   it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
     const result = parseAgentToolResultExperience("discover_person_information", {
       ...scopeResult,

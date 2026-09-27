@@ -1503,6 +1503,39 @@ visible incomplete results, never proof of absence. Existence queries return met
 exports. Optional content-read failure preserves successful siblings. Sharing remains the existing
 reviewed exact-ID permission flow below.
 
+### Reviewed sharing of a complete Drive search
+
+`/api/connectors/google_drive/sharing/bulk` is a separate owner-approved lane for
+sharing *all matches of one saved search* with the owner's eligible Trusted circle.
+The search job is only metadata collection authority. A running, stopped, failed,
+limited, expired, or `incompleteSearch` result cannot be represented as “all.”
+Every route is Vault Owner authenticated and private/no-store; the browser sends
+only opaque job/share IDs, never a list of Drive IDs or recipient emails.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `POST /` | `{searchJobId,clientRequestId,audience:"trusted_circle"}`. Idempotently freezes the completed result IDs and currently eligible, verified recipient identities under an exact review digest. No Google permission or recipient message is created. |
+| `GET /` and `GET /{id}` | Owner's recent review and durable share status: file/recipient counts, exclusions, review revision/digest, and separate queued, confirmed, already-present, skipped, failed, and uncertain effect counts. An uncertain provider write requires review; a queued approval is never called delivered. |
+| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest for inspection before approval. No content downloads. |
+| `POST /{id}/approve` | `{revision,reviewDigest,confirmed:true}` from the current exact-set review. HTTP 202 queues file-by-recipient Viewer grants; it does not mean Google access or notification has succeeded. |
+| `POST /{id}/stop` | Empty body; fences remaining grants. Already confirmed Google permissions remain and are reported honestly. |
+| `GET /received` and `GET /received/{id}/files?cursor=…` | Current recipient's collection and 25-file pages of *confirmed* original-file links only. The recipient needs a current verified email, not a Drive connector. A changed identity cannot read the old collection. |
+
+Approval creates a durable per-file, per-recipient ledger. Bounded workers recheck
+the owner's Drive generation and live file access, current Trusted membership,
+and the recipient's verified email before each grant. Ambiguous provider outcomes
+are reconciled by read before any retry; successful grants are not repeated.
+Google's per-file notification email is disabled for this bulk lane so thousands
+of files do not produce thousands of emails. A recipient gets one in-app summary
+with a collection of links after confirmed grants; a failed or pending grant never
+appears as delivered. Search results are not a transactionally consistent Google
+Drive snapshot: the reviewed set is frozen, and files changed or removed before
+execution are skipped and counted. The encrypted operational manifest is separate
+from PKM and is not a strict client-key zero-knowledge store.
+Only one bulk share can be prepared for a saved search, including across chats or
+repeated requests with different client IDs; reopening recovers the same review
+or progress rather than queueing duplicate grants.
+
 ### Exact-file Drive sharing (default-off)
 
 All routes below use `/api/connectors/google_drive/sharing` and require a current Vault

@@ -13,6 +13,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
@@ -25,28 +26,31 @@ WORKER_JOB_LIMITS = {
     "suggestions": 1,
     "searches": 1,
     "permissions": 20,
+    "bulk_shares": 400,
     "notifications": 20,
 }
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
-    "sharing": frozenset({"permissions", "notifications"}),
+    "sharing": frozenset({"permissions", "bulk_shares", "notifications"}),
 }
 STAGE_MAX_SECONDS = {
     "documents": 180,
     "suggestions": 175,
     "searches": 90,
-    "permissions": 80,
-    "notifications": 45,
+    "permissions": 75,
+    "bulk_shares": 80,
+    "notifications": 35,
 }
 STAGE_MIN_SECONDS = {
     "documents": 160,
     "suggestions": 150,
     "searches": 20,
     "permissions": 75,
+    "bulk_shares": 75,
     "notifications": 35,
 }
-MAX_OUTCOME_COUNT = 100
+MAX_OUTCOME_COUNT = 500
 
 _WORKER_ALLOWED_OUTCOMES = {
     "searches": frozenset(
@@ -105,6 +109,27 @@ _WORKER_ALLOWED_OUTCOMES = {
             "disabled",
             "deadline",
             "deferred",
+        }
+    ),
+    "bulk_shares": frozenset(
+        {
+            "succeeded",
+            "preexisting",
+            "queued",
+            "unknown",
+            "failed",
+            "skipped",
+            "present_unattributed",
+            "absent",
+            "not_claimed",
+            "unavailable",
+            "disabled",
+            "deadline",
+            "deferred",
+            "notification_settled",
+            "notification_queued",
+            "notification_unavailable",
+            "notification_not_claimed",
         }
     ),
     "notifications": frozenset(
@@ -169,6 +194,7 @@ class DriveWorkDrain:
         suggestion_worker: DriveSuggestionWorker | None = None,
         search_worker: DriveOwnerSearchWorker | None = None,
         permission_worker: DrivePermissionWorker | None = None,
+        bulk_share_worker: DriveBulkShareWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
@@ -178,6 +204,7 @@ class DriveWorkDrain:
             ("suggestions", suggestion_worker or DriveSuggestionWorker()),
             ("searches", search_worker or DriveOwnerSearchWorker()),
             ("permissions", permission_worker or DrivePermissionWorker()),
+            ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
         )
 
@@ -213,7 +240,9 @@ class DriveWorkDrain:
             try:
                 async with asyncio.timeout(budget):
                     result = await worker.run(
-                        max_jobs=min(max_jobs_per_worker, WORKER_JOB_LIMITS[name]),
+                        max_jobs=WORKER_JOB_LIMITS[name]
+                        if name == "bulk_shares"
+                        else min(max_jobs_per_worker, WORKER_JOB_LIMITS[name]),
                         deadline_seconds=budget,
                     )
             except TimeoutError:

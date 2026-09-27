@@ -582,6 +582,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a Drive share for your confirmation.",
     activity: "Preparing a Drive share",
   },
+  propose_drive_bulk_share: {
+    label: "Google Drive",
+    message: "Preparing saved Drive files for your review.",
+    activity: "Preparing a Drive share",
+  },
   propose_drive_file_share: {
     label: "Google Drive",
     message: "Preparing a Drive share for your confirmation.",

@@ -158,6 +158,7 @@ class GoogleDrivePermissionAdapter:
         email: str | None = None,
         permission_id: str | None = None,
         page_token: str | None = None,
+        send_notification_email: bool = True,
     ) -> dict:
         started = time.perf_counter()
         outcome = "error"
@@ -173,6 +174,7 @@ class GoogleDrivePermissionAdapter:
                 email=email,
                 permission_id=permission_id,
                 page_token=page_token,
+                send_notification_email=send_notification_email,
             )
             outcome = "ok"
             return result
@@ -215,6 +217,7 @@ class GoogleDrivePermissionAdapter:
         email: str | None = None,
         permission_id: str | None = None,
         page_token: str | None = None,
+        send_notification_email: bool = True,
     ) -> dict:
         path = f"/files/{_identifier(file_id)}"
         body, method = None, "GET"
@@ -233,11 +236,19 @@ class GoogleDrivePermissionAdapter:
                     raise _invalid()
                 params["pageToken"] = page_token
         elif operation == "create" and permission_id is page_token is None:
+            if type(send_notification_email) is not bool:
+                raise DrivePermissionError("operation_not_allowed")
             method, path = "POST", path + "/permissions"
             body = {"type": "user", "role": "reader", "emailAddress": _email(email)}
-            # The owner approved this recipient. Google's email carries the
-            # file link and, where enabled, the visitor verification flow.
-            params.update({"fields": PERMISSION_FIELDS, "sendNotificationEmail": "true"})
+            # Bulk shares suppress one email per file and deliver a single
+            # confirmed-results summary. Existing individual shares retain
+            # Google's standard notification.
+            params.update(
+                {
+                    "fields": PERMISSION_FIELDS,
+                    "sendNotificationEmail": "true" if send_notification_email else "false",
+                }
+            )
         elif operation == "remove" and email is page_token is None:
             method = "DELETE"
             path += f"/permissions/{_identifier(permission_id)}"
@@ -456,7 +467,13 @@ class GoogleDrivePermissionAdapter:
         await require_current()
 
     async def create_reader(
-        self, *, file_id: str, verified_email: str, access_token: str, require_current: Fence
+        self,
+        *,
+        file_id: str,
+        verified_email: str,
+        access_token: str,
+        require_current: Fence,
+        send_notification_email: bool = True,
     ) -> CreatedReader:
         result = await self._exchange(
             "create",
@@ -464,6 +481,7 @@ class GoogleDrivePermissionAdapter:
             email=verified_email,
             access_token=access_token,
             require_current=require_current,
+            send_notification_email=send_notification_email,
         )
         try:
             permission = _permission(result)

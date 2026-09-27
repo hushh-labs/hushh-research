@@ -1001,6 +1001,43 @@ def _safe_drive_share_descriptor(
     return None
 
 
+def _safe_drive_bulk_share_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore a review-only saved-search proposal without private file metadata."""
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        if response is None or getattr(response, "name", "") != "propose_drive_bulk_share":
+            continue
+        result = _record(getattr(response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready" or result.get("audience") != "trusted_circle":
+            return None
+        try:
+            search_job_id = str(uuid.UUID(str(result.get("searchJobId"))))
+            client_request_id = str(uuid.UUID(str(result.get("clientRequestId"))))
+        except (ValueError, TypeError, AttributeError):
+            return None
+        return {
+            "activityType": "one.drive_bulk_share_review.v1",
+            "content": {
+                "audience": "trusted_circle",
+                "searchJobId": search_job_id,
+                "clientRequestId": client_request_id,
+            },
+        }
+    return None
+
+
 _WORKSPACE_SETUP_TOOLS = frozenset({"discover_workspace_tools", "read_workspace_tool"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
 _CUSTOM_CONNECTOR_ID = re.compile(r"^custom_[a-f0-9]{32}$")
@@ -1174,6 +1211,7 @@ _ACTIVITY_TOOLS = frozenset(
         "open_gmail_information_request_reply",
         "propose_gmail_mailbox_change",
         "propose_drive_share",
+        "propose_drive_bulk_share",
         "propose_drive_file_share",
         "propose_drive_file_trash",
         "create_drive_file",
@@ -1347,6 +1385,8 @@ def _safe_agent_history_metadata(
             descriptor = _safe_document_request_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_drive_share_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_drive_bulk_share_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_workspace_connector_setup_descriptor(event, [part], call_providers)
         if descriptor is None:

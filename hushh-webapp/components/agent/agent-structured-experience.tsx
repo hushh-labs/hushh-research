@@ -33,6 +33,7 @@ import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DriveOwnerShareCard } from "@/components/consent/drive-owner-share-card";
 import { DriveCircleShareCard } from "@/components/consent/drive-circle-share-card";
+import { DriveBulkShareCard } from "@/components/agent/drive-background-search";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
   domainLabelFor,
@@ -155,6 +156,12 @@ export function AgentStructuredExperienceView({
             <DriveOwnerShareCard personRef={experience.personRef} personName={experience.personName}
               clientRequestId={experience.clientRequestId} filesRequest={experience.filesRequest} />
           </ExperienceShell>;
+    case "one.drive_bulk_share_review.v1":
+      return <ExperienceShell experienceType={experience.type} label="Drive sharing"
+        title="Share saved Drive search" summary=""
+        icon={<FileCheck2 className="size-5" />}>
+        <DriveBulkShareCard searchJobId={experience.searchJobId} clientRequestId={experience.clientRequestId} />
+      </ExperienceShell>;
     case "one.kyc_readiness.v1":
       return <KycReadinessView experience={experience} />;
     case "one.memory_import_review.v1":

@@ -778,6 +778,20 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "drive_bulk_shares",
+        "drive_bulk_share_files",
+        "drive_bulk_share_recipients",
+        "drive_bulk_share_effects",
+        "drive_bulk_share_notifications"
+      ],
+      "id": "drive_bulk_share",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "drive_document_rules"
       ],
       "id": "drive_document_trust_rules",
@@ -5705,9 +5719,9 @@
     "action_gateway": "5522c5d7849d2e9fcd743cba4310723afe18391038741c86770bb2820c1b8528",
     "agent_registry": "f82115c2713ef5b9f8179fe00018e6837886a69a7fc97284b8da33f5c09de39b",
     "cache_manifest": "b8edb41e819d68f3de0c40ec9b971f214069786fe4d869ade00b24668c3b7b7e",
-    "data_plane": "ef618ad4a15306223705f996b02d5528f833b8e7f16acea173ad2eda03085148",
+    "data_plane": "ca2aaf3589f0d5a659ee02ebda7dffab0bcb4a7cf4cfca0dc7997a16826b277c",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "28931a57af05671c24af2a69e1c4f2476e5a8a69fde539dda68fcc0b978b2407",
+    "one_specialist_tools": "4d5f3976e18455d72d5f0de6b22275ae56a474e03d87288022601bd380ccd37e",
     "route_index": "9c1d1649ac1b6118de6e394b09e596372feda71e6e52ee739cee07ea34bce5aa",
     "route_layout": "0078f6a0f60cc0296733f32ba580139d2eba8723a1eadfb42c424d8b0d944c04",
     "surface_map": "b8956cfbefc6edff1a5e3fa5b082b9a8a38aa723986391a1ddefff4414bbfce3",
@@ -5724,6 +5738,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 140,
     "semantic_routes": 14,
-    "table_families": 75
+    "table_families": 76
   }
 }

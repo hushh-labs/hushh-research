@@ -3000,6 +3000,86 @@ async def propose_drive_share(
         return {"status": "failed", "message": "Drive sharing cannot be prepared right now."}
 
 
+async def propose_drive_bulk_share(tool_context: ToolContext) -> dict[str, Any]:
+    """Stage review of one complete saved search; never grant Drive access.
+
+    A conversational "these files" has no authority of its own. With more
+    than one recent complete search, the owner must choose the search in the
+    recent-searches panel rather than letting the model guess a result set.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    async def require_current() -> None:
+        authorized, current_user_id, _ = await _verify_backend_direct_authorization(tool_context)
+        if not authorized or current_user_id != user_id:
+            raise PermissionError("owner session changed")
+
+    try:
+        from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+
+        result = await DriveOwnerSearchService().list(
+            user_id=user_id, require_current=require_current
+        )
+        jobs = result["jobs"]
+        if jobs and jobs[0].get("status") in {"queued", "running"}:
+            return {
+                "status": "search_in_progress",
+                "message": "That Drive search is still running. You can share all results after it finishes.",
+            }
+        if jobs and (
+            jobs[0].get("status") != "completed" or jobs[0].get("incompleteSearch") is not False
+        ):
+            return {
+                "status": "search_incomplete",
+                "message": "The latest Drive search is incomplete. Narrow or restart the search.",
+            }
+        complete = [
+            job
+            for job in jobs
+            if job.get("status") == "completed" and job.get("incompleteSearch") is False
+        ]
+        if len(complete) > 1:
+            return {
+                "status": "needs_clarification",
+                "message": "Choose which recent Drive search to share.",
+            }
+        if not complete:
+            return {
+                "status": "needs_clarification",
+                "message": "Start a Drive search, then choose its results to share.",
+            }
+        if complete[0].get("matched", 0) < 1:
+            return {
+                "status": "no_files",
+                "message": "That search found no files to share.",
+            }
+        await require_current()
+        return {
+            "status": "proposal_ready",
+            "audience": "trusted_circle",
+            "searchJobId": complete[0]["jobId"],
+            # Stable for this saved result set: repeated tool calls or card
+            # remounts cannot create a second approval for the same search.
+            "clientRequestId": complete[0]["jobId"],
+            "nextStep": "Review the exact search results and Trusted circle members. Nothing is shared until you tap Share.",
+        }
+    except PermissionError:
+        return {
+            "status": "blocked",
+            "message": "Unlock your private agent, then try again.",
+        }
+    except Exception:
+        logger.exception("propose_drive_bulk_share failed")
+        return {
+            "status": "failed",
+            "message": "Could not prepare the Drive results for review right now.",
+        }
+
+
 async def list_pending_connection_requests(
     tool_context: ToolContext,
     direction: Literal["incoming", "outgoing"] = "incoming",

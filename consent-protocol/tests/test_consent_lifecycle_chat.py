@@ -1218,6 +1218,103 @@ def test_the_drive_share_tool_needs_no_person_for_the_trusted_circle():
     assert parameters["trusted_circle"].default is False
 
 
+@pytest.mark.asyncio
+async def test_bulk_share_proposal_binds_only_one_complete_saved_search():
+    from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+
+    job_id = "33333333-3333-4333-8333-333333333333"
+    listing = AsyncMock(
+        return_value={
+            "jobs": [
+                {"jobId": job_id, "status": "completed", "incompleteSearch": False, "matched": 3},
+            ]
+        }
+    )
+    with _auth(), patch.object(DriveOwnerSearchService, "list", listing):
+        proposal = await action_tools.propose_drive_bulk_share(_ctx(_state()))
+        assert proposal["status"] == "proposal_ready"
+        assert proposal["searchJobId"] == job_id
+        assert proposal["clientRequestId"] == job_id
+        assert proposal["audience"] == "trusted_circle"
+        assert "Share" in proposal["nextStep"]
+        assert set(proposal) == {"status", "audience", "searchJobId", "clientRequestId", "nextStep"}
+
+        # A broad/incomplete result or another saved search cannot become "all"
+        # just because a language model decided which job sounded most relevant.
+        listing.return_value = {
+            "jobs": [
+                {"jobId": job_id, "status": "completed", "incompleteSearch": False, "matched": 3},
+                {
+                    "jobId": "44444444-4444-4444-8444-444444444444",
+                    "status": "completed",
+                    "incompleteSearch": False,
+                    "matched": 2,
+                },
+            ]
+        }
+        ambiguous = await action_tools.propose_drive_bulk_share(_ctx(_state()))
+        assert ambiguous["status"] == "needs_clarification"
+        listing.return_value = {
+            "jobs": [
+                {"jobId": job_id, "status": "limited", "incompleteSearch": True},
+            ]
+        }
+        incomplete = await action_tools.propose_drive_bulk_share(_ctx(_state()))
+        assert incomplete["status"] == "search_incomplete"
+        listing.return_value = {
+            "jobs": [
+                {
+                    "jobId": "55555555-5555-4555-8555-555555555555",
+                    "status": "running",
+                    "incompleteSearch": False,
+                },
+                {"jobId": job_id, "status": "completed", "incompleteSearch": False, "matched": 3},
+            ]
+        }
+        running = await action_tools.propose_drive_bulk_share(_ctx(_state()))
+        assert running["status"] == "search_in_progress"
+        listing.return_value = {
+            "jobs": [
+                {"jobId": job_id, "status": "completed", "incompleteSearch": False, "matched": 0},
+            ]
+        }
+        empty = await action_tools.propose_drive_bulk_share(_ctx(_state()))
+        assert empty["status"] == "no_files"
+
+
+def test_bulk_share_chat_history_keeps_only_review_pointer():
+    from api.routes.one.agent_chat import _safe_agent_history_metadata
+
+    job_id = "33333333-3333-4333-8333-333333333333"
+    client_id = "44444444-4444-4444-8444-444444444444"
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(
+            name="propose_drive_bulk_share",
+            response={
+                "status": "proposal_ready",
+                "audience": "trusted_circle",
+                "searchJobId": job_id,
+                "clientRequestId": client_id,
+                "fileId": "secret-file-id",
+                "name": "Private filename",
+            },
+        )
+    )
+    metadata = _safe_agent_history_metadata(
+        SimpleNamespace(id="event-bulk-share", content=SimpleNamespace(parts=[part]))
+    )
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.drive_bulk_share_review.v1",
+        "content": {
+            "audience": "trusted_circle",
+            "searchJobId": job_id,
+            "clientRequestId": client_id,
+        },
+    }
+    assert "secret-file-id" not in str(metadata)
+    assert "Private filename" not in str(metadata)
+
+
 # --- Auto-continue after the owner answers (consent_continuation) ----------
 
 
