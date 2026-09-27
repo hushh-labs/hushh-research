@@ -393,21 +393,8 @@ append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 pod_image=""
 pod_release_b64=""
 if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
-  pod_image_file="/workspace/pod-image-reference"
-  if [[ ! -s "$pod_image_file" ]]; then
-    echo "pod image digest record is missing; refusing mutable pod target" >&2
-    exit 1
-  fi
-  pod_image="$(head -n 1 "$pod_image_file" | tr -d '\r\n')"
-  if [[ ! "$pod_image" =~ ^.+@sha256:[0-9a-fA-F]{64}$ ]]; then
-    echo "pod image digest record is invalid; refusing mutable pod target" >&2
-    exit 1
-  fi
-  if [[ ! -s /workspace/pod-release.b64 ]]; then
-    echo "pod release metadata is missing; refusing an unverified release" >&2
-    exit 1
-  fi
-  pod_release_b64="$(tr -d '\r\n' < /workspace/pod-release.b64)"
+  source "$(dirname "${BASH_SOURCE[0]}")/pod-release-env.sh"
+  read_pod_release_artifacts "${HUSSH_BUILD_WORKSPACE:-/workspace}"
 fi
 append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
 append_optional_env "HUSSH_ONE_POD_RELEASE_B64" "${pod_release_b64}"
@@ -527,11 +514,14 @@ pod_migration=""
 pod_data_door=""
 consent_audit_chain=""
 trusted_device_enabled=""
+pod_files_enabled=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # The owner-pilot enrollment screen is a dev-only capability. Keep the
   # trusted-device gate explicit here; it is unrelated to Puppy inference
   # eligibility, which remains owner/device-consent scoped at request time.
   trusted_device_enabled="true"
+  # Offers Files setup only; each existing pod still requires exact owner approval.
+  pod_files_enabled="true"
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
   # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
   # calls require_simulation_permitted() before any live create and REFUSES when
@@ -788,6 +778,7 @@ append_optional_env "POD_DURABLE_IDENTITY_ENABLED" "${pod_durable_identity}"
 append_optional_env "HUSSH_POD_MIGRATION_ENABLED" "${pod_migration}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 append_optional_env "HUSSH_TRUSTED_DEVICE_ENABLED" "${trusted_device_enabled}"
+append_optional_env "HUSSH_POD_FILES_ENABLED" "${pod_files_enabled}"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
 # mounted as hub env, which is exactly what gcp_backend's pod render reads to hand

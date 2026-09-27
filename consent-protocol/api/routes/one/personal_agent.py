@@ -653,10 +653,9 @@ async def plan_personal_agent_files_update(user_id: str = Depends(require_fireba
 
     try:
         plan = await inspect_files_offer(repo, row, target)
-    except (ValueError, RuntimeError):
-        raise HTTPException(
-            409, detail="Files setup cannot be verified for this pod yet."
-        ) from None
+    except (ValueError, RuntimeError) as exc:
+        message = getattr(exc, "public_message", "Files setup cannot be verified for this pod yet.")
+        raise HTTPException(409, detail=message) from None
     offer: dict = public_files_offer(plan)
     return offer
 

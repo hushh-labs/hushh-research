@@ -2,12 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from hushh_mcp.services.compute_backend import PodSpec, resolve_compute_backend_for_spec
 from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
 from hushh_mcp.services.pod_files.capability_update import plan_from_observation
 from hushh_mcp.services.pod_update_identity import release_identity
+
+
+class FilesStoragePrerequisite(ValueError):
+    """The existing bucket cannot safely host a Files library yet."""
+
+    public_message = (
+        "Your cloud bucket needs verified owner access, encryption and enforced "
+        "public-access prevention before Files setup. No setup has started."
+    )
+
+
+async def verify_storage_prerequisite(plan) -> None:
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
+
+    try:
+        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=plan.bootstrapAccount)
+        bootstrap = FilesCapabilityBootstrap(capability=plan, token=token)
+        await asyncio.to_thread(bootstrap.verify_existing_bucket)
+    except BootstrapError:
+        raise FilesStoragePrerequisite(FilesStoragePrerequisite.public_message) from None
 
 
 async def inspect_files_offer(repo, row: dict, target_image: str):
@@ -48,6 +70,7 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
 
         bridge = ManagedGeminiRuntimeBinding.from_environment().project
     plan = plan_from_observation(row, target_image, observation, dev_model_project=bridge)
+    await verify_storage_prerequisite(plan)
     current = await repo.get(row["user_id"])
 
     def authority_snapshot(value):

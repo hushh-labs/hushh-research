@@ -522,3 +522,6 @@ tests/test_chat_history_rollout.py
 tests/test_one_agent_chat_ingress.py
 
 tests/test_pod_server.py
+
+# Execute the real deploy shell with immutable-artifact fixtures.
+tests/test_personal_agent_deploy_lane.py

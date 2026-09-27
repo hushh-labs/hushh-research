@@ -95,3 +95,56 @@ def test_worker_refuses_unverified_queue_identity(monkeypatch, authorization):
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "FILES_WORKER_REFUSED"
     run.assert_not_awaited()
+
+
+def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, Mock
+
+    import pytest
+
+    from hushh_mcp.services import user_gcp_bootstrap
+    from hushh_mcp.services.pod_files import update_offer
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, image, service = legacy_files_fixture()
+    row.update(
+        status="provisioned", user_cloud_authorized_at="2026-09-01", phone_e164_hash="opaque"
+    )
+    plan = update_offer.plan_from_observation(row, image, service)
+    backend = Mock(live=True, inspect_files_capability=AsyncMock(return_value=service))
+    repo = Mock(
+        files_upgrade_admission_ready=AsyncMock(return_value=True), get=AsyncMock(return_value=row)
+    )
+    monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setattr(update_offer, "resolve_compute_backend_for_spec", lambda _: backend)
+    monkeypatch.setattr(user_gcp_bootstrap, "mint_bootstrap_token", lambda **_: "synthetic")
+    bucket = {
+        "name": plan.bucket,
+        "projectNumber": "123456789",
+        "encryption": {"defaultKmsKeyName": plan.kmsKey},
+        "iamConfiguration": {
+            "uniformBucketLevelAccess": {"enabled": True},
+            "publicAccessPrevention": "inherited",
+        },
+    }
+    session = Mock()
+
+    def get(url, **_):
+        body = (
+            {"projectNumber": "123456789", "projectId": plan.project}
+            if "cloudresourcemanager" in url
+            else bucket
+        )
+        return Mock(status_code=200, json=lambda: body)
+
+    session.get.side_effect = get
+    monkeypatch.setattr("requests.get", session.get)
+    monkeypatch.setattr("requests.request", session.request)
+    with pytest.raises(update_offer.FilesStoragePrerequisite, match="No setup has started"):
+        asyncio.run(update_offer.inspect_files_offer(repo, row, image))
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert asyncio.run(update_offer.inspect_files_offer(repo, row, image)).digest == plan.digest
+    session.request.assert_not_called()
+    repo.approve_upgrade.assert_not_called()

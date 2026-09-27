@@ -2058,3 +2058,27 @@ reviewed: five inherited upstream and three compatibility/test-isolation fixes.
 Thresholds and dependency checks remain unchanged; no additional extraction was
 justified by these bounded changes. The private One ADK operational Wiki sections
 were reconciled and read back; earlier dated observations remain historical.
+
+### Files deployment prerequisites — 2026-09-27 UTC
+
+Exact-SHA GitHub validation of `418110763` found a Files model test that depended
+on the developer's local Vertex location. Its fixture now declares that required
+location explicitly; the owner-project and non-dev bridge refusals remain intact.
+Live preflight also found the dev hub did not enable Files offers and the existing
+reviewer bucket inherited public-access prevention. The dev deployment now enables
+only the offer; provisioning still needs exact owner approval. Offer preparation
+reads the bucket through the owner's bootstrap authority and refuses unverifiable
+custody before scheduling any operation. Execution repeats the custody check.
+
+Authorized maintenance tightened only the existing reviewer bucket's public-access
+prevention using its observed metageneration. Readback verified unchanged bucket
+identity, encryption key, retention, lifecycle and IAM bindings. No objects were
+changed. The private receipt records both metagenerations; this is a policy-change
+receipt, not a resource-creation receipt or a pod-upgrade result.
+
+The real deploy-shell suite previously lacked the immutable build artifacts it
+requires and was only collected, not executed, by canonical CI. Its isolated
+workspace now supplies synthetic artifacts, and the suite joins the existing
+protocol manifest. Missing metadata and mutable images remain rejected. The build
+artifact reader is a small shared shell function with `/workspace` as its Cloud
+Build default. The architecture ratchet passes without refreshing its baseline.

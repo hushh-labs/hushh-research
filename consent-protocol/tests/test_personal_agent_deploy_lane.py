@@ -111,12 +111,17 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
     stub.write_text(_GCLOUD_STUB, encoding="utf-8")
     stub.chmod(0o755)
 
+    (run_dir / "pod-image-reference").write_text(
+        "us-central1-docker.pkg.dev/synthetic/pods/one@sha256:" + "a" * 64
+    )
+    (run_dir / "pod-release.b64").write_text("synthetic-release-metadata")
     argv_file = run_dir / "argv.txt"
     env = {
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
         "HOME": str(tmp_path),
         "PROJECT_ID": PROJECT,
         "DEPLOY_ARGV": str(argv_file),
+        "HUSSH_BUILD_WORKSPACE": str(run_dir),
         "GCLOUD_CALLS": str(run_dir / "calls.txt"),
     }
     # Everything the YAML hands over, at the YAML's own declared default -- which is
@@ -194,6 +199,7 @@ def prod(tmp_path):
         # Dev owner-pilot enrollment; this does not enable Puppy inference by
         # itself, which still requires an owner-scoped grant at request time.
         ("HUSSH_TRUSTED_DEVICE_ENABLED", "true"),
+        ("HUSSH_POD_FILES_ENABLED", "true"),
     ],
 )
 def test_dev_carries_the_personal_agent_block(dev, name, value):
@@ -227,6 +233,7 @@ def test_the_invoker_member_is_never_a_bare_prefix(tmp_path):
         "HUSSH_POD_INVOKER_MEMBER",
         "HUSSH_POD_TURN_ENABLED",
         "HUSSH_TRUSTED_DEVICE_ENABLED",
+        "HUSSH_POD_FILES_ENABLED",
     ],
 )
 def test_production_carries_none_of_it(prod, name):
@@ -297,3 +304,32 @@ def test_retired_revisions_still_do_not_pin_database_pools(dev, tmp_path):
     warm pools; the SERVICE-level min keeps the serving revision warm."""
     argv = _run(tmp_path, _DEPLOY_ENV="dev")
     assert "--min-instances=0" in argv
+
+
+@pytest.mark.parametrize(
+    "reference,release",
+    [
+        (None, "e30="),
+        ("mutable:tag", "e30="),
+        ("us-central1-docker.pkg.dev/synthetic/pods/one@sha256:" + "a" * 64, None),
+    ],
+)
+def test_missing_or_mutable_pod_artifacts_refuse_deployment(tmp_path, reference, release):
+    for name, value in (("pod-image-reference", reference), ("pod-release.b64", release)):
+        if value is not None:
+            (tmp_path / name).write_text(value)
+    result = subprocess.run(  # noqa: S603 - fixed shell program, paths passed as arguments
+        [
+            "bash",
+            "-euc",
+            'source "$1"; read_pod_release_artifacts "$2"',
+            "artifact-check",
+            str(REPO_ROOT / "scripts/deploy/pod-release-env.sh"),
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode != 0
+    assert "refusing" in result.stderr

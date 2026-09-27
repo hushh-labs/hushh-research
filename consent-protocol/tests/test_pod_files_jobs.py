@@ -252,6 +252,7 @@ def test_background_model_cannot_escape_owner_project_through_genai_override(mon
         "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
         "GOOGLE_GENAI_USE_VERTEXAI": "true",
         "GOOGLE_CLOUD_PROJECT": "owner-project",
+        "GOOGLE_CLOUD_LOCATION": "global",
         "HUSSH_POD_KMS_KEY": "projects/owner-project/locations/us-central1/keyRings/hushh-one/cryptoKeys/synthetic",
         "POD_FILES_TASK_QUEUE": names["queue"],
         "POD_FILES_WORKER_SERVICE_ACCOUNT": names["worker"],
