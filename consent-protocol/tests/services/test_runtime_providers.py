@@ -363,6 +363,27 @@ def test_factory_builds_adk_model_with_explicit_managed_vertex_contract(monkeypa
     }
 
 
+@pytest.mark.parametrize("vertex_locations", ["global", "global,us,eu"])
+def test_factory_adk_model_never_sends_the_fleet_alias_to_vertex(monkeypatch, vertex_locations):
+    """Manifests say ``gemini-default``; Vertex has no such model.
+
+    UAT 2026-09-27: the Location and Information specialists sent the alias
+    verbatim and every call failed with a 4xx ``ClientError`` before any output.
+    """
+    from hushh_mcp.constants import GEMINI_MODEL
+    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", vertex_locations)
+    monkeypatch.setattr("google.genai.Client", lambda **_kwargs: object())
+
+    assert build_managed_gemini_adk_model("gemini-default").model == GEMINI_MODEL
+    assert build_managed_regional_gemini_adk_model("gemini-default").model == GEMINI_MODEL
+    assert GEMINI_MODEL != "gemini-default"
+
+
 def test_factory_adk_model_honors_explicit_live_location(monkeypatch):
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")

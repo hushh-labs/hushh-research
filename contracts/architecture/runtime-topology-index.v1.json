@@ -664,6 +664,16 @@
       "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
     },
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "account_legal_acceptances"
+      ],
+      "id": "account_legal_acceptance",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance at sign-in and after the Terms of Use or Privacy Policy version changes; reads return the latest acceptance of each document."
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "actor_profiles",
@@ -5205,6 +5215,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/privacy/page.tsx",
+      "pathname": "/privacy",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.privacy.policy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/products/hushh-tech/launch/page.tsx",
       "pathname": "/products/hushh-tech/launch",
       "route_mode": "hidden",
@@ -5671,6 +5704,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/terms/page.tsx",
+      "pathname": "/terms",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.terms.of.use"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/welcome/page.tsx",
       "pathname": "/welcome",
       "route_mode": "standard",
@@ -5717,14 +5773,14 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "5522c5d7849d2e9fcd743cba4310723afe18391038741c86770bb2820c1b8528",
-    "agent_registry": "f82115c2713ef5b9f8179fe00018e6837886a69a7fc97284b8da33f5c09de39b",
-    "cache_manifest": "b8edb41e819d68f3de0c40ec9b971f214069786fe4d869ade00b24668c3b7b7e",
-    "data_plane": "ca2aaf3589f0d5a659ee02ebda7dffab0bcb4a7cf4cfca0dc7997a16826b277c",
+    "agent_registry": "6e434745750011b05c34dab34fcd39acbf23d13602ddd184246c7312ebaa73f5",
+    "cache_manifest": "7ed4a0cf2f8504a940b59e874ccde800cf3feead6c5fab7e8f00daa26c629e3c",
+    "data_plane": "473bc066950e349f0109a6bf475cad93450359fddc16add368bba8fbe8baed89",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "4d5f3976e18455d72d5f0de6b22275ae56a474e03d87288022601bd380ccd37e",
-    "route_index": "9c1d1649ac1b6118de6e394b09e596372feda71e6e52ee739cee07ea34bce5aa",
-    "route_layout": "0078f6a0f60cc0296733f32ba580139d2eba8723a1eadfb42c424d8b0d944c04",
-    "surface_map": "b8956cfbefc6edff1a5e3fa5b082b9a8a38aa723986391a1ddefff4414bbfce3",
+    "route_index": "a93ea81cfafed91dd93fbe0a51399a988a8ed2a7014d0b93cb8efdf777ddc35d",
+    "route_layout": "8127da5515744790140d50105afa52c56bc2200128ef02fb5a6ab0332e361e47",
+    "surface_map": "89d65ba9c14e7408055327c402b26818092a5291f29b760c1081eec5918fcd56",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5736,8 +5792,8 @@
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 140,
+    "physical_routes": 142,
     "semantic_routes": 14,
-    "table_families": 76
+    "table_families": 77
   }
 }

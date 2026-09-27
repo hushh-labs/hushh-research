@@ -56,6 +56,8 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { isAndroid } from "@/lib/capacitor/platform";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleMemberInvite,
@@ -841,6 +843,34 @@ export function useFeedActionables(): UseFeedActionablesResult {
               },
             ]
           : [
+              // Google Play user-generated content policy: report the request
+              // (and its message) to the Hussh team. The server also declines
+              // it and blocks the sender. Android only, so iOS and web Feed
+              // rows stay exactly as they are.
+              ...(isAndroid()
+                ? [
+                    {
+                      key: "report",
+                      label: "Report",
+                      tone: "danger" as const,
+                      disabled: !userId,
+                      confirm: true,
+                      run: async () => {
+                        const idToken = await user?.getIdToken();
+                        if (!idToken) return;
+                        await ConnectionsService.report({
+                          idToken,
+                          requestId: request.id,
+                          reason: "inappropriate",
+                        });
+                        toast.success("Reported. This person can't send you another request.");
+                        CacheSyncService.onConnectionCapabilityMutated(userId);
+                        notifyFeedActionResolved();
+                        await connectionsRefresh({ force: true });
+                      },
+                    },
+                  ]
+                : []),
               {
                 key: "decline",
                 label: "Decline",

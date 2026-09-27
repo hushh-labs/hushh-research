@@ -28,7 +28,8 @@ vi.mock("@/lib/services/drive-search-service", async (original) => ({
 vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
   ...(await original<typeof import("@/lib/services/drive-sharing-service")>()), DriveSharingService: state.bulk,
 }));
-import { ContinueDriveSearch, DriveBackgroundSearchCard, DriveBackgroundSearches } from "@/components/agent/drive-background-search";
+import { ContinueDriveSearch, DriveBackgroundSearchCard, DriveBackgroundSearches, DriveRecentSharing } from "@/components/agent/drive-background-search";
+import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 const jobId = "11111111-1111-4111-8111-111111111111";
 const job = (overrides: Partial<DriveSearchStatus> = {}): DriveSearchStatus => ({
   jobId, status: "running", revision: 1, matched: 125, pagesScanned: 5, incompleteSearch: true,
@@ -67,6 +68,29 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("durable Drive search UI", () => {
+  it("does not offer a background search without a visible results surface", () => {
+    render(<ConnectorReadReceipt experience={{
+      type: "one.connector_read.v1", connector: "drive", status: "response_too_large",
+      sourceRefs: [], truncated: false, metadataOnly: true,
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents",
+    }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Try a narrower Drive search");
+    expect(screen.queryByRole("button", { name: "Continue in background" })).toBeNull();
+  });
+
+  it("keeps an existing sharing review visible without recent Drive searches", async () => {
+    state.bulk.recentBulkShares.mockResolvedValueOnce([bulkReview()]);
+    state.bulk.bulkSharesForSearch.mockResolvedValue([bulkReview()]);
+    render(<DriveRecentSharing />);
+
+    await screen.findByText("Review 125 files with 1 person");
+    await screen.findByRole("button", { name: "Share 125 files with 1 person" });
+    expect(screen.getByText("Drive sharing · 1")).toBeTruthy();
+    expect(screen.queryByLabelText("Drive searches")).toBeNull();
+    expect(state.service.recent).not.toHaveBeenCalled();
+    expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+  });
+
   it("requires a scoped tap and reuses the create key after an uncertain response", async () => {
     state.service.create.mockRejectedValueOnce(new Error("network"));
     render(<ContinueDriveSearch query="Find product documents" />);

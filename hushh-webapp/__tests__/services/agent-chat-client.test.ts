@@ -8,13 +8,21 @@ const mockTransport = vi.hoisted(() => ({
   // Mirrors @ag-ui/client 0.0.59 on a non-2xx response (measured): the
   // subscriber sees onRunFailed, then runAgent rejects with the raw error.
   failWith: null as null | Error,
+  // Mirrors @ag-ui/client 0.0.59 when the body ends with no RUN_FINISHED or
+  // RUN_ERROR (read from its source): the run completes with no callback.
+  endWithoutTerminal: false,
+  // Read the response body through the client's own `fetch` until it ends or
+  // the run is aborted, as the real transport does.
+  readBody: false,
 }));
 
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
-    constructor(public config: unknown) {}
+    private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    constructor(public config: { fetch?: (url: string, init: RequestInit) => Promise<Response> }) {}
     abortRun() {
       mockTransport.aborted = true;
+      void this.reader?.cancel();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       mockTransport.runAgent(parameters, this.config);
@@ -22,6 +30,16 @@ vi.mock("@ag-ui/client", () => ({
         const error = mockTransport.failWith;
         subscriber.onRunFailed?.({ error });
         throw error;
+      }
+      if (mockTransport.readBody) {
+        const response = await this.config.fetch!("/api/one/agent-chat", {});
+        this.reader = response.body!.getReader();
+        while (!(await this.reader.read()).done) { /* keep reading */ }
+        // The real client reports its own abort to the subscriber, then swallows it.
+        if (mockTransport.aborted) {
+          subscriber.onRunFailed?.({ error: new DOMException("Aborted", "AbortError") });
+          return;
+        }
       }
       subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
       if (mockTransport.emitEvents) {
@@ -47,6 +65,7 @@ vi.mock("@ag-ui/client", () => ({
           },
         },
       });
+      if (mockTransport.endWithoutTerminal) return;
       if (mockTransport.outcome === "interrupt") {
         subscriber.onRunFinishedEvent?.({
           event: { type: "RUN_FINISHED" },
@@ -75,6 +94,9 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 import {
+  AGENT_CHAT_STREAM_IDLE_MS,
+  AGENT_CHAT_STREAM_LOST_ERROR,
+  AgentChatStreamLostError,
   formatAgentChatErrorMessage,
   parseRestoredTurnActivity,
   getAgentChatHistory,
@@ -1386,5 +1408,79 @@ describe("a turn the app stops reading keeps running server-side", () => {
     // Reported as detached (not as an empty answer), but there is nothing to reattach to.
     expect(result.detached).toBe(true);
     expect(isAgentTurnWatched("user-1", "thread-unstarted")).toBe(false);
+  });
+});
+
+// Incident 2026-09-27: the serving instance was OOM-killed 6 s into a turn and
+// the chat showed "One is preparing your response" until the person gave up.
+describe("a chat turn never waits forever", () => {
+  beforeEach(() => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.aborted = false;
+    mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
+    mockTransport.failWith = null;
+  });
+
+  afterEach(() => {
+    mockTransport.endWithoutTerminal = false;
+    mockTransport.readBody = false;
+    vi.useRealTimers();
+  });
+
+  it("fails a turn whose stream ends without RUN_FINISHED or RUN_ERROR", async () => {
+    mockTransport.endWithoutTerminal = true;
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "what can we do here",
+      conversationId: "thread-lost", vaultOwnerToken: "owner-token", handlers: { onError, onComplete } });
+    await expect(turn).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    // Retry needs the turn's conversation to ask history before resending it.
+    await expect(turn).rejects.toBeInstanceOf(AgentChatStreamLostError);
+    await expect(turn).rejects.toMatchObject({ conversationId: "thread-lost" });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    // The pre-vault turn uses the same endpoint and must not report success.
+    const introError = vi.fn();
+    await expect(streamAgentIntro({ message: "hello", handlers: { onError: introError } }))
+      .rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(introError).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a silent stream after the idle window, while keep-alive bytes hold it open", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const encoder = new TextEncoder();
+    let push!: (frame: string) => void;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (frame) => controller.enqueue(encoder.encode(frame));
+      },
+    });
+    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(
+      new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+    mockTransport.readBody = true;
+    const onError = vi.fn();
+    const settled = vi.fn();
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "what can we do here",
+      conversationId: "thread-silent", vaultOwnerToken: "owner-token", handlers: { onError } });
+    turn.then(settled, settled);
+    await vi.waitFor(() => expect(ApiService.apiFetchStream).toHaveBeenCalled());
+
+    // A slow model: three minutes of the server's 15 s keep-alive, no content.
+    for (let elapsed = 0; elapsed < 180_000; elapsed += 15_000) {
+      push(": ping\n\n");
+      await vi.advanceTimersByTimeAsync(15_000);
+    }
+    expect(settled).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+
+    // The instance is gone: no bytes at all.
+    await vi.advanceTimersByTimeAsync(AGENT_CHAT_STREAM_IDLE_MS + 5_000);
+    await expect(turn).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(onError).toHaveBeenCalledTimes(1); // the abort that follows is not a second error
+    expect(mockTransport.aborted).toBe(true);
   });
 });

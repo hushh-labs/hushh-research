@@ -22,8 +22,22 @@ export default function PuppyOnePage() {
   // it reaches an agent over loopback on the owner's Mac, which the iOS and
   // Android shells cannot do. Claiming native coverage here would be a lie.
   return (
-    <AppPageShell as="main" width="reading">
-      <AppPageHeaderRegion>
+    // One's chat measure (`agent`, 880px) and a column exactly as tall as the
+    // visible scroll area, so the conversation fills the screen the way One's
+    // does instead of sitting in a fixed 68dvh card at the 720px reading
+    // width. The height is the scroll root's own visible area: the top spacer
+    // it renders (`--app-top-content-offset`) and the bottom clearance it pads
+    // (`--app-scroll-bottom-pad`, else `--app-bottom-content-clearance`, which
+    // already includes the safe area). This page inherits both from that same
+    // scroll root, so the two cannot disagree. The shell's own 24px reading gap
+    // is inside the height (border-box). `min-h` keeps a short viewport, or a
+    // phone in landscape, scrolling rather than crushing the transcript.
+    <AppPageShell
+      as="main"
+      width="agent"
+      className="flex h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance,0px)))] min-h-[560px] flex-col"
+    >
+      <AppPageHeaderRegion className="shrink-0">
         <PageHeader
           title="Puppy One"
           // "Answers are generated on your machine" was an unconditional
@@ -34,27 +48,17 @@ export default function PuppyOnePage() {
           accent="neutral"
         />
       </AppPageHeaderRegion>
-      <AppPageContentRegion>
-        {/* The readings are one tap away rather than always on: the owner asks
-            for them. A broken link to Hussh One is the exception and stays on
-            this strip unasked, because nothing else on the page can tell the
-            owner that One has stopped seeing the machine. Spaced with a margin
-            rather than a flex gap on purpose: this region stays block-level for
-            that spacing, and making it a flex column would let the chat panel's
-            flex-1 basis collapse to nothing. */}
-        <PuppyMachineSheet className="mb-3" />
-        {/* The panel carries its OWN bounded height here.
-            `AppPageContentRegion` is width-only, so the panel's `flex-1` has
-            nothing to divide and it grew to content height: a long
-            conversation pushed the composer down the document instead of
-            scrolling inside the panel, and the same component behaved
-            correctly inside the workspace. Not the workspace's
-            `100dvh`-minus-chrome height, because the page header and the strip
-            above sit in the same scroll root and a full-viewport panel would
-            push the composer back below the fold. The border and radius mirror
-            the workspace's wrapper so the two entry points read as one
-            component. */}
-        <HermesChatPanel className="h-[min(68dvh,42rem)] min-h-[420px] overflow-hidden rounded-2xl border border-border/60 bg-background" />
+      {/* A flex column now that the shell above has a definite height: the
+          panel's `flex-1` divides what the header and the strip leave, so a
+          long conversation scrolls inside the panel and the composer stays at
+          the bottom of the screen. (Before the shell had a height, a flex
+          column here let that `flex-1` basis collapse to nothing, which is
+          why the panel used to carry a fixed height of its own.) The readings
+          stay one tap away on the strip; a broken link to Hussh One is the
+          exception and stays on it unasked. */}
+      <AppPageContentRegion className="flex min-h-0 flex-1 flex-col">
+        <PuppyMachineSheet className="mb-3 shrink-0" />
+        <HermesChatPanel />
       </AppPageContentRegion>
     </AppPageShell>
   );

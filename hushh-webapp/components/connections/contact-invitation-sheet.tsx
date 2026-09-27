@@ -24,6 +24,15 @@ import {
   type InvitationOutcome,
 } from "@/lib/services/contact-invitations-service";
 import { cn } from "@/lib/utils";
+import {
+  CONTACT_INVITE_FOOTER_CLASSNAME,
+  CONTACT_INVITE_HEADER_CLASSNAME,
+  CONTACT_INVITE_LIST_CLASSNAME,
+  CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
+  CONTACT_INVITE_SEARCH_CLASSNAME,
+  CONTACT_INVITE_SURFACE_CLASSNAME,
+  CONTACT_INVITE_TITLE_CLASSNAME,
+} from "@/components/connections/contact-sheet-layout";
 
 const PAGE_SIZE = 50;
 const OUTCOME_TEXT: Record<InvitationOutcome, string> = {
@@ -113,6 +122,7 @@ export function ContactInvitationSheet({
     controller.clear();
     onFinish();
   };
+  const hasFooter = step !== "queue" || !current;
   const needsCompletionConfirmation =
     outcome && !["cancelled", "failed", "unavailable"].includes(outcome);
   return (
@@ -137,12 +147,12 @@ export function ContactInvitationSheet({
         }}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
-          "mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          CONTACT_INVITE_SURFACE_CLASSNAME,
           takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
         )}
       >
-        <SheetHeader className="text-left">
-          <SheetTitle>
+        <SheetHeader className={CONTACT_INVITE_HEADER_CLASSNAME}>
+          <SheetTitle className={CONTACT_INVITE_TITLE_CLASSNAME}>
             {step === "select"
               ? "Invite your contacts"
               : step === "review"
@@ -151,22 +161,34 @@ export function ContactInvitationSheet({
           </SheetTitle>
           <SheetDescription>
             {step === "select"
-              ? "Choose each person you want to invite. No match does not necessarily mean they are not on One. Contact details stay in this session on your device."
+              ? // Kept to one line of privacy so the list below keeps its room;
+                // the no-match caveat sits under the heading it explains.
+                "Contact details stay in this session on your device."
               : "Send a personal invitation, one contact at a time."}
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
+        {step === "select" ? (
+          <div className={CONTACT_INVITE_SEARCH_CLASSNAME}>
+            <Input
+              aria-label="Search contacts to invite"
+              placeholder="Search contacts…"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setVisible(PAGE_SIZE);
+              }}
+            />
+          </div>
+        ) : null}
+        <div
+          data-contact-invite-list
+          className={cn(
+            CONTACT_INVITE_LIST_CLASSNAME,
+            !hasFooter && CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
+          )}
+        >
           {step === "select" ? (
             <>
-              <Input
-                aria-label="Search contacts to invite"
-                placeholder="Search contacts…"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setVisible(PAGE_SIZE);
-                }}
-              />
               {(["no_match", "email_only"] as const).map((classification) => {
                 const rows = filtered
                   .slice(0, visible)
@@ -175,13 +197,18 @@ export function ContactInvitationSheet({
                   );
                 if (!rows.length) return null;
                 return (
-                  <section key={classification} className="mt-4">
-                    <h3 className="mb-2 text-sm font-medium">
+                  <section key={classification} className="mt-2 first:mt-0">
+                    <h3 className="text-sm font-medium">
                       {classification === "no_match"
                         ? "No match found"
                         : "Not checked—mail only"}
                     </h3>
-                    <ul className="divide-y divide-border">
+                    {classification === "no_match" ? (
+                      <p className="text-xs text-muted-foreground">
+                        No match does not necessarily mean they are not on One.
+                      </p>
+                    ) : null}
+                    <ul className="mt-1 divide-y divide-border">
                       {rows.map((candidate) => {
                         const chosen =
                           candidate.destinations.find(
@@ -200,7 +227,7 @@ export function ContactInvitationSheet({
                           <li key={candidate.id}>
                             <label
                               htmlFor={`${selectionId}-${candidate.id}`}
-                              className="flex min-h-14 w-full cursor-pointer items-center gap-3 py-4"
+                              className="flex min-h-14 w-full cursor-pointer items-center gap-3 py-3"
                             >
                               <Checkbox
                                 id={`${selectionId}-${candidate.id}`}
@@ -472,8 +499,8 @@ export function ContactInvitationSheet({
             </>
           )}
         </div>
-        {step !== "queue" || !current ? (
-          <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+        {hasFooter ? (
+          <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
             {step === "select" ? (
               <Button
                 className="min-h-11 flex-1"

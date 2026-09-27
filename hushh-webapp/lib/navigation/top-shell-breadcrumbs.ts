@@ -1075,10 +1075,11 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      // Connect is a level-two workspace. Like Location, the top shell names
-      // the parent ("One") while the route owns the single visible page title.
+      // Like Feed, the shared top bar owns the single "Connect" title beside
+      // one back-to-One arrow, so the page carries no in-body header. The
+      // implicit "One" root is dropped by visibleTopShellBreadcrumbItems.
       hideBack: false,
-      items: [{ label: "One" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Connect" }],
     };
   }
 

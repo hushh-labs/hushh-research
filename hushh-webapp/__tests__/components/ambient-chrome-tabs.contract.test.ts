@@ -145,6 +145,16 @@ describe("tabbed ambient chrome contract", () => {
       "--ambient-chrome-material-bg: var(--app-layout-surface, var(--background))",
     );
     expect(styles).toContain("--ambient-chrome-material-fg: var(--foreground)");
+    // The top chrome paints --app-layout-surface, so it must be the page's own
+    // base in every theme. A dark-only 8% accent mix painted a visible band
+    // (#1c1a18 over a #0e0e10 page with the gold accent, 2026-09-27).
+    const layoutSurfaceDeclarations = [
+      ...styles.matchAll(/--app-layout-surface:([^;]*);/g),
+    ].map((match) => match[1].trim());
+    expect(layoutSurfaceDeclarations.length).toBeGreaterThanOrEqual(2);
+    for (const value of layoutSurfaceDeclarations) {
+      expect(value).toBe("var(--app-grouped-background)");
+    }
     expect(styles).not.toContain("color: var(--ambient-chrome-top-fg");
     expect(styles).not.toContain("ambient-chrome-bottom-base");
     expect(styles).not.toContain("--lucide-stroke-width");

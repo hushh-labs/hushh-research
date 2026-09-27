@@ -8855,6 +8855,16 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
 
       const changeTime = circleGrantChangeTimeButton();
+      const shareRow = changeTime.closest('[data-testid="settings-row"]');
+      expect(shareRow).not.toBeNull();
+      const stop = within(shareRow as HTMLElement).getByRole("button", {
+        name: "Stop",
+      });
+      expect(changeTime.parentElement).toContainElement(stop);
+      expect(changeTime.parentElement).toHaveClass("w-full", "sm:justify-end");
+      expect(
+        shareRow?.querySelector('[data-slot="settings-row-description"]'),
+      ).not.toContainElement(changeTime);
       fireEvent.click(changeTime);
 
       const dialog = await screen.findByRole("dialog", {

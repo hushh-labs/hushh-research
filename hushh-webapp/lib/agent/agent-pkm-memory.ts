@@ -21,6 +21,8 @@ import {
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
+import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
+import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -358,6 +360,38 @@ function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
 function resolveCardScope(card: AgentPkmPreviewCard): string | null {
   const value = readString(card.primary_json_path) || readString(card.target_entity_scope);
   return value || null;
+}
+
+/**
+ * Where a reviewed card would be saved, in the person's own words.
+ *
+ * Reads the same domain and scope `addToPKM` writes to, so the preview and the
+ * save can never name different places. A card the save path would refuse (a
+ * degraded preview) or one whose domain the structure agent left unresolved is
+ * reported as `undetermined` rather than given a guessed location.
+ */
+export type AgentPkmCardDestination =
+  | { kind: "location"; label: string }
+  | { kind: "not_saved" }
+  | { kind: "undetermined" };
+
+export function describeAgentPkmCardDestination(
+  card: AgentPkmPreviewCard,
+  domainTitles: ReadonlyMap<string, string> = new Map(),
+): AgentPkmCardDestination {
+  if (card.write_mode === "do_not_save") return { kind: "not_saved" };
+  if (isDegradedPreviewCard(card)) return { kind: "undetermined" };
+  const domain = resolveCardTargetDomain(card);
+  if (!domain || domain.toLowerCase() === "unresolved") return { kind: "undetermined" };
+  const domainTitle = domainTitles.get(domain)?.trim() || humanizeMemorySegment(domain);
+  return { kind: "location", label: pkmScopeBreadcrumb(domainTitle, resolveCardScope(card)) };
+}
+
+/** The one sentence every review surface (chat and Profile) shows for a destination. */
+export function formatAgentPkmCardDestination(destination: AgentPkmCardDestination): string {
+  if (destination.kind === "location") return `Saves to ${destination.label}`;
+  if (destination.kind === "not_saved") return "This part won’t be saved.";
+  return "Where this would be saved couldn’t be worked out yet.";
 }
 
 function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {

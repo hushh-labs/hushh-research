@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   pkmMemoryCardBreadcrumb,
+  pkmScopeBreadcrumb,
   resolvePkmMemoryLevel,
 } from "@/lib/pkm/pkm-memory-level";
 import { buildPkmMemoryCardsFromNode } from "@/lib/pkm/pkm-memory-cards";
@@ -205,6 +206,21 @@ describe("pkmMemoryCardBreadcrumb", () => {
       pathSegments: ["history", "entities", "mem_abc123", "summary"],
     });
     expect(pkmMemoryCardBreadcrumb(entityCard)).toBe("Changes › History");
+  });
+});
+
+describe("pkmScopeBreadcrumb", () => {
+  it("names a proposed destination in Memory's words, never an id or raw path", () => {
+    expect(pkmScopeBreadcrumb("Financial", "investments.holdings")).toBe(
+      "Financial › Investments › Holdings",
+    );
+    expect(pkmScopeBreadcrumb("Changes", "history.entities.mem_abc123.summary")).toBe(
+      "Changes › History › Summary",
+    );
+    expect(pkmScopeBreadcrumb("Wallet", "cards.card_94d850a3-a02c-414c-9813-a48e64b0fa53")).toBe(
+      "Wallet › Cards",
+    );
+    expect(pkmScopeBreadcrumb("Preferences", null)).toBe("Preferences");
   });
 });
 

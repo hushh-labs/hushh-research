@@ -34,6 +34,9 @@ from hushh_mcp.services.drive_suggestion_service import (
     simple_file_activity_plan,
 )
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
+from hushh_mcp.services.external_connector_google_oauth import (
+    CONNECTOR_ID as DRIVE_CONNECTOR_ID,
+)
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -214,6 +217,24 @@ def _metadata_sources(matches: list[dict], *, limit: int = 10) -> list[dict]:
         {"source_ref": item["source_ref"], "label": "Document", "kind": "metadata", "page": None}
         for item in matches[:limit]
     ]
+
+
+async def _current_drive_credential(oauth, *, user_id):
+    """Tell a Drive that was never connected apart from a grant that stopped working.
+
+    ``current_credential`` reports every unusable state as ``reconnect_required``.
+    Only when no connection row exists is the honest state ``connect_required``;
+    a revoked, expired or out-of-policy grant stays ``reconnect_required``. The
+    extra read runs only on that failure path, never on a connected turn.
+    """
+    try:
+        return await oauth.current_credential(user_id=user_id)
+    except DriveOAuthError as error:
+        if str(error) != "reconnect_required":
+            raise
+        if await oauth.lifecycle.read(user_id=user_id, connector_id=DRIVE_CONNECTOR_ID):
+            raise
+        raise DriveOAuthError("connect_required", status_code=error.status_code) from None
 
 
 def _outcome(
@@ -446,7 +467,7 @@ class DriveChatService:
                     reader = self.reader_factory(user_id=user_id, require_access=require_access)
                 else:
                     oauth = self.oauth or get_external_connector_oauth_service().drive()
-                    _, credential = await oauth.current_credential(user_id=user_id)
+                    _, credential = await _current_drive_credential(oauth, user_id=user_id)
                     live = credential.get("profile") == "live"
                     if require_live and not live:
                         # A connection's question needs live search, not selected files.

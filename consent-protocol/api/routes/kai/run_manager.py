@@ -459,15 +459,31 @@ class KaiAnalyzeRunManager:
         consent_token: str,
         generator_factory: RunGeneratorFactory,
     ) -> tuple[str, AnalyzeRunRecord]:
+        session_key = (user_id, debate_session_id)
         async with self._lock:
             await self._prune_locked()
-            session_key = (user_id, debate_session_id)
-            active_run_id = self._active_by_session.get(session_key)
-            if active_run_id:
-                active_run = self._runs_by_id.get(active_run_id)
-                if active_run and active_run.status == "running":
-                    return "active", active_run
-                self._active_by_session.pop(session_key, None)
+            local_active = self._local_active_locked(session_key)
+        if local_active is not None:
+            return "active", local_active
+
+        # The session's run may be live in another process. Without this check
+        # a start that lands elsewhere (a reload, a reopened app) began a second
+        # debate beside the one still running instead of reattaching to it.
+        # Checked outside the lock: it only guards the in-memory dicts.
+        remote_active = await self._durable_active(
+            user_id=user_id, debate_session_id=debate_session_id
+        )
+
+        async with self._lock:
+            # Re-check: another start in this process may have won the await.
+            local_active = self._local_active_locked(session_key)
+            if local_active is not None:
+                return "active", local_active
+            # This process's own memory is authoritative for its own runs: a
+            # row still marked running for a run that just ended here is not
+            # a live run elsewhere.
+            if remote_active is not None and remote_active.run_id not in self._runs_by_id:
+                return "active", remote_active
 
             run_id = f"run_{uuid.uuid4().hex}"
             run = AnalyzeRunRecord(
@@ -497,6 +513,28 @@ class KaiAnalyzeRunManager:
             )
         return "started", run
 
+    def _local_active_locked(self, session_key: tuple[str, str]) -> Optional[AnalyzeRunRecord]:
+        """The session's running run in this process; caller holds ``_lock``."""
+        active_run_id = self._active_by_session.get(session_key)
+        if not active_run_id:
+            return None
+        active_run = self._runs_by_id.get(active_run_id)
+        if active_run and active_run.status == "running":
+            return active_run
+        self._active_by_session.pop(session_key, None)
+        return None
+
+    async def _durable_active(
+        self, *, user_id: str, debate_session_id: str
+    ) -> Optional[AnalyzeRunRecord]:
+        """The session's running run held by another live process, if any."""
+        if self._store is None:
+            return None
+        state = await self._store.load_active(
+            user_id=user_id, run_kind="debate", session_id=debate_session_id
+        )
+        return _record_from_state(state) if state is not None else None
+
     async def get_active(
         self,
         *,
@@ -513,12 +551,7 @@ class KaiAnalyzeRunManager:
                 return run
 
         # The run may be live in another process.
-        if self._store is None:
-            return None
-        state = await self._store.load_active(
-            user_id=user_id, run_kind="debate", session_id=debate_session_id
-        )
-        return _record_from_state(state) if state is not None else None
+        return await self._durable_active(user_id=user_id, debate_session_id=debate_session_id)
 
     async def get_run(self, run_id: str) -> Optional[AnalyzeRunRecord]:
         async with self._lock:

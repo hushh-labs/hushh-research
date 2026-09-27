@@ -120,6 +120,8 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
+import { isAndroid } from "@/lib/capacitor/platform";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
@@ -136,6 +138,7 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 import type { DriveBatchProgress, DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
+import { AgentFirstRunActions } from "@/components/agent/agent-first-run-actions";
 import {
   parseAgentActivityExperience,
   personSelectionPrompt,
@@ -192,7 +195,9 @@ import {
   subscribeAgentTurnSettled,
   subscribeOpenAgentConversation,
   waitForWatchedAgentTurn,
+  watchDetachedAgentTurn,
 } from "@/lib/agent/agent-chat-turn-watch";
+import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
@@ -210,7 +215,10 @@ import {
   snapKaiBottomChromeVisible,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
+  AGENT_CHAT_STREAM_LOST_ERROR,
+  AgentChatStreamLostError,
   deleteAgentChatConversation,
+  getLostAgentTurnOutcome,
   renameAgentChatConversation,
   streamAgentChat,
   streamAgentIntro,
@@ -223,6 +231,7 @@ import {
   type AgentSource,
   getAgentChatFeedback,
   setAgentChatFeedback,
+  type AgentResponseReportReason,
   recordAgentChatInformationRequest,
   parseRestoredTurnActivity,
 } from "@/lib/services/agent-chat-client";
@@ -259,8 +268,8 @@ import {
   type PendingConsent,
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
-import { DriveBackgroundSearches, type SelectedDriveSearchFile } from "@/components/agent/drive-background-search";
-import { clearGeneratedDriveSearchDraft, DEFAULT_DRIVE_SEARCH_DRAFT } from "@/lib/agent/drive-search-draft";
+import { DriveRecentSharing, type SelectedDriveSearchFile } from "@/components/agent/drive-background-search";
+import { clearGeneratedDriveSearchDraft } from "@/lib/agent/drive-search-draft";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
@@ -352,7 +361,72 @@ type AgentMessage = {
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
   driveCompilation?: DriveCompilationUiState;
+  /** Why a partial answer stopped, shown below the text that did arrive. */
+  errorNotice?: string;
+  /** The stream was lost, not the turn: Retry checks history before resending. */
+  lostTurn?: AgentLostTurn;
 };
+
+type AgentLostTurn = { conversationId: string; startedAtMs: number };
+
+/** Short inline notice under a partial answer whose connection was lost. */
+export const AGENT_PARTIAL_ANSWER_LOST_NOTICE = "Connection lost before One finished.";
+
+/**
+ * Settle an assistant bubble as failed. With no text yet the reason is the
+ * message; with a partial answer the text stays and the reason shows as a
+ * short notice below it, so the person knows why it stopped. Idempotent: the
+ * stream's error callback and the thrown error both land here for one failure.
+ */
+export function settleAssistantMessageError<T extends AgentMessage>(
+  current: T,
+  reason: string,
+  error?: unknown,
+): T {
+  const lostTurn = error instanceof AgentChatStreamLostError
+    ? { conversationId: error.conversationId, startedAtMs: error.startedAtMs }
+    : current.lostTurn;
+  if (current.status === "error") return lostTurn ? { ...current, lostTurn } : current;
+  const partial = current.text.trim().length > 0;
+  return {
+    ...current,
+    text: partial ? current.text : reason,
+    ...(partial
+      ? { errorNotice: reason === AGENT_CHAT_STREAM_LOST_ERROR ? AGENT_PARTIAL_ANSWER_LOST_NOTICE : reason }
+      : {}),
+    ...(lostTurn ? { lostTurn } : {}),
+    status: "error",
+    streamEvents: settleVisibleStreamEvents(current.streamEvents, "error"),
+  };
+}
+
+export type LostTurnRetryPlan = "rerun" | "restore" | "reattach";
+
+/**
+ * Before a lost turn is sent again, ask history where it stands: an answer the
+ * server already saved is shown ("restore"), a turn still running is waited on
+ * ("reattach"), and only a turn that never finished is sent again ("rerun").
+ * An unreadable history falls back to today's resend.
+ */
+export async function planLostTurnRetry(input: {
+  lostTurn: AgentLostTurn | undefined;
+  retryText: string;
+  vaultOwnerToken: string | null;
+  vaultKey: string | null;
+}): Promise<LostTurnRetryPlan> {
+  if (!input.lostTurn || !input.vaultOwnerToken || !input.vaultKey) return "rerun";
+  try {
+    const outcome = await getLostAgentTurnOutcome({
+      conversationId: input.lostTurn.conversationId,
+      userMessage: input.retryText,
+      vaultOwnerToken: input.vaultOwnerToken,
+      vaultKey: input.vaultKey,
+    });
+    return outcome === "answered" ? "restore" : outcome === "pending" ? "reattach" : "rerun";
+  } catch {
+    return "rerun";
+  }
+}
 
 export type AgentStructuredExperienceEntry = {
   id: string;
@@ -1305,7 +1379,7 @@ function AgentWelcomePanel({
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
-          Ask One about your markets, portfolio, memories, or consent workflows.
+          Ask One about your calendar, your email, what it remembers, or who can see your information.
         </p>
         <AgentPromptSuggestions
           prompts={prompts}
@@ -1318,88 +1392,73 @@ function AgentWelcomePanel({
   );
 }
 
-function formatWelcomeDomain(domain: string): string {
-  return domain
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase())
-    .trim();
-}
-
+/**
+ * The one-time note shown right after setup. It is deliberately an ordinary
+ * assistant message: same width cap, typography and spacing as AgentBubble's
+ * assistant branch, with no card chrome. It used to be a 28px-radius hero card
+ * with a 3xl heading and a "What's ready so far" summary, which read as a
+ * different surface and told a brand-new person about setup they had not done.
+ * It now offers the first actions instead: connect accounts, set up agents,
+ * or ask one of the curated starters.
+ */
 function PostSetupWelcomeCard({
   name,
   context,
+  prompts,
+  vaultOwnerToken,
+  hasPortfolioData,
   disabled,
   onPromptSelect,
+  onOpenConnector,
+  onNavigate,
 }: {
   name: string;
   context: EntryWelcome;
+  prompts: readonly string[];
+  vaultOwnerToken: string | null;
+  hasPortfolioData: boolean;
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
+  onOpenConnector: (
+    provider: "gmail" | "drive" | "calendar" | undefined,
+    trigger: HTMLButtonElement,
+  ) => void;
+  onNavigate: (href: string) => void;
 }) {
-  const domains = context.domains.slice(0, 5);
-  const savedDetails = Math.max(0, context.totalAttributes || 0);
   return (
     <section
       data-testid="post-setup-welcome-card"
-      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.42)] sm:p-7"
+      aria-label="Welcome"
+      className="motion-step-enter flex w-full items-start justify-start"
     >
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        One · Your private agent
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-        Welcome, {name}
-      </h2>
-      <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-        I’m One, your private agent. You’ve finished setup and opened your vault.
-        Here’s where we can start together.
-      </p>
-
-      <div className="mt-6 rounded-2xl bg-muted/45 px-4 py-4 text-sm text-foreground">
-        <p className="font-medium">What’s ready so far</p>
-        {context.status === "loading" ? (
-          <p className="mt-1 text-muted-foreground" role="status">I’m checking your setup summary…</p>
-        ) : context.status === "unavailable" ? (
-          <p className="mt-1 text-muted-foreground">I couldn’t load your saved summary yet. You can still ask me for help or try “Show what you know.”</p>
-        ) : domains.length > 0 ? (
-          <>
-            <p className="mt-1 text-muted-foreground">
-              {savedDetails > 0
-                ? `${savedDetails} saved ${savedDetails === 1 ? "detail" : "details"} across ${context.domains.length} ${context.domains.length === 1 ? "category" : "categories"}.`
-                : `Context is available across ${context.domains.length} ${context.domains.length === 1 ? "category" : "categories"}.`}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2" aria-label="Available categories">
-              {domains.map((domain) => (
-                <span
-                  key={domain}
-                  className="rounded-full bg-background px-3 py-1.5 text-xs text-muted-foreground"
-                >
-                  {formatWelcomeDomain(domain)}
-                </span>
-              ))}
-            </div>
-          </>
-        ) : (
-          <p className="mt-1 text-muted-foreground">
-            No categories have been added yet. You can connect a source or
-            tell me what you want to organize.
+      <div className="min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]">
+        <div className="px-1 py-2 text-sm leading-6 text-foreground">
+          <p className="font-semibold">Welcome, {name}.</p>
+          <p className="mt-2">
+            I’m One, your private agent. Connect what you want me to work with,
+            or set up an agent. You decide what I see and who it’s shared with.
           </p>
-        )}
+        </div>
+        <AgentFirstRunActions
+          vaultOwnerToken={vaultOwnerToken}
+          hasPortfolioData={hasPortfolioData}
+          memoryHasItems={context.status === "ready" && context.totalAttributes > 0}
+          disabled={disabled}
+          onOpenConnector={onOpenConnector}
+          onNavigate={onNavigate}
+        />
+        <div role="group" aria-label="Try asking" className="mt-4">
+          <p className="px-1 text-xs font-medium text-muted-foreground">Try asking</p>
+          <div className="mt-2">
+            <AgentPromptSuggestions
+              prompts={prompts}
+              disabled={disabled}
+              onPromptSelect={onPromptSelect}
+              align="start"
+            />
+          </div>
+        </div>
       </div>
-
-      <p className="mt-5 text-sm leading-6 text-muted-foreground">
-        Try asking what I remember, tell me a goal you’d like help with, or
-        choose a connection to set up. You decide what to share and with whom.
-      </p>
-      <AgentPromptSuggestions
-        prompts={[
-          "Show what you know",
-          "Set up a connection",
-          "What can you help with?",
-        ]}
-        disabled={disabled}
-        onPromptSelect={onPromptSelect}
-        align="start"
-      />
     </section>
   );
 }
@@ -1622,7 +1681,7 @@ export function GmailInformationRequestAttachment({
   );
 }
 
-function AgentBubble({
+export function AgentBubble({
   message,
   onOpenConnections,
   onInformationRequestSubmitted,
@@ -1641,6 +1700,8 @@ function AgentBubble({
   onPendingConsentDetails,
   rating = null,
   onRate,
+  reported = false,
+  onReport,
   gmailInformationRequestAttachment,
 }: {
   message: AgentMessage;
@@ -1665,6 +1726,8 @@ function AgentBubble({
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
   rating?: "up" | "down" | null;
   onRate?: (rating: "up" | "down" | null) => void;
+  reported?: boolean;
+  onReport?: (reason: AgentResponseReportReason) => Promise<void>;
   gmailInformationRequestAttachment?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -1806,6 +1869,15 @@ function AgentBubble({
             canRenderPendingConsentRequest ? null : (
             <AgentThinkingDots />
           )}
+          {!isUser && isError && message.errorNotice ? (
+            <p
+              role="status"
+              data-testid="agent-message-error-notice"
+              className="mt-2 text-xs font-medium text-destructive"
+            >
+              {message.errorNotice}
+            </p>
+          ) : null}
         </div>
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
         <div
@@ -1862,6 +1934,11 @@ function AgentBubble({
               >
                 <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
               </button>
+              {onReport && isAndroid() ? (
+                // Google Play AI-Generated Content policy. Android only for
+                // now, so iOS and web chat stay exactly as they are.
+                <AgentResponseReportButton reported={reported} onReport={onReport} />
+              ) : null}
                 </>
               ) : null}
               {onRetry ? (
@@ -2280,6 +2357,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messageRatings, setMessageRatings] = useState<
     Record<string, "up" | "down">
   >({});
+  // Answers reported in this conversation during this session; the durable
+  // record is the "down" rating plus the server-side report log.
+  const [reportedMessageIds, setReportedMessageIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
@@ -3023,6 +3105,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     const token = getVaultOwnerToken();
+    setReportedMessageIds(new Set());
     if (!conversationId || !token) {
       setMessageRatings({});
       return;
@@ -3280,8 +3363,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid]);
 
   const welcomePrompts = useMemo(
-    () => getWelcomePrompts(welcomePromptSetIndex, { hasPortfolioData }),
-    [hasPortfolioData, welcomePromptSetIndex],
+    () => getWelcomePrompts(welcomePromptSetIndex),
+    [welcomePromptSetIndex],
   );
 
   useEffect(() => {
@@ -4645,6 +4728,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [conversationId, getVaultOwnerToken, messageRatings],
   );
 
+  /**
+   * Report one answer to the Hussh team (Google Play AI-Generated Content
+   * policy). Not optimistic: the dialog stays open and offers a retry until the
+   * server has the report, so a person is never told it was sent when it was not.
+   */
+  const handleReportMessage = useCallback(
+    async (messageId: string, reason: AgentResponseReportReason) => {
+      const token = getVaultOwnerToken();
+      if (!conversationId || !token) {
+        throw new Error("This conversation is not available yet.");
+      }
+      await setAgentChatFeedback({
+        conversationId,
+        messageId,
+        rating: "down",
+        reportReason: reason,
+        vaultOwnerToken: token,
+      });
+      setMessageRatings((current) => ({ ...current, [messageId]: "down" }));
+      setReportedMessageIds((current) => new Set(current).add(messageId));
+      toast.success("Thanks. The Hussh team reviews every report.");
+    },
+    [conversationId, getVaultOwnerToken],
+  );
+
   // One memory-only job belongs to its originating turn. Later turns may
   // continue; a conversation/owner/vault change cancels pending effects.
   const captureEligiblePkmFactsInBackground = useCallback(
@@ -5673,15 +5781,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) => ({
-              ...current,
-              text: current.text || message,
-              status: "error",
-              streamEvents: settleVisibleStreamEvents(
-                current.streamEvents,
-                "error",
-              ),
-            }));
+            updateMessage(assistantMessageId, (current) =>
+              settleAssistantMessageError(current, message),
+            );
             setIsChatLoading(false);
             setIsStreaming(false);
           },
@@ -5744,15 +5846,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         error instanceof Error && error.message
           ? error.message
           : "Agent chat request failed.";
-      updateMessage(assistantMessageId, (current) => ({
-        ...current,
-        text: current.text || message,
-        status: "error",
-        streamEvents: settleVisibleStreamEvents(
-          current.streamEvents,
-          "error",
-        ),
-      }));
+      updateMessage(assistantMessageId, (current) =>
+        settleAssistantMessageError(current, message, error),
+      );
       if (isChatKeyRefusal(error)) {
         // Chat is locked, not failed. Keep the unsent message, show the unlock
         // flow, and send it once after unlock. Refreshing the conversation list
@@ -5921,11 +6017,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) => ({
-              ...current,
-              text: current.text || message,
-              status: "error",
-            }));
+            updateMessage(assistantMessageId, (current) =>
+              settleAssistantMessageError(current, message),
+            );
             setIsChatLoading(false);
             setIsStreaming(false);
           },
@@ -5971,11 +6065,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           error instanceof Error && error.message
             ? error.message
             : "Agent chat request failed.";
-        updateMessage(assistantMessageId, (current) => ({
-          ...current,
-          text: current.text || message,
-          status: "error",
-        }));
+        updateMessage(assistantMessageId, (current) =>
+          settleAssistantMessageError(current, message, error),
+        );
       }
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
@@ -6146,11 +6238,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) => ({
-              ...current,
-              text: current.text || message,
-              status: "error",
-            }));
+            updateMessage(assistantMessageId, (current) =>
+              settleAssistantMessageError(current, message),
+            );
             setIsChatLoading(false);
             setIsStreaming(false);
           },
@@ -6169,11 +6259,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           error instanceof Error && error.message
             ? error.message
             : "Agent chat request failed.";
-        updateMessage(assistantMessageId, (current) => ({
-          ...current,
-          text: current.text || message,
-          status: "error",
-        }));
+        updateMessage(assistantMessageId, (current) =>
+          settleAssistantMessageError(current, message, error),
+        );
       }
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -6646,6 +6734,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSendFailed={handleEmailSendFailed}
           sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
+          onOpenConnections={openConnectorSurface}
           sourceBoundReply={
             workflowId
               ? {
@@ -6718,6 +6807,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     setWalletWidgets([]);
+    const lostTurn = messages[assistantIndex]?.lostTurn;
+    const retryFromConversation = conversationIdRef.current;
+    const stillInSameChat = () => conversationIdRef.current === retryFromConversation;
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -6726,6 +6818,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       run: async () => {
         if (!hasChatAccess) {
           await runIntroTurn(retryText);
+          return;
+        }
+        // Only the stream was lost: the server may have finished and saved
+        // this turn, or still be running it. Never run it a second time.
+        const token = getVaultOwnerToken();
+        const plan = await planLostTurnRetry({
+          lostTurn, retryText, vaultOwnerToken: token, vaultKey: vaultKeyRef.current,
+        });
+        if (!stillInSameChat()) return;
+        if (plan === "restore" && lostTurn && token && user?.uid) {
+          dispatchAgentChatHistoryInvalidated(user.uid);
+          await restoreConversationMessages(lostTurn.conversationId, token, stillInSameChat);
+          return;
+        }
+        if (plan === "reattach" && lostTurn && user?.uid) {
+          // The settled-turn effect reloads the saved answer in place.
+          updateConversationId(lostTurn.conversationId);
+          updateMessage(messageId, (message) => ({
+            ...message,
+            status: "streaming",
+            errorNotice: undefined,
+            lostTurn: undefined,
+          }));
+          setIsChatLoading(true);
+          setIsStreaming(true);
+          watchDetachedAgentTurn({
+            ownerId: user.uid,
+            conversationId: lostTurn.conversationId,
+            startedAtMs: lostTurn.startedAtMs,
+          });
           return;
         }
         await runAgentTurn(retryText, {
@@ -6743,17 +6865,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const handleUseDriveSearchFile = (selection: SelectedDriveSearchFile) => {
-    if (!user?.uid || !isVaultUnlocked || !getVaultOwnerToken()) return;
-    const pending = { ...selection, ownerUid: user.uid, vaultEpoch: snapshotVaultSessionEpoch() };
-    pendingDriveSearchSelectionRef.current = pending;
-    setPendingDriveSearchSelection(pending);
-    if (!input.trim()) {
-      generatedDriveSearchDraftRef.current = true;
-      setInput(DEFAULT_DRIVE_SEARCH_DRAFT);
-    }
-    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  };
   const toggleHistoryDrawer = useCallback(() => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -7141,7 +7252,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          {!isPuppySurface ? <DriveBackgroundSearches onUseInChat={handleUseDriveSearchFile} /> : null}
+          {!isPuppySurface ? <DriveRecentSharing /> : null}
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface
@@ -7165,8 +7276,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             />
           ) : null}
 
+          {/* One's transcript region is hidden as a WHOLE, not just the
+              scroller inside it. This wrapper is `flex-1` beside Puppy's own
+              `flex-1` surface, so leaving it displayed while only its child
+              went display:none made the empty box take half the column and
+              Puppy One rendered at half height with its composer mid-screen. */}
           <div
-            className="relative min-h-0 flex-1 overflow-hidden"
+            className={cn(
+              "relative min-h-0 flex-1 overflow-hidden",
+              isPuppySurface && "hidden",
+            )}
             inert={isHistoryDrawerOpen}
           >
             <div
@@ -7229,7 +7348,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               className={cn(
                 "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
                 "pb-[calc(var(--agent-chat-composer-bottom,5rem)+5.5rem)] lg:px-8",
-                isPuppySurface && "hidden",
               )}
               tabIndex={0}
               role="region"
@@ -7260,8 +7378,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <PostSetupWelcomeCard
                   name={displayName}
                   context={postSetupWelcomeContext}
+                  prompts={welcomePrompts}
+                  vaultOwnerToken={vaultOwnerToken}
+                  hasPortfolioData={hasPortfolioData}
                   disabled={isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
+                  onOpenConnector={openConnectorSurface}
+                  onNavigate={(href) => router.push(href)}
                 />
               ) : !hasStartedConversation ? (
                 <AgentWelcomePanel
@@ -7347,6 +7470,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
                       onRate={(next) =>
                         handleRateMessage(message.serverMessageId ?? message.id, next)
+                      }
+                      reported={reportedMessageIds.has(message.serverMessageId ?? message.id)}
+                      onReport={(reason) =>
+                        handleReportMessage(message.serverMessageId ?? message.id, reason)
                       }
                       onRetry={
                         message.id === latestRetryableAssistantId

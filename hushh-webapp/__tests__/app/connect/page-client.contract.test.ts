@@ -14,9 +14,10 @@ describe("Connect canonical surface contract", () => {
 
     expect(source).toContain("<AppPageShell");
     expect(source).toContain('width="agent"');
-    expect(source).toContain("<PageHeader");
-    expect(source).toContain('title="Connect"');
-    expect(source).toContain('titleRole="agent"');
+    // The shared top bar owns the single "Connect" title (as on Feed), so the
+    // page must not repeat it as an in-body header.
+    expect(source).not.toContain("<PageHeader");
+    expect(source).not.toContain("<AppPageHeaderRegion");
     expect(source).not.toContain("icon={BookUser}");
     expect(source).not.toContain('eyebrow="One"');
     expect(source).not.toContain("icon={Users}\n          accent");

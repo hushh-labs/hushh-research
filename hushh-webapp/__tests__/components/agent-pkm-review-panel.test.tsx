@@ -63,4 +63,23 @@ describe("AgentPkmReviewPanel", () => {
     expect(screen.getAllByTestId("agent-pkm-review-group")).toHaveLength(1);
     expect(screen.getAllByText(/Private to your private agent/)).toHaveLength(2);
   });
+  it("names each destination exactly as Profile does: Saves to A › B › C", () => {
+    const { container, rerender } = render(
+      <AgentPkmReviewPanel cards={CARDS} onSave={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    expect(screen.getByText("Saves to Food › Preferences › Breakfast")).toBeInTheDocument();
+    expect(screen.getByText("Saves to Food › Preferences › Dinner")).toBeInTheDocument();
+    expect(container.textContent).not.toContain(" > ");
+
+    // The owner's own domain name wins, and the single-destination layout uses the same text.
+    rerender(
+      <AgentPkmReviewPanel
+        cards={[CARDS[0]!]}
+        domainTitles={new Map([["food", "Food & Dining"]])}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Saves to Food & Dining › Preferences › Breakfast")).toBeInTheDocument();
+  });
 });

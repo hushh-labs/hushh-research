@@ -13,6 +13,14 @@ export type ConnectionRelationship =
  */
 export type DirectoryAudience = "all" | "people" | "ria";
 
+/** Why a person reported a connection request. Mirrors the backend enum. */
+export type ConnectionReportReason =
+  | "spam"
+  | "harassment"
+  | "inappropriate"
+  | "impersonation"
+  | "other";
+
 export interface DirectoryPerson {
   userId: string;
   publicPersonRef?: string | null;
@@ -609,10 +617,40 @@ export class ConnectionsService {
   static async reject(opts: {
     idToken: string;
     requestId: string;
+    /** Also stop this person from sending another request. */
+    block?: boolean;
   }): Promise<void> {
     const response = await ApiService.apiFetch(
       `/api/one/connections/requests/${encodeURIComponent(opts.requestId)}/reject`,
-      { method: "POST", headers: authHeaders(opts.idToken) },
+      opts.block
+        ? {
+            method: "POST",
+            headers: { ...authHeaders(opts.idToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ block: true }),
+          }
+        : { method: "POST", headers: authHeaders(opts.idToken) },
+    );
+    await jsonOrThrow<unknown>(response);
+  }
+
+  /**
+   * Report a connection request and its message to the Hussh team (Google
+   * Play user-generated content policy). The report also declines the
+   * request and blocks the sender.
+   */
+  static async report(opts: {
+    idToken: string;
+    requestId: string;
+    reason: ConnectionReportReason;
+  }): Promise<void> {
+    // Rides on the existing reject route: a report always declines and blocks.
+    const response = await ApiService.apiFetch(
+      `/api/one/connections/requests/${encodeURIComponent(opts.requestId)}/reject`,
+      {
+        method: "POST",
+        headers: { ...authHeaders(opts.idToken), "Content-Type": "application/json" },
+        body: JSON.stringify({ block: true, report_reason: opts.reason }),
+      },
     );
     await jsonOrThrow<unknown>(response);
   }

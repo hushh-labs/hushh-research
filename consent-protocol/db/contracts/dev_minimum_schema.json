@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 254,
+  "expected_migration_version": 255,
   "migration_version_policy": "minimum",
   "required_functions": [
     "project_calendar_mail_feed",

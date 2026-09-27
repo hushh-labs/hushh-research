@@ -42,6 +42,7 @@ from api.middleware import (
     require_firebase_auth,
     require_vault_owner_token,
 )
+from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.account_deletion_lifecycle_service import (
@@ -70,6 +71,8 @@ from hushh_mcp.services.trusted_device_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
+# Terms and Privacy acceptance lives in its own module, mounted under this prefix.
+router.include_router(legal_acceptance_router)
 
 _FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS = 3.0
 _CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS = 5.0

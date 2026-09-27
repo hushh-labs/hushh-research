@@ -229,6 +229,8 @@ tests/test_pool_acquire_is_bounded.py
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+tests/test_account_legal_acceptance.py
+tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
@@ -291,6 +293,8 @@ tests/test_one_location_nearby_check_in_preferences_migration.py
 
 # Existing retrieval adapter: deterministic tests do not download a model.
 tests/services/test_action_retrieval.py
+# Image-baked catalog vectors: used on an exact match, live embedding otherwise.
+tests/services/test_action_catalog_vectors.py
 
 # Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
@@ -347,6 +351,8 @@ tests/services/test_location_nearby_visit_command_postgres.py
 # Agent Chat measurement instruments: AG-UI turn timing, the first-tool harness
 # and latency driver (offline math only), ADK EvalSet shape, conformance replay.
 tests/test_agui_turn_timing.py
+# Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
+tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
 tests/scripts/test_eval_one_first_tool.py
 tests/scripts/test_eval_pkm_structure_agent.py
@@ -402,6 +408,8 @@ tests/test_agent_runtime_declarations.py
 tests/test_one_manifest_subagent_prompts.py
 tests/test_nav_a2a_agent.py
 tests/test_one_adk_agent_tree.py
+# Finance market tools: providers receive the ticker only, never owner identity.
+tests/test_one_finance_market_tools.py
 tests/test_a2a_delegation_scopes.py
 tests/test_connections_a2a.py
 tests/test_specialist_availability.py

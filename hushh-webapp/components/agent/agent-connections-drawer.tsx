@@ -203,14 +203,18 @@ export function AgentConnectionsDrawer({
       ))}
       <div
         aria-hidden="true"
+        data-agent-history-scrim
         className={cn(
-          // Anchored below the chat header like the drawer panel, so the dim layer never
-          // covers the header controls (agent toggle, close) above it. It also ends at
-          // the top of the fixed bottom bar: that bar lives in a different stacking
-          // context, so no z-index here can lift the drawer above it on narrow screens.
-          "absolute inset-x-0 bottom-[var(--app-bottom-shell-height,0px)] top-[var(--agent-chat-header-height)] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          // Anchored below the chat header like the drawer panel, so this tap-to-close
+          // layer never covers the header controls (agent toggle, close) above it. It
+          // also ends at the top of the fixed bottom bar: that bar lives in a different
+          // stacking context, so no z-index here can lift the drawer above it on narrow
+          // screens. It is deliberately untinted: a dim clipped to that band left the
+          // header and the bottom bar bright, which read as a white strip above the
+          // panel and a white patch below it. The floating panel's shadow separates it.
+          "absolute inset-x-0 bottom-[var(--app-bottom-shell-height,0px)] top-[var(--agent-chat-header-height)] bg-transparent",
           "z-(--z-sheet-overlay)",
-          historyOpen ? "opacity-100" : "pointer-events-none opacity-0",
+          historyOpen ? "pointer-events-auto" : "pointer-events-none",
         )}
         onClick={() => {
           if (!externalModalOpen) onOpenChange(false);
@@ -225,15 +229,22 @@ export function AgentConnectionsDrawer({
         inert={!historyOpen || externalModalOpen}
         onKeyDown={keyDown}
         className={cn(
-          "absolute bottom-[var(--app-bottom-shell-height,0px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
-          "left-0 top-[var(--agent-chat-header-height)] z-(--z-sheet) w-[min(88vw,320px)]",
-          historyOpen ? "translate-x-0" : "-translate-x-full",
+          // The panel floats inset from the edges (the padding), like an iPadOS
+          // sidebar, so its rounded corners and shadow never butt against the
+          // header or the bottom bar. The inset margin passes taps through to
+          // the close layer; only the panel itself catches them. Closed, it
+          // also clears its own shadow. Motion uses the shared sheet tier.
+          "pointer-events-none absolute bottom-[var(--app-bottom-shell-height,0px)] transform p-2 transition-transform motion-reduce:transition-none",
+          "left-0 top-[var(--agent-chat-header-height)] z-(--z-sheet) w-[min(88vw,336px)]",
+          historyOpen
+            ? "translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+            : "translate-x-[calc(-100%_-_3rem)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
         )}
       >
         <div
           hidden={mode !== "chats"}
           inert={mode !== "chats"}
-          className="h-full min-h-0"
+          className="pointer-events-auto h-full min-h-0"
         >
           {chats}
         </div>

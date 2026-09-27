@@ -4,6 +4,8 @@ import { Brain, Check, Loader2, Pencil, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
+  describeAgentPkmCardDestination,
+  formatAgentPkmCardDestination,
   isReservedPkmCard,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -20,20 +22,23 @@ type AgentPkmReviewPanelProps = {
   onSave: () => void;
   onDismiss: () => void;
   onEdit?: () => void;
+  /** Owner's domain display names, so chat names a place exactly as Profile does. */
+  domainTitles?: ReadonlyMap<string, string>;
 };
 
-type ReviewGroup = { domain: string; scope: string | null; cards: AgentPkmPreviewCard[] };
+type ReviewGroup = { destination: string; cards: AgentPkmPreviewCard[] };
 
 /** Group cards by destination so a long paste reads as a table of contents, not a list. */
-function groupReviewCards(cards: AgentPkmPreviewCard[]): ReviewGroup[] {
+function groupReviewCards(
+  cards: AgentPkmPreviewCard[],
+  destinationOf: (card: AgentPkmPreviewCard) => string,
+): ReviewGroup[] {
   const groups = new Map<string, ReviewGroup>();
   for (const card of cards) {
-    const domain = cardDomain(card);
-    const scope = cardScope(card);
-    const key = `${domain}::${scope || ""}`;
-    const group = groups.get(key) || { domain, scope, cards: [] };
+    const destination = destinationOf(card);
+    const group = groups.get(destination) || { destination, cards: [] };
     group.cards.push(card);
-    groups.set(key, group);
+    groups.set(destination, group);
   }
   return [...groups.values()];
 }
@@ -50,29 +55,6 @@ function titleize(value: string | null | undefined): string {
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
-}
-
-function cardDomain(card: AgentPkmPreviewCard): string {
-  const structureDecision =
-    card.structure_decision && typeof card.structure_decision === "object"
-      ? card.structure_decision
-      : {};
-  return (
-    String(card.manifest_draft?.domain || "").trim() ||
-    String(structureDecision.target_domain || "").trim() ||
-    String(card.target_domain || "").trim() ||
-    "Memory"
-  );
-}
-
-function cardScope(card: AgentPkmPreviewCard): string | null {
-  const scope = String(card.primary_json_path || card.target_entity_scope || "").trim();
-  if (!scope) return null;
-  return scope
-    .split(".")
-    .map((segment) => titleize(segment))
-    .filter(Boolean)
-    .join(" > ");
 }
 
 function cardSensitivity(card: AgentPkmPreviewCard): string {
@@ -96,6 +78,7 @@ export function AgentPkmReviewPanel({
   onSave,
   onDismiss,
   onEdit,
+  domainTitles,
 }: AgentPkmReviewPanelProps) {
   const reviewableCards = cards.filter((card) => !isReservedPkmCard(card));
   if (reviewableCards.length === 0) return null;
@@ -103,7 +86,10 @@ export function AgentPkmReviewPanel({
     selectedCardIds ? selectedCardIds.has(card.card_id) : true;
   const selectedCount = reviewableCards.filter(isSelected).length;
   const selectable = Boolean(onToggleCard);
-  const groups = groupReviewCards(reviewableCards);
+  // The same helper Profile uses, so both read "Saves to A › B › C".
+  const destinationOf = (card: AgentPkmPreviewCard) =>
+    formatAgentPkmCardDestination(describeAgentPkmCardDestination(card, domainTitles));
+  const groups = groupReviewCards(reviewableCards, destinationOf);
   const multiGroup = groups.length > 1;
 
   return (
@@ -170,13 +156,12 @@ export function AgentPkmReviewPanel({
         {groups.map((group) => {
           const groupIds = group.cards.map((card) => card.card_id);
           const groupSelected = group.cards.filter(isSelected).length;
-          const groupKey = `${group.domain}::${group.scope || ""}`;
           return (
-            <section key={groupKey} className="space-y-1.5" data-testid="agent-pkm-review-group">
+            <section key={group.destination} className="space-y-1.5" data-testid="agent-pkm-review-group">
               {multiGroup ? (
                 <div className="flex items-center justify-between gap-2 px-1">
                   <p className="text-xs font-semibold text-foreground">
-                    {titleize(group.domain)}{group.scope ? ` › ${group.scope}` : ""}
+                    {group.destination}
                     <span className="ml-2 tabular-nums text-muted-foreground">
                       {selectable ? `${groupSelected}/${group.cards.length}` : group.cards.length}
                     </span>
@@ -212,13 +197,13 @@ export function AgentPkmReviewPanel({
                         checked={selected}
                         disabled={saving}
                         onChange={(event) => onToggleCard?.(card.card_id, event.target.checked)}
-                        aria-label={`Keep: ${cleanText(card.source_text, 80) || titleize(cardDomain(card))}`}
+                        aria-label={`Keep: ${cleanText(card.source_text, 80) || destinationOf(card)}`}
                       />
                     ) : null}
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-start justify-between gap-3">
                         <p className="font-medium text-foreground">
-                          {multiGroup ? cleanText(card.source_text, 140) || titleize(cardDomain(card)) : `${titleize(cardDomain(card))}${cardScope(card) ? ` · ${cardScope(card)}` : ""}`}
+                          {multiGroup ? cleanText(card.source_text, 140) || destinationOf(card) : destinationOf(card)}
                         </p>
                         <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                           {cardSensitivity(card)}

@@ -26,7 +26,7 @@ requires a security assessment. [Gmail scopes](https://developers.google.com/wor
 | Shipped in this working tree | New web, iOS, and Android receipt connections request `openid`, `email`, `profile`, and `gmail.readonly`; the HMAC-bound connect contract supports a separate `send` purpose. | A receipt connection no longer asks for sending permission. Existing grants can still retain previously approved scopes until the owner disconnects/revokes and reconnects. | Keep `gmail.send` disconnected from the receipt flow. Before exposing a send UI, make that UI call the separate `send` purpose and add its feature-specific disclosure and reviewer path. |
 | P0 | `kai_gmail_receipts` stores Gmail message IDs, subject, snippet, sender name/email, and purchase fields. The receipt upsert writes those values. | This is durable server-side storage of Gmail-derived information, not an in-memory view. Google requires transparent disclosure, secure handling, and honoring deletion requests. | Define and implement a documented retention/deletion policy for raw receipt fields, including an automatic purge. |
 | Shipped in this working tree | Disconnect first disables the connection, cancels active syncs, revokes the refresh token, deletes `kai_gmail_receipts`, `kai_receipt_memory_artifacts`, and sync-run records, and clears browser receipt cache. | A disconnect is now a clear deletion action for provider-derived receipt data. Explicitly saved private-memory records remain outside this deletion boundary. | Verify this against the deployed database and update the live privacy policy and deletion-help text before submitting review material. |
-| P0 | The app embeds the external privacy policy at `https://www.hushh.ai/privacy`; this repository does not prove that policy contains Gmail-specific disclosures. | Google requires a public privacy policy plus an in-context disclosure that explains Gmail information access, collection, use, sharing, and deletion. | Update the live policy and add a standalone pre-OAuth disclosure with an affirmative continue action. Include Gmail receipt sync, inbox/search features, sending, retention, deletion, and third-party/AI processing where applicable. |
+| Changed 2026-09-27 (pending founder and legal review) | The app now serves its own Privacy Policy and Terms of Use at `https://one.hushh.ai/privacy` and `https://one.hushh.ai/terms` from `hushh-webapp/lib/legal/legal-documents.ts`. The policy describes Gmail, Calendar and Drive access, stored receipt fields, disconnect, and model processing, and carries the Google API Services User Data Policy Limited Use statement. | Google requires a public privacy policy plus an in-context disclosure that explains Gmail information access, collection, use, sharing, and deletion. | Point the OAuth consent screen privacy and terms URLs at those pages once the text is approved. The standalone pre-OAuth disclosure with an affirmative continue action is still open. |
 | P1 | Gmail-derived content can reach managed Gemini through the optional receipt fallback, inbox chat, and personal-Gmail KYC flows. | The exact deployed configuration and provider terms need separate confirmation, and user-facing disclosures must cover every enabled flow. | Inventory the flows, prove the provider configuration complies with Limited Use, add or document prompt-injection protection, and disclose the processing before consent. |
 | P1 | Token encryption is implemented with AES-GCM, and disconnect revokes the refresh token. | These are positive controls, but they do not establish a complete restricted-scope security posture or assessment. | Preserve these controls and assemble evidence for encryption at rest, key management, access control, incident handling, and vulnerability management. |
 
@@ -53,9 +53,10 @@ These are required review inputs, but code inspection cannot confirm them:
 
 1. Freeze the Gmail scope list and make it truthful in code, Console, and review material.
 2. Ship the live Gmail-specific privacy-policy language, retention policy, and
-   deletion help. The app now presents an immediate read-only/deletion disclosure
-   on the Gmail connection surface, but repository code cannot publish the linked
-   `https://www.hushh.ai/privacy` policy.
+   deletion help. The app presents an immediate read-only/deletion disclosure on
+   the Gmail connection surface, and serves its policy at
+   `https://one.hushh.ai/privacy` (source: `hushh-webapp/lib/legal/legal-documents.ts`).
+   The Cloud Console must name that URL; repository code cannot set it.
 3. Produce an evidence pack: data-flow diagram, scope-to-feature matrix, deletion
    proof, encryption/key-management evidence, access controls, incident response,
    vulnerability-management evidence, and reviewer recording.
@@ -73,7 +74,7 @@ These are required review inputs, but code inspection cannot confirm them:
 - `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` — OAuth scope construction, AES-GCM token handling, disconnect behavior, optional Gemini fallback, and receipt writes.
 - `consent-protocol/db/legacy/init_legacy_schema.sql` — `kai_gmail_receipts` stored fields.
 - `hushh-webapp/components/gmail/gmail-receipts-page.tsx` — disconnect copy retaining receipts.
-- `hushh-webapp/app/api/legal/[doc]/route.ts` — external privacy-policy endpoint.
+- `hushh-webapp/app/privacy/page.tsx` and `hushh-webapp/lib/legal/legal-documents.ts` — the served privacy policy.
 - Native Gmail-auth plugins — the matching iOS and Android scope requests.
 
 The workspace had in-progress Gmail-related changes during this review. This

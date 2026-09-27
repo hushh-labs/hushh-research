@@ -221,6 +221,7 @@ import ConnectPageClient from "@/app/connect/page-client";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ShareUnavailableError } from "@/lib/share/share-link";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { OUTGOING_REQUEST_WATCH_INTERVAL_MS } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import {
   resolveLocalOnboardingHandler,
   prepareLocalOnboardingAction,
@@ -528,6 +529,39 @@ describe("P0 connection reconciliation", () => {
       expect(mocks.listRequests).toHaveBeenCalledOnce();
     } finally {
       visibility.mockRestore();
+    }
+  });
+
+  it("shows an accepted sent request without a push or manual refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    mocks.listRequests.mockResolvedValue([
+      { id: "req-accepted", counterpartUserId: "u9" },
+    ]);
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+
+      // Negative control: a request that is still pending changes nothing.
+      await act(() =>
+        vi.advanceTimersByTimeAsync(OUTGOING_REQUEST_WATCH_INTERVAL_MS),
+      );
+      expect(mocks.listConnectionsPage).not.toHaveBeenCalled();
+
+      mocks.listRequests.mockResolvedValue([]);
+      await act(() =>
+        vi.advanceTimersByTimeAsync(OUTGOING_REQUEST_WATCH_INTERVAL_MS),
+      );
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledOnce(),
+      );
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
     }
   });
 

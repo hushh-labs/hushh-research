@@ -25,7 +25,10 @@ import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import type { OneLocationGrant } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 import {
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME,
   ACTIVE_SHARE_LANE_ROW_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
 } from "./active-share-row-layout";
 
 import { ShareCountdownText } from "./live-share-status-card";
@@ -96,11 +99,11 @@ export function ShareLaneRow({
           )}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className={ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
         {onChangeEndTime ? (
           <button
             type="button"
-            className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
             onClick={(event) => onChangeEndTime(event.currentTarget)}
             disabled={stopping}
             aria-label={`Change end time for ${counterpartName}`}
@@ -113,7 +116,7 @@ export function ShareLaneRow({
         {onStop ? (
         <button
           type="button"
-          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+          className={ACTIVE_SHARE_STOP_CLASSNAME}
           onClick={onStop}
           disabled={stopping}
           aria-label={

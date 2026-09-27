@@ -69,14 +69,18 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("keeps a shared back affordance on the Connect root", () => {
-    expect(resolveTopShellBreadcrumb("/one/connect")).toEqual({
+  it("titles the Connect root in the top bar, the same way Feed is", () => {
+    const expected = {
       backHref: "/one",
       width: "profile",
       align: "center",
       hideBack: false,
-      items: [{ label: "One" }],
-    });
+      items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+    };
+    expect(resolveTopShellBreadcrumb("/one/connect")).toEqual(expected);
+    expect(
+      visibleTopShellBreadcrumbItems(expected.items).map((item) => item.label),
+    ).toEqual(["Connect"]);
   });
 
   it("uses focused Connect Circle titles with a back label to Circles", () => {

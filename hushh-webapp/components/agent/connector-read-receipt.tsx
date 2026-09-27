@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { ContinueDriveSearch } from "@/components/agent/drive-background-search";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
@@ -64,20 +63,19 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
   const drive = experience.connector === "drive";
   return (
     <section aria-label={drive ? "Drive read details" : "Mail read details"} className="min-w-0 space-y-2 text-sm text-muted-foreground">
-      <p role="status">{(drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
+      <p role="status">{!drive && experience.status === "ok" && !experience.metadataOnly
+        ? "Mail messages read"
+        : (drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
       {experience.status === "ok" ? (
         <>
-          <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : "Metadata only"} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
+          <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : (experience.metadataOnly ? "Metadata only" : "Message text")} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
           {experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
             <ul aria-label={drive ? "Document sources" : "Mail sources"} className="flex flex-wrap gap-x-3 gap-y-1">
               {experience.sourceRefs.map((ref, index) => <li key={ref}>{drive ? `${experience.metadataOnly ? "File" : "Document excerpt"} ${index + 1}${experience.sourcePages?.[index] ? ` · page ${experience.sourcePages[index]}` : ""}` : `Mail ${ref.slice(5)}`}</li>)}
             </ul>
           ) : null}
-          {experience.truncated ? <p>{drive && !experience.metadataOnly ? "Some document content was omitted." : "Some matches or metadata were omitted."}</p> : null}
+          {experience.truncated ? <p>{experience.metadataOnly ? "Some matches or metadata were omitted." : drive ? "Some document content was omitted." : "Long or older messages were shortened."}</p> : null}
         </>
-      ) : null}
-      {drive && experience.backgroundSearchAvailable && experience.backgroundSearchQuery ? (
-        <ContinueDriveSearch query={experience.backgroundSearchQuery} />
       ) : null}
       {needsConnection && onOpenConnections ? (
         <Button type="button" variant="muted" size="compact" onClick={(event) => onOpenConnections(drive ? "drive" : "gmail", event.currentTarget)}>

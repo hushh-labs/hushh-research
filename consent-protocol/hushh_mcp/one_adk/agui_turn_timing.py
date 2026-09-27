@@ -49,6 +49,14 @@ from hushh_mcp.one_adk.output_privacy import (
     drop_empty_history_parts,
     public_event,
 )
+from hushh_mcp.one_adk.run_errors import (
+    MODEL_CAPACITY_CODE,
+    MODEL_UNAVAILABLE_CODE,
+    SERVER_RESTARTING_CODE,
+    server_is_draining,
+    transient_model_error_for_exception,
+    transient_model_run_error,
+)
 from hushh_mcp.services.chat_key import (
     CHAT_KEY_ERROR_MESSAGES,
     CHAT_KEY_ERRORS,
@@ -156,6 +164,7 @@ HEAD_UNLABELED = "unlabeled"
 OUTCOME_FINISHED = "finished"
 OUTCOME_ERROR = "error"
 OUTCOME_CLIENT_DISCONNECT = "client_disconnect"
+OUTCOME_SERVER_RESTARTING = "server_restarting"
 
 _FIRST_VISIBLE_EVENT_TYPES = frozenset(
     {EventType.TEXT_MESSAGE_CONTENT, EventType.TOOL_CALL_START, EventType.CUSTOM}
@@ -224,8 +233,10 @@ def _error_class(code: Any) -> str:
         return "database"
     if code.startswith("AGENT_RUNTIME_"):
         return "runtime"
-    if code in {"MODEL_ERROR", "RESOURCE_EXHAUSTED"}:
+    if code in {"MODEL_ERROR", MODEL_CAPACITY_CODE, MODEL_UNAVAILABLE_CODE}:
         return "model"
+    if code == SERVER_RESTARTING_CODE:
+        return "shutdown"
     return "other"
 
 
@@ -489,13 +500,15 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
-                    if (
-                        getattr(event, "type", None) == EventType.RUN_ERROR
-                        and getattr(event, "message", None) in CHAT_KEY_ERROR_MESSAGES
-                    ):
-                        # ag_ui_adk stringifies a background failure into a generic
-                        # run error; keep a chat-key refusal recognisable.
-                        event = CHAT_KEY_RUN_ERROR
+                    if getattr(event, "type", None) == EventType.RUN_ERROR:
+                        if getattr(event, "message", None) in CHAT_KEY_ERROR_MESSAGES:
+                            # ag_ui_adk stringifies a background failure into a
+                            # generic run error; keep a chat-key refusal recognisable.
+                            event = CHAT_KEY_RUN_ERROR
+                        else:
+                            # A 429/5xx after the first chunk is not failed over;
+                            # end with a retryable code, never the provider text.
+                            event = transient_model_run_error(event) or event
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
                         if self.head == HEAD_ONE:
@@ -527,7 +540,11 @@ class TimedADKAgent(ADKAgent):
             # Consumers commonly close immediately after the terminal event.
             # observe() runs before yield so that normal closure cannot replace
             # an emitted finish or error with a disconnect diagnosis.
-            if not timing.terminal_observed:
+            if not timing.terminal_observed and server_is_draining():
+                # The stream guard sends the terminal event; this is not a
+                # person leaving, so no detached-turn notice is due.
+                timing.outcome = OUTCOME_SERVER_RESTARTING
+            elif not timing.terminal_observed:
                 timing.outcome = OUTCOME_CLIENT_DISCONNECT
                 if detach_watch is not None:
                     detach_watch.consumer_detached = True
@@ -542,7 +559,8 @@ class TimedADKAgent(ADKAgent):
             safe_error = (
                 CHAT_KEY_RUN_ERROR
                 if isinstance(exc, CHAT_KEY_ERRORS)
-                else RunErrorEvent(
+                else transient_model_error_for_exception(exc)
+                or RunErrorEvent(
                     message="One couldn't finish that request. Please try again.",
                     code="AGENT_ERROR",
                 )

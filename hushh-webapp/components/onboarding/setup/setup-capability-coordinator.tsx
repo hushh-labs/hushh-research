@@ -87,6 +87,17 @@ export function resolveSetupCapabilityReturnTarget({
 const LAND_ON_WORKSPACE_AFTER_FINISH: ReadonlySet<OneSetupCapabilityId> =
   new Set<OneSetupCapabilityId>(["location"]);
 
+/**
+ * Capabilities whose individual (post-root-setup) re-entry returns to the
+ * capability's own workspace rather than One. Finance setup is entered from
+ * the Finance workspace once root setup is resolved; its terminal (a verified
+ * source, or "I'll link this later") must land back on Finance, not `/one`.
+ * The durable completion is recorded by the coordinator before navigating, so
+ * the Finance workspace never bounces the person back into setup.
+ */
+const LAND_ON_WORKSPACE_AFTER_INDIVIDUAL_SETUP: ReadonlySet<OneSetupCapabilityId> =
+  new Set<OneSetupCapabilityId>(["finance"]);
+
 export function resolveSetupCapabilityTerminalTarget({
   capabilityId,
   journeyMode,
@@ -109,6 +120,13 @@ export function resolveSetupCapabilityTerminalTarget({
     journeyMode !== "individual" &&
     !hasExplicitIncompleteSetup &&
     LAND_ON_WORKSPACE_AFTER_FINISH.has(capabilityId)
+  ) {
+    return resolveCapabilityHandoffTarget(capabilityId);
+  }
+
+  if (
+    journeyMode === "individual" &&
+    LAND_ON_WORKSPACE_AFTER_INDIVIDUAL_SETUP.has(capabilityId)
   ) {
     return resolveCapabilityHandoffTarget(capabilityId);
   }
@@ -483,6 +501,10 @@ export function useSetupCapabilityCoordinator({
           summary:
             kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
               ? "Setup is complete. Opening Location."
+              : targetRoute === ROUTES.KAI_HOME
+              ? kind === "finish"
+                ? "Setup is complete. Opening Finance."
+                : "Skipped for now. Opening Finance."
               : kind === "finish"
               ? resolvedJourneyMode === "individual"
                 ? "Setup is complete. Returning to One."

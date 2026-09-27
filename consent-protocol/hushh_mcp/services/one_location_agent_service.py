@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import uuid
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1135,6 +1136,37 @@ class OneLocationAgentService:
     # succeeded. This is a local DDL-idempotency cache, not shared runtime
     # state, so it needs no Postgres/Redis coordination.
     _recipient_encrypted_private_column_ensured: bool = False
+
+    # A writer transaction binds its connection to the service so every
+    # statement in the mutation joins it. That binding belongs to the thread
+    # that opened the transaction, never to the instance: one instance is
+    # shared across worker threads (the consent center gathers three
+    # ``list_state`` calls on the same contributor). An instance attribute let
+    # a sibling thread run on another thread's connection -- after it had been
+    # returned to the pool mid-transaction -- and made the second ``del``
+    # raise. Production logged both on 2026-09-27 as
+    # ``set_session cannot be used inside a transaction`` and
+    # ``object has no attribute '_key_writer_connection'``. The attribute
+    # contract (getattr default, assign, del, hasattr) is unchanged.
+    @property
+    def _key_writer_connection(self) -> Any:
+        state = self.__dict__.get("_key_writer_thread_state")
+        connection = getattr(state, "connection", None) if state is not None else None
+        if connection is None:
+            raise AttributeError("_key_writer_connection")
+        return connection
+
+    @_key_writer_connection.setter
+    def _key_writer_connection(self, connection: Any) -> None:
+        state = self.__dict__.setdefault("_key_writer_thread_state", threading.local())
+        state.connection = connection
+
+    @_key_writer_connection.deleter
+    def _key_writer_connection(self) -> None:
+        state = self.__dict__.get("_key_writer_thread_state")
+        if state is None or getattr(state, "connection", None) is None:
+            raise AttributeError("_key_writer_connection")
+        state.connection = None
 
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         bound_connection = getattr(self, "_key_writer_connection", None)

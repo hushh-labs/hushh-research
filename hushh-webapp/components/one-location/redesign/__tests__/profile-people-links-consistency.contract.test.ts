@@ -95,7 +95,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("uses semantic Profile icon tiles with contrasting glyphs", () => {
+  it("draws Profile menu icons in their own colour with no tile, as on /one", () => {
     const source = readSource(
       "components/profile/profile-workspace-page.tsx",
     );
@@ -103,21 +103,22 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    expect(source).toMatch(/icon=\{AccountProfileIcon\}\s+iconTone="blue"/);
-    expect(source).toMatch(
-      /icon=\{PreferencesProfileIcon\}\s+iconTone="purple"/,
-    );
-    expect(source).toMatch(/icon=\{SecurityProfileIcon\}\s+iconTone="green"/);
-    expect(source).toMatch(/icon=\{DevicesProfileIcon\}\s+iconTone="indigo"/);
-    expect(source).toMatch(
-      /icon=\{InviteFriendsProfileIcon\}\s+iconTone="purple"/,
-    );
-    expect(source).toMatch(/icon=\{SupportProfileIcon\}\s+iconTone="blue"/);
-    expect(source).toMatch(
-      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="orange"/,
-    );
-    expect(source).toMatch(/icon=\{SignOutProfileIcon\}\s+iconTone="red"/);
+    for (const icon of [
+      "AccountProfileIcon",
+      "PreferencesProfileIcon",
+      "SecurityProfileIcon",
+      "DevicesProfileIcon",
+      "InviteFriendsProfileIcon",
+      "SupportProfileIcon",
+      "DeveloperToolsProfileIcon",
+      "SignOutProfileIcon",
+    ]) {
+      expect(source).toMatch(
+        new RegExp(`icon=\\{${icon}\\}\\s+iconTone="capability"`),
+      );
+    }
     expect(source).toContain('tone="destructive"');
+    // The capability tone leaves the authored duotone colour in place.
     expect(settingsSource).toContain(
       'color={isCapabilityTone ? undefined : "currentColor"}',
     );

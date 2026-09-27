@@ -19,6 +19,7 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_service import interpret_live_search, plan_live_search
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = drive_logger(__name__)
@@ -121,6 +122,10 @@ async def _call(method, *, owner: Owner, require_feature: bool = True, **kwargs)
         raise _error(str(error)) from None
     except PermissionError:
         raise _error("permission_denied") from None
+    except ConnectorLifecycleError:
+        # Storage-level connector failures (including an environment with no
+        # google_drive catalog row) are an authored 503, never a raw 500.
+        raise _error("search_unavailable") from None
 
 
 @router.post("")

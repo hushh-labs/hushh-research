@@ -235,7 +235,54 @@ for (const width of [390, 768])
     expect(connectorBox.y).toBeGreaterThan(searchBox.y + searchBox.height);
     expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
     expect(await chats.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    expect(await chats.locator("aside").evaluate((element) => getComputedStyle(element).borderTopRightRadius)).toBe("28px");
+    // A floating, Apple-style panel: every corner rounds, not just the right edge.
+    const corners = await chats.locator("aside").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
+    });
+    expect(corners).toEqual(["24px", "24px", "24px", "24px"]);
+  });
+
+for (const width of [390, 768, 1440])
+  test(`chat sidebar floats inset with no tinted band at ${width}px`, async ({ page }) => {
+    // The old dim layer stopped at the header and at the bottom bar, so both stayed
+    // bright around a grey band: a white strip above the panel and a patch below.
+    const barHeight = 88;
+    await page.setViewportSize({ width, height: 720 });
+    await page.evaluate((height) => {
+      document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
+    }, barHeight);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const panel = chats.locator("aside");
+    await expect(panel).toBeVisible();
+    // Let the slide-in settle before measuring geometry.
+    await expect.poll(async () => (await panel.boundingBox())!.x).toBeGreaterThanOrEqual(7);
+    const scrim = page.locator("[data-agent-history-scrim]");
+    const scrimStyle = await scrim.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, filter: style.backdropFilter, pointer: style.pointerEvents };
+    });
+    expect(scrimStyle.background).toBe("rgba(0, 0, 0, 0)");
+    expect(scrimStyle.filter === "none" || scrimStyle.filter === "").toBe(true);
+    expect(scrimStyle.pointer).toBe("auto");
+    const box = (await panel.boundingBox())!;
+    const barTop = 720 - barHeight;
+    expect(box.x).toBeGreaterThanOrEqual(7);
+    expect(box.x).toBeLessThanOrEqual(9);
+    expect(box.y).toBeGreaterThanOrEqual(56 + 7);
+    expect(barTop - (box.y + box.height)).toBeGreaterThanOrEqual(7);
+    expect(box.x + box.width).toBeLessThan(width);
+    // A tap just outside the panel, inside its 8px inset margin, still closes it.
+    await page.mouse.click(box.x + box.width + 4, box.y + box.height / 2);
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
+    // Closed, the panel and its shadow sit fully off-screen.
+    await expect
+      .poll(async () => {
+        const closed = await page.locator("[aria-label='Agent chat history'][role='dialog']").boundingBox();
+        return closed ? closed.x + closed.width : 0;
+      })
+      .toBeLessThanOrEqual(-24);
   });
 
 for (const width of [390, 768])
@@ -256,6 +303,8 @@ for (const width of [390, 768])
     const connectorBox = (await connectors.boundingBox())!;
     expect(Math.abs(drawerBox.y + drawerBox.height - barTop)).toBeLessThanOrEqual(1);
     expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(barTop + 1);
+    const panelBox = (await chats.locator("aside").boundingBox())!;
+    expect(barTop - (panelBox.y + panelBox.height)).toBeGreaterThanOrEqual(7);
   });
 
 for (const width of [320, 390, 768, 1440])

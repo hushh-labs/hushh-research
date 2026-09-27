@@ -393,6 +393,67 @@ def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     assert not hasattr(service, "_key_writer_connection")
 
 
+def test_bound_writer_connection_never_leaks_across_threads_sharing_one_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production 2026-09-27: the consent center gathers three ``list_state``
+    calls on ONE service instance in worker threads. The writer connection was
+    an instance attribute, so a sibling thread ran on another thread's
+    transaction (leaving a pooled connection mid-transaction:
+    ``set_session cannot be used inside a transaction``) and the second
+    ``del`` raised ``no attribute '_key_writer_connection'``."""
+    import threading
+
+    opened: list[object] = []
+
+    class Engine:
+        @contextmanager
+        def begin(self):
+            connection = object()
+            opened.append(connection)
+            yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module, "get_db", lambda: SimpleNamespace(engine=Engine())
+    )
+    service = OneLocationAgentService()
+    a_inside, b_done = threading.Event(), threading.Event()
+    seen: dict[str, object] = {}
+    errors: list[BaseException] = []
+
+    def writer_a() -> None:
+        try:
+            with service._event_bound_writer():
+                seen["a"] = service._key_writer_connection
+                a_inside.set()
+                assert b_done.wait(5)
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    def writer_b() -> None:
+        try:
+            assert a_inside.wait(5)
+            seen["b_before"] = getattr(service, "_key_writer_connection", None)
+            with service._event_bound_writer():
+                seen["b"] = service._key_writer_connection
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+        finally:
+            b_done.set()
+
+    threads = [threading.Thread(target=writer_a), threading.Thread(target=writer_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert errors == []
+    assert seen["b_before"] is None
+    assert seen["a"] is not seen["b"]
+    assert len(opened) == 2
+    assert not hasattr(service, "_key_writer_connection")
+
+
 def test_auto_approve_preference_uses_server_time_version_and_audit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

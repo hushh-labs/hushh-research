@@ -171,6 +171,14 @@ entry, or requesting `READ_CONTACTS` outside the plugin's disclosure gate breaks
 the disclosure requirement. `__tests__/app/delete-account-page.test.tsx` pins
 the copy parity and the gate.
 
+## Privacy policy and terms URLs
+
+Use `https://one.hushh.ai/privacy` for the Play privacy policy URL and
+`https://one.hushh.ai/terms` for terms. Both are public, static pages rendered
+from `hushh-webapp/lib/legal/legal-documents.ts`, the same text the sign-in
+sheet shows, and `__tests__/app/legal-pages.test.tsx` pins that they stay public
+and linked. Keep the Data safety answers consistent with that text.
+
 ## Account deletion (Data safety "Delete account URL")
 
 Use `https://one.hushh.ai/delete-account`. The page is public and static: it

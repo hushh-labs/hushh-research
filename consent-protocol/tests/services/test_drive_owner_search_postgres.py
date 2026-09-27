@@ -691,3 +691,30 @@ async def test_search_telemetry_contains_only_opaque_id_closed_states_and_counts
     assert "phase=user status=received files=1" in messages[0]
     assert "status=queued pages=1 matched=1" in messages[1]
     assert all("Synthetic" not in message and "file-1" not in message for message in messages)
+
+
+async def test_search_reads_never_write_a_connection_row_without_a_catalog_row(store):
+    """Production 2026-09-27: GET /searches returned 500 on every load.
+
+    Production has no google_drive catalog row (Drive is UAT-only). list() and
+    status() took the connection lock, whose placeholder upsert violated
+    user_external_connector_connections_connector_id_fkey. A GET must not write.
+    """
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+
+    sql(store, "DELETE FROM user_external_connector_connections")
+    sql(store, "DELETE FROM external_mcp_connectors WHERE connector_id='google_drive'")
+    missing = str(uuid4())
+
+    assert await store.list(user_id="owner") == {"jobs": []}
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.status(user_id="owner", job_id=missing)
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await store.results(user_id="owner", job_id=missing)
+    rows = sql(store, "SELECT count(*) FROM user_external_connector_connections").scalar()
+    assert rows == 0
+
+    # Negative control: the write path still takes _lock() and reproduces the
+    # exact production failure in this environment.
+    with pytest.raises(ConnectorLifecycleError, match="connector_storage_unavailable"):
+        await store.stop(user_id="owner", job_id=missing)
