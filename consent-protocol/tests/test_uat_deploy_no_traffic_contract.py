@@ -286,6 +286,24 @@ def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> Non
         assert "LIVE_API_KEY" not in source
 
 
+def test_production_backend_capacity_matches_uat() -> None:
+    """Production OOM-killed live chat turns; throttled CPU stalled first turns."""
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    # Background warmups need CPU outside requests on every lane.
+    assert '"--no-cpu-throttling"' in backend_build
+
+    for setting in (
+        "_CLOUD_RUN_CPU=2",
+        "_CLOUD_RUN_MEMORY=4Gi",
+        "_CLOUD_RUN_CONCURRENCY=20",
+    ):
+        assert setting in uat_workflow
+        assert setting in production_workflow
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 

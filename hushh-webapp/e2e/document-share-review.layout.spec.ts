@@ -183,11 +183,7 @@ for (const width of [320, 390, 768, 1440])
     const submit = panel.getByRole("button", { name: "Send request" });
     await submit.focus();
     await page.keyboard.press("Enter");
-    await expect(
-      panel.getByText(
-        "Request sent. No files have been shared yet.",
-      ),
-    ).toBeVisible();
+    await expect(panel.getByText("Request sent.")).toBeVisible();
     expect(submissions).toHaveLength(1);
     expect(submissions[0]).toMatchObject({
       ownerPersonRef: "33333333-3333-4333-8333-333333333333",

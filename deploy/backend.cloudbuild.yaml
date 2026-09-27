@@ -287,6 +287,11 @@ steps:
           "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
           "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
+          # CPU stays allocated between requests. Throttled, the startup
+          # action-search warmup crawled at 37-78s per batch and each new
+          # instance's first chat turn waited 13-50s before its first model
+          # call (measured 2026-09-27).
+          "--no-cpu-throttling"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"

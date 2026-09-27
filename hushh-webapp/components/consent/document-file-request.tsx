@@ -26,7 +26,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 
 export type FileRequestTerms = {
@@ -255,28 +255,31 @@ export function RequestFilesButton({
   };
   return (
     <>
-      <Button size="standard" variant="none" onClick={() => setOpen(true)}>
-        Request files
-      </Button>
       <Dialog
+        modal
         open={open}
         onOpenChange={(value) => {
           if (value) setOpen(true);
           else close();
         }}
       >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto">
+        <DialogTrigger asChild>
+          <Button size="standard" variant="none">Request files</Button>
+        </DialogTrigger>
+        <DialogContent
+          className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
+          showCloseButton={Boolean(created)}
+          srDescription={`Request files from ${personName}.`}
+        >
           <DialogHeader>
             <DialogTitle>Request files</DialogTitle>
-            <DialogDescription className="break-words">
-              Ask {personName} for files. {FILE_REQUEST_HELPER}
-            </DialogDescription>
+            <HelperText as="p" className="break-words">
+              To {personName}
+            </HelperText>
           </DialogHeader>
           {created ? (
             <div className="min-w-0 space-y-4">
-              <BodyText role="status">
-                Request sent. No files have been shared yet.
-              </BodyText>
+              <BodyText role="status">Request sent.</BodyText>
               <Button asChild size="prominent">
                 <Link
                   href={buildConsentCenterHref("pending", {
@@ -350,10 +353,6 @@ export function RequestFilesButton({
                   Choose both dates, with the end on or after the start.
                 </HelperText>
               ) : null}
-              <HelperText as="p">
-                Uses the Google account linked to your One sign-in. You don&apos;t
-                connect your Drive.
-              </HelperText>
               {request.error ? (
                 <HelperText as="p" role="alert">
                   {request.error}
