@@ -338,6 +338,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The Connect advisor and insurance directories call these upstreams.
+          # UAT passes them; production never did, so both directories answered
+          # 503 in production. Set them as production-environment variables.
+          if [ -z "${{ vars.ADVISORS_API_BASE_URL }}" ] || [ -z "${{ vars.INSURANCE_AGENTS_API_BASE_URL }}" ]; then
+            echo "::warning title=Directory upstreams unset::ADVISORS_API_BASE_URL and/or INSURANCE_AGENTS_API_BASE_URL are not set for production, so the advisor and insurance directories will answer 503."
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment production \
@@ -366,6 +372,8 @@ jobs:
             --hushh-tech-allowed-consent-scopes "" \
             --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
             --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
+            --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || '' }}" \
+            --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || '' }}" \
             > /tmp/prod-runtime-secret-sync.json
 
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
