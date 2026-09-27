@@ -529,7 +529,7 @@ def test_repeated_completed_commands_close_views_and_retain_historical_proof(
             assert view.run_id not in views
             views.append(view.run_id)
             ledger = ActionDirectiveStore(db=db, hmac_key="test-only-signing-key")
-            checkpoint = CommandCheckpointStore(db=db, cipher=cipher)
+            checkpoint = CommandCheckpointStore(db=db, cipher=static_chat_cipher("12" * 32))
             command = str(uuid4())
             state = await checkpoint.create(
                 "owner",
