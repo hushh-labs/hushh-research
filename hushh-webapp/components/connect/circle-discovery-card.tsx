@@ -216,7 +216,7 @@ export function CircleDiscoveryCard({
           Circles
         </h2>
         <p data-circle-discovery-intro="" className="ui-text-caption col-span-3 mx-auto mt-1 max-w-80 !text-[color:var(--app-secondary-label)] sm:mt-1 sm:!text-sm sm:!leading-5">
-          Group people you trust. Choose what they can access.
+          People you trust. In one place.
         </p>
         <button
           type="button"
@@ -408,7 +408,7 @@ export function CircleDiscoveryCard({
         ) : connectionsUnavailable ? (
           <p>Couldn't load your connections. Try again to find your people.</p>
         ) : isEmpty ? (
-          <p>Send a request, then add people after they accept.</p>
+          <p>Add connections to start sharing.</p>
         ) : (
           <>
             <span aria-hidden="true" className="hidden shrink-0 -space-x-2 min-[360px]:flex">
