@@ -604,7 +604,7 @@ describe("Connect — People", () => {
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
     expect(
       await screen.findByText(
-        /Send a request, then add people after they accept/,
+        /Add connections to start sharing/,
       ),
     ).toBeTruthy();
     fireEvent.click(

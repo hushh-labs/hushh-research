@@ -341,7 +341,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
         Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1 &&
         Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
       const subtitle = await hero
-        .getByText("Group people you trust. Choose what they can access.")
+        .getByText("People you trust. In one place.")
         .boundingBox();
       const customAction = await hero
         .getByRole("button", { name: "Create your own circle" })
