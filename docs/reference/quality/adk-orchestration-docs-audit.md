@@ -1717,3 +1717,16 @@ another full local CI run is not required by this execution pass. Existing-owner
 Files activation, full private conversation-store wiring, normal Settings update
 acceptance and separate-network Puppy inference remain open. No new owner upgrade,
 main merge, history deletion or deployment is established by this source refresh.
+
+The subsequent local ADK checkpoint `b45d15f48` is integrated at `1a515a3e3`:
+full Vitest now has its own PR gate, protocol files run in parallel with
+shared-database PostgreSQL files kept serial, and queue validation reuses PR
+evidence only for an identical Git tree. The existing bounded Vitest worker
+setting moved to the new owning suite script. The queue verifier self-test,
+shell syntax checks and 16 CI-wiring tests passed; no full local CI was repeated.
+
+The architecture ratchet records 52 individual size-debt dispositions for this
+integrated source: incoming ADK/UI/CI changes and the pod Mail authority seams.
+Existing limits, dependency-direction checks and import-side-effect checks are
+unchanged. This reviewed baseline retains measured debt; it does not declare the
+large account, conversation or orchestration owners structurally complete.
