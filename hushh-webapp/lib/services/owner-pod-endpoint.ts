@@ -1,29 +1,10 @@
 "use client";
 
 /**
- * The owner's direct line to their private agent.
- *
- * Until now every turn travelled browser -> hub -> pod, and the hub verified the
- * owner on every hop. The owner-direct path pins the pod's address once (a signed,
- * versioned endpoint record from the hub), enrols THIS app installation as a
- * subject with a non-extractable P-256 key, obtains a hub-signed binding for it,
- * and opens a session at the pod by proving possession of that key. From then on
- * the turn goes browser -> pod, with the pod's own authority answering the
- * consent question and the hub out of the conversation path.
- *
- * Rules this module enforces, because the pod cannot enforce them for the app:
- *
- *   * a lower `endpointVersion` is refused (an old record cannot re-point us);
- *   * a changed `podKeyId` without a higher `endpointVersion` is refused;
- *   * the app key is generated non-extractable and only its handle is stored, so
- *     the private material cannot be exported (the handle can still sign);
- *   * a revocation the pod could not receive is queued as an owner-signed intent
- *     and couriered through the hub as "revocation pending delivery", never
- *     silently dropped and never reported as done.
- *
- * Storage is IndexedDB (a `CryptoKey` handle is only storable there), falling
- * back to process memory where IndexedDB is absent (SSR, tests without a fake)
- * so nothing here can throw during a render.
+ * Owner-direct admission: verify signed, versioned hub metadata before contacting
+ * a pod, then prove possession of this app's non-extractable P-256 key.
+ * Pins reject rollback and unversioned key changes. Keys and session pins live
+ * in IndexedDB (memory fallback in tests); revocations remain pending until delivered.
  */
 
 import { withOwnerPodSessionLock } from "./owner-pod-session-lock";

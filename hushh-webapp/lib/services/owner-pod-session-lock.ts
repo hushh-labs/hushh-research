@@ -3,9 +3,9 @@ const pending = new Map<string, Promise<unknown>>();
 
 export function withOwnerPodSessionLock<T>(owner: string, operation: () => Promise<T>): Promise<T> {
   const previous = pending.get(owner) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(() => {
+  const next = previous.catch(() => undefined).then(async (): Promise<T> => {
     if (typeof navigator !== "undefined" && navigator.locks) {
-      return navigator.locks.request(`hushh-owner-pod-session:${owner}`, operation);
+      return await navigator.locks.request(`hushh-owner-pod-session:${owner}`, operation);
     }
     return operation();
   });
