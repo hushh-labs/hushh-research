@@ -2049,3 +2049,12 @@ Only the bounded wake request was allowed; no update approval or installation wa
 made. Serving revision/digest/traffic rollback evidence was captured privately before
 deployment. These checks do not establish candidate deployment, Files activation,
 normal update continuity, history cutover or separate-network Puppy acceptance.
+
+The GitHub freshness gate required incoming main `efe952755` after the first push.
+Merge `f14121b34` adds only Drive correlation and chat-drawer placement fixes;
+94 affected backend and 15 frontend checks passed. The final same-integration
+fitness snapshot records 1,926 findings. Eight further size-only differences were
+reviewed: five inherited upstream and three compatibility/test-isolation fixes.
+Thresholds and dependency checks remain unchanged; no additional extraction was
+justified by these bounded changes. The private One ADK operational Wiki sections
+were reconciled and read back; earlier dated observations remain historical.
