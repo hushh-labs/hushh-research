@@ -1452,3 +1452,35 @@ authority correction. The missing connector-schema import isolation was carried
 as `b3aa053a0`; active ADK UI edits remain in their owning worktree. The candidate
 retains immutable migration 904 plus additive 913 and guarded parked 250; the
 ADK tree's historical migration edits must not replace those contracts.
+
+### Dev bridge serving and bounded maintenance — 2026-09-26
+
+Exact bridge `dbd658599` passed GitHub CI 36281591910 and governed dev
+deployment 36282936734. Serving readback verified the backend and frontend
+source revision. The history route returns structured `CHAT_HISTORY_UPGRADING`
+with retry guidance; additive public-profile migration 249 is present and
+history cleanup 250 remains parked. This does not establish writer or cutover
+acceptance.
+
+For the approved legacy-pod maintenance, a temporary hub revision uses the same
+immutable bridge image, with only the upgrade sweep disabled. Its health and
+100% traffic were verified; owner approval remains required. The reviewer
+reservation was reconciled through the existing exact-lease compare-and-set
+after source, registry and provider observations established a pre-submission
+refusal. No pod image or owner approval changed. Historical error logs lack an
+owner identifier and are supporting, not standalone, evidence. The new pod
+image copy was refused by the destination registry with HTTP 403; maintenance
+remains incomplete pending verification of the existing owner-authorized
+repository and copying identity.
+
+The reviewer Trusted Devices rehearsal passed with a narrowly allowed pod-wake
+request. That account has no enrolled devices, so this is not real-device relay
+acceptance. The writer candidate `588e16753` passed its complete backend lane:
+6,994 passed and 239 skipped. Final combined canonical CI remains required.
+
+An additional replacement guard rejects a changed or malformed caller-observed
+Cloud Run resource version before submitting a replacement, preserving the
+service-UID fence. Focused client/update checks passed 153 tests; reviewer guard
+checks passed 25. An unknown provider outcome still retains its operation lease.
+A known pre-submission refusal may require operator reconciliation through the
+existing workflow; no timeout-based lease clearing or automatic retry was added.

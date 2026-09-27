@@ -10,8 +10,9 @@
 //   4. Revisiting is cache-first: no blocking spinner over data already held.
 // Plus vault continuity across every protected transition.
 //
-// READ-ONLY: it never unlinks a device, so it needs no shared-mutation
-// authority. Nothing decrypted, no credentials, and no vault material is
+// Read-only by default. An explicitly authorized pod-wake rehearsal admits
+// only the wake request; it never unlinks a device. Nothing decrypted, no
+// credentials, and no vault material is
 // written to logs, screenshots, or tracked files.
 
 import path from "node:path";
@@ -32,7 +33,13 @@ const DEVICES_PANE_ROUTE =
   "/one?profile_pane=1&profile_panel=security&profile_detail=trusted-devices";
 
 await prepareReviewerRehearsal({ repoRoot, appOrigin });
-const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
+const reviewer = await createReviewerSessionHarness({
+  repoRoot, appOrigin, timeoutMs,
+  admitMutation: process.env.REVIEWER_ALLOW_POD_WAKE === "true"
+    ? (request) => request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/one/pod/wake"
+    : null,
+});
 const browser = await reviewer.chromium.launch({
   headless: process.env.PLAYWRIGHT_HEADLESS !== "0",
 });
@@ -164,5 +171,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  "\nreviewer trusted-devices rehearsal PASS (read_only)\n",
+  `\nreviewer trusted-devices rehearsal PASS (${session.readOnlyGuard.policy})\n`,
 );

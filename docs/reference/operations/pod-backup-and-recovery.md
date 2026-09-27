@@ -334,25 +334,27 @@ that nothing else moved a pod either. The founder's first user-owned pod stayed 
 image five commits behind the hub that built it and served that older code's 502 on
 the calendar door while every hub-side test was green.
 
-The upgrade path is the deliberate roll-forward, and it is the only path that
-resolves the mutable source tag again:
+Normal upgrades install the immutable release approved by the owner for the
+current pod incarnation. Publishing an image offers it; publication alone does
+not install it. Legacy maintenance follows the separately authorized
+[first-light runbook](./dev-pod-first-light-runbook.md#one-time-legacy-bootstrap-exception).
 
-- **Backend** (`UserGcpBackend.upgrade`, `GcpBackend.upgrade`): copies the hub's
-  current image into the person's own registry, replaces the Cloud Run service in
+- **Backend** (`UserGcpBackend.upgrade`, `GcpBackend.upgrade`): copies the approved
+  immutable image into the person's own registry, replaces the Cloud Run service in
   place (PUT, never delete and create, so the URL survives), waits for Ready, and
   raises rather than records when the new revision does not come up. Cloud Run keeps
   serving the previous revision in that case.
 - **Service** (`PersonalAgentProvisioningService.upgrade_pod`): reads everything from
   the registry row, re-derives nothing, and writes back only the image facts
   (`record_image_upgrade`). Status, `provisioned_at`, the identity key columns and
-  the substrate receipt are untouched by construction. Memory and identity survive
-  because they live in the person's bucket and pod service account, not in the
-  container.
-- **Sweep**: the reconcile worker moves a bounded batch per pass once
+  the substrate receipt are preserved by the update contract. Verify encrypted
+  recovery, identity and the installed digest before recording completion.
+- **Sweep**: the reconcile worker processes a bounded batch per pass once
   `PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED=true` (`PERSONAL_AGENT_UPGRADE_BATCH`,
-  default 3). The hub's own `HUSSH_ONE_POD_IMAGE` is the fleet target, so the
-  invariant is "hub at sha X, pods at sha X" a few passes after each deploy. A pod
-  that fails three times on one image is left alone until the image moves again.
+  default 3). Keep `PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`: only an
+  exact-release approval with compatible predecessor evidence admits installation.
+  Deferral and existing operations retain their own state; pods need not match
+  the hub's latest offered image. A retry limit does not clear an unresolved lease.
 - **Upgrade admission and publication**: `upgrade_pod` claims an exact, unique lease
   with one conditional UPDATE against the observed registry host and authority
   fields. A competing claim skips with `in_progress`. Before calling the backend,
@@ -360,14 +362,17 @@ resolves the mutable source tag again:
   Result publication requires that lease, the provisioned state, and the same stable
   binding; a stale worker cannot publish completion or clear a successor's lease.
   Metadata changes are merged, preserving concurrent heartbeat observations and
-  unrelated keys. The ten-minute expiry permits another claim; it does not cancel
-  or drain an already admitted provider operation. These registry checks do not
+  unrelated keys. A held lease never expires by age. Unknown provider outcomes
+  remain reserved until existing reconciliation establishes a terminal result;
+  quiet logs or elapsed time cannot admit another worker. These registry checks do not
   establish the Cloud Run service's unique incarnation or prove safe erasure.
 - **Provider incarnation**: live backend admission retains the returned Cloud Run
   `metadata.uid` as `backend_metadata.serviceUid` and carries it through readiness.
   Image upgrades require that recorded UID before copying or replacing an image.
   The client's own pre-PUT read must match it and supply `resourceVersion`; the
-  response and every readiness observation must also match. See Google's
+  caller's supplied prior version must also match that read. A stale body is
+  refused before PUT rather than silently rebased onto newer configuration.
+  The response and every readiness observation must also match. See Google's
   [ObjectMeta contract](https://cloud.google.com/run/docs/reference/rest/v1/ObjectMeta).
   Legacy rows without UID refuse upgrades; a name lookup alone never backfills
   their identity. Owner-authorized recovery must establish that binding first.

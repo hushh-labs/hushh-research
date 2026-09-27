@@ -384,6 +384,16 @@ class GcpRunClient:
             if not isinstance(version, str) or not version.strip():
                 raise RuntimeError("Cloud Run replacement concurrency version unavailable")
 
+        requested_metadata = body.get("metadata") or {}
+        if "resourceVersion" in requested_metadata:
+            requested_version = requested_metadata["resourceVersion"]
+            if (
+                not isinstance(requested_version, str)
+                or not requested_version.strip()
+                or requested_version != (current.get("metadata") or {}).get("resourceVersion")
+            ):
+                raise RuntimeError("Cloud Run configuration changed; refresh before replacement")
+
         merged = self.merge_for_replace(current, body, revision_nonce=revision_nonce)
         r = requests.put(
             f"{self._base}/services/{name}",
@@ -571,14 +581,17 @@ class GcpRunClient:
             raise RuntimeError("Cloud Run acknowledged replacement changed")
         if not self._status_is_current(service):
             return None, service
-        ready = next(
+        condition: dict[str, Any] = next(
             (
                 item
                 for item in (service.get("status") or {}).get("conditions", [])
                 if item.get("type") == "Ready"
             ),
             {},
-        ).get("status")
+        )
+        ready = condition.get("status")
+        if not isinstance(ready, str):
+            return None, service
         return ({"True": True, "False": False}.get(ready), service)
 
     @staticmethod

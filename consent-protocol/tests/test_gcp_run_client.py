@@ -590,7 +590,25 @@ def test_fenced_replace_refuses_changed_or_unverified_service_before_put(monkeyp
     assert writes == []
 
 
-@pytest.mark.parametrize("outcome", ["same", "changed", "missing_uid", "conflict", "redirect"])
+@pytest.mark.parametrize("version", ["older-version", "", None, 123])
+def test_replace_refuses_stale_or_invalid_caller_snapshot_before_put(monkeypatch, version):
+    import requests
+
+    observed = _live_service()
+    desired = GcpRunClient.merge_for_replace(observed, _desired())
+    desired["metadata"]["resourceVersion"] = version
+    client = _client_no_net()
+    client.get_service = lambda _: observed
+    writes = []
+    monkeypatch.setattr(requests, "put", lambda *a, **k: writes.append(k))
+    with pytest.raises(RuntimeError, match="refresh before replacement"):
+        client.replace_service("one-pod-abc", desired, expected_uid=observed["metadata"]["uid"])
+    assert writes == []
+
+
+@pytest.mark.parametrize(
+    "outcome", ["same", "snapshot", "changed", "missing_uid", "conflict", "redirect"]
+)
 def test_fenced_replace_preserves_version_and_verifies_acknowledgement(monkeypatch, outcome):
     import copy
 
@@ -618,8 +636,13 @@ def test_fenced_replace_preserves_version_and_verifies_acknowledgement(monkeypat
         return response
 
     monkeypatch.setattr(requests, "put", put)
-    if outcome == "same":
-        assert client.replace_service("one-pod-abc", _desired(), expected_uid=expected) == result
+    desired = (
+        GcpRunClient.merge_for_replace(observed, _desired())
+        if outcome == "snapshot"
+        else _desired()
+    )
+    if outcome in {"same", "snapshot"}:
+        assert client.replace_service("one-pod-abc", desired, expected_uid=expected) == result
     else:
         with pytest.raises((RuntimeError, requests.HTTPError)):
             client.replace_service("one-pod-abc", _desired(), expected_uid=expected)

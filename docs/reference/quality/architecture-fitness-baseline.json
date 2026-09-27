@@ -359,7 +359,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gcp_run_client.py",
       "symbol": "GcpRunClient",
-      "value": 881
+      "value": 894
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12329,7 +12329,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_gcp_run_client.py",
       "symbol": null,
-      "value": 1166
+      "value": 1189
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12797,7 +12797,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gcp_run_client.py",
       "symbol": null,
-      "value": 998
+      "value": 1011
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17608,6 +17608,34 @@
       ],
       "scope": "Nineteen individually reviewed imported size findings; no budget or authority rule relaxed. 162 backend and 140 frontend tests pass; live acceptance remains separate.",
       "source": "51296b7b1"
+    },
+    "pod_replacement_observation_20260926": {
+      "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#crash-recovery-and-continued-verification--2026-09-26",
+      "findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "class_size|consent-protocol/hushh_mcp/services/gcp_run_client.py|GcpRunClient|class exceeds the advisory operon budget",
+          "previous_value": 881,
+          "reason": "Keep stale-snapshot refusal at the existing replacement authority; focused cases prove no PUT for stale/malformed versions and preserve matching/no-version calls.",
+          "value": 894
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_gcp_run_client.py||module exceeds the advisory operon budget",
+          "previous_value": 1166,
+          "reason": "Keep stale-snapshot refusal at the existing replacement authority; focused cases prove no PUT for stale/malformed versions and preserve matching/no-version calls.",
+          "value": 1189
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/hushh_mcp/services/gcp_run_client.py||module exceeds the advisory operon budget",
+          "previous_value": 998,
+          "reason": "Keep stale-snapshot refusal at the existing replacement authority; focused cases prove no PUT for stale/malformed versions and preserve matching/no-version calls.",
+          "value": 1011
+        }
+      ],
+      "integration_revision": "588e16753",
+      "verification": "Read-only retained_recovery_verification review; 189 focused replacement/update tests and targeted mypy. Full final candidate CI required."
     },
     "post_crash_voice_20260926": {
       "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#crash-recovery-and-continued-verification--2026-09-26",

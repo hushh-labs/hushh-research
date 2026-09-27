@@ -82,6 +82,15 @@ healthy server, review-mode response, or static script check is not a browser
 pass. Report the first failed boundary and mutation policy—never secrets,
 tokens, plaintext information, or screenshots containing them.
 
+## Trusted Devices with an existing pod
+
+The default Trusted Devices rehearsal is read-only. If the app's proactive wake
+is part of an explicitly authorized pod rehearsal, set both
+`REVIEWER_ALLOW_SHARED_MUTATIONS=true` and `REVIEWER_ALLOW_POD_WAKE=true` for
+`verify-reviewer-trusted-devices.mjs`. Its bounded callback admits only
+same-origin `POST /api/one/pod/wake`; other fixture mutations remain blocked.
+This does not enroll, revoke, upgrade or replace a device or pod.
+
 ## Wallet rehearsal
 
 `verify-reviewer-wallet.mjs` requires explicit
