@@ -97,3 +97,37 @@ def test_gateway_copy_is_valid_json_with_the_expected_shape() -> None:
     )
     assert payload["schema_version"] == "kai.action_gateway.vnext"
     assert isinstance(payload["actions"], list) and payload["actions"]
+
+
+SHARED_CONFIGS = (("pkm", "kyc-identity-profile.v1.json"),)
+
+
+@pytest.mark.parametrize("parts", SHARED_CONFIGS)
+def test_shared_config_ships_inside_the_build_context(parts: tuple[str, ...]) -> None:
+    """The KYC identity contract lived only at the repo root, so the image lacked it.
+
+    Production memory capture logged ``pkm.kyc_identity_contract_unavailable
+    error=FileNotFoundError`` and returned zero cards for identity content
+    (2026-09-27). The in-context copy is what ships.
+    """
+    from hushh_mcp.services.generated_contracts import shared_config_path
+
+    in_context = BACKEND_ROOT / "config" / parts[0] / parts[1]
+    assert in_context.is_file()
+    assert shared_config_path(*parts) == in_context
+    canonical = (REPO_ROOT / "config" / parts[0] / parts[1]).read_text(encoding="utf-8")
+    assert in_context.read_text(encoding="utf-8").replace("\r\n", "\n") == canonical.replace(
+        "\r\n", "\n"
+    ), "The backend copy has drifted from config/pkm; copy the canonical file over it."
+
+
+def test_kyc_identity_fields_load_from_inside_the_build_context() -> None:
+    from hushh_mcp.services import gmail_personal_information_request_service as gmail_pir
+    from hushh_mcp.services import pkm_agent_lab_service as lab
+
+    for path in (
+        lab._KYC_IDENTITY_PROFILE_CONTRACT_PATH,
+        gmail_pir._KYC_IDENTITY_PROFILE_CONTRACT_PATH,
+    ):
+        assert BACKEND_ROOT in path.parents
+    assert lab.PKMAgentLabService._kyc_identity_fields()

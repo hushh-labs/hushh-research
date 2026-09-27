@@ -1845,7 +1845,16 @@ export function PortfolioReviewView({
               "Vault changed on another device. Refresh and save again."
           );
         }
-        throw new Error("Backend returned failure on store");
+        // saveMergedDomain already resolves a specific, user-appropriate
+        // message for every non-conflict failure it can produce (upgrade
+        // required, sharing impact changed, vault not unlocked, or its own
+        // generic "couldn't save" fallback) -- discarding it here and
+        // always throwing the same opaque string is what turned a real,
+        // diagnosable backend failure into an unexplained "Backend returned
+        // failure on store" report.
+        throw new Error(
+          financialResult.message || "Backend returned failure on store"
+        );
       }
 
       const postSaveSyncStartedAt = nowMs();

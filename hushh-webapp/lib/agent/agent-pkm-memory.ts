@@ -22,6 +22,7 @@ import {
 } from "@/lib/agent/agent-pkm-context-store";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
+import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 
 export type AgentPkmDomainChoice = {
@@ -173,7 +174,26 @@ function titleize(value: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * Pasted notes carry Markdown layout (headings, bullets, bold labels). Remove
+ * that markup here, the one client step every preview passes through, so the
+ * review title and the value that is encrypted into Memory are both plain.
+ */
+function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
+  return {
+    ...card,
+    source_text: toPlainMemoryText(String(card.source_text || "")),
+    ...(card.candidate_payload
+      ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
+      : {}),
+  };
+}
+
 function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(withPlainMemoryText);
+}
+
+function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
   if (Array.isArray(response.preview_cards)) {
     return response.preview_cards.map((card) => ({
       ...card,
@@ -340,7 +360,7 @@ export async function previewAgentPkmMemory(params: {
     cards: normalizePreviewCards(payload).map((card, index) => ({
       ...card,
       card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
-      source_text: card.source_text || params.message,
+      source_text: card.source_text || toPlainMemoryText(params.message),
     })),
   };
 }

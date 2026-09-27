@@ -300,7 +300,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "What we record about requests. We store who asked, the purpose they gave, the categories they asked for, and your decision, so both of you can see the request and so it can be audited.",
         "Businesses asking for your preferences. A business can ask for specific details, such as your privacy preferences, and gets only the fields you approve.",
         "Being found by your contacts. If your phone number is verified, people who have it in their contacts can find you and connect with you unless you turn this off in Profile.",
-        "The people directory. If your phone number is verified, other signed-in One users can find you in One’s people directory by name or email and see your name, photo, and a partly hidden email address and phone number. To leave the directory, turn off Marketplace visibility in Profile. You appear in marketplace search only if you turn it on.",
+        "The people directory is opt-in. You appear in it only if you turn on Marketplace visibility in Profile. While it is on, other signed-in One users can find you by name or email and see your name, photo, and a partly hidden email address and phone number. Turn it off in Profile at any time to leave the directory.",
         "Live location and emergency alerts, as described above.",
       ),
     ],

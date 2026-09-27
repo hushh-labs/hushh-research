@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,8 +20,22 @@ class EmbeddingClient:
         self.model_revision = model_revision
         self.local_files_only = local_files_only
         self._model: Any = None
+        # One load per process. Without it a chat turn that needed the model
+        # while the startup warmup was still loading it began a second
+        # 45-92s load of its own (measured on Cloud Run 2026-09-27).
+        self._load_lock = threading.Lock()
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._model is not None
 
     def _load(self) -> Any:
+        if self._model is not None:
+            return self._model
+        with self._load_lock:
+            return self._load_locked()
+
+    def _load_locked(self) -> Any:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 

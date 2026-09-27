@@ -176,6 +176,12 @@ The law, which holds for every signed-in route:
 6. `shellVerification` in the route layout contract must name the file that
    really renders the primitives. When a shell moves into a client component,
    the declaration moves with it.
+7. **A trail is never replaced on scroll.** A nested route keeps its back arrow
+   and trail at rest and scrolled; the scroll-collapsed title chip only fills a
+   bar with no trail (`resolveTopShellTitleSlot`). When the trail already names
+   the screen, its `PageHeader` passes `titleVisuallyHidden`, so the title is
+   drawn once, in the bar, as on Feed and Connect (founder direction,
+   2026-09-27).
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.

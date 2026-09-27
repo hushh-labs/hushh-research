@@ -62,6 +62,7 @@ from hushh_mcp.one_adk.pending_email_draft import (
     admit_pending_email_draft,
 )
 from hushh_mcp.one_adk.request_secrets import consume_request_secret, store_request_secret
+from hushh_mcp.one_adk.text_attachments import history_text_attachments
 from hushh_mcp.one_adk.turn_completion import (
     newest_turn_answered,
     newest_turn_pending,
@@ -161,6 +162,15 @@ def _current_user_text(input_data: RunAgentInput) -> str:
     if getattr(last, "role", None) != "user":
         return ""
     text = getattr(last, "content", None)
+    if isinstance(text, list):
+        # A turn with a pasted attachment: only the typed text parts are the
+        # person's request. The attachment is content, never an instruction.
+        text = "\n".join(
+            value
+            for item in text
+            if getattr(item, "type", None) == "text"
+            and isinstance((value := getattr(item, "text", None)), str)
+        )
     if not isinstance(text, str) or len(text) > 2048:
         return ""
     return text
@@ -1632,6 +1642,11 @@ async def conversation_history(
     held_cards: dict[str, list[dict[str, Any]]] = {}
     for index, event in enumerate(session.events):
         text, metadata = projected[index]
+        # Pasted text restores as the chip it was sent as, not as message text.
+        # An attachment-only turn has no text and must still come back.
+        attachments = history_text_attachments(event)
+        if attachments:
+            metadata = {**(metadata or {}), "attachments": attachments}
         if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
             continue
         if event.author not in {"user", "one"}:

@@ -123,7 +123,7 @@ export function AuthLegalDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange} modal={false}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} modal>
       <DialogContent
         showCloseButton={false}
         className="max-w-[min(40rem,calc(100%-1.5rem))] max-h-[calc(100dvh-1.5rem)] gap-0 overflow-hidden p-0"

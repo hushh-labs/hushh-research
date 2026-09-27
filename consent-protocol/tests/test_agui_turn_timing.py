@@ -867,3 +867,60 @@ def test_failed_drive_guard_does_not_count_a_model_call():
         assert timing.model_call_total_ms == 0
     finally:
         agui_turn_timing._CURRENT_TURN.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_first_model_call_is_split_into_session_and_request_build(monkeypatch, caplog):
+    """Production could not say where 22 s before the first model call went.
+
+    The line now splits it at ADK's agent start and says whether this was the
+    process's first turn and whether the startup warmup had run. A run with no
+    agent start (the negative control) reports no split rather than a guess.
+    """
+    import threading
+
+    monkeypatch.setattr(agui_turn_timing, "_TURN_PATH_WARMED", threading.Event())
+    request = SimpleNamespace(model="gemini-3.6-flash", config=None, contents=[])
+    monkeypatch.setattr(agui_turn_timing, "before_external_read_model", lambda *_: None)
+
+    def bridge(*, start_agent: bool):
+        async def run(self, input):
+            yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+            await asyncio.sleep(0.02)
+            if start_agent:
+                agui_turn_timing.timed_one_before_agent(object())
+            agui_turn_timing.record_instruction_build(7.4)
+            await asyncio.sleep(0.02)
+            agui_turn_timing.timed_one_before_model(object(), request)
+            agui_turn_timing.timed_one_after_model(object(), object())
+            yield RunFinishedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+
+        return run
+
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    monkeypatch.setattr(ADKAgent, "run", bridge(start_agent=True))
+    await _drain(_agent())
+    agui_turn_timing.mark_turn_path_warmed()
+    monkeypatch.setattr(ADKAgent, "run", bridge(start_agent=False))
+    await _drain(_agent())
+
+    split, unsplit = (_fields(line) for line in _timing_lines(caplog))
+    assert int(split["session_ms"]) >= 15
+    assert int(split["request_build_ms"]) >= 15
+    assert (
+        abs(
+            int(split["session_ms"])
+            + int(split["request_build_ms"])
+            - int(split["first_model_call_ms"])
+        )
+        <= 1
+    )
+    assert split["instruction_ms"] == "7"
+    assert split["path_warmed"] == "false"
+    assert unsplit["session_ms"] == "None" and unsplit["request_build_ms"] == "None"
+    assert unsplit["path_warmed"] == "true"
+    assert int(unsplit["process_turn"]) == int(split["process_turn"]) + 1
+
+    # Outside a turn the recorders are inert rather than failing a build.
+    agui_turn_timing.record_instruction_build(5.0)
+    agui_turn_timing.timed_one_before_agent(object())

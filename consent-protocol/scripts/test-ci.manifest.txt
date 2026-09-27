@@ -351,6 +351,8 @@ tests/services/test_location_nearby_visit_command_postgres.py
 # Agent Chat measurement instruments: AG-UI turn timing, the first-tool harness
 # and latency driver (offline math only), ADK EvalSet shape, conformance replay.
 tests/test_agui_turn_timing.py
+# Startup warmup: a worker's first chat turn imports nothing before its model call.
+tests/test_one_turn_warmup.py
 # Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
 tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
@@ -459,6 +461,9 @@ tests/test_cloudrun_revision_provenance.py
 # connector calls pause for exact-call review without leaking arguments or results.
 tests/services/test_consent_db_request_statuses.py
 tests/test_one_output_privacy.py
+# A long paste travels as its own text/plain document part: the model reads it as a
+# named, delimited document and history restores it as a chip, not message text.
+tests/test_one_text_attachments.py
 tests/test_governed_mcp_toolset.py
 tests/test_one_turn_location.py
 tests/test_mcp_review_service.py
@@ -486,3 +491,4 @@ tests/test_chat_history_byok.py
 # replay. CI runs the static checks; the behaviour checks run only when
 # CHAT_CUTOVER_TEST_DATABASE_URL points at a throwaway real-schema Postgres.
 tests/test_chat_history_cutover_migration.py
+tests/test_structure_agent_prompt_is_unambiguous.py

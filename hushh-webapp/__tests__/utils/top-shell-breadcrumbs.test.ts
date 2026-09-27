@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveTopShellBreadcrumb,
+  resolveTopShellTitleSlot,
   visibleTopShellBreadcrumbItems,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 
@@ -1102,5 +1103,68 @@ describe("top shell breadcrumbs", () => {
     const config = resolveTopShellBreadcrumb("/one/wallet-card");
     expect(config?.backHref).toBe("/one/profile/account");
     expect(config?.backHref).not.toBe("/one/profile");
+  });
+});
+
+describe("top shell title slot", () => {
+  // What the bar would otherwise swap in once the page header scrolls away:
+  // the centred folder-and-Memory chip the founder reported.
+  const scrolledChip = { label: "Memory", icon: "folder", interactive: false };
+
+  function slotLabels(pathname: string, search: string) {
+    const slot = resolveTopShellTitleSlot(
+      resolveTopShellBreadcrumb(pathname, new URLSearchParams(search)),
+      scrolledChip,
+    );
+    return slot.kind === "trail"
+      ? slot.items.map((item) => item.label)
+      : slot.kind;
+  }
+
+  it.each([
+    // The two reported routes, and the two they must now match.
+    ["/one/pkm", "", ["Memory"]],
+    ["/one/gmail", "", ["Mail"]],
+    ["/one/feed", "", ["Feed"]],
+    ["/one/connect", "", ["Connect"]],
+    // Profile > Memory swapped its trail for a "Profile" chip.
+    ["/one/profile/my-data", "", ["Profile", "Memory"]],
+    ["/one/pkm/recent", "", ["Memory", "Recently learned"]],
+    // Every other nested route that used to carry a scroll chip.
+    ["/one/connected-systems", "", ["Connected Systems"]],
+    ["/one/consent", "", ["Consent Center"]],
+    ["/consents", "", ["Consent Center"]],
+    ["/one/kyc", "", ["KYC"]],
+    ["/one/gmail", "from=/one/setup", ["Mail"]],
+  ])(
+    "keeps %s (%s) titled beside its back arrow, even scrolled",
+    (pathname, search, expected) => {
+      expect(slotLabels(pathname, search)).toEqual(expected);
+    },
+  );
+
+  it("still lets the chip title a bar that has no trail of its own", () => {
+    expect(resolveTopShellTitleSlot(null, scrolledChip)).toEqual({
+      kind: "title",
+      title: scrolledChip,
+    });
+    // The implicit "One" root is not a trail, so a level-one surface keeps
+    // its chip.
+    expect(
+      resolveTopShellTitleSlot({ items: [{ label: "One" }] }, scrolledChip),
+    ).toEqual({ kind: "title", title: scrolledChip });
+  });
+
+  it("leaves the slot empty when there is neither a trail nor a chip", () => {
+    expect(resolveTopShellTitleSlot({ items: [] }, null)).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("does not change the trail when the chip goes away", () => {
+    const breadcrumb = resolveTopShellBreadcrumb("/one/pkm");
+    expect(resolveTopShellTitleSlot(breadcrumb, scrolledChip)).toEqual(
+      resolveTopShellTitleSlot(breadcrumb, null),
+    );
   });
 });

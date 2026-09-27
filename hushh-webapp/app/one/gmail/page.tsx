@@ -5,7 +5,7 @@ import { GmailWorkspaceSkeleton } from "@/components/gmail/gmail-workspace-skele
 
 export default function OneGmailPage() {
   return (
-    <Suspense fallback={<GmailWorkspaceSkeleton />}>
+    <Suspense fallback={<GmailWorkspaceSkeleton titleVisuallyHidden />}>
       <OneGmailPageClient />
     </Suspense>
   );

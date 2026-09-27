@@ -8,6 +8,7 @@ of embedding similarity and Unicode-aware keyword matching.  Used by
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -205,6 +206,23 @@ def get_embedding_client() -> EmbeddingClient:
     if _embedding_client is None:
         _embedding_client = EmbeddingClient()
     return _embedding_client
+
+
+def _warmup_owns_model_load() -> bool:
+    """True when this image bakes the model, so the startup warmup loads it."""
+    from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    return os.getenv(BAKED_MODEL_DIR_ENV) == BAKED_MODEL_DIR and os.path.isdir(BAKED_MODEL_DIR)
+
+
+def _semantic_ready(client: EmbeddingClient) -> bool:
+    """Whether a turn may embed its query now.
+
+    On a baked image the startup warmup owns the one model load. A turn that
+    arrives before it finishes ranks lexically instead of starting its own
+    load. Everywhere else the lazy load still happens on first use.
+    """
+    return client.is_loaded or not _warmup_owns_model_load()
 
 
 def warm_action_retrieval() -> bool:
@@ -667,22 +685,27 @@ def search_actions(
 
     # --- Semantic branch ---
     semantic_scores: dict[int, float] = {}
-    try:
-        query_vec = client.embed_query(query)
-        passage_vecs = _ensure_passage_vectors(supported, gateway)
-        if passage_vecs:
-            sims = client.similarity(query_vec, passage_vecs)
-            # strict=True: a length mismatch would pair an action with another
-            # action's similarity, which is unfindable at runtime.
-            for entry, score in zip(supported, sims, strict=True):
-                semantic_scores[id(entry)] = float(score)
-        _retrieval_available = True
-        _retrieval_error = None
-    except Exception:
-        semantic_scores.clear()
-        _retrieval_available = False
-        _retrieval_error = "embedding_unavailable"
-        logger.warning("semantic_search_failed")
+    if not _semantic_ready(client):
+        # The startup warmup is still loading the model. Rank lexically rather
+        # than making this turn wait on (or duplicate) that load.
+        logger.info("action_retrieval.semantic_deferred_until_warm")
+    else:
+        try:
+            query_vec = client.embed_query(query)
+            passage_vecs = _ensure_passage_vectors(supported, gateway)
+            if passage_vecs:
+                sims = client.similarity(query_vec, passage_vecs)
+                # strict=True: a length mismatch would pair an action with another
+                # action's similarity, which is unfindable at runtime.
+                for entry, score in zip(supported, sims, strict=True):
+                    semantic_scores[id(entry)] = float(score)
+            _retrieval_available = True
+            _retrieval_error = None
+        except Exception:
+            semantic_scores.clear()
+            _retrieval_available = False
+            _retrieval_error = "embedding_unavailable"
+            logger.warning("semantic_search_failed")
 
     # Every wired action is scored above; this bounds how many reach fusion.
     semantic_rank_map = {

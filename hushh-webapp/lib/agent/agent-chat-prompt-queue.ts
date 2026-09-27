@@ -1,8 +1,11 @@
+import type { AgentTextAttachment } from "@/lib/agent/large-text-attachment";
 import type { DriveSearchSelection } from "@/lib/services/drive-search-service";
 
 export type QueuedAgentPrompt = {
   id: string;
   text: string;
+  /** Pasted text queued with this turn; sent as its own part, shown as a chip. */
+  attachments?: AgentTextAttachment[];
   createdAtMs: number;
   /**
    * An opaque, owner-selected Gmail information-request reference. It is

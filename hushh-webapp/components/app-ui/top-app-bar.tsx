@@ -20,18 +20,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BriefcaseBusiness,
-  ChartNoAxesCombined,
   Code2,
-  Database,
-  FileCheck2,
-  FolderSearch,
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
   Loader2,
   LogOut,
-  Mail,
-  Shield,
   UserRound,
 } from "@/components/icons";
 import {
@@ -98,9 +92,9 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   resolveTopShellBreadcrumb,
+  resolveTopShellTitleSlot,
   type TopShellBreadcrumbConfig,
   type TopShellBreadcrumbItem,
-  visibleTopShellBreadcrumbItems,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   getConnectedSystemPresentationLabel,
@@ -290,40 +284,9 @@ function getScrolledRouteTitle(pathname: string): {
       interactive: true as const,
     };
   }
-  if (pathname === ROUTES.GMAIL) {
-    return { label: "Mail", icon: Mail, interactive: false as const };
-  }
-  if (pathname === ROUTES.PKM) {
-    return {
-      label: "Memory",
-      icon: FolderSearch,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.CONNECTED_SYSTEMS) {
-    return {
-      label: "Connected Systems",
-      icon: Database,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
-    return {
-      label: "Access & sharing",
-      icon: Shield,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.ONE_KYC) {
-    return { label: "KYC", icon: FileCheck2, interactive: false as const };
-  }
-  if (pathname === ROUTES.KAI_ANALYSIS) {
-    return {
-      label: "Analysis",
-      icon: ChartNoAxesCombined,
-      interactive: false as const,
-    };
-  }
+  // Nested routes (Mail, Memory, Connected Systems, Consent Center, KYC, the
+  // Finance tabs) are not listed: they always resolve a breadcrumb trail, and
+  // resolveTopShellTitleSlot keeps that trail in place of any chip.
   return null;
 }
 
@@ -878,14 +841,19 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     };
   }, [isAuthenticated, isVaultUnlocked, user?.uid]);
 
-  const centerTitle = useMemo(
-    () => getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
-    [normalizedPathname, primaryHeaderOutOfView],
+  // A nested route's trail is never replaced by the scroll-collapsed chip; the
+  // chip only fills a bar with no trail. See resolveTopShellTitleSlot.
+  const titleSlot = useMemo(
+    () =>
+      resolveTopShellTitleSlot(
+        topShellBreadcrumb,
+        getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
+      ),
+    [normalizedPathname, primaryHeaderOutOfView, topShellBreadcrumb],
   );
-  const breadcrumbTrailItems = useMemo(() => {
-    return visibleTopShellBreadcrumbItems(topShellBreadcrumb?.items ?? []);
-  }, [topShellBreadcrumb]);
-  const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
+  const centerTitle = titleSlot.kind === "title" ? titleSlot.title : null;
+  const breadcrumbTrailItems = titleSlot.kind === "trail" ? titleSlot.items : [];
+  const hasBreadcrumbTrail = titleSlot.kind === "trail";
   const canShowPersonaSwitcher = useMemo(
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],

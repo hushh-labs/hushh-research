@@ -6,7 +6,7 @@ import {
   parseDriveBatchProgressActivity,
   type DriveBatchProgress,
 } from "@/lib/agent/drive-batch-progress";
-import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
+import { HttpAgent, type AgentSubscriber, type InputContent, type Tool, type UserMessage } from "@ag-ui/client";
 import { Capacitor } from "@capacitor/core";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -27,6 +27,10 @@ import {
   registerAttachedAgentTurn,
   watchDetachedAgentTurn,
 } from "@/lib/agent/agent-chat-turn-watch";
+import {
+  parseStoredTextAttachments,
+  type AgentTextAttachment,
+} from "@/lib/agent/large-text-attachment";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -54,8 +58,43 @@ export type AgentChatMessage = {
     connectorRead?: ConnectorReadExperience | null;
     /** Bound history descriptor for the turn's Activity rows (enums and opaque ids only). */
     turnActivity?: { activityType?: string; content?: unknown } | null;
+    /** Pasted text sent with a user turn, restored as a chip (never as message text). */
+    attachments?: AgentTextAttachment[];
   } | null;
 };
+
+function utf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  // Chunked so a large paste never overflows the argument limit.
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * The AG-UI content of a user turn. Typed text stays the message text; each
+ * pasted attachment rides beside it as a `text/plain` document part, the
+ * protocol's own channel for files, which the agent bridge turns into a
+ * separate model part. A turn without attachments stays a plain string.
+ */
+export function buildAgentUserMessageContent(
+  message: string,
+  attachments: readonly AgentTextAttachment[] = [],
+): UserMessage["content"] {
+  if (attachments.length === 0) return message;
+  const parts: InputContent[] = [];
+  if (message.trim()) parts.push({ type: "text", text: message });
+  for (const attachment of attachments) {
+    parts.push({
+      type: "document",
+      source: { type: "data", value: utf8ToBase64(attachment.text), mimeType: attachment.mimeType },
+      metadata: { filename: attachment.name },
+    });
+  }
+  return parts;
+}
 
 export type AgentChatConversation = {
   id: string;
@@ -984,6 +1023,8 @@ export type PendingEmailDraftContext = {
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
+  /** Pasted text sent as separate document parts, never folded into `message`. */
+  attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
   vaultOwnerToken: string;
   /** Unlocked vault key. Only the chat key derived from it is sent. */
@@ -1096,7 +1137,11 @@ export async function streamAgentChat(input: {
     url: "/api/one/agent-chat",
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
-    initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
+    initialMessages: [{
+      id: crypto.randomUUID(),
+      role: "user",
+      content: buildAgentUserMessageContent(input.message, input.attachments),
+    }],
     fetch: (_url, init) => liveness.fetch(init),
   });
   let text = "";
@@ -1865,37 +1910,44 @@ export async function getAgentChatHistory(input: {
         structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
         specialist_read?: unknown;
         turnActivity?: { activityType?: string; content?: unknown } | null;
+        attachments?: unknown;
       } | null;
     }>;
   };
   if (!Array.isArray(payload.messages)) return [];
   return payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
-    .map((message) => ({
-      id: message.id,
-      conversation_id: message.conversation_id,
-      role: message.role,
-      status: message.status,
-      content: message.content,
-      model: message.model,
-      created_at: message.created_at,
-      completed_at: message.completed_at,
-      metadata: message.metadata
-        ? {
-            kind: message.metadata.kind,
-            display: message.metadata.display,
-            structuredExperience: message.metadata.structuredExperience,
-            structuredExperienceId: message.metadata.structuredExperienceId,
-            structuredExperiences: message.metadata.structuredExperiences,
-            ...(message.role === "assistant" && message.metadata.turnActivity
-              ? { turnActivity: message.metadata.turnActivity } : {}),
-            connectorRead:
-              message.role === "assistant"
-                ? parseConnectorReadReceipt(message.metadata.specialist_read)
-                : null,
-          }
-        : message.metadata,
-    }));
+    .map((message) => {
+      const attachments = message.role === "user"
+        ? parseStoredTextAttachments(message.metadata?.attachments)
+        : [];
+      return {
+        id: message.id,
+        conversation_id: message.conversation_id,
+        role: message.role,
+        status: message.status,
+        content: message.content,
+        model: message.model,
+        created_at: message.created_at,
+        completed_at: message.completed_at,
+        metadata: message.metadata
+          ? {
+              kind: message.metadata.kind,
+              display: message.metadata.display,
+              structuredExperience: message.metadata.structuredExperience,
+              structuredExperienceId: message.metadata.structuredExperienceId,
+              structuredExperiences: message.metadata.structuredExperiences,
+              ...(message.role === "assistant" && message.metadata.turnActivity
+                ? { turnActivity: message.metadata.turnActivity } : {}),
+              ...(attachments.length ? { attachments } : {}),
+              connectorRead:
+                message.role === "assistant"
+                  ? parseConnectorReadReceipt(message.metadata.specialist_read)
+                  : null,
+            }
+          : message.metadata,
+      };
+    });
 }
 
 /**

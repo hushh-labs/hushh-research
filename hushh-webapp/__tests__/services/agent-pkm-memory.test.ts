@@ -44,6 +44,7 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -687,6 +688,47 @@ describe("agent PKM memory helpers", () => {
 
     expect(context.text).toContain("Food > Drinks > Favorite: tea");
     expect(context.coverage?.safetyOmittedNodeCount).toBeGreaterThan(0);
+  });
+
+  it("removes pasted Markdown from the review title and the value that will be encrypted", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "agent", agent_name: "One", model: "test", used_fallback: false,
+        preview_cards: [{
+          card_id: "card_1",
+          source_text: "## Synthetic diet\n- **Allergy:** peanuts\n- *Prefers* oat milk\n__Home city:__ Example Town",
+          write_mode: "confirm_first",
+          target_domain: "health",
+          candidate_payload: {
+            diet: { allergy: "**peanuts**", notes: "- oat milk\n- **no** dairy", language: "C#", rank: "#1 choice" },
+            dates: ["**2026-01-01**"],
+            count: 3,
+          },
+          structure_decision: { target_domain: "health" },
+        }],
+      }),
+    });
+    const preview = await previewAgentPkmMemory({
+      userId: "user_1", vaultOwnerToken: "vault_token", message: "synthetic", currentDomains: [],
+    });
+    expect(preview.cards[0]!.source_text).toBe("Synthetic diet\nAllergy: peanuts\nPrefers oat milk\nHome city: Example Town");
+    expect(preview.cards[0]!.candidate_payload).toEqual({
+      diet: { allergy: "peanuts", notes: "oat milk\nno dairy", language: "C#", rank: "#1 choice" },
+      dates: ["2026-01-01"],
+      count: 3,
+    });
+  });
+
+  it.each([
+    ["C# and F# developer", "C# and F# developer"],
+    ["#1 priority", "#1 priority"],
+    ["5 * 3 = 15", "5 * 3 = 15"],
+    ["snake_case_name and __init__", "snake_case_name and __init__"],
+    ["well-known - fact", "well-known - fact"],
+    ["**", "**"],
+  ])("leaves text that is not Markdown markup unchanged: %s", (input, expected) => {
+    expect(toPlainMemoryText(input)).toBe(expected);
   });
 
   it("previews PKM memory through the agent-lab structure route", async () => {

@@ -2283,10 +2283,45 @@ export class PersonalKnowledgeModelService {
               : undefined,
         };
       }
-      // The payload contains encrypted material plus sensitive manifest and
-      // summary metadata. Never copy it (or an upstream validation body that
-      // may echo it) into browser logs, error overlays, Feed, or telemetry.
-      throw new Error(`Failed to store domain data: ${response.status}`);
+      // The REQUEST payload contains encrypted material plus sensitive
+      // manifest and summary metadata -- never copy that (or anything that
+      // might echo it) into browser logs, error overlays, Feed, or
+      // telemetry. The RESPONSE body on a non-409 failure is our own route's
+      // structured error (a fixed code + message, e.g. PKM_STORE_DOMAIN_FAILED
+      // / PKM_MUTATION_PLAN_INVALID / PKM_CONFIRMATION_REQUIRED), not an echo
+      // of the request, so it's safe to read and surface -- and the only way
+      // a bare "500"/"422" reaching the console (as it did before this) is
+      // ever diagnosable without pulling server logs.
+      let errorDetailPayload: unknown = null;
+      try {
+        errorDetailPayload = await response.json();
+      } catch {
+        // Ignore JSON parse errors and fall back to the bare status below.
+      }
+      const errorDetail =
+        errorDetailPayload &&
+        typeof errorDetailPayload === "object" &&
+        "detail" in errorDetailPayload
+          ? (errorDetailPayload as { detail?: unknown }).detail
+          : errorDetailPayload;
+      const errorDetailRecord =
+        errorDetail && typeof errorDetail === "object"
+          ? (errorDetail as Record<string, unknown>)
+          : null;
+      const errorCode =
+        errorDetailRecord && typeof errorDetailRecord.code === "string"
+          ? errorDetailRecord.code
+          : undefined;
+      const errorMessage =
+        errorDetailRecord && typeof errorDetailRecord.message === "string"
+          ? errorDetailRecord.message
+          : undefined;
+      throw new Error(
+        `Failed to store domain data: ${response.status}` +
+          (errorCode || errorMessage
+            ? ` - ${[errorCode, errorMessage].filter(Boolean).join(": ")}`
+            : ""),
+      );
     }
 
     const data = (await response.json()) as Record<string, unknown>;

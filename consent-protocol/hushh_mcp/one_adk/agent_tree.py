@@ -93,7 +93,9 @@ from hushh_mcp.one_adk.action_tools import (
     start_app_goal,
 )
 from hushh_mcp.one_adk.agui_turn_timing import (
+    record_instruction_build,
     timed_one_after_model,
+    timed_one_before_agent,
     timed_one_before_model,
 )
 from hushh_mcp.one_adk.consent_continuation import (
@@ -801,7 +803,18 @@ ONE_IDENTITY_INSTRUCTION: str = (
 
 
 def _one_runtime_instruction(context: Any) -> str:
-    """Inject bounded server-sanitized route, layer, and action guidance."""
+    """Inject bounded server-sanitized route, layer, and action guidance.
+
+    Built once per model step; its build time goes to the turn timing line.
+    """
+    started_at = time.perf_counter()
+    try:
+        return _compose_one_runtime_instruction(context)
+    finally:
+        record_instruction_build((time.perf_counter() - started_at) * 1000)
+
+
+def _compose_one_runtime_instruction(context: Any) -> str:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -2458,6 +2471,7 @@ def build_one_text_agent(
             specialist_model=text_model,
             allow_workspace_tools=allow_workspace_tools,
         ),
+        before_agent_callback=timed_one_before_agent,
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,
         before_model_callback=timed_one_before_model,

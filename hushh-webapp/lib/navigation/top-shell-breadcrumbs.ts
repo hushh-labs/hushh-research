@@ -64,6 +64,36 @@ export function visibleTopShellBreadcrumbItems(
   return withoutImplicitRoot.slice(-2);
 }
 
+export type TopShellTitleSlot<TTitle> =
+  | { kind: "trail"; items: TopShellBreadcrumbItem[] }
+  | { kind: "title"; title: TTitle }
+  | { kind: "none" };
+
+/**
+ * Decides what fills the top bar's title slot.
+ *
+ * A route with a visible breadcrumb trail is a nested route: it shows its back
+ * arrow with the trail beside it, and nothing replaces that trail, at rest or
+ * scrolled. The shell's fallback title (the scroll-collapsed chip) only fills a
+ * bar that has no trail of its own.
+ *
+ * It used to be the other way round. Scrolling a nested route's page header out
+ * of view swapped "Memory" beside the back arrow for a centred folder-and-Memory
+ * chip, and on Profile > Memory for a "Profile" chip, while Feed and Connect,
+ * which have no page header to scroll away, never changed. One screen, one
+ * title, and the trail's last crumb is that title
+ * (docs/reference/quality/app-surface-design-system.md).
+ */
+export function resolveTopShellTitleSlot<TTitle>(
+  breadcrumb: Pick<TopShellBreadcrumbConfig, "items"> | null | undefined,
+  fallbackTitle: TTitle | null,
+): TopShellTitleSlot<TTitle> {
+  const items = visibleTopShellBreadcrumbItems(breadcrumb?.items ?? []);
+  if (items.length > 0) return { kind: "trail", items };
+  if (fallbackTitle) return { kind: "title", title: fallbackTitle };
+  return { kind: "none" };
+}
+
 function titleizeSegment(segment: string): string {
   return segment
     .split("-")

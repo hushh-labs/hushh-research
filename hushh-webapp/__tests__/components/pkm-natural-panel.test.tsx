@@ -605,7 +605,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
 
-    expect(await screen.findByText(/sections need another review/i)).toBeTruthy();
+    expect(await screen.findByText(/still needs another pass/i)).toBeTruthy();
     expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
       route_id: "pkm",
       action: "capture_prepared",
@@ -682,7 +682,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(addToPKM).not.toHaveBeenCalled();
   });
 
-  it("retains unresolved source even after every prepared card saves successfully", async () => {
+  // Founder report 2026-09-27: one unprepared section blocked every ready detail.
+  it("saves the ready details while a section that could not be prepared stays listed", async () => {
     await openMainScreen();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const note = await screen.findByRole("textbox", { name: "Memory note" });
@@ -690,10 +691,46 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       "\n# Separate preference\nI prefer morning flights.";
     fireEvent.change(note, { target: { value: source } });
     fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    expect(await screen.findByText(/Some sections need another review/)).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Save to Memory" })).toBeDisabled();
-    expect(addToPKM).not.toHaveBeenCalled();
+    expect(await screen.findByText(/1 section of this note still needs another pass\. You can save the details that are ready now/)).toBeTruthy();
+    const section = screen.getByTestId("memory-unresolved-section");
+    expect(within(section).getByText("Historical project")).toBeTruthy();
+    expect(within(section).getByText(/too long to prepare in one pass.*Nothing from this section has been saved/)).toBeTruthy();
+
+    const save = screen.getByRole("button", { name: "Save to Memory" });
+    expect(save).not.toBeDisabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(addToPKM).toHaveBeenCalledTimes(1));
+    expect(addToPKM.mock.calls[0]![0].cards).toHaveLength(1);
+    // Honest receipt: the unprepared section is named as not saved, and the note stays.
+    expect(await screen.findByText(/1 reviewed detail saved\. 1 section still needs another pass; nothing from it was saved/)).toBeTruthy();
     expect(note).toHaveValue(source);
+    expect(screen.getByTestId("memory-unresolved-section")).toBeTruthy();
+  });
+
+  it("retries one section on its own and adds what it prepares", async () => {
+    const sections = Array.from({ length: 7 }, (_, i) => `${i + 1}. Section ${i + 1}\nFact number ${i + 1} about me.`);
+    previewAgentPkmMemory
+      .mockResolvedValueOnce({ cards: [{ card_id: "first", source_text: "Fact number 1 about me.", write_mode: "confirm_first" }], preview_summary: { total_segments_detected: 1 } })
+      .mockRejectedValueOnce(new Error("Memory preparation failed (http_503). Please try again."))
+      .mockResolvedValueOnce({ cards: [{ card_id: "retried", source_text: "Fact number 7 about me.", write_mode: "confirm_first" }], preview_summary: { total_segments_detected: 1 } });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: sections.join("\n\n") },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    const retry = await screen.findByRole("button", { name: "Retry this section: Section 7" });
+    expect(screen.getByRole("button", { name: "Save to Memory" })).not.toBeDisabled();
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenCalledTimes(3));
+    expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: "7. Section 7\nFact number 7 about me.",
+    }));
+    expect(await screen.findByText("Fact number 7 about me.", { selector: ":not(textarea)" })).toBeTruthy();
+    expect(screen.queryByTestId("memory-unresolved-section")).toBeNull();
+    expect(screen.getByText(/Every section is prepared/)).toBeTruthy();
+    expect(addToPKM).not.toHaveBeenCalled();
   });
 
   it("shows the proposed source detail and invalidates it when the note changes", async () => {

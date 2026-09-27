@@ -1888,6 +1888,10 @@ export default function GmailReceiptsPage({
           // routes that render this page says "Gmail", and the setup checklist
           // row that leads here says "Connect Gmail".
           title="Mail"
+          // On /one/gmail the top bar's trail already says "Mail" beside the
+          // back arrow, so the workspace does not draw it again. The setup
+          // step keeps its visible title: setup has no trail.
+          titleVisuallyHidden={journeyVariant === "workspace"}
           description={pageTitle}
           actions={
             isConnected && journeyVariant === "onboarding" ? (

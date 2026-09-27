@@ -82,7 +82,11 @@ export default defineConfig({
       // `one-voice-panel.layout` is opted in because the live voice dock ships
       // in a WKWebView; its source-coupled fixture is self-contained and does
       // not exercise either of the known app-shell WebKit failures above.
+      // `text-attachment-viewer.layout` is opted in because the pasted-text
+      // sheet, its own scroll box and the scroll after Send are read on an
+      // iPhone; its fixture builds its own document.
       testMatch: [
+        /text-attachment-viewer\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,

@@ -41,3 +41,19 @@ def generated_contract_path(*parts: str) -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def shared_config_path(*parts: str) -> Path:
+    """Return the readable path for ``config/<parts>``, in-context copy first.
+
+    Same packaging rule as :func:`generated_contract_path`: the image holds only
+    ``consent-protocol/``, so a shared config the backend reads must be mirrored
+    into ``consent-protocol/config/``. The repo-root file stays the canonical
+    original and the fallback for a checkout.
+    """
+    relative = Path("config", *parts)
+    candidates = (BACKEND_ROOT / relative, REPO_ROOT / relative)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]

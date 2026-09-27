@@ -297,6 +297,51 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
+  it("never swaps a nested route's trail for the scroll-collapsed chip", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const scrolledTitles = source.slice(
+      source.indexOf("function getScrolledRouteTitle"),
+      source.indexOf("function routeForPersona"),
+    );
+
+    // The trail decides first; the chip only fills a bar without one.
+    expect(source).toContain("resolveTopShellTitleSlot(");
+    expect(source).toContain('const hasBreadcrumbTrail = titleSlot.kind === "trail";');
+    expect(source).not.toContain(
+      "const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;",
+    );
+    // Memory's folder chip and Mail's envelope chip are gone for good.
+    for (const route of [
+      "ROUTES.PKM",
+      "ROUTES.GMAIL",
+      "ROUTES.CONNECTED_SYSTEMS",
+      "ROUTES.CONSENTS",
+      "ROUTES.ONE_KYC",
+    ]) {
+      expect(scrolledTitles).not.toContain(`pathname === ${route}`);
+    }
+    expect(scrolledTitles).not.toContain("FolderSearch");
+  });
+
+  it("titles Memory and Mail in the top bar only, as Feed and Connect are", () => {
+    // The heading stays for assistive tech; the bar's trail is the one drawn.
+    expect(read("app/one/pkm/page.tsx")).toMatch(
+      /<PkmSettingsShell\s+title="Memory"\s+titleVisuallyHidden/,
+    );
+    expect(read("app/one/pkm/recent/page.tsx")).toMatch(
+      /<PkmSettingsShell\s+title="Recently learned"\s+titleVisuallyHidden/,
+    );
+    expect(read("components/profile/pkm-settings-shell.tsx")).toContain(
+      "titleVisuallyHidden={titleVisuallyHidden}",
+    );
+    expect(read("components/gmail/gmail-receipts-page.tsx")).toContain(
+      'titleVisuallyHidden={journeyVariant === "workspace"}',
+    );
+    for (const file of ["app/one/gmail/page.tsx", "app/one/gmail/gmail-page-client.tsx"]) {
+      expect(read(file)).toContain("<GmailWorkspaceSkeleton titleVisuallyHidden />");
+    }
+  });
+
   it("keeps background activity visible and adds locked-vault unlock action", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
@@ -373,8 +418,11 @@ describe("Top app bar responsive contract", () => {
     const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
-    expect(source).toContain(
-      "visibleTopShellBreadcrumbItems(topShellBreadcrumb?.items ?? [])",
+    // The bar trims the trail through the title-slot resolver, which is the
+    // one place that decides between trail and scroll chip.
+    expect(source).toContain("resolveTopShellTitleSlot(");
+    expect(breadcrumbs).toContain(
+      "visibleTopShellBreadcrumbItems(breadcrumb?.items ?? [])",
     );
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");

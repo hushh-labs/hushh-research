@@ -665,6 +665,26 @@ async def startup_action_retrieval_warmup() -> None:
 
 
 @app.on_event("startup")
+async def startup_one_turn_warmup() -> None:
+    """Run One's first-turn setup once per worker so no chat turn pays for it.
+
+    Measured on production 2026-09-27: the first chat turn in each worker spent
+    3.6-41 s before its first model call (94 ms once warm), because ADK imports
+    provider SDKs while building the first request and blocks the event loop to
+    do it. A stub-model turn in a worker thread pays that at startup instead; it
+    sends nothing to a provider and touches no stored session. Never blocks
+    readiness; a failure leaves the lazy path in place. Skipped under tests.
+    """
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    from hushh_mcp.one_adk.turn_warmup import warm_one_turn_path_in_background
+
+    _track_startup_background_task(
+        asyncio.create_task(warm_one_turn_path_in_background(), name="one-turn-warmup")
+    )
+
+
+@app.on_event("startup")
 async def startup_pkm_scope_validator_warmup() -> None:
     """Prewarm PKM scope validation helpers before the first consent request."""
     started_at = time.perf_counter()

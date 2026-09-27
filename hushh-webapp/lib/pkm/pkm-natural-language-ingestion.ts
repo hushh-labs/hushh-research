@@ -10,8 +10,8 @@ import {
 } from "@/lib/agent/agent-pkm-memory";
 import type { PkmWriteAuthorization } from "@/lib/personal-knowledge-model/mutation-plan";
 import {
-  PKM_PROPOSAL_CHARS, planPkmSourceChunks, sourceChunkRange, sourceChunkText, splitPkmSourceChunk,
-  type PkmSourceChunk, type PkmSourceSpan,
+  PKM_PROPOSAL_CHARS, planPkmSourceChunks, planPkmSourceSelection, sourceChunkRange, sourceChunkText,
+  splitPkmSourceChunk, type PkmSourceChunk, type PkmSourceSpan,
 } from "@/lib/pkm/pkm-source-chunks";
 
 const MAX_PROPOSAL_CHUNKS = 32;
@@ -51,11 +51,15 @@ export type PkmNaturalLanguagePreparationResult = {
 export type PkmNaturalLanguageSourceCoverage = {
   sourceBlockId: string;
   sourceRange?: PkmSourceSpan;
+  /** Heading lines sent with this block for attribution; never part of its range. */
+  sourceContext?: readonly PkmSourceSpan[];
   preparationIssue?:
     | "context_span_too_large"
     | "cannot_split_context"
     | "chunk_limit"
-    | "preparation_timeout";
+    | "preparation_timeout"
+    /** The block was answered, but by a fallback or an errored agent stage. */
+    | "degraded_preview";
   disposition: "proposed" | "intentionally_ignored" | "review_required" | "failed";
   detectedFactCount: number;
   accountedFactCount: number;
@@ -64,6 +68,22 @@ export type PkmNaturalLanguageSourceCoverage = {
   /** Cards the structurer refused because they carry a secret. */
   excludedSecretCount?: number;
 };
+
+/** One previously prepared block, re-planned on its own for a retry. */
+export type PkmNaturalLanguageSourceSelection = {
+  range: PkmSourceSpan;
+  context?: readonly PkmSourceSpan[];
+};
+
+/**
+ * A block the owner still has to act on: it was never answered, its answer was
+ * degraded, or it produced fewer details than the agent selected from it. A block
+ * the agent deliberately left empty (`intentionally_ignored`) is resolved.
+ */
+export function isUnresolvedSourceBlock(block: PkmNaturalLanguageSourceCoverage): boolean {
+  return Boolean(block.preparationIssue) || block.disposition === "failed" ||
+    block.detectedFactCount !== block.accountedFactCount;
+}
 
 export type PkmNaturalLanguageDuplicateMatch =
   | { kind: "exact" | "possible"; domain: string; path: string[] }
@@ -155,6 +175,9 @@ function classifySourceBlock(
     // unsaveable.
     return {
       sourceBlockId: `source_block_${String(blockIndex + 1).padStart(3, "0")}`,
+      ...(preview.error || preview.used_fallback === true
+        ? { preparationIssue: "degraded_preview" as const }
+        : {}),
       disposition:
         preview.error || preview.used_fallback === true || detectedFactCount > 0
           ? "review_required"
@@ -172,15 +195,16 @@ function classifySourceBlock(
   const everyCardIgnored = preview.cards.every(
     (card) => card.write_mode === "do_not_save",
   );
+  const degraded = Boolean(preview.error) || preview.used_fallback === true;
   const needsReview =
     segmentCountMismatch ||
-    Boolean(preview.error) ||
-    preview.used_fallback === true ||
+    degraded ||
     preview.cards.some(
       (card) => card.write_mode === "confirm_first" || card.requires_confirmation,
     );
   return {
     sourceBlockId: `source_block_${String(blockIndex + 1).padStart(3, "0")}`,
+    ...(degraded ? { preparationIssue: "degraded_preview" as const } : {}),
     disposition: everyCardIgnored
       ? "intentionally_ignored"
       : needsReview
@@ -256,6 +280,11 @@ export async function prepareNaturalLanguagePkm(params: {
    * match keeps it but forces owner confirmation.
    */
   findDuplicate?: (candidate: string) => PkmNaturalLanguageDuplicateMatch;
+  /**
+   * Prepare only this previously reported block of `message` (a per-section
+   * retry). Coverage ranges stay in `message` coordinates.
+   */
+  sourceSelection?: PkmNaturalLanguageSourceSelection;
   allowEmpty?: boolean;
   /** Test/diagnostic override; production callers use the bounded default. */
   preparationBudgetMs?: number;
@@ -277,7 +306,9 @@ export async function prepareNaturalLanguagePkm(params: {
   // an export first loses cross-field context and reintroduces model fan-out.
   let queue: PkmSourceChunk[] = params.memoryProfile === "kyc_identity_v1"
     ? [{ blocks: [{ start: 0, end: message.length, protectedContext: true }] }]
-    : planPkmSourceChunks(message);
+    : params.sourceSelection
+      ? planPkmSourceSelection(message, params.sourceSelection.range, params.sourceSelection.context)
+      : planPkmSourceChunks(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];
   const sourceCoverage: PkmNaturalLanguageSourceCoverage[] = [];
@@ -295,10 +326,14 @@ export async function prepareNaturalLanguagePkm(params: {
     preparationTimedOut = true;
     preparationController.abort();
   }, preparationBudgetMs);
+  const locate = (chunk: PkmSourceChunk): Pick<PkmNaturalLanguageSourceCoverage, "sourceRange" | "sourceContext"> => ({
+    sourceRange: sourceChunkRange(chunk),
+    ...(chunk.context?.length ? { sourceContext: chunk.context } : {}),
+  });
   const unresolved = (chunk: PkmSourceChunk, preparationIssue: NonNullable<PkmNaturalLanguageSourceCoverage["preparationIssue"]>) => {
     sourceCoverage.push({
       sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
-      sourceRange: sourceChunkRange(chunk), preparationIssue,
+      ...locate(chunk), preparationIssue,
       disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0,
     });
   };
@@ -395,6 +430,18 @@ export async function prepareNaturalLanguagePkm(params: {
       );
       const replacement: PkmSourceChunk[] = [];
       let splitEncountered = false;
+      // Narrow one block into smaller proposals. Returns false when it cannot be
+      // narrowed within the bounded proposal budget.
+      const narrow = (sourceChunk: PkmSourceChunk, offset: number): boolean => {
+        const retryChunks = splitPkmSourceChunk(message, sourceChunk);
+        const deferredWaveItems = results.length - offset - 1;
+        if (!retryChunks || queue.length - wave.length + replacement.length + retryChunks.length + deferredWaveItems > MAX_PROPOSAL_CHUNKS) {
+          return false;
+        }
+        replacement.push(...retryChunks);
+        splitEncountered = true;
+        return true;
+      };
 
       for (let offset = 0; offset < results.length; offset += 1) {
         const result = results[offset]!;
@@ -409,14 +456,16 @@ export async function prepareNaturalLanguagePkm(params: {
           continue;
         }
         if (result.oversized) {
-          unresolved(sourceChunk, "context_span_too_large");
+          // Too long for one proposal: narrow it between whole lines (keeping
+          // its headings) rather than sending a detached body or giving up.
+          if (!narrow(sourceChunk, offset)) unresolved(sourceChunk, "context_span_too_large");
           continue;
         }
         if (result.failed) {
           failedBlocks += 1;
           sourceCoverage.push({
             sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
-            sourceRange: sourceChunkRange(sourceChunk),
+            ...locate(sourceChunk),
             disposition: "failed",
             detectedFactCount: 0,
             accountedFactCount: 0,
@@ -433,9 +482,13 @@ export async function prepareNaturalLanguagePkm(params: {
           continue;
         }
         const preview = result.preview!;
+        // A successful empty selection is the agent's explicit "nothing to save"
+        // for this block (for example a list of what the owner does NOT know).
+        // Re-splitting it would second-guess a valid model decision and, for a
+        // headed section, end in an unresolvable block.
         const incomplete = splitRecommendedPreview(preview) || (
           hasUnaccountedFacts(preview) &&
-          !(params.allowEmpty && isSuccessfulEmptyPreview(preview)) &&
+          !isSuccessfulEmptyPreview(preview) &&
           chunk.length > 96
         );
         if (params.memoryProfile !== "kyc_identity_v1" && incomplete) {
@@ -443,14 +496,13 @@ export async function prepareNaturalLanguagePkm(params: {
             unresolved(sourceChunk, "preparation_timeout");
             continue;
           }
-          const retryChunks = splitPkmSourceChunk(message, sourceChunk);
-          const deferredWaveItems = results.length - offset - 1;
-          if (!retryChunks || queue.length - wave.length + replacement.length + retryChunks.length + deferredWaveItems > MAX_PROPOSAL_CHUNKS) {
-            unresolved(sourceChunk, retryChunks ? "chunk_limit" : "cannot_split_context");
+          if (!narrow(sourceChunk, offset)) {
+            unresolved(
+              sourceChunk,
+              splitPkmSourceChunk(message, sourceChunk) ? "chunk_limit" : "cannot_split_context",
+            );
             continue;
           }
-          replacement.push(...retryChunks);
-          splitEncountered = true;
           logIngestion("chunk_split", {
             ingestion_id: ingestionId,
             source: params.source,
@@ -472,15 +524,16 @@ export async function prepareNaturalLanguagePkm(params: {
         // in it; that is a valid outcome, not an unaccounted block.
         sourceCoverage.push({
           sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
-          sourceRange: sourceChunkRange(sourceChunk),
+          ...locate(sourceChunk),
           disposition: "intentionally_ignored",
           detectedFactCount: 0,
           accountedFactCount: 0,
         });
           continue;
         }
-        const coverage = classifySourceBlock(preview, sourceCoverage.length);
-        coverage.sourceRange = sourceChunkRange(sourceChunk);
+        const coverage: PkmNaturalLanguageSourceCoverage = {
+          ...classifySourceBlock(preview, sourceCoverage.length), ...locate(sourceChunk),
+        };
         const deduped = applyLocalDuplicates(preview.cards, params.findDuplicate);
         if (deduped.dropped > 0) coverage.duplicateCount = deduped.dropped;
         const excludedSecretCount = preview.cards.filter(isSecretRejectedCard).length;
@@ -533,10 +586,7 @@ export async function prepareNaturalLanguagePkm(params: {
   // Partial preparation cannot authorize automatic effects. Keep the model's
   // semantic fields intact and retain cards for explicit owner review/save.
   // A model-requested confirmation alone does not taint independent cards.
-  const incompletePreparation = sourceCoverage.some((block) =>
-    Boolean(block.preparationIssue) || block.disposition === "failed" ||
-    block.detectedFactCount !== block.accountedFactCount,
-  ) || previews.some((preview) => preview.used_fallback === true || Boolean(preview.error));
+  const incompletePreparation = sourceCoverage.some(isUnresolvedSourceBlock) || previews.some((preview) => preview.used_fallback === true || Boolean(preview.error));
   return {
     preview: previews[0] ?? {
       agent_id: "agent_memory_segmentation",
