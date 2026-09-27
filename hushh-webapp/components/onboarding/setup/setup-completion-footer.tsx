@@ -103,7 +103,7 @@ export function SetupCompletionFooter({
       className={cn(
         "mt-4",
         insetBottom
-          ? "pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:pb-8"
+          ? "pb-[calc(var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))+24px)] sm:pb-8"
           : "pb-6",
       )}
     >

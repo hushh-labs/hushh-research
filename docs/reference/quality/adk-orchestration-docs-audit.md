@@ -2091,3 +2091,20 @@ redaction, live-only continuation queries and separate background-search approva
 141 backend and 88 frontend checks passed. Only the nine measured incoming size
 debt entries were reviewed into the baseline; other entries and thresholds remain
 unchanged. No active ADK drafts were imported during this freshness correction.
+
+### Dev maintenance and final CI corrections — 2026-09-27 UTC
+
+The existing reviewer pod completed an authenticated idle handoff and a same-image
+configuration restart for the explicitly authorized dev Gemini bridge. Its service
+identity, encrypted recovery key, storage and resource sizing were preserved; the
+exact maintenance lease was released after provider readback. Prediction access
+roles were verified for that pod's own runtime identity. This is configuration
+maintenance, not a normal image-update receipt or proof of a model turn.
+
+GitHub's full frontend suite on `c8e5ed062` passed 10,286 tests and exposed one lost
+setup-footer clearance fallback. The correction restores the onboarding agent-bar
+token while retaining the pod branch's action authority and nested inset behavior;
+30 focused checks passed. Cloud Build upload verification also caught the extracted
+release-reader shell being excluded. Its explicit include and the executed deployment
+suite's positive/negative upload check now protect that packaging boundary. These
+corrections require a new exact-SHA CI verdict before application deployment.
