@@ -2300,10 +2300,10 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         data-testid="one-location-share-row"
         className={cn(
           LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
+          "flex w-full flex-col gap-4 rounded-[18px] px-4 py-4 text-left sm:flex-row sm:items-center",
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
           <LocationSharePulseIcon />
           <span className="min-w-0">
             <CardTitle
@@ -2312,7 +2312,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
             >
               You&apos;re not sharing
             </CardTitle>
-            <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+            <span className="mt-0.5 block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
@@ -2325,7 +2325,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] min-[420px]:w-auto"
+          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] max-sm:min-h-[50px] sm:w-auto"
         >
           Share location
         </Button>

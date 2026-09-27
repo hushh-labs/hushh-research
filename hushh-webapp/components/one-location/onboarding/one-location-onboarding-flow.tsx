@@ -1648,7 +1648,7 @@ function ReadyScreen({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
+            className="ui-text-agent-title pb-1 [--type-agent-title-size:var(--type-page-title-size)] text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}

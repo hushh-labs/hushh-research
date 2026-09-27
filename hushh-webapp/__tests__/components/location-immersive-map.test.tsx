@@ -1195,9 +1195,17 @@ describe("LocationImmersiveMap demo experience", () => {
     const added: string[][] = [];
     const removed: string[][] = [];
     let seq = 0;
+    let releaseFirstWrite: (() => void) | undefined;
+    let firstWrite = true;
     mapHarness.map.addMarkers.mockImplementation(async (markers: unknown[]) => {
-      // Stall so the next render supersedes this call while it is in flight.
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      // Hold the first native write until the test has changed the marker set.
+      // Wall-clock sleeps can finish before React commits on a busy CI runner.
+      if (firstWrite) {
+        firstWrite = false;
+        await new Promise<void>((resolve) => {
+          releaseFirstWrite = resolve;
+        });
+      }
       const ids = (markers as unknown[]).map(() => `m-${seq++}`);
       added.push(ids);
       return ids;
@@ -1217,20 +1225,24 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
-    // Churn the marker set after the first batch has landed, so the churn
-    // below supersedes a live map rather than racing its mount.
+    // Churn while the first native write is in flight, after renderer mount.
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
     await waitFor(() => {
-      expect(added.length).toBeGreaterThanOrEqual(1);
+      expect(releaseFirstWrite).toBeDefined();
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await act(async () => {
+      releaseFirstWrite!();
+    });
 
     await waitFor(() => {
       expect(added.length).toBeGreaterThan(1);
+      expect(removed.flat()).toEqual(expect.arrayContaining(added[0]));
+      const live = new Set(added.flat());
+      for (const id of removed.flat()) live.delete(id);
+      expect(live.size).toBe(1);
     });
-    await new Promise((resolve) => setTimeout(resolve, 250));
 
     const live = new Set(added.flat());
     for (const id of removed.flat()) live.delete(id);

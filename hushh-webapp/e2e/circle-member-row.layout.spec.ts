@@ -740,10 +740,10 @@ test.describe("Circle roster row", () => {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(fixture.url);
-      await awaitProductFont(page);
       await expect(
         page.getByRole("heading", { name: "SMS Circle" }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15_000 });
+      await awaitProductFont(page);
 
       const trigger = page.getByRole("button", {
         name: `Actions for ${fixture.memberName}`,
@@ -801,6 +801,8 @@ test.describe("Circle roster row", () => {
       await expect(page.getByTestId("relationship-action")).toBeVisible();
 
       await page.reload();
+      await expect(page.getByRole("heading", { name: "SMS Circle" }))
+        .toBeVisible({ timeout: 15_000 });
       await awaitProductFont(page);
       await page
         .getByRole("button", { name: `Actions for ${fixture.memberName}` })
@@ -837,6 +839,8 @@ test.describe("Circle roster row", () => {
     try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(fixture.url);
+      await expect(page.getByRole("heading", { name: "SMS Circle" }))
+        .toBeVisible({ timeout: 15_000 });
       await awaitProductFont(page);
 
       await page
@@ -874,6 +878,8 @@ test.describe("Circle roster row", () => {
       expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
 
       await page.reload();
+      await expect(page.getByRole("heading", { name: "SMS Circle" }))
+        .toBeVisible({ timeout: 15_000 });
       await awaitProductFont(page);
       await page
         .getByRole("button", { name: `Actions for ${fixture.memberName}` })

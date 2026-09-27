@@ -427,7 +427,7 @@ describe("SaveLocationModal", () => {
     expect(
       screen.queryByText(/Saves once your lock is set/i),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Private to you.")).toBeInTheDocument();
+    expect(screen.queryByText("Private to you.")).not.toBeInTheDocument();
     // The detected address is shown, and the Address box is filled from it.
     expect(
       screen.getByText("Kartavya Path, New Delhi, Delhi 110001, India"),

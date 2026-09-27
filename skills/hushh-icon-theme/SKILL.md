@@ -18,7 +18,7 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 3. **Focused Signature Palette**: Each icon has a single signature capability hue (not multi-color or rainbow):
    - **Finance**: Emerald (`#10B981`)
    - **Wallet**: Amber (`#F59E0B`)
-   - **Location**: Crimson (`#EF4444`)
+   - **Location**: Apple Blue (`#007AFF`)
    - **RIA**: Royal Purple (`#8B5CF6`)
    - **Email** (Gmail): Rose / Scarlet (`#E11D48`)
    - **Calendar**: Sky / Ocean Blue (`#0284C7`)
@@ -48,7 +48,7 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 |---|---|---|---|---|
 | `finance` | **Finance** | `Bank` | `duotone` | `#10B981` |
 | `wallet` | **Wallet** | `Wallet` | `duotone` | `#F59E0B` |
-| `location` | **Location** | `MapPin` | `duotone` | `#EF4444` |
+| `location` | **Location** | `MapPin` | `duotone` | `#007AFF` |
 | `ria` | **RIA** | `UsersThree` | `duotone` | `#8B5CF6` |
 | `gmail` | **Email** | `EnvelopeSimple` | `duotone` | `#E11D48` |
 | `calendar` | **Calendar** | `CalendarBlank` | `duotone` | `#0284C7` |
