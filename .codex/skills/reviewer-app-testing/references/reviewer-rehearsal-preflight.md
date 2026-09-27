@@ -1,8 +1,6 @@
 # Reviewer Rehearsal Preflight
 
-Run this gate before opening Chromium. A browser assertion is not evidence when
-the local runtime cannot mint the canonical reviewer session or the application
-can mutate a shared fixture while it is being observed.
+Run before Chromium: resolve the canonical reviewer and prevent unauthorized shared-fixture mutations.
 
 ## Required conditions
 
@@ -57,8 +55,7 @@ consent-protocol/.venv/bin/python \
 
 ## Failure modes, by symptom
 
-These have each cost hours. Match the symptom before debugging the app: in every
-case below the application was fine and the harness was being driven wrong.
+Check these known harness failures before attributing the symptom to the application.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -68,19 +65,13 @@ case below the application was fine and the harness was being driven wrong.
 | Review mode looks enabled but the session never mints | The backend was not restarted after `reviewer_mode.sh enable`, so it is still serving the pre-toggle configuration. | Restart the backend, then re-run the preflight. |
 | A selector that works locally finds nothing on a deployed origin | The rehearsal was hand-rolled with raw Playwright and coupled to one element id (for example `#unlock-passphrase`). | Use the shared harness. It owns unlock, continuity, and navigation; hand-rolled scripts silently drift from it. |
 
-The rule underneath all of these: **do not hand-roll a reviewer Playwright
-script.** Compose `createReviewerSessionHarness` from
-`scripts/reviewer-session-harness.mjs`, which owns identity resolution, the
-visible vault challenge, `vaultKeyHash` continuity, in-app navigation, and
-owner-token reads. A bespoke script reproduces those badly and proves less.
+Compose `createReviewerSessionHarness` from `scripts/reviewer-session-harness.mjs`; do not hand-roll reviewer Playwright.
+It owns identity resolution, the visible vault challenge, `vaultKeyHash` continuity, in-app navigation and owner-token reads.
 
 ## Evidence standard
 
-A passing rehearsal reports canonical identity resolution, the visible
-locked-vault challenge, same-session continuity, and cold-session re-unlock. A
-healthy server, review-mode response, or static script check is not a browser
-pass. Report the first failed boundary and mutation policy—never secrets,
-tokens, plaintext information, or screenshots containing them.
+Report canonical identity, visible unlock, same-session continuity and separate cold re-unlock.
+Health or static checks do not prove browser acceptance. Report the first failed boundary and mutation policy; never expose secrets, tokens, plaintext or screenshots containing them.
 
 ## Trusted Devices with an existing pod
 
