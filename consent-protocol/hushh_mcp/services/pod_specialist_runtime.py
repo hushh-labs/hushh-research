@@ -441,7 +441,7 @@ class PodEmailReadPort:
             _hub_read,
             "email",
             self._scope_token,
-            email_read=query.model_dump(),
+            email_read=query.model_dump(exclude_unset=True),
         )
 
     async def list_nudges(self, *, user_id: str, limit: int = 10) -> dict:

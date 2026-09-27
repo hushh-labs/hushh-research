@@ -171,4 +171,30 @@ describe("EmailDeliveryService", () => {
       bcc: "",
     });
   });
+  it.each(["network", "invalid-json", "invalid-receipt"])(
+    "does not invite a duplicate mailbox write after %s", async (failure) => {
+      if (failure === "network") {
+        vi.mocked(ApiService.apiFetch).mockRejectedValueOnce(new TypeError("Connection lost"));
+      } else {
+        vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(
+          failure === "invalid-json" ? "not json" : JSON.stringify({ status: "executed", count: -1 }),
+          { status: 200 },
+        ));
+      }
+      await expect(EmailDeliveryService.executeMailboxProposal({
+        firebaseIdToken: "synthetic-id", vaultOwnerToken: "synthetic-owner", proposalId: "synthetic-proposal",
+      })).rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
+      expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves an explicit mailbox authorization refusal", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: { code: "GMAIL_MAILBOX_CONNECTION_CHANGED" },
+    }), { status: 409 }));
+    await expect(EmailDeliveryService.executeMailboxProposal({
+      firebaseIdToken: "synthetic-id", vaultOwnerToken: "synthetic-owner", proposalId: "synthetic-proposal",
+    })).rejects.toMatchObject({ code: "GMAIL_MAILBOX_CONNECTION_CHANGED", status: 409 });
+  });
+
 });

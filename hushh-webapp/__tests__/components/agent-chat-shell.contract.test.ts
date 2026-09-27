@@ -69,7 +69,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("drainOperationQueue");
     expect(workspace).toContain("agent-chat-prompt-queue");
     expect(workspace).toContain("enqueueCalendarDirective");
-    expect(workspace).toContain('text: "Scheduling…"');
+    // Calendar and reviewed Gmail changes share one serialized runner.
+    expect(workspace).toContain('pendingText: "Scheduling…"');
+    expect(workspace).toContain("enqueueWorkspaceOperation({");
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 

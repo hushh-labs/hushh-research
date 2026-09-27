@@ -1481,8 +1481,12 @@ describe("ConnectedSystemsPanel", () => {
     expect(
       await screen.findByRole("region", { name: "CRM record fields" }),
     ).toBeTruthy();
+    // The region renders before the record read resolves; wait for the
+    // record-derived lock, not just the region (flaked under full-suite load).
+    expect(
+      await screen.findByText("Primary CRM lookup field is locked"),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit Email" })).toBeNull();
-    expect(await screen.findByText("Primary CRM lookup field is locked")).toBeTruthy();
     expect(
       screen.getByText("Primary CRM lookup field is locked").parentElement,
     ).toHaveClass("w-full", "justify-end");

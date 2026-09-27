@@ -211,8 +211,20 @@ import {
   parseRestoredTurnActivity,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
+import {
+  DRIVE_REVIEW_DELEGATE,
+  driveReviewDetails,
+  getDriveReviewDirectiveFromToolResult,
+  runDriveReviewDirective,
+} from "@/lib/agent/drive-review-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
+import {
+  GMAIL_MAILBOX_ACTION_COPY,
+  gmailMailboxAction,
+  gmailMailboxDetails,
+  runGmailMailboxDirective,
+} from "@/lib/agent/gmail-mailbox-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
   createGoogleOAuthPopupAttempt,
@@ -3904,6 +3916,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   };
 
+  const handleEnableGmailModify = async () => {
+    if (!user?.uid || !user?.getIdToken) return;
+    if (Capacitor.isNativePlatform()) {
+      // The native Google sign-in plugins request an explicit scope list and do
+      // not yet include gmail.modify; never start a grant they would reject.
+      addErrorMessage("Allow Gmail changes from One on the web for now.");
+      return;
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const loginHint = user.providerData?.some(
+        (provider) => provider.providerId === "google.com",
+      )
+        ? user.email ?? null
+        : null;
+      const start = await GmailReceiptsService.startConnect({
+        idToken,
+        userId: user.uid,
+        loginHint,
+        includeGrantedScopes: true,
+        purpose: "modify",
+      });
+      window.location.assign(start.authorize_url);
+    } catch {
+      addErrorMessage("Unable to request Gmail permission. Please try again.");
+    }
+  };
+
   useEffect(() => {
     if (
       !hasChatAccess ||
@@ -5362,6 +5402,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (calendarDirective) {
               setPendingSpecialistDirective(calendarDirective);
             }
+            const driveReview = getDriveReviewDirectiveFromToolResult(
+              toolEvent.raw?.toolName,
+              toolEvent.raw?.result,
+            );
+            if (driveReview) {
+              setPendingSpecialistDirective(driveReview);
+            }
             const visibleEvent = agentToolEventToVisibleStreamEvent(
               "result",
               toolEvent,
@@ -6009,22 +6056,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
   };
 
-  const enqueueCalendarDirective = (
+  // One confirmed, server-persisted proposal at a time per proposal id:
+  // echo the owner's choice, show progress, then the service's outcome.
+  const enqueueReviewedDirective = (
     directive: SpecialistDirectiveEvent,
-    token: string,
-    userId: string,
+    options: {
+      scope: "calendar" | "gmail-mailbox";
+      pendingText: string;
+      doneText: string;
+      failedText: string;
+      run: () => Promise<DelegateResult>;
+    },
   ) => {
     const payload = directive.directive.payload as Record<string, unknown>;
-    const actionKey = String(
+    const actionKey = `${options.scope}:${String(
       payload.proposalId ?? payload.id ?? directive.message,
-    );
+    )}`;
     if (calendarActionIdsRef.current.has(actionKey)) return;
     calendarActionIdsRef.current.add(actionKey);
     const label = String(payload.confirmLabel ?? "Confirm");
-    const resultMessageId = `msg-${crypto.randomUUID()}-calendar-result`;
+    const resultMessageId = `msg-${crypto.randomUUID()}-${options.scope}-result`;
 
     appendMessage({
-      id: `msg-${crypto.randomUUID()}-calendar-confirm`,
+      id: `msg-${crypto.randomUUID()}-${options.scope}-confirm`,
       role: "user",
       text: label,
       timestamp: formatNow(),
@@ -6034,7 +6088,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     appendMessage({
       id: resultMessageId,
       role: "assistant",
-      text: "Scheduling…",
+      text: options.pendingText,
       timestamp: formatNow(),
       status: "streaming",
       renderAsPlainAssistantMessage: true,
@@ -6043,26 +6097,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setSpecialistBusy(true);
 
     enqueueWorkspaceOperation({
-      id: `calendar-${actionKey}`,
+      id: actionKey.replace(":", "-"),
       run: async () => {
         try {
-          const result = await runCalendarDirective(
-            directive.directive,
-            token,
-            userId,
-          );
+          const result = await options.run();
           updateMessage(resultMessageId, (message) => ({
             ...message,
-            text: result.detail || "Calendar updated.",
+            text: result.detail || options.doneText,
             status: "done",
           }));
         } catch (error) {
           updateMessage(resultMessageId, (message) => ({
             ...message,
-            text:
-              error instanceof Error
-                ? error.message
-                : "The Calendar change could not be completed.",
+            text: error instanceof Error ? error.message : options.failedText,
             status: "error",
           }));
         } finally {
@@ -6070,6 +6117,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           setSpecialistBusy(false);
         }
       },
+    });
+  };
+
+  const enqueueCalendarDirective = (
+    directive: SpecialistDirectiveEvent,
+    token: string,
+    userId: string,
+  ) =>
+    enqueueReviewedDirective(directive, {
+      scope: "calendar",
+      pendingText: "Scheduling…",
+      doneText: "Calendar updated.",
+      failedText: "The Calendar change could not be completed.",
+      run: () => runCalendarDirective(directive.directive, token, userId),
+    });
+
+  const enqueueGmailMailboxDirective = (
+    directive: SpecialistDirectiveEvent,
+    auth: { firebaseIdToken: string; vaultOwnerToken: string },
+  ) => {
+    const payload = directive.directive.payload as Record<string, unknown>;
+    const action = gmailMailboxAction(payload);
+    enqueueReviewedDirective(directive, {
+      scope: "gmail-mailbox",
+      pendingText: action ? GMAIL_MAILBOX_ACTION_COPY[action].pending : "Updating Gmail…",
+      doneText: "Gmail updated.",
+      failedText: "The Gmail change could not be completed.",
+      run: () => runGmailMailboxDirective(directive.directive, auth),
     });
   };
 
@@ -7595,6 +7670,148 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       toast.info(
                         "Calendar change cancelled. Nothing was changed.",
                       );
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                  DRIVE_REVIEW_DELEGATE ? (
+                  <SpecialistDirectiveCard
+                    details={driveReviewDetails(
+                      pendingSpecialistDirective.directive.payload as Record<
+                        string,
+                        unknown
+                      >,
+                    )}
+                    summary={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).confirmLabel ?? "Confirm",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      const token = getVaultOwnerToken();
+                      if (!token || !user?.uid) {
+                        addErrorMessage(
+                          "Vault access expired. Unlock again to continue.",
+                        );
+                        return;
+                      }
+                      const payload = directive.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
+                      setSpecialistBusy(true);
+                      appendMessage({
+                        id: `msg-${crypto.randomUUID()}-drive-confirm`,
+                        role: "user",
+                        text: String(payload.confirmLabel ?? "Confirm"),
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      setPendingSpecialistDirective(null);
+                      try {
+                        const result = await runDriveReviewDirective(
+                          directive.directive,
+                          token,
+                          user.uid,
+                        );
+                        appendMessage({
+                          id: `msg-${crypto.randomUUID()}-drive-result`,
+                          role: "assistant",
+                          text: result.detail,
+                          timestamp: formatNow(),
+                          status: "done",
+                          renderAsPlainAssistantMessage: true,
+                        });
+                      } catch (error) {
+                        addErrorMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to apply the Drive change.",
+                        );
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("Drive change cancelled. Nothing was changed.");
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                  "agent_email" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
+                    )}
+                    items={gmailMailboxDetails(
+                      pendingSpecialistDirective.directive.payload as Record<
+                        string,
+                        unknown
+                      >,
+                    )}
+                    confirmLabel={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).confirmLabel ?? "Continue",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      const payload = directive.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
+                      const type = String(payload.type ?? "");
+                      if (type === "gmail.connect") {
+                        // The restricted gmail.modify scope is requested only
+                        // here, on first use, on top of existing grants.
+                        setPendingSpecialistDirective(null);
+                        await handleEnableGmailModify();
+                        return;
+                      }
+                      if (type !== "gmail.execute_mailbox_proposal") {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage(
+                          "That Gmail action is no longer available.",
+                        );
+                        return;
+                      }
+                      const vaultOwnerToken = getVaultOwnerToken();
+                      if (!vaultOwnerToken || !user?.getIdToken) {
+                        addErrorMessage(
+                          "Vault access expired. Unlock again to continue.",
+                        );
+                        return;
+                      }
+                      enqueueGmailMailboxDirective(directive, {
+                        firebaseIdToken: await user.getIdToken(),
+                        vaultOwnerToken,
+                      });
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("Gmail change cancelled. Nothing was changed.");
                     }}
                   />
                 ) : localCrmEnabled && pendingSpecialistDirective.delegateAgentId ===

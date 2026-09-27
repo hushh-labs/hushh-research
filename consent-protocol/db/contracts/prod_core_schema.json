@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 249,
+  "expected_migration_version": 250,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -850,6 +850,17 @@
     "feed_event_counterparts": [
       "feed_event_id",
       "counterpart_user_id"
+    ],
+    "gmail_mailbox_action_proposals": [
+      "proposal_id",
+      "user_id",
+      "google_sub",
+      "action",
+      "message_ids",
+      "label_id",
+      "status",
+      "expires_at",
+      "created_at"
     ],
     "gmail_owner_send_actions": [
       "action_id",

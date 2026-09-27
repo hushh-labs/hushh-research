@@ -51,11 +51,19 @@ WORKSPACE_CHAT_ADMISSION_STATE = "temp:hussh:workspace_chat_admission"
 WORKSPACE_PRIVATE_SOURCE = "workspace_mcp"
 _TRUSTED_TOOL_DESCRIPTIONS = {
     "drive": {
-        "get_file_metadata": "Read metadata for one Drive file.",
+        "get_file_metadata": "Read the name, type, time, size and opening link of one Drive file.",
         "get_file_permissions": "Read permissions for one Drive file.",
         "list_recent_files": "List recent Drive files.",
-        "read_file_content": "Read content of one Drive file.",
-        "search_files": "Search Drive files.",
+        "read_file_content": (
+            "Read one Drive file: a Doc as Markdown, a Sheet as a table (first sheet), "
+            "Slides as text, PDFs and Word files as text; other files return metadata only."
+        ),
+        "search_files": (
+            "Search all of the person's Drive by words (text), type (mimeType: document, "
+            "spreadsheet, presentation, folder, pdf, image, video, audio or an exact MIME "
+            "type), owner (me, shared_with_me, any), modifiedAfter/modifiedBefore (ISO "
+            "8601), folderId, with pageToken for more results."
+        ),
     },
     "gmail": {
         "search_threads": "Search Gmail thread metadata.",
@@ -249,12 +257,17 @@ _DRIVE_REST_CATALOG: tuple[dict[str, Any], ...] = (
         "inputSchema": {
             "type": "object",
             "properties": {
+                "text": {"type": "string", "minLength": 1, "maxLength": 200},
+                "mimeType": {"type": "string", "minLength": 1, "maxLength": 160},
+                "owner": {"type": "string", "enum": ["me", "shared_with_me", "any"]},
+                "modifiedAfter": {"type": "string", "maxLength": 40},
+                "modifiedBefore": {"type": "string", "maxLength": 40},
+                "folderId": {"type": "string", "minLength": 1, "maxLength": 200},
                 "query": {"type": "string", "minLength": 1, "maxLength": 1800},
                 "pageSize": _DRIVE_PAGE,
                 "pageToken": {"type": "string", "maxLength": 1024},
                 "orderBy": {"type": "string", "maxLength": 32},
             },
-            "required": ["query"],
             "additionalProperties": False,
         },
     },
@@ -271,6 +284,15 @@ _DRIVE_REST_CATALOG: tuple[dict[str, Any], ...] = (
     },
     {
         "name": "read_file_content",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"fileId": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "required": ["fileId"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_file_metadata",
         "inputSchema": {
             "type": "object",
             "properties": {"fileId": {"type": "string", "minLength": 1, "maxLength": 256}},

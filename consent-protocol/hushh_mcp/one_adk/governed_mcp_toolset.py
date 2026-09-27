@@ -30,7 +30,6 @@ from mcp.types import Tool
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.consent.audit_logger import get_audit_logger
-from hushh_mcp.one_adk.external_read_boundary import mcp_call_may_skip_review
 from hushh_mcp.one_adk.mcp_result_projection import (
     _credential_values as _credential_values,
 )
@@ -77,19 +76,22 @@ class McpConnectionBinding:
             raise ValueError("Invalid MCP authority revision")
 
 
-# Founder decision 2026-09-25, "reads free, writes reviewed":
-#   always         every call needs exact-call review (registered/curated rows).
-#   credentialed   the person gave this connector a credential. Only a tool the
-#                  server itself annotates readOnlyHint=true runs unreviewed.
-#   credentialless no person credential is held, so no person authority is
-#                  exercised; calls run unreviewed.
-# A hint is the server's own claim, so it relaxes review only where the person
-# chose to trust that server with a credential. Unknown policy fails closed.
+# Founder decision 2026-09-27, "it's the user's MCP, let it be used freely":
+#   always         every call needs exact-call review (curated first-party rows).
+#   credentialed   the person's own connector, holding their credential.
+#   credentialless the person's own connector, holding no credential.
+# Calls on the person's own connectors run without review, whatever the tool's
+# annotations or the conversation's earlier content. The only review left on
+# them is the owner's own rule (a blocked tool whose contract changed). The two
+# own-connector policies differ only in how the owner's Activity labels a call.
+# Unknown policy fails closed.
 McpReviewPolicy = Literal["always", "credentialed", "credentialless"]
 MCP_REVIEW_POLICIES: frozenset[str] = frozenset(get_args(McpReviewPolicy))
-# Why a call ran, for the owner's Activity. "no_credential" is deliberately not
-# "read_only": an unannotated tool on a public server may still change things.
-McpReviewOutcome = Literal["required", "read_only", "no_credential"]
+OWN_CONNECTOR_POLICIES: frozenset[str] = frozenset({"credentialed", "credentialless"})
+# Why a call ran unreviewed, for the owner's Activity. Only "read_only" claims
+# the tool reads: "no_credential" (a public server) and "own_connector" (the
+# person's credential) may still change things.
+McpReviewOutcome = Literal["required", "read_only", "no_credential", "own_connector"]
 
 
 def _annotated_read_only(descriptor: object) -> bool:
@@ -104,20 +106,18 @@ def _annotated_read_only(descriptor: object) -> bool:
     )
 
 
-def mcp_call_requires_review(policy: object, descriptor: object) -> bool:
-    """Fail closed: anything but an exact, known relaxation needs review."""
-    if policy == "credentialless":
-        return False
-    return policy != "credentialed" or not _annotated_read_only(descriptor)
-
-
 def mcp_review_outcome(
     policy: object, descriptor: object, *, forced: bool = False
 ) -> McpReviewOutcome:
-    """`forced` is an owner rule (e.g. a block whose tool contract changed)."""
-    if forced or mcp_call_requires_review(policy, descriptor):
+    """Fail closed: only the person's own connector runs unreviewed.
+
+    `forced` is an owner rule (e.g. a block whose tool contract changed).
+    """
+    if forced or policy not in OWN_CONNECTOR_POLICIES:
         return "required"
-    return "read_only" if _annotated_read_only(descriptor) else "no_credential"
+    if _annotated_read_only(descriptor):
+        return "read_only"
+    return "no_credential" if policy == "credentialless" else "own_connector"
 
 
 @dataclass(frozen=True)
@@ -241,12 +241,12 @@ async def resolve_registered_connection(
         or any(ord(c) < 32 or ord(c) == 127 for c in credential)
     ):
         raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
-    return ResolvedMcpConnection(binding, {header: credential})
+    # Only the owner's own private registration reaches here; curated rows
+    # returned above keep the default "always".
+    return ResolvedMcpConnection(binding, {header: credential}, review_policy="credentialed")
 
 
 ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
-# Claims one unit of the owning turn's unreviewed-call budget; False means review.
-AdmitUnreviewed = Callable[[], bool]
 _unreviewed_audit = get_audit_logger("hushh_mcp.audit.mcp_unreviewed_call")
 
 
@@ -281,7 +281,7 @@ def _audit_unreviewed_call(
 
 # None permits this exact call; a dict is a safe pending/blocked app response.
 # The callback must consume existing app authority, never trust MCP annotations;
-# only mcp_call_requires_review decides whether the callback runs at all.
+# only mcp_review_outcome decides whether the callback runs at all.
 AuthorizeCall = Callable[
     [Any, McpConnectionBinding, str, str, dict[str, Any]], Awaitable[dict[str, Any] | None]
 ]
@@ -348,7 +348,6 @@ class GovernedMcpToolset(McpToolset):
         result_policy: ResultPolicy | None = None,
         review_policy: McpReviewPolicy = "always",
         forced_review_tool_ids: frozenset[str] = frozenset(),
-        admit_unreviewed: AdmitUnreviewed | None = None,
     ) -> None:
         validate_mcp_endpoint(binding.endpoint)
         if not binding.owner_id or not binding.connector_id or binding.generation < 1:
@@ -372,8 +371,6 @@ class GovernedMcpToolset(McpToolset):
         self.result_policy = result_policy
         self.review_policy: McpReviewPolicy = review_policy
         self.forced_review_tool_ids = forced_review_tool_ids
-        # No budget owner (no turn scope) means no unreviewed call at all.
-        self.admit_unreviewed = admit_unreviewed
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
@@ -532,16 +529,11 @@ class _GovernedMcpTool(McpTool):
             validated_mcp_arguments(self.provider_schema, arguments)
             # Decided on the admitted descriptor of the current catalog revision;
             # a hint change re-keys the catalog and fails the epoch check below.
-            # An unreviewed call never touches the action directive ledger.
+            # An unreviewed call never touches the action directive ledger. A
+            # confirmed resume (a review issued before this policy) still
+            # consumes its receipt rather than skipping it.
             outcome = owner.review_outcome(self.name, self.descriptor)
-            if outcome != "required" and not (
-                # Before any external content in this turn, and within budget.
-                mcp_call_may_skip_review(tool_context)
-                and owner.admit_unreviewed is not None
-                and owner.admit_unreviewed()
-            ):
-                outcome = "required"
-            reviewed = outcome == "required"
+            reviewed = outcome == "required" or confirmation is not None
             if reviewed:
                 pending = await owner.authorize_call(
                     tool_context,

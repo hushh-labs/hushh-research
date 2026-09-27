@@ -325,7 +325,16 @@ async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payl
         ("search_files", {"query": ""}),
         ("search_files", {"query": "x", "pageSize": 99}),
         ("search_files", {"query": "x", "pageSize": True}),
+        # A search needs a criterion; a typed filter never carries raw syntax.
+        ("search_files", {}),
+        ("search_files", {"owner": "everyone"}),
+        ("search_files", {"mimeType": "x' or name contains 'y"}),
+        ("search_files", {"folderId": "a' in parents or 'b"}),
+        ("search_files", {"modifiedAfter": "last week"}),
+        # The model's read tool can never reach a write, reviewed or not.
         ("create_file", {}),
+        ("share_file", {"fileId": FILE_ID, "email": "a@example.invalid", "role": "writer"}),
+        ("trash_file", {"fileId": FILE_ID}),
     ],
 )
 async def test_bad_arguments_and_tools_never_reach_drive(monkeypatch, tool, arguments):
@@ -440,3 +449,179 @@ async def test_the_adapter_admits_only_the_bounded_list_shape(monkeypatch, param
 def test_live_reads_default_to_the_rest_transport():
     reader = DriveLiveReader(user_id="owner", require_access=AsyncMock(), oauth=SimpleNamespace())
     assert isinstance(reader.mcp, rest.GoogleDriveRestTransport)
+
+
+async def test_typed_search_filters_compile_to_one_escaped_drive_query(monkeypatch):
+    # The owner's words are data, never query syntax: a quote or backslash in
+    # them cannot close the literal and add a clause of the model's choosing.
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={
+            "text": "Q3 'budget' \\ final",
+            "mimeType": "spreadsheet",
+            "owner": "shared_with_me",
+            "modifiedAfter": "2026-09-01",
+            "modifiedBefore": "2026-09-27T10:00:00-07:00",
+            "folderId": "folder_1",
+        },
+    )
+    literal = "'Q3 \\'budget\\' \\\\ final'"
+    assert listing.await_args.kwargs["query"] == (
+        f"(name contains {literal} or fullText contains {literal})"
+        " and mimeType = 'application/vnd.google-apps.spreadsheet'"
+        " and sharedWithMe = true"
+        " and modifiedTime >= '2026-09-01T00:00:00Z'"
+        " and modifiedTime < '2026-09-27T17:00:00Z'"
+        " and 'folder_1' in parents"
+        " and trashed = false"
+    )
+    # A word search is a fullText search, which Drive refuses to order.
+    assert listing.await_args.kwargs["order_by"] is None
+
+
+async def test_a_file_without_text_returns_metadata_only(monkeypatch):
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(side_effect=DriveReadError("unsupported_format")),
+        get_file_facts=AsyncMock(
+            return_value={"id": FILE_ID, "title": "clip.mp4", "mimeType": "video/mp4"}
+        ),
+        read_live_bytes=AsyncMock(side_effect=AssertionError("content read")),
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_tool(
+        user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
+    )
+    assert result.payload == {
+        "textFormattingNotSupported": True,
+        "metadataOnly": True,
+        "file": {"id": FILE_ID, "title": "clip.mp4", "mimeType": "video/mp4"},
+    }
+
+
+def _folder(**changes):
+    from hushh_mcp.services.google_drive_write_adapter import FOLDER_MIME, FileFacts
+
+    fields = {
+        "file_id": "folder_1",
+        "mime_type": FOLDER_MIME,
+        "parents": (),
+        "trashed": False,
+        "owned_by_me": True,
+        "shared": False,
+        "shared_drive": False,
+        "can_add_children": True,
+        **changes,
+    }
+    return FileFacts(**fields)
+
+
+@pytest.mark.parametrize(
+    "folder", [{"shared": True}, {"owned_by_me": False}, {"shared_drive": True}]
+)
+@pytest.mark.parametrize(
+    "tool,arguments",
+    [
+        ("create_file", {"name": "Notes", "kind": "document", "folderId": "folder_1"}),
+        ("copy_file", {"fileId": FILE_ID, "folderId": "folder_1"}),
+        ("move_file", {"fileId": FILE_ID, "folderId": "folder_1"}),
+    ],
+)
+async def test_a_direct_write_cannot_share_a_file_by_filing_it(
+    monkeypatch, folder, tool, arguments
+):
+    # Sharing is a reviewed write. Filing into a folder others can see would
+    # share the file with them, so no direct write may choose such a folder.
+    from hushh_mcp.services.google_drive_write_adapter import DriveWriteError
+
+    refuse = AsyncMock(side_effect=AssertionError("drive written"))
+    writer = SimpleNamespace(
+        facts=AsyncMock(return_value=_folder(**folder)), create=refuse, copy=refuse, update=refuse
+    )
+    drive = transport(monkeypatch=monkeypatch)
+    drive.writer = writer
+    with pytest.raises(DriveWriteError, match="destination_shared"):
+        await drive.write_tool(user_id="owner", tool_name=tool, arguments=arguments)
+    refuse.assert_not_awaited()
+
+
+async def test_a_move_into_a_private_folder_leaves_its_old_folders(monkeypatch):
+    moved = {"id": FILE_ID, "title": "a", "mimeType": "application/pdf", "viewUrl": None}
+    writer = SimpleNamespace(
+        facts=AsyncMock(
+            side_effect=[_folder(), _folder(file_id=FILE_ID, parents=("old_1", "old_2"))]
+        ),
+        update=AsyncMock(return_value=moved),
+    )
+    drive = transport(monkeypatch=monkeypatch)
+    drive.writer = writer
+    result = await drive.write_tool(
+        user_id="owner",
+        tool_name="move_file",
+        arguments={"fileId": FILE_ID, "folderId": "folder_1", "name": "Final"},
+    )
+    assert result.payload == {"file": moved}
+    writer.update.assert_awaited_once_with(
+        access_token=GRANT,
+        target=FILE_ID,
+        name="Final",
+        add_parent="folder_1",
+        remove_parents=("old_1", "old_2"),
+    )
+
+
+async def test_writes_keep_the_live_grant_fence(monkeypatch):
+    comment = AsyncMock(return_value={"commentId": "c1", "createdTime": None})
+    arguments = {"fileId": FILE_ID, "text": "Looks good"}
+    off = transport(monkeypatch=monkeypatch, enabled=False)
+    off.writer = SimpleNamespace(comment=comment)
+    with pytest.raises(DriveOAuthError, match="connector_unavailable"):
+        await off.write_tool(user_id="owner", tool_name="add_comment", arguments=arguments)
+    comment.assert_not_awaited()
+    # A write already sent when the connection changes is not reported as a
+    # failure to reconnect and retry, which could post it twice.
+    from hushh_mcp.services.google_drive_write_adapter import DriveWriteError
+
+    changed = transport(current=row(connection_generation=8), monkeypatch=monkeypatch)
+    changed.writer = SimpleNamespace(comment=comment)
+    with pytest.raises(DriveWriteError) as raised:
+        await changed.write_tool(user_id="owner", tool_name="add_comment", arguments=arguments)
+    assert raised.value.outcome_unknown is True
+
+
+async def test_a_reviewed_write_under_another_connection_is_refused_before_sending(monkeypatch):
+    share = AsyncMock(side_effect=AssertionError("drive written"))
+    drive = transport(monkeypatch=monkeypatch)
+    drive.writer = SimpleNamespace(share=share)
+    arguments = {"fileId": FILE_ID, "email": "a@example.invalid", "role": "reader"}
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await drive.write_tool(
+            user_id="owner", tool_name="share_file", arguments=arguments, expected_generation=6
+        )
+    share.assert_not_awaited()
+
+
+async def test_any_failure_after_a_write_was_sent_is_an_unknown_outcome(monkeypatch):
+    # A failure after the request left (here the post-write connection read)
+    # must not read as a plain error the model might retry into a duplicate.
+    # A failure before anything was sent stays an ordinary refusal.
+    from hushh_mcp.services import google_drive_write_adapter as writes
+
+    async def sent_comment(**_):
+        writes.MUTATION_SENT.get()["sent"] = True
+        return {"commentId": "c1", "createdTime": None}
+
+    drive = transport(monkeypatch=monkeypatch)
+    drive.writer = SimpleNamespace(comment=sent_comment)
+    drive._oauth.lifecycle.read.side_effect = RuntimeError("database unavailable")
+    arguments = {"fileId": FILE_ID, "text": "Looks good"}
+    with pytest.raises(writes.DriveWriteError) as raised:
+        await drive.write_tool(user_id="owner", tool_name="add_comment", arguments=arguments)
+    assert raised.value.outcome_unknown is True
+
+    unsent = transport(monkeypatch=monkeypatch)
+    unsent.writer = SimpleNamespace(comment=AsyncMock(side_effect=RuntimeError("before send")))
+    with pytest.raises(RuntimeError, match="before send"):
+        await unsent.write_tool(user_id="owner", tool_name="add_comment", arguments=arguments)

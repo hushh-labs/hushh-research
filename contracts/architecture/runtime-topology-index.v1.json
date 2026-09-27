@@ -981,12 +981,13 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "gmail_owner_send_actions",
-        "google_email_send_actions"
+        "google_email_send_actions",
+        "gmail_mailbox_action_proposals"
       ],
       "id": "gmail_owner_approved_delivery",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation"
     },
     {
       "data_class": "workflow_state",
@@ -5940,9 +5941,9 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
-    "agent_registry": "e52156d995e0eda696b7911d79ac29bb88b6fdf7e20b6c346f3e06581b1263c0",
+    "agent_registry": "3c98badbf57b0ed85280302cc6a46e4c245165cb92a4697c055784f7823348f1",
     "cache_manifest": "9e299de1d2fe0b01c06daa7cc8610b769b4bb9b321e0611e58c258329f2ab715",
-    "data_plane": "48582d1fb6a28c7f9075b2e38b11e4467d543cd2186b9d2084b540b636e8c49b",
+    "data_plane": "af86e38393af7bb0bd7b69c5396f2e8f6ddcccd3db4efcd88430fd5a97a9f468",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "62a54d78776db967dd224f16d8ec9ae31f6cccb9a5f58e83c0b97a9d8a241dea",
     "route_index": "7e5627296d02ca538ac5abac003a79feeff77ee4f18466d7c1ab60efe27f95a1",

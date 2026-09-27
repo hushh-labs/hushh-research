@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, RequireAccess
+from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, RequireAccess, _arguments
 from hushh_mcp.services.pod_mail_observation import MailObservation
 
 
@@ -17,14 +18,21 @@ class PodMailMetadataReader:
         self._used = False
 
     async def read(self, operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if self._used or operation not in {"list_recent", "list_needs_reply", "search_inbox"}:
+        if self._used:
             raise GmailMetadataError("invalid_argument")
+        _arguments(operation, arguments)
         self._used = True
         await self._require_access()
         result = await self._read(operation=operation, **arguments)
         self._observation = MailObservation.model_validate(result["observation"])
         metadata = result["metadata"]
-        if not isinstance(metadata, dict) or metadata.get("metadata_only") is not True:
+        reads_body = operation in {"read_message", "read_thread"}
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("metadata_only") is not (not reads_body)
+            or (reads_body and metadata.get("operation") != operation)
+            or len(json.dumps(metadata).encode("utf-8")) > 24000
+        ):
             raise GmailMetadataError("invalid_response")
         return metadata
 

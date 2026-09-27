@@ -129,6 +129,19 @@ are not a second credential authority. Source admission does not establish an
 active curated registry row, Google Developer Preview access, or a successful
 provider call. Do not report these reads as live solely from this wiring.
 
+Typed Chat also carries the owner's Drive writes over the live (full `drive`)
+grant, per the 2026-09-27 founder decision to expose Drive "like any other MCP"
+(`hushh_mcp/one_adk/drive_write_tools.py`). `create_drive_file`,
+`copy_drive_file`, `move_drive_file` and `comment_on_drive_file` run when called,
+but may file only into a folder no one else can see, because filing into a
+shared folder would share the file. `propose_drive_file_share` (any email, as
+Viewer, Commenter or Editor) and `propose_drive_file_trash` only issue a
+one-use `adk_chat` review in `one_action_directive_ledger`; Drive is called only
+from `POST /api/one/drive/reviewed-actions/execute`, whose rebuilt terms must
+match that review exactly. Every call keeps the transport's owner, grant and
+connection-generation fence, and a same-turn Drive read still ends the turn
+before any write.
+
 Nav's public handle runs a fresh, bounded ADK session per turn. Nav and its
 Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner rejects
 `single_turn` roots; this does not introduce shared owner history. One's intro
@@ -209,8 +222,11 @@ Memory is reached through `ask_memory_agent`; Marketplace pages remain standalon
 product surfaces. Email's `ask_email_agent` path admits only owner-authorized
 typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
 them. It preserves One's conversation and permits only `list_recent` (the newest
-INBOX page, "my last N emails"), `list_needs_reply` and `search_inbox`, each scoped
-to `inbox`, `sent` or `anywhere` and returning an `unread` flag. After a read, only exact-call-reviewed MCP tools and One's
+INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body
+reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
+interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
+flag. Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
+`propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools and One's
 client-only editable Gmail draft remain callable in the same invocation; the
 draft cannot run in the original parallel read batch and cannot send. Its
 interpreter has no tools; durable tool history contains a redacted receipt,

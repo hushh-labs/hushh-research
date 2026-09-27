@@ -137,6 +137,18 @@ function safeErrorMessage(code: string | null, status: number): string {
       code === "IDEMPOTENCY_PAYLOAD_MISMATCH") {
     return "The selected Drive file or connection changed. Review the attachment again.";
   }
+  if (code === "GMAIL_MODIFY_PERMISSION_REQUIRED") {
+    return "Allow Gmail changes, then ask One to prepare this change again.";
+  }
+  if (code === "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE") {
+    return "That mailbox change is no longer available. Check Gmail before preparing another change.";
+  }
+  if (code === "GMAIL_MAILBOX_CONNECTION_CHANGED" || code === "GMAIL_MAILBOX_SOURCE_CHANGED") {
+    return "Your mail changed since this review. Ask One to prepare the change again.";
+  }
+  if (code === "GMAIL_MAILBOX_UNAVAILABLE" || code === "GMAIL_MAILBOX_OUTCOME_UNKNOWN") {
+    return "Gmail may have applied some or all of this change. Check Gmail before preparing another change.";
+  }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
   }
@@ -200,6 +212,33 @@ export class EmailDeliveryService {
         "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
       );
     }
+  }
+  /** Apply the exact reviewed mailbox change; the server holds its messages and labels. */
+  static async executeMailboxProposal(
+    input: EmailDeliveryAuth & { proposalId: string },
+  ): Promise<{ action: string; count: number }> {
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = asRecord(
+        await postJson<unknown>("/api/one/email/mailbox/execute", input, {
+          proposal_id: input.proposalId,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof EmailDeliveryError && error.code) throw error;
+      throw new EmailDeliveryError(
+        safeErrorMessage("GMAIL_MAILBOX_OUTCOME_UNKNOWN", 502),
+        502,
+        "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+      );
+    }
+    const count = payload?.count;
+    if (payload?.status !== "executed" || typeof count !== "number" || !Number.isInteger(count) || count < 0 || !stringValue(payload, "action")) {
+      throw new EmailDeliveryError(
+        safeErrorMessage("GMAIL_MAILBOX_OUTCOME_UNKNOWN", 502), 502, "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+      );
+    }
+    return { action: stringValue(payload, "action"), count };
   }
   static async draft(input: EmailDeliveryAuth & { instruction: string }): Promise<EmailDraftResult> {
     const payload = await postJson<unknown>("/api/one/email/draft", input, {

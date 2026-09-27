@@ -30,6 +30,10 @@ tests/test_drive_sharing_routes.py
 tests/services/test_drive_live_reader.py
 tests/services/test_drive_candidate_selection.py
 tests/services/test_google_drive_rest_transport.py
+# Drive writes: create/copy/move/comment cannot share by filing into a folder
+# others can see, and share/trash run only for the exact terms the owner reviewed.
+tests/services/test_google_drive_write_adapter.py
+tests/test_drive_write_tools.py
 tests/services/test_drive_live_formats.py
 # Calendar writes: a reschedule patches only what the owner reviewed (never a
 # full-replacement PUT), and the review counts the event's real guests.

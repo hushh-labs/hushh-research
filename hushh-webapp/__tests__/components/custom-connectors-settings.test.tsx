@@ -355,7 +355,8 @@ it("labels tools that run without asking and keeps review for the rest", async (
   expect(await screen.findByRole("button", { name: "Block search in Docs" })).toHaveTextContent("Runs without asking · Block");
   expect(screen.getByRole("button", { name: "Block write in Docs" })).toHaveTextContent("Ask first · Block");
   fireEvent.click(screen.getByRole("button", { name: "Add connector" }));
-  // The add form no longer promises that every tool asks first.
-  expect(screen.getByText(/tools a server marks read-only, run without asking/)).toBeInTheDocument();
+  // The person's own server runs freely; the add form says so and offers Block.
+  expect(screen.getByText(/uses this server’s tools without asking each time/)).toBeInTheDocument();
+  expect(document.body.textContent).not.toContain("Everything else asks first");
   expect(document.body.textContent).not.toContain("Tools ask before use");
 });

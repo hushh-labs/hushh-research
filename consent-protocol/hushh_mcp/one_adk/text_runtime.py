@@ -309,6 +309,7 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),
+    "propose_gmail_mailbox_change": ("agent_email", "Email"),
     "ask_consent_agent": ("agent_nav", "Consent Center"),
     "finance": ("agent_kai", "Finance"),
     "google_search": ("web", "Web search"),

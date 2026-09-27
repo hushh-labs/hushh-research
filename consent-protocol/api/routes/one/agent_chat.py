@@ -43,7 +43,6 @@ from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAge
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
-    STATE_UNTRUSTED_CONTENT,
 )
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text as _bounded_text,
@@ -250,10 +249,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         )
         if workflow_id
         else "",
-        # A selected email enters the instructions without any tool call, so
-        # no tool marks it. Mark the conversation here. Only ever set True: a
-        # request must never clear a durable mark left by an earlier turn.
-        **({STATE_UNTRUSTED_CONTENT: True} if gmail_information_request_context else {}),
     }
 
 

@@ -18,6 +18,7 @@
     "kai_gmail_sync_runs",
     "google_oauth_attempts",
     "google_calendar_action_proposals",
+    "gmail_mailbox_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
     "one_capability_runs",
@@ -473,12 +474,13 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "gmail_owner_send_actions",
-        "google_email_send_actions"
+        "google_email_send_actions",
+        "gmail_mailbox_action_proposals"
       ],
-      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration.",
-      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement.",
-      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration. Mailbox-change proposals are unusable after ten minutes, deleted after execution, and purged (with failed ones) on the owner's next mailbox change.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement. Mailbox-change proposals cascade-delete with the actor profile and are bound to the Gmail account they were resolved in, so a disconnect or account switch makes them unusable.",
+      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information. Mailbox-change proposals store only Gmail message and label identifiers, the bound Google account subject, the action and lifecycle state; never subject, sender, body or tokens.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
       "expected_row_growth": "low_per_user_action"
     },

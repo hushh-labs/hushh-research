@@ -353,6 +353,7 @@ fields, call prepare, then make a separate final Send email click.
 | POST   | `/api/one/email/draft`   | Firebase + `VAULT_OWNER` | Produce only `{to, cc, bcc, subject, body, missing_details}` from the current explicit instruction; never sends or persists a draft.                                 |
 | POST   | `/api/one/email/prepare` | Firebase + `VAULT_OWNER` | Normalize the visible envelope, including an optional sanitized `html_body` paired with its plain-text `body`, and create/reuse a ten-minute HMAC-bound confirmation action; does not call Gmail. A selected Gmail information-request `source_workflow_id` instead derives recipient, subject, and reply thread server-side and ignores caller envelope fields. |
 | POST   | `/api/one/email/send`    | Firebase + `VAULT_OWNER` | Atomically consume one unchanged prepared action and send RFC MIME as Gmail user `me`; the optional safe HTML representation is emitted as multipart/alternative, while timeout or missing message ID is reported as an unknown outcome, not retried. A selected `source_workflow_id` revalidates the original source before delivery. |
+| POST   | `/api/one/email/mailbox/execute` | Firebase + `VAULT_OWNER` | Apply one reviewed mailbox change (`archive`, `add_label`, `remove_label`, `mark_read`, `mark_unread`, `trash`) from its ten-minute, single-use `gmod_` proposal. The body is only `proposal_id`; message and label IDs, the action and the bound Gmail account come from the server. Needs `gmail.modify`; a changed Gmail account fails closed. Trash is Gmail's recoverable Trash, never permanent deletion. |
 
 The current product and security flow is [Owner-Approved Gmail Email](../one/gmail-owner-approved-email.md).
 
@@ -462,6 +463,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
 | POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
+| POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
 ### Contact Discovery
 
@@ -1152,6 +1154,16 @@ Settings controls, ADK invocation, or native acceptance. Those remain separate g
 
 ### Owner-private MCP exact-call review
 
+Founder decision 2026-09-27: calls on the person's own MCP connectors (vault
+custom connectors and their own private registrations) run without review. There
+is no first-call review, no review after third-party content, and no per-turn
+unreviewed-call budget. What remains: credentials stay vault/server-held and are
+redacted from results; only the turn's owner may use a connector
+(`MCP_OWNER_MISMATCH`); a tool the owner blocked whose contract changed still
+needs review; curated first-party rows keep exact-call review; and each
+unreviewed call writes a metadata-only audit line before dispatch. The review
+route below serves those remaining cases and resumes of reviews issued earlier.
+
 `POST /api/connectors/{connector_id}/mcp/review` requires a Vault Owner token,
 `conversationId`, namespaced `toolName`, and bounded JSON `arguments` (32 KB).
 The request stream is capped at 64 KB before JSON parsing, with a five-second
@@ -1418,10 +1430,12 @@ Application redaction covers query `code`/`state`/`picked_file_ids` and Drive fi
 does not sanitize platform-managed request logs.
 See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
 
-### Delegated Mail metadata reads (default-off)
+### Delegated Mail reads (default-off)
 
 One's existing AG-UI typed-chat route can delegate `list_recent` (newest INBOX page, no
-search expression, limit 1-25), `list_needs_reply` or `search_inbox` through the authored
+search expression, limit 1-25), `list_needs_reply`, `search_inbox`, `read_message` (the
+newest one to five matches, with their text) or `read_thread` (the newest matching
+conversation, its ten newest messages with their text) through the authored
 Email specialist. An inbox search plan with no criteria is read as `list_recent`; the
 reader itself still refuses an empty search expression. Each read is scoped to one mailbox (`inbox` by
 default, `sent`, or `anywhere`; spam and trash are always excluded, and `list_needs_reply` is
@@ -1433,10 +1447,16 @@ capability bound to the same owner, task, call and expiry. Voice, arbitrary oper
 client-supplied delegated results and action plans cannot enter this path. Existing
 Gmail credentials, receipt/sync routes, Calendar and reviewed sending are unchanged.
 
-The reader requests fixed Gmail metadata fields only: sender, subject, date and labels.
-It never fetches message bodies, snippets, attachments or ICS enrichment. Reads default
-to ten results (maximum 25), one page, a 20-second provider deadline and a 256 KiB
-aggregate provider-response budget. A no-tools interpreter returns a bounded answer
+Metadata reads request fixed Gmail fields only: sender, subject, date and labels. The two
+body reads use the same `gmail.readonly` grant and fetch `format=full`; the reader returns
+readable text only (the `text/plain` part, else text extracted from `text/html` with
+scripts, styles and links dropped), never attachments, snippets or ICS enrichment, capped
+to a shared 16 KB of text per answer with `body_truncated` per message. Only the
+tool-less interpreter sees body text; the planner and One never do. Reads default
+to ten results (maximum 25; body reads default to one, maximum five), one page, per-message
+fetches run concurrently (at most eight in flight, results kept in listing order), a
+20-second provider deadline and a 256 KiB aggregate provider-response budget (4 MiB for
+body reads). A no-tools interpreter returns a bounded answer
 and ephemeral source references. The grant is rechecked before releasing results;
 disconnect or credential changes suppress a late answer. The delegated path creates
 no separate Email conversation and persists no Email turn.
@@ -1455,6 +1475,24 @@ exception sanitization and provider HTTP tracing suppression also cover SDK fail
 paths. Tool execution closes before external Mail data enters the model and remains
 closed for the rest of that SDK invocation. A new user turn starts a new invocation.
 These controls are automated-test evidence, not authenticated provider/UAT acceptance.
+
+### Reviewed Gmail mailbox changes
+
+When the person asks to archive, label or unlabel, mark read or unread, or trash mail,
+One calls `propose_gmail_mailbox_change` (typed chat, `gmail_chat_reads` admission). It
+follows the Calendar proposal pattern: the server resolves the exact messages (one page,
+at most 25) under the read grant, stores a ten-minute `gmail_mailbox_action_proposals`
+row holding only message and label IDs bound to the Gmail account, and puts the review
+card in `hussh:pending_directive:gmail_mailbox` (`gmail.execute_mailbox_proposal`,
+listing sender and subject per message). The tool result returned to the model holds
+only a status and count, never mail text. Nothing changes until the owner presses the
+card's control, which calls `/api/one/email/mailbox/execute`. Labels resolve by name to
+the owner's own labels, plus Starred and Important. Without `gmail.modify` the tool
+returns a `gmail.connect` card (purpose `modify`) that requests that one scope
+incrementally (`include_granted_scopes=true`) on the web; read-only connections are never
+asked for it. `gmail.modify` is a Google restricted scope and needs Google's
+restricted-scope verification before production use. Native Google sign-in does not yet
+request it.
 
 ### Exact-file Drive sharing (default-off)
 

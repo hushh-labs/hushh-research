@@ -158,7 +158,8 @@ class SpecialistReadSource(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
     label: str = Field(max_length=80)
-    kind: Literal["metadata", "document"]
+    # "message" marks a Mail source whose readable text the person asked for.
+    kind: Literal["metadata", "document", "message"]
     page: int | None = Field(default=None, ge=1, le=100)
 
 

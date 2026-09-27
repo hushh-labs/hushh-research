@@ -60,6 +60,9 @@ SHARE_METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,createdTime,trashed,"
     "capabilities(canShare),clientEncryptionDetails(encryptionState)"
 )
+# Metadata-only live read for a file with no readable text (a video, an image,
+# an archive, a folder): what it is and where to open it, never its bytes.
+FACT_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,trashed"
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
 # Drive sorts each key ascending unless told "desc"; live results are newest
@@ -252,6 +255,7 @@ class GoogleDriveAdapter:
                 in (
                     {"fields": METADATA_FIELDS, "supportsAllDrives": "true"},
                     {"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
+                    {"fields": FACT_FIELDS, "supportsAllDrives": "true"},
                     {"alt": "media", "supportsAllDrives": "true"},
                 )
             ) or (
@@ -402,6 +406,36 @@ class GoogleDriveAdapter:
         ):
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
+
+    async def get_file_facts(self, *, file_id: str, access_token: str) -> dict[str, Any]:
+        """Name, type, time, size and opening link of one live file, without content."""
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": FACT_FIELDS, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        name, mime = result.get("name"), result.get("mimeType")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or not isinstance(name, str)
+            or not isinstance(mime, str)
+        ):
+            raise DriveReadError("source_unavailable")
+        size, modified, link = (result.get(key) for key in ("size", "modifiedTime", "webViewLink"))
+        return {
+            "id": file_id,
+            "title": name[:1024],
+            "mimeType": mime[:255],
+            "modifiedTime": modified if isinstance(modified, str) and len(modified) <= 64 else None,
+            "size": int(size)
+            if isinstance(size, str) and re.fullmatch(r"[0-9]{1,20}", size)
+            else None,
+            "viewUrl": link if isinstance(link, str) and link.startswith("https://") else None,
+        }
 
     async def get_share_metadata(self, *, file_id: str, access_token: str) -> DriveMetadata:
         """Check an exact live file for sharing without requiring content access."""

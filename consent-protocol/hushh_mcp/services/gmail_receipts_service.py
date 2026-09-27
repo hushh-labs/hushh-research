@@ -78,7 +78,10 @@ _GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 _GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
-GmailConnectPurpose = Literal["read", "send", "compose"]
+# Archive, labels, read state and trash. A Google restricted scope: requested
+# incrementally on first reviewed use, never as part of a read-only connect.
+_GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+GmailConnectPurpose = Literal["read", "send", "compose", "modify"]
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -981,7 +984,7 @@ class GmailReceiptsService:
             raise GmailApiError("OAuth state is invalid", status_code=400)
         if issued_at_ms <= 0 or issued_at_ms > int(_utcnow().timestamp() * 1000):
             raise GmailApiError("OAuth state is invalid", status_code=400)
-        if payload.get("purpose", "read") not in {"read", "send", "compose"}:
+        if payload.get("purpose", "read") not in {"read", "send", "compose", "modify"}:
             raise GmailApiError("Invalid Gmail OAuth purpose", status_code=400)
         return payload
 
@@ -992,6 +995,10 @@ class GmailReceiptsService:
             # capability. It does not silently opt every Mail connection into
             # Gmail's broader draft-management permission.
             return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_COMPOSE_SCOPE)
+        if purpose == "modify":
+            # Mailbox organization is likewise its own explicit capability; the
+            # web connect adds it on top of existing grants (include_granted_scopes).
+            return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_MODIFY_SCOPE)
         # `purpose` intentionally does not gate the send scope: no call site
         # in this codebase (web popup, native, or the connectors panel) ever
         # passes purpose="send" -- every real connect/reconnect defaults or
@@ -1454,6 +1461,43 @@ class GmailReceiptsService:
             )
         return access_token
 
+    async def get_modify_access_token(self, *, user_id: str, expected_google_sub: str) -> str:
+        """Resolve a mailbox-organization token only for the connected owner."""
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError("Connect Gmail first", status_code=409, code="GMAIL_NOT_CONNECTED")
+        if not expected_google_sub or row.get("google_sub") != expected_google_sub:
+            raise GmailApiError(
+                "Your Gmail connection changed. Review this change again.",
+                status_code=409,
+                code="GMAIL_MAILBOX_CONNECTION_CHANGED",
+            )
+        if _GMAIL_MODIFY_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Allow Gmail changes before organizing mail.",
+                status_code=409,
+                code="GMAIL_MODIFY_PERMISSION_REQUIRED",
+            )
+        access_token, current = await self._ensure_access_token(user_id=user_id)
+        if not expected_google_sub or current.get("google_sub") != expected_google_sub:
+            raise GmailApiError(
+                "Your Gmail connection changed. Review this change again.",
+                status_code=409,
+                code="GMAIL_MAILBOX_CONNECTION_CHANGED",
+            )
+        if _GMAIL_MODIFY_SCOPE not in self._granted_scopes(current):
+            raise GmailApiError(
+                "Allow Gmail changes before organizing mail.",
+                status_code=409,
+                code="GMAIL_MODIFY_PERMISSION_REQUIRED",
+            )
+        return access_token
+
+    def modify_permission_granted(self, row: dict[str, Any] | None) -> bool:
+        return self._derive_connection_state(
+            row
+        ) == "connected" and _GMAIL_MODIFY_SCOPE in self._granted_scopes(row)
+
     async def assert_read_ready(self, *, user_id: str) -> None:
         """Recheck read admission without decrypting or refreshing a token."""
 
@@ -1567,6 +1611,7 @@ class GmailReceiptsService:
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
             "compose_permission_granted": connected
             and _GMAIL_COMPOSE_SCOPE in self._granted_scopes(row),
+            "modify_permission_granted": self.modify_permission_granted(row),
             "send_permission_granted": self._send_permission_granted(row),
             "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,

@@ -423,3 +423,507 @@ async def test_malformed_nested_metadata_fails_with_authored_error(invalid):
 
     with pytest.raises(GmailMetadataError, match="invalid_response"):
         await _reader(_Gmail(), respond).read("search_inbox", {"query": "invoice"})
+
+
+def _b64(text, encoding="utf-8"):
+    import base64
+
+    return base64.urlsafe_b64encode(text.encode(encoding)).decode().rstrip("=")
+
+
+def _full_message(identity, parts, subject="Plan"):
+    return {
+        "id": identity,
+        "threadId": "thread-1",
+        "internalDate": "1790000000000",
+        "labelIds": ["INBOX"],
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "headers": [
+                {"name": "Subject", "value": subject},
+                {"name": "From", "value": "Alice <alice@example.com>"},
+            ]
+            + [{"name": "Received", "value": "hop"}] * 30,
+            "parts": parts,
+        },
+    }
+
+
+def _part(mime, text, filename="", charset=None):
+    headers = [{"name": "Content-Type", "value": f"{mime}; charset={charset}"}] if charset else []
+    return {
+        "mimeType": mime,
+        "filename": filename,
+        "headers": headers,
+        "body": {"data": _b64(text, charset or "utf-8")},
+    }
+
+
+async def test_body_read_prefers_plain_text_skips_attachments_and_requests_full_format():
+    def respond(request):
+        if request.url.path.endswith("/messages"):
+            assert request.url.params["q"] == "from:alice"
+            assert request.url.params["maxResults"] == "1"
+            return _response({"messages": [{"id": "m-1"}], "nextPageToken": "more"})
+        assert request.url.params["format"] == "full"
+        return _response(
+            _full_message(
+                "m-1",
+                [
+                    {
+                        "mimeType": "multipart/alternative",
+                        "parts": [
+                            _part("text/plain", "Hi,\r\n\r\nThe plan is ready.", charset="utf-8"),
+                            _part("text/html", "<p>HTML twin must not win</p>"),
+                        ],
+                    },
+                    _part("text/plain", "ATTACHMENT_TEXT_MUST_NOT_LEAVE", filename="notes.txt"),
+                ],
+            )
+        )
+
+    result = await _reader(_Gmail(), respond).read(
+        "read_message", {"query": "from:alice", "limit": 1}
+    )
+    item = result["untrusted_external_content"][0]
+    assert item["body"] == "Hi,\n\nThe plan is ready."
+    assert item["body_truncated"] is False
+    assert result["metadata_only"] is False
+    # The newest match was asked for; later matches are not an omission.
+    assert result["truncated"] is False
+    serialized = json.dumps(result)
+    assert all(v not in serialized for v in ["ATTACHMENT_TEXT", "HTML twin", "m-1", "more"])
+
+
+async def test_body_read_falls_back_to_html_text_and_caps_size():
+    markup = (
+        "<html><head><style>.x{}</style><script>steal()</script></head>"
+        "<body><p>Café invoice</p><a href='https://evil.invalid'>pay</a>"
+        + "<div>line</div>" * 5000
+        + "</body></html>"
+    )
+
+    def respond(request):
+        if request.url.path.endswith("/messages"):
+            assert "q" not in request.url.params
+            return _response({"messages": [{"id": "m-1"}]})
+        return _response(_full_message("m-1", [_part("text/html", markup, charset="latin-1")]))
+
+    result = await _reader(_Gmail(), respond).read("read_message", {})
+    body = result["untrusted_external_content"][0]["body"]
+    assert body.startswith("Café invoice\n")
+    assert "steal" not in body and ".x" not in body and "evil.invalid" not in body
+    assert len(body.encode("utf-8")) <= 12000
+    assert result["untrusted_external_content"][0]["body_truncated"] is True
+    assert result["truncated"] is True
+    assert len(json.dumps(result).encode("utf-8")) <= 24000
+
+
+async def test_thread_read_returns_each_message_body_in_thread_order():
+    def respond(request):
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": "m-2", "threadId": "thread-1"}]})
+        assert request.url.path.endswith("/threads/thread-1")
+        assert request.url.params["format"] == "full"
+        return _response(
+            {
+                "id": "thread-1",
+                "messages": [
+                    _full_message("m-1", [_part("text/plain", "First")], "Q"),
+                    _full_message("m-2", [_part("text/plain", "Second")], "Re: Q"),
+                ],
+            }
+        )
+
+    result = await _reader(_Gmail(), respond).read("read_thread", {"query": "subject:Q"})
+    items = result["untrusted_external_content"]
+    assert [(i["source_ref"], i["body"]) for i in items] == [
+        ("mail:1", "First"),
+        ("mail:2", "Second"),
+    ]
+
+
+async def test_parallel_metadata_reads_are_bounded_and_keep_listing_order():
+    import asyncio
+
+    in_flight = 0
+    peak = 0
+
+    async def respond(request):
+        nonlocal in_flight, peak
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": f"m-{n}"} for n in range(20)]})
+        in_flight += 1
+        peak = max(peak, in_flight)
+        index = int(request.url.path.rsplit("-", 1)[-1])
+        # Later messages answer first; the result must still follow the listing.
+        await asyncio.sleep(0.001 * (20 - index))
+        in_flight -= 1
+        return _response(_message(f"m-{index}", subject=f"S{index}"))
+
+    result = await _reader(_Gmail(), respond).read("list_recent", {"limit": 20})
+    assert [i["subject"] for i in result["untrusted_external_content"]] == [
+        f"S{n}" for n in range(20)
+    ]
+    assert 1 < peak <= 8
+
+
+async def test_one_failed_parallel_read_fails_the_whole_page():
+    def respond(request):
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": "m-1"}, {"id": "m-2"}]})
+        if request.url.path.endswith("/m-2"):
+            return _response({"error": "private"}, 503)
+        return _response(_message("m-1"))
+
+    with pytest.raises(GmailMetadataError, match="retryable"):
+        await _reader(_Gmail(), respond).read("list_recent", {"limit": 2})
+
+
+@pytest.mark.parametrize(
+    "operation,args",
+    [
+        ("read_message", {"limit": 6}),
+        ("read_message", {"query": "x\n"}),
+        ("read_thread", {"limit": 2}),
+        ("read_thread", {"mailbox": "trash"}),
+    ],
+)
+async def test_body_read_arguments_are_bounded_before_io(operation, args):
+    with pytest.raises(GmailMetadataError, match="invalid_argument"):
+        await _reader(_Gmail(), lambda _: pytest.fail("provider called")).read(operation, args)
+
+
+# --- Reviewed mailbox changes (archive, labels, read state, trash) ---------
+
+_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
+
+
+class _ModifyGmail(_Gmail):
+    def __init__(self, *, modify=True):
+        super().__init__()
+        if modify:
+            self.row["scope_csv"] += f" {_MODIFY}"
+
+    def is_configured(self):
+        return True
+
+
+class _ProposalDb:
+    """In-memory stand-in for gmail_mailbox_action_proposals."""
+
+    def __init__(self):
+        self.rows = {}
+
+    def execute_raw(self, sql, params):
+        from types import SimpleNamespace
+
+        if sql.lstrip().startswith("INSERT"):
+            self.rows[params["proposal_id"]] = {**params, "status": "pending"}
+            return SimpleNamespace(data=[])
+        if "SET status = 'executing'" in sql:
+            row = self.rows.get(params["proposal_id"])
+            if not row or row["user_id"] != params["user_id"] or row["status"] != "pending":
+                return SimpleNamespace(data=[])
+            row["status"] = "executing"
+            return SimpleNamespace(
+                data=[
+                    {
+                        "action": row["action"],
+                        "message_ids": json.loads(row["message_ids"]),
+                        "label_id": row["label_id"],
+                        "google_sub": row["google_sub"],
+                    }
+                ]
+            )
+        if "SET status = 'failed'" in sql:
+            self.rows[params["proposal_id"]]["status"] = "failed"
+        elif "WHERE proposal_id" in sql:
+            self.rows.pop(params["proposal_id"], None)
+        return SimpleNamespace(data=[])
+
+
+def _mailbox(gmail, db, handler):
+    from hushh_mcp.services.gmail_mailbox_actions import GmailMailboxActions
+
+    return GmailMailboxActions(gmail=gmail, db=db, transport=httpx.MockTransport(handler))
+
+
+def _mailbox_provider(writes, labels=None):
+    def respond(request):
+        if request.method == "POST":
+            writes.append(request)
+            return httpx.Response(204 if request.url.path.endswith("batchModify") else 200)
+        if request.url.path.endswith("/labels"):
+            return _response({"labels": labels or []})
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": "m-1"}, {"id": "m-2"}]})
+        return _response(_message(request.url.path.rsplit("/", 1)[-1]))
+
+    return respond
+
+
+@pytest.mark.parametrize(
+    "action,label,add,remove",
+    [
+        ("archive", "", [], ["INBOX"]),
+        ("mark_read", "", [], ["UNREAD"]),
+        ("mark_unread", "", ["UNREAD"], []),
+        ("add_label", "receipts", ["Label_7"], []),
+        ("remove_label", "Receipts", [], ["Label_7"]),
+        ("add_label", "Starred", ["STARRED"], []),
+    ],
+)
+async def test_mailbox_change_runs_only_after_review_with_exact_labels(action, label, add, remove):
+    writes = []
+    labels = [
+        {"id": "Label_7", "name": "Receipts", "type": "user"},
+        {"id": "STARRED", "name": "STARRED", "type": "system"},
+        {"id": "TRASH", "name": "TRASH", "type": "system"},
+    ]
+    db = _ProposalDb()
+    service = _mailbox(_ModifyGmail(), db, _mailbox_provider(writes, labels))
+
+    proposal = await service.propose(
+        user_id="owner",
+        action=action,
+        query="from:alice",
+        mailbox="inbox",
+        limit=2,
+        label=label,
+        require_access=_allowed,
+    )
+    # Proposing resolves and stores targets; Gmail is not changed yet.
+    assert proposal["status"] == "confirmation_required"
+    assert writes == []
+    assert "m-1" not in json.dumps(proposal)
+
+    result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert result == {"status": "executed", "action": action, "count": 2}
+    assert len(writes) == 1
+    assert writes[0].url.path.endswith("/messages/batchModify")
+    assert json.loads(writes[0].content) == {
+        "ids": ["m-1", "m-2"],
+        "addLabelIds": add,
+        "removeLabelIds": remove,
+    }
+    # Single use: the same confirmation cannot run twice.
+    with pytest.raises(GmailApiError, match="no longer available"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == 1
+
+
+async def test_trash_moves_each_reviewed_message_to_trash_and_never_deletes():
+    writes = []
+    service = _mailbox(_ModifyGmail(), _ProposalDb(), _mailbox_provider(writes))
+    proposal = await service.propose(
+        user_id="owner",
+        action="trash",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert sorted(w.url.path.rsplit("/messages/", 1)[-1] for w in writes) == [
+        "m-1/trash",
+        "m-2/trash",
+    ]
+    assert all(w.method == "POST" for w in writes)
+
+
+async def test_unapproved_or_foreign_proposals_never_reach_gmail():
+    writes = []
+    gmail = _ModifyGmail()
+    db = _ProposalDb()
+    service = _mailbox(gmail, db, _mailbox_provider(writes))
+    proposal = await service.propose(
+        user_id="owner",
+        action="archive",
+        query="from:alice",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    # Negative control: no confirmation, a guessed id, or another owner's
+    # confirmation never calls Gmail.
+    for owner, proposal_id in [("owner", "gmod_guessed"), ("intruder", proposal["proposal_id"])]:
+        with pytest.raises(GmailApiError, match="no longer available"):
+            await service.execute(user_id=owner, proposal_id=proposal_id)
+    # A different Gmail account connected since review cannot receive the IDs.
+    gmail.row["google_sub"] = "another-account"
+    with pytest.raises(GmailApiError, match="connection changed"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert writes == []
+    assert db.rows[proposal["proposal_id"]]["status"] == "failed"
+
+
+async def test_mailbox_change_without_modify_grant_asks_for_it_before_any_read(monkeypatch):
+    from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
+    from hushh_mcp.services import gmail_mailbox_actions
+
+    service = _mailbox(
+        _ModifyGmail(modify=False), _ProposalDb(), lambda _: pytest.fail("provider called")
+    )
+    context = _mailbox_context(monkeypatch)
+    state = context.state
+    original = gmail_mailbox_actions._service
+    gmail_mailbox_actions._service = service
+    try:
+        result = await propose_gmail_mailbox_change(context, action="archive", query="from:a")
+    finally:
+        gmail_mailbox_actions._service = original
+    assert result["status"] == "connection_required"
+    payload = state["hussh:pending_directive:gmail_mailbox"]["payload"]
+    assert payload == {
+        "type": "gmail.connect",
+        "purpose": "modify",
+        "summary": payload["summary"],
+        "confirmLabel": "Allow Gmail changes",
+    }
+    assert "directive" not in result
+
+
+async def test_proposal_card_carries_subjects_but_the_model_result_does_not(monkeypatch):
+    from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
+    from hushh_mcp.services import gmail_mailbox_actions
+
+    writes = []
+    service = _mailbox(_ModifyGmail(), _ProposalDb(), _mailbox_provider(writes))
+    context = _mailbox_context(monkeypatch)
+    state = context.state
+    original = gmail_mailbox_actions._service
+    gmail_mailbox_actions._service = service
+    try:
+        result = await propose_gmail_mailbox_change(
+            context, action="mark_read", query="subject:plan", limit=2
+        )
+    finally:
+        gmail_mailbox_actions._service = original
+    payload = state["hussh:pending_directive:gmail_mailbox"]["payload"]
+    assert payload["type"] == "gmail.execute_mailbox_proposal"
+    assert payload["confirmLabel"] == "Mark as read"
+    assert [m["subject"] for m in payload["messages"]] == ["Project plan", "Project plan"]
+    assert result["status"] == "confirmation_required" and result["count"] == 2
+    assert "Project plan" not in json.dumps(result)
+    assert writes == []
+
+
+def _mailbox_context(monkeypatch, *, sdk_owner="owner", authorized=True):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import workspace_mcp_tools
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
+    monkeypatch.setattr(workspace_mcp_tools, "pod_mode", lambda: False)
+    monkeypatch.setattr(workspace_mcp_tools, "connector_feature_enabled", lambda *args: True)
+    monkeypatch.setattr(
+        workspace_mcp_tools, "validate_first_party_owner_token", AsyncMock(return_value=authorized)
+    )
+    return SimpleNamespace(
+        user_id=sdk_owner,
+        state={
+            "hussh:user_id": "owner",
+            "temp:one_execution_surface": "typed_chat",
+            workspace_mcp_tools.WORKSPACE_CHAT_ADMISSION_STATE: True,
+            "hussh:consent_token": store_request_secret("synthetic-owner-token"),
+        },
+    )
+
+
+@pytest.mark.parametrize("sdk_owner,authorized", [("other", True), ("owner", False)])
+async def test_mailbox_proposal_refuses_unbound_or_revoked_owner(
+    monkeypatch, sdk_owner, authorized
+):
+    from hushh_mcp.agents.email import mailbox_tools
+
+    monkeypatch.setattr(
+        mailbox_tools, "get_gmail_mailbox_actions", lambda: pytest.fail("service accessed")
+    )
+    context = _mailbox_context(monkeypatch, sdk_owner=sdk_owner, authorized=authorized)
+    result = await mailbox_tools.propose_gmail_mailbox_change(context, action="archive")
+    assert result["status"] == "unavailable"
+    assert "hussh:pending_directive:gmail_mailbox" not in context.state
+
+
+@pytest.mark.parametrize("reconnect", [False, True])
+async def test_mailbox_execution_rechecks_account_after_token_refresh(monkeypatch, reconnect):
+    gmail, writes = _ModifyGmail(), []
+    service = _mailbox(gmail, _ProposalDb(), _mailbox_provider(writes))
+    proposal = await service.propose(
+        user_id="owner",
+        action="archive",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+
+    async def refresh(*, user_id):
+        gmail.row["token_updated_at"] = "refreshed"
+        if reconnect:
+            gmail.row["google_sub"] = "another-account"
+        return "synthetic-refreshed", deepcopy(gmail.row)
+
+    monkeypatch.setattr(gmail, "_ensure_access_token", refresh)
+    if reconnect:
+        with pytest.raises(GmailApiError) as caught:
+            await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+        assert caught.value.code == "GMAIL_MAILBOX_CONNECTION_CHANGED"
+        assert writes == []
+    else:
+        assert (await service.execute(user_id="owner", proposal_id=proposal["proposal_id"]))[
+            "status"
+        ] == "executed"
+        assert len(writes) == 1
+
+
+@pytest.mark.parametrize("failure", ["lost_response", "partial_trash", "cleanup"])
+async def test_mailbox_never_retries_an_ambiguous_or_completed_write(failure):
+    writes, db = [], _ProposalDb()
+    normal = _mailbox_provider(writes)
+
+    def provider(request):
+        if request.method == "POST":
+            if failure == "lost_response":
+                writes.append(request)
+                raise httpx.ReadError("synthetic lost response", request=request)
+            if failure == "partial_trash" and "/m-2/" in request.url.path:
+                return httpx.Response(403)
+        return normal(request)
+
+    service = _mailbox(_ModifyGmail(), db, provider)
+    proposal = await service.propose(
+        user_id="owner",
+        action="trash" if failure == "partial_trash" else "archive",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    if failure == "cleanup":
+        execute_raw = db.execute_raw
+
+        def unavailable_cleanup(sql, params):
+            if sql.lstrip().startswith("DELETE") and "WHERE proposal_id" in sql:
+                raise RuntimeError("synthetic receipt cleanup failure")
+            return execute_raw(sql, params)
+
+        db.execute_raw = unavailable_cleanup
+        assert (await service.execute(user_id="owner", proposal_id=proposal["proposal_id"]))[
+            "status"
+        ] == "executed"
+    else:
+        with pytest.raises(GmailApiError) as caught:
+            await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+        assert caught.value.code == "GMAIL_MAILBOX_OUTCOME_UNKNOWN"
+    count = len(writes)
+    assert count > 0
+    with pytest.raises(GmailApiError):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == count

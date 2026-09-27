@@ -91,8 +91,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Security and Privacy Checks
 
-- Native custom MCP calls set the external-content barrier before dispatch;
-  parallel unreviewed calls are blocked. Subsequent model requests retain only
+- Native custom MCP calls set the external-content barrier before dispatch. The
+  person's own connectors run without review, budget or first-call limits
+  (founder decision 2026-09-27); another owner's connector is refused with
+  `MCP_OWNER_MISMATCH`. Subsequent model requests retain only
   real native tool objects with the canonical exact-call review authority, not
   same-named impostors, arbitrary approval callbacks or provider built-ins.
   Verify reviewed composition through the installed ADK Runner separately from

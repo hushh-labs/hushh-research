@@ -19,7 +19,14 @@ from hushh_mcp.services.pod_mail_observation import (
 class EmailReadOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation: Literal[
-        "nudges", "search", "list_recent", "list_needs_reply", "search_inbox", "validate"
+        "nudges",
+        "search",
+        "list_recent",
+        "list_needs_reply",
+        "search_inbox",
+        "read_message",
+        "read_thread",
+        "validate",
     ] = "nudges"
     query: str | None = Field(default=None, min_length=1, max_length=512)
     limit: int = Field(default=10, ge=1, le=25)
@@ -30,15 +37,40 @@ class EmailReadOptions(BaseModel):
     def search_query(self) -> "EmailReadOptions":
         if self.operation in {"search", "search_inbox"} and not (self.query and self.query.strip()):
             raise ValueError("search query required")
-        if self.operation not in {"search", "search_inbox"} and self.query is not None:
+        if (
+            self.operation not in {"search", "search_inbox", "read_message", "read_thread"}
+            and self.query is not None
+        ):
             raise ValueError("query requires search")
         if (self.operation == "validate") != (self.observation is not None):
             raise ValueError("observation requires validation")
-        if self.operation not in {"search_inbox", "list_recent"} and self.mailbox != "inbox":
+        if (
+            self.operation not in {"search_inbox", "list_recent", "read_message", "read_thread"}
+            and self.mailbox != "inbox"
+        ):
             raise ValueError("mailbox requires a metadata read")
         if self.operation == "validate" and self.limit != 10:
             raise ValueError("validation has no read limit")
+        if self.operation in {"read_message", "read_thread"}:
+            from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, _arguments
+
+            if self.operation == "read_message" and "limit" not in self.model_fields_set:
+                self.limit = 1
+            if self.operation == "read_thread" and "limit" in self.model_fields_set:
+                raise ValueError("thread reads use the canonical bounded thread page")
+            try:
+                _arguments(self.operation, self.read_arguments())
+            except GmailMetadataError as exc:
+                raise ValueError("Invalid bounded Mail read") from exc
         return self
+
+    def read_arguments(self) -> dict[str, Any]:
+        arguments: dict[str, Any] = {"mailbox": self.mailbox}
+        if self.operation != "read_thread":
+            arguments["limit"] = self.limit
+        if self.query is not None:
+            arguments["query"] = self.query
+        return arguments
 
 
 class _MessageSummary(BaseModel):
@@ -72,10 +104,7 @@ async def read_email_metadata(
             )
             await require_access()
             return {"current": True}
-        arguments: dict[str, Any] = {"limit": options.limit, "mailbox": options.mailbox}
-        if options.query is not None:
-            arguments["query"] = options.query
-        metadata = await reader.read(options.operation, arguments)
+        metadata = await reader.read(options.operation, options.read_arguments())
         await reader.require_current()
         observation = issue_observation(context, reader.observed_grant_fingerprint())
         await require_access()

@@ -160,7 +160,9 @@ Owner-private native MCP tools establish an invocation-local external-content
 barrier before dispatch. Only application-owned native tools using the canonical
 exact-call review callback remain callable after that barrier; a matching tool
 name or provider annotation grants nothing. Each continued call still rechecks
-its owner, connection, schema and reviewed arguments. The model-facing roster
+its owner, connection and schema. Since 2026-09-27 the person's own connectors
+run without review even after the barrier; curated first-party rows and
+owner-blocked tools keep exact-call review. The model-facing roster
 is rebuilt from those admitted objects, excluding unreviewed first-party tools
 and provider built-ins. This permits reviewed connector composition, not general
 post-read mutation authority. Curated-provider and explicit Memory-capture

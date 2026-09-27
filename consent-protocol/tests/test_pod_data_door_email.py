@@ -5,7 +5,8 @@ first), and the first OAuth-backed one, so these tests pin the properties that
 make that safe and useful:
 
   * the projection is FAIL-CLOSED -- no raw address, no Gmail resource handle, no
-    live meeting link, and above all no message body can ever cross to the pod;
+    live meeting link or message body crosses in the default summary projection;
+  * explicit bounded message/thread reads carry a signed, rechecked grant observation;
   * the reader answers the two EXPECTED "no live read" cases (not connected /
     needs reauth) with a helpful marker instead of raising to runtime_unavailable;
   * the scope, registry, and specialist map all agree on one name ("email").
@@ -236,6 +237,8 @@ async def test_bounded_search_projects_only_declared_summary_fields():
         {"limit": 26},
         {"owner_id": "foreign"},
         {"operation": "delete"},
+        {"operation": "read_message", "limit": 6},
+        {"operation": "read_thread", "limit": 1},
     ],
 )
 def test_email_options_cannot_select_owner_or_unbounded_operation(options):
@@ -286,9 +289,10 @@ def test_mail_observation_is_private_and_bound_to_current_authority(monkeypatch,
         receipts.verify_observation(context, receipt, fingerprint)
 
 
+@pytest.mark.parametrize("operation", ["list_recent", "read_message", "read_thread"])
 @pytest.mark.parametrize("change_during_interpretation", [False, True])
 async def test_pod_mail_suppresses_answer_when_observed_grant_changes(
-    monkeypatch, change_during_interpretation
+    monkeypatch, change_during_interpretation, operation
 ):
     from unittest.mock import AsyncMock
 
@@ -307,11 +311,15 @@ async def test_pod_mail_suppresses_answer_when_observed_grant_changes(
         def __init__(self, **kwargs):
             self.observed = grant
 
-        async def read(self, operation, arguments):
-            assert operation == "list_recent"
-            assert arguments == {"limit": 10, "mailbox": "inbox"}
+        async def read(self, requested_operation, arguments):
+            assert requested_operation == operation
+            expected = {"mailbox": "inbox"}
+            if operation != "read_thread":
+                expected["limit"] = 1 if operation == "read_message" else 10
+            assert arguments == expected
             return {
-                "metadata_only": True,
+                "operation": operation,
+                "metadata_only": operation == "list_recent",
                 "truncated": False,
                 "untrusted_external_content": [{"source_ref": "mail:1", "subject": "Synthetic"}],
             }
@@ -338,7 +346,7 @@ async def test_pod_mail_suppresses_answer_when_observed_grant_changes(
     async def gene(**kwargs):
         nonlocal grant
         if kwargs["gene_id"] == "agent_email_read_planner":
-            return {"operation": "list_recent"}
+            return {"operation": operation}
         if change_during_interpretation:
             grant = "reconnected"
         return {"answer": "Synthetic answer", "source_refs": ["mail:1"]}

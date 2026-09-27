@@ -391,7 +391,9 @@ retained catalog at turn teardown. Curated Google adapters remain separate until
 parity is verified; custom OAuth and live browser/native proof remain open.
 Native calls now establish the existing external-content barrier before dispatch;
 continued calls are limited to actual native tools using exact-call review.
-Tool names/annotations cannot admit an unreviewed downstream action. This does
+Tool names/annotations cannot admit an unreviewed downstream action. Since
+2026-09-27 the person's own connectors run without review (founder decision);
+curated rows and owner-blocked tools keep it. This does
 not yet establish same-turn first-party Memory capture or curated-action parity.
 
 The shared toolset accepts application-owned catalog and result policy ports for
@@ -1855,3 +1857,13 @@ the touched legacy modules and tests. The bootstrap observation extraction reduc
 that source hotspot; the remaining findings still need reconciliation before the
 combined candidate is submitted. No threshold or baseline was relaxed. No full
 local CI, push, deployment, main merge or owner update occurred in this batch.
+
+### Local ADK integration — 2026-09-27
+
+The infrastructure candidate integrates frozen local ADK `52045f8023583347067dac4e6b76d1f675fa3364` over `0560c2536`. Ongoing PDF edits remain outside this integration. Generated product-agent, capability and topology projections were regenerated from their owners. Gmail mailbox migration 250 is active; destructive legacy-history cleanup remains parked as 251, after the existing public-profile bridge 249. No history deletion or deployment occurred in this integration.
+
+Bounded Gmail message/thread reads now use the pod's existing signed observation and grant recheck. Hub-owned mailbox writes are excluded from the pod roster pending a scoped authority port. Shared mailbox proposals verify the SDK owner and live owner capability; execution binds refreshed credentials to the reviewed Gmail account. Lost responses and partially completed trash batches report an unknown outcome and cannot replay the claimed proposal.
+
+The incoming ADK policy intentionally removes exact-call review for the owner's private MCP connectors, including subsequent calls after a read. Owner/connection authority and credential redaction remain; this is not evidence of deterministic protection against instructions in third-party content. One's instructions now describe that policy consistently. Drive sharing/trash and Gmail mailbox changes retain their respective app review.
+
+Focused evidence: Gmail metadata/mailbox tests (76 passed), pod specialist tests (30 passed), One roster tests (208 passed, 73 pre-existing skips), followed by 265 passing affected pod-read/MCP/Drive/route checks after correcting bounded-request validation; frontend delivery boundary tests (10 passed). These are synthetic/source checks, not live pod acceptance. Private rich-chat mounting and existing-owner Files activation remain implementation work.
