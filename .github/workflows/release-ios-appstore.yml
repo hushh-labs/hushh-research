@@ -141,6 +141,16 @@ jobs:
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # verify:one-voice (below) runs consent-protocol generators that import
+      # hushh_mcp; they resolve consent-protocol/.venv first, so install the
+      # locked backend runtime exactly as ship-ios-testflight.yml does.
+      - name: Set up locked consent-protocol runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "true"
+
       - name: Install web dependencies (must precede SPM resolve)
         shell: bash
         run: |
