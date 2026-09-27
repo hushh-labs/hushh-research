@@ -668,7 +668,9 @@ export default function RiaOnboardingPage({
       }
       scrapePollingRef.current = setInterval(async () => {
         try {
-          const result = await RiaService.getCrdScrapeJobStatus(jobId);
+          if (!user) throw new Error("Signed out while polling the scrape job.");
+          const idToken = await user.getIdToken();
+          const result = await RiaService.getCrdScrapeJobStatus(idToken, jobId);
           if (result.status === "completed" || result.status === "partial") {
             if (scrapePollingRef.current) {
               clearInterval(scrapePollingRef.current);
@@ -693,7 +695,7 @@ export default function RiaOnboardingPage({
         }
       }, SCRAPE_POLL_INTERVAL_MS);
     },
-    [applyPrefill],
+    [applyPrefill, user],
   );
 
   useEffect(() => {

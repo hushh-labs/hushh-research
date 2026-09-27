@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from google.adk.agents import LlmAgent
-from google.adk.models import Gemini
 from google.genai import types
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
-from hushh_mcp.runtime_providers import build_managed_gemini_adk_model, build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_managed_gemini_adk_model,
+    build_managed_regional_gemini_adk_model,
+)
 from hushh_mcp.runtime_providers.gemini_config import (
     build_generate_content_config,
     resolve_fleet_model_name,
@@ -30,14 +32,143 @@ _KAI_VALUATION_GENE_ID = "agent_kai_valuation"
 _KAI_DEBATE_GENE_ID = "agent_kai_debate"
 _KAI_SYNTHESIS_GENE_ID = "agent_kai_synthesis"
 
+# Gemini structured output only returns keys a schema declares: an OBJECT with
+# no properties decodes to {}. These mirror the OUTPUT FORMAT in the optimizer
+# prompt (api/routes/kai/losers.py) and the deterministic fallback's shape.
+_STRING: dict[str, Any] = {"type": "STRING"}
+_NUMBER: dict[str, Any] = {"type": "NUMBER"}
+_NULLABLE_STRING: dict[str, Any] = {"type": "STRING", "nullable": True}
+_NULLABLE_NUMBER: dict[str, Any] = {"type": "NUMBER", "nullable": True}
+_STRING_LIST: dict[str, Any] = {"type": "ARRAY", "items": _STRING}
+
+_OPTIMIZER_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "actions": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "symbol": _STRING,
+                    "name": _STRING,
+                    "action": _STRING,
+                    "rationale": _STRING,
+                    "current_weight_pct": _NULLABLE_NUMBER,
+                    "target_weight_pct": _NULLABLE_NUMBER,
+                },
+                "required": ["symbol", "action", "rationale"],
+            },
+        }
+    },
+    "required": ["actions"],
+}
+
+_OPTIMIZER_RADAR_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        axis: _NUMBER
+        for axis in ("Growth", "Moat", "Quality", "Income", "Resilience", "Diversification")
+    },
+}
+
 PORTFOLIO_OPTIMIZER_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
         "criteria_context": {"type": "STRING"},
-        "summary": {"type": "OBJECT"},
-        "losers": {"type": "ARRAY", "items": {"type": "OBJECT"}},
+        "summary": {
+            "type": "OBJECT",
+            "properties": {
+                "health_score": _NUMBER,
+                "projected_health_score": _NUMBER,
+                "health_reasons": _STRING_LIST,
+                "portfolio_diagnostics": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "total_losers_value": _NUMBER,
+                        "avoid_weight_estimate_pct": _NUMBER,
+                        "investable_weight_estimate_pct": _NUMBER,
+                        "concentration_notes": _STRING_LIST,
+                    },
+                },
+                "plans": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "minimal": _OPTIMIZER_PLAN_SCHEMA,
+                        "standard": _OPTIMIZER_PLAN_SCHEMA,
+                        "maximal": _OPTIMIZER_PLAN_SCHEMA,
+                    },
+                    "required": ["minimal", "standard", "maximal"],
+                },
+            },
+            "required": ["health_score", "projected_health_score", "health_reasons", "plans"],
+        },
+        "losers": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "symbol": _STRING,
+                    "name": _STRING,
+                    "renaissance_tier": _NULLABLE_STRING,
+                    "avoid_category": _NULLABLE_STRING,
+                    "criteria_flags": _STRING_LIST,
+                    "needs_more_data": {"type": "BOOLEAN"},
+                    "likely_driver": {
+                        "type": "STRING",
+                        "enum": [
+                            "fundamental",
+                            "sentiment",
+                            "macro_rates",
+                            "idiosyncratic",
+                            "unknown",
+                        ],
+                    },
+                    "confidence": _NUMBER,
+                    "action": {
+                        "type": "STRING",
+                        "enum": ["hold", "add", "trim", "exit", "rotate"],
+                    },
+                    "rationale": _STRING,
+                    "replacement_candidates": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {"ticker": _STRING, "tier": _STRING, "why": _STRING},
+                            "required": ["ticker"],
+                        },
+                    },
+                    "current_weight_pct": _NULLABLE_NUMBER,
+                    "target_weight_pct": _NULLABLE_NUMBER,
+                },
+                "required": ["symbol", "action", "rationale"],
+            },
+        },
         "portfolio_level_takeaways": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "analytics": {"type": "OBJECT", "nullable": True},
+        "analytics": {
+            "type": "OBJECT",
+            "nullable": True,
+            "properties": {
+                "health_radar": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "current": _OPTIMIZER_RADAR_SCHEMA,
+                        "optimized": _OPTIMIZER_RADAR_SCHEMA,
+                    },
+                },
+                "sector_shift": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "sector": _STRING,
+                            "before_pct": _NUMBER,
+                            "after_pct": _NUMBER,
+                        },
+                        "required": ["sector"],
+                    },
+                },
+            },
+        },
     },
     "required": ["summary", "losers", "portfolio_level_takeaways"],
 }
@@ -338,12 +469,16 @@ async def run_kai_portfolio_optimizer(
         raise ValueError("Kai portfolio optimizer authority is required")
 
     gene = load_kai_portfolio_optimizer_gene()
-    client = build_managed_runtime_client(gene.model.provider)
+    if str(gene.model.provider or "").strip().lower() != "gemini":
+        raise RuntimeError("Kai portfolio optimizer gene must run on managed Gemini")
     model_name = resolve_fleet_model_name(str(gene.model.name))
     agent = build_single_turn_agent(
         gene,
         output_schema=PORTFOLIO_OPTIMIZER_SCHEMA,
-        model=Gemini(model=model_name, client=client),
+        # Not Gemini(client=build_managed_runtime_client(...)): with more than one
+        # configured Vertex location that client is a VertexRegionalClient, which
+        # ADK 2.9's Gemini.client (typed genai.Client) rejects.
+        model=build_managed_regional_gemini_adk_model(model_name),
     )
     result = await run_single_turn(
         agent,

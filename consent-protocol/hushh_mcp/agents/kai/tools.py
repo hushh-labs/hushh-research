@@ -65,13 +65,16 @@ async def perform_sentiment_analysis(ticker: str) -> Dict[str, Any]:
             ticker=ticker, user_id=ctx.user_id, consent_token=ctx.consent_token
         )
 
+        # Fields of SentimentInsight. This read market_consensus and key_news,
+        # which the dataclass never had, so every successful analysis came back
+        # as {"error": ...}.
         return {
             "summary": insight.summary,
             "sentiment_score": insight.sentiment_score,
-            "market_consensus": insight.market_consensus,
+            "key_catalysts": insight.key_catalysts,
             "recommendation": insight.recommendation,
             "confidence": insight.confidence,
-            "news_highlights": insight.key_news[:3] if hasattr(insight, "key_news") else [],
+            "news_highlights": insight.news_highlights[:3],
         }
     except Exception as e:
         return {"error": f"Sentiment analysis failed: {str(e)}"}
@@ -93,11 +96,13 @@ async def perform_valuation_analysis(ticker: str) -> Dict[str, Any]:
             ticker=ticker, user_id=ctx.user_id, consent_token=ctx.consent_token
         )
 
+        # Fields of ValuationInsight. This read fair_value, upside_potential and
+        # risk_assessment, which the dataclass never had.
         return {
             "summary": insight.summary,
-            "fair_value": insight.fair_value,
-            "upside_potential": insight.upside_potential,
-            "risk_assessment": insight.risk_assessment,
+            "valuation_metrics": insight.valuation_metrics,
+            "price_targets": insight.price_targets,
+            "peer_comparison": insight.peer_comparison,
             "recommendation": insight.recommendation,
             "confidence": insight.confidence,
         }

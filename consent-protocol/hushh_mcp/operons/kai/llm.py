@@ -685,11 +685,14 @@ async def synthesize_debate_recommendation_card(
     highlights: List[Dict[str, Any]],
     user_id: Optional[str] = None,
     consent_token: Optional[str] = None,
+    timeout_seconds: float = 90.0,
 ) -> Dict[str, Any]:
     """
     Build a rich post-debate synthesis card using Gemini.
 
     Returns strict JSON fields for frontend decision-card rendering.
+    ``timeout_seconds`` must fit inside the caller's own deadline: a caller that
+    cancels first skips the fallback below and loses the finished analysis.
     """
     synthesis_prompt = f"""
 You are Kai Chief Investment Strategist.
@@ -739,14 +742,14 @@ highlights={json.dumps(highlights[:24], default=str)[:4000]}
                 prompt=synthesis_prompt,
                 user_id=str(user_id),
                 consent_token=str(consent_token),
-                timeout_seconds=90.0,
+                timeout_seconds=timeout_seconds,
             )
         else:
             if not _require_gemini_ready():
                 return _gemini_unavailable_payload("Gemini synthesis unavailable")
             text = await _generate_content_text(
                 prompt=synthesis_prompt,
-                timeout_seconds=25.0,
+                timeout_seconds=min(25.0, timeout_seconds),
                 max_output_tokens=KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
                 response_mime_type="application/json",
             )

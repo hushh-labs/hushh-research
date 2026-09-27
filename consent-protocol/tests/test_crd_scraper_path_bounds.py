@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth
 from api.routes import crd_scraper
 
 
@@ -12,6 +13,8 @@ def client():
     """Module-scoped TestClient."""
     app = FastAPI()
     app.include_router(crd_scraper.router)
+    app.include_router(crd_scraper.status_router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase-uid"
     yield TestClient(app)
 
 

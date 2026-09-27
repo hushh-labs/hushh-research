@@ -427,6 +427,11 @@ from api.routes import iam, invites, marketplace, ria  # noqa: E402
 
 app.include_router(iam.router)
 app.include_router(ria.router)
+# RIA onboarding polls the CRD scrape job its verification started. Only the
+# authenticated status read is mounted; the module's create endpoints are not.
+from api.routes import crd_scraper  # noqa: E402
+
+app.include_router(crd_scraper.status_router)
 app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
