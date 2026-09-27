@@ -49,6 +49,7 @@ class FakeWorld {
   calls: Call[] = [];
   endpoint = endpointBody();
   bindingIssued = false;
+  bindingVersion = 0;
   appPublicKey = "";
   podReachable = true;
   challengePayload = '{"challenge_id":"psc_1","epoch":3,"hushh_id":"ha1_owner","nonce":"n","pod_key_id":"podk_1","purpose":"pod-session-admission","subject_id":"tdv_app_1"}';
@@ -78,7 +79,7 @@ class FakeWorld {
       environment: "dev", url: POD_URL, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
       platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: "user_gcp",
-      version: 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 24 * 3600 * 1000,
+      version: this.bindingVersion || 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 24 * 3600 * 1000,
     };
     if (path.endsWith("/pod-binding") && init.method === "GET") {
       return this.bindingIssued
@@ -87,7 +88,9 @@ class FakeWorld {
     }
     if (path.endsWith("/pod-binding") && init.method === "POST") {
       this.bindingIssued = true;
-      return json({ binding, signature: hubSignature(binding), version: 1 });
+      this.bindingVersion += 1;
+      binding.version = this.bindingVersion;
+      return json({ binding, signature: hubSignature(binding), version: binding.version });
     }
     if (path.endsWith("/pod-tombstone")) {
       this.couriered.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -104,7 +107,7 @@ class FakeWorld {
     }
     if (url === `${POD_URL}/api/one/pod/session/admit`) {
       this.admitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: 1 });
+      return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
     }
     if (url === `${POD_URL}/api/one/pod/session/revoke`) {
       this.revokes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -280,6 +283,69 @@ describe("owner pod endpoint", () => {
     expect(world.calls.filter((c) => c.url.endsWith("/pod-binding")).map((c) => c.init.method)).toEqual(["GET", "POST", "GET"]);
   });
 
+  it("reissues a consumed binding once and pins only after successful admission", async () => {
+    world.bindingIssued = true;
+    world.bindingVersion = 1;
+    const transport = world.transport();
+    const direct = transport.direct;
+    let attempts = 0;
+    transport.direct = async (url, init) => {
+      if (url.endsWith("/session/admit") && ++attempts === 1) {
+        expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+        return json({ detail: { code: "stale_version" } }, 403);
+      }
+      return direct(url, init);
+    };
+    await ownerPod.refreshEndpointFromHub(USER, transport);
+    expect(attempts).toBe(2);
+    expect((await ownerPod.currentPodSession(USER, transport)).version).toBe(2);
+    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding") && c.init.method === "POST")).toHaveLength(1);
+    expect(await ownerPod.loadPinnedEndpoint(USER)).not.toBeNull();
+  });
+
+  it.each(["stale_version", "revoked", "bad_signature"])("bounds retries and preserves refusal for %s", async (code) => {
+    world.bindingIssued = true;
+    world.bindingVersion = 1;
+    const transport = world.transport();
+    const direct = transport.direct;
+    let attempts = 0;
+    transport.direct = async (url, init) => {
+      if (url.endsWith("/session/admit")) {
+        attempts += 1;
+        return json({ detail: { code } }, 403);
+      }
+      return direct(url, init);
+    };
+    await expect(ownerPod.refreshEndpointFromHub(USER, transport)).rejects.toThrow(`POD_ADMISSION_REFUSED:${code}`);
+    expect(attempts).toBe(code === "stale_version" ? 2 : 1);
+    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding") && c.init.method === "POST")).toHaveLength(code === "stale_version" ? 1 : 0);
+    expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+  });
+
+  it.each(["hub", "pod"])("does not bypass a %s refusal during stale-grant recovery", async (refusalAt) => {
+    world.bindingIssued = true;
+    world.bindingVersion = 1;
+    const transport = world.transport();
+    const direct = transport.direct;
+    const hub = transport.hub;
+    let attempts = 0;
+    transport.hub = (url, init) => refusalAt === "hub" && url.endsWith("/pod-binding") && init.method === "POST"
+      ? Promise.resolve(json({ detail: { code: "DEVICE_REVOKED" } }, 403))
+      : hub(url, init);
+    transport.direct = (url, init) => {
+      if (url.endsWith("/session/admit")) {
+        attempts += 1;
+        return Promise.resolve(json({ detail: { code: attempts === 1 ? "stale_version" : "revoked" } }, 403));
+      }
+      return direct(url, init);
+    };
+    await expect(ownerPod.refreshEndpointFromHub(USER, transport)).rejects.toThrow(
+      refusalAt === "hub" ? "BINDING_UNAVAILABLE:DEVICE_REVOKED" : "POD_ADMISSION_REFUSED:revoked",
+    );
+    expect(attempts).toBe(refusalAt === "hub" ? 1 : 2);
+    expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+  });
+
   it("refuses to dial a pod the binding does not name", async () => {
     await ownerPod.refreshEndpointFromHub(USER, world.transport());
     world.endpoint = endpointBody({ podKeyId: "podk_other", endpointVersion: 2 });
@@ -300,7 +366,7 @@ describe("owner pod endpoint", () => {
       this.calls.push({ target: "direct", url, init });
       expect(url).toBe(`${POD_URL}/api/one/pod/session/renew`);
       expect(String((init.headers as Record<string, string>).Authorization)).toBe(`Bearer ${opened.session}`);
-      return json({ session: "pst1.eyJzaWQiOiJwc3NfMiJ9.bWFj", sid: "pss_2", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: 1 });
+      return json({ session: "pst1.eyJzaWQiOiJwc3NfMiJ9.bWFj", sid: "pss_2", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
     }.bind(world);
     const renewed = await ownerPod.currentPodSession(USER, world.transport());
     expect(renewed.sid).toBe("pss_2");

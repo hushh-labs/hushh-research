@@ -26,6 +26,7 @@ consent tokens arrive at runtime, never at deploy time.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -130,7 +131,7 @@ def _deploy_env_label() -> str:
     from deploy identity"). Reading ``ENVIRONMENT`` would therefore bill every
     dev pod to ``uat`` -- a cost report that is confidently wrong.
     """
-    return _label_value(_env("HUSHH_DEPLOY_ENV") or _env("ENVIRONMENT"), "unknown")
+    return _label_value(_env("HUSHH_DEPLOY_ENV") or _env("ENVIRONMENT") or "", "unknown")
 
 
 def _service_name(hushh_id: str) -> str:
@@ -260,6 +261,8 @@ class GcpBackend:
         Hushh cannot read it. Exact Confidential-Space annotation values are
         validated at live-enablement; the shape here is the deploy contract.
         """
+        from hushh_mcp.consent.token_signing import public_verification_keys
+
         name = _service_name(spec.hushh_id)
         dedicated = spec.tier == TIER_DEDICATED
         # This person's warm floor, not the process's. Resolved once so the three
@@ -430,8 +433,13 @@ class GcpBackend:
                 # no asymmetric issuance configured yet.
                 {
                     "name": "CONSENT_ED25519_PUBLIC_KEYS",
-                    "value": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
+                    "value": json.dumps(public_verification_keys(), separators=(",", ":")),
                 },
+                {
+                    "name": "HUSHH_DEPLOY_ENV",
+                    "value": _env("HUSHH_DEPLOY_ENV") or _env("ENVIRONMENT") or "",
+                },
+                {"name": "CORS_ALLOWED_ORIGINS", "value": _env("CORS_ALLOWED_ORIGINS") or ""},
                 # Durable state. Without this block a pod runs storage=Null, memory
                 # off and no commit log: it forgets everything the moment it stops.
                 # That is merely lossy on the warm tier and fatal on the economy

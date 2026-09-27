@@ -505,6 +505,12 @@ async function admitEndpoint(
   });
   if (!admitResponse.ok) {
     const code = detailCode(await readJson(admitResponse));
+    // A lost response or cold reconnect can encounter an already-consumed grant.
+    // Reissue once through owner-authenticated hub policy; never relax the pod's
+    // replay fence or retry a revocation/authorization refusal.
+    if (code === "stale_version" && !refreshGrant) {
+      return admitEndpoint(userId, transport, endpoint, true);
+    }
     throw new OwnerPodError(code ? `POD_ADMISSION_REFUSED:${code}` : `POD_ADMISSION_REFUSED:${admitResponse.status}`);
   }
   const session = sessionFromResponse(await readJson(admitResponse), subjectId);

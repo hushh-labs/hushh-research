@@ -184,6 +184,7 @@ _MANAGED_ONLY_ENV = frozenset(
         "POD_STORAGE_GCS_PREFIX",
         "POD_STORAGE_BACKEND",
         "POD_AGENT_MEMORY_ENABLED",
+        "POD_DURABLE_IDENTITY_ENABLED",
         # Stated by this renderer from the principal IT binds as run.invoker,
         # rather than inherited from the managed one. See the extend below.
         "HUSSH_POD_HUB_CALLER_EMAILS",
@@ -369,6 +370,8 @@ class UserGcpBackend:
         kept.extend(
             [
                 {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
+                # Owner-local encrypted recovery also owns the stable pod identity.
+                {"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"},
                 # The user's own CMEK bucket, created by their own bootstrap.
                 {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
                 {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},

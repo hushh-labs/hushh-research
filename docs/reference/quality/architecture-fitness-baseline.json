@@ -1,5 +1,5 @@
 {
-  "finding_count": 1885,
+  "finding_count": 1886,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -179,7 +179,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "UserGcpBackend",
-      "value": 1532
+      "value": 1534
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -350,7 +350,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": "GcpBackend",
-      "value": 884
+      "value": 891
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2078,7 +2078,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": "render_deploy_config",
-      "value": 294
+      "value": 301
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4544,7 +4544,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "render_deploy_config",
-      "value": 135
+      "value": 137
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11321,7 +11321,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": null,
-      "value": 1797
+      "value": 1800
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12167,7 +12167,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": null,
-      "value": 1261
+      "value": 1269
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14300,7 +14300,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/owner-pod-endpoint.ts",
       "symbol": null,
-      "value": 712
+      "value": 718
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16965,6 +16965,15 @@
       "path": "consent-protocol/api/routes/one/voice.py",
       "symbol": null,
       "value": 526
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_gcp_backend.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_gcp_backend.py",
+      "symbol": null,
+      "value": 529
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",

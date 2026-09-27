@@ -36,11 +36,15 @@ def test_satisfies_compute_backend_protocol():
     assert _backend().backend_id == BACKEND_USER_GCP
 
 
-def test_deploy_config_targets_user_project_and_is_user_owned():
+def test_deploy_config_targets_user_project_and_is_user_owned(monkeypatch):
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", "false")
     cfg = _backend().render_deploy_config(_spec())
     assert cfg["kind"] == "Service"
     assert cfg["metadata"]["namespace"] == "acme-user-proj"  # the USER's project
     assert cfg["metadata"]["labels"]["hussh-tenancy"] == "user-owned"
+    env = cfg["spec"]["template"]["spec"]["containers"][0]["env"]
+    identity = [entry for entry in env if entry["name"] == "POD_DURABLE_IDENTITY_ENABLED"]
+    assert identity == [{"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"}]
 
 
 def test_bootstrap_plan_is_least_privilege_and_keyless():

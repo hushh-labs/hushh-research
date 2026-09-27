@@ -475,3 +475,55 @@ async def test_owned_creation_retains_location_and_uid_before_readiness(
     else:
         await backend.provision(spec)
         assert calls == ["create", "ack", "ready"]
+
+
+def test_pod_receives_active_and_retained_public_verifiers_without_private_key(monkeypatch):
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+        Ed25519PublicKey,
+    )
+
+    from hushh_mcp.consent import token_signing
+
+    signer = Ed25519PrivateKey.generate()
+    private = base64.b64encode(signer.private_bytes_raw()).decode()
+    retained = base64.b64encode(
+        Ed25519PrivateKey.generate().public_key().public_bytes_raw()
+    ).decode()
+    monkeypatch.setenv("CONSENT_ED25519_PRIVATE_KEY", private)
+    monkeypatch.setenv("CONSENT_ED25519_KID", "active-dev-key")
+    monkeypatch.setenv("CONSENT_ED25519_PUBLIC_KEYS", json.dumps({"retained": retained}))
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://dev.one.hushh.ai")
+    token_signing.reset_caches()
+    try:
+        config = _backend().render_deploy_config(_spec())
+        env = {
+            entry["name"]: entry.get("value")
+            for entry in config["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        keys = json.loads(env["CONSENT_ED25519_PUBLIC_KEYS"])
+        assert keys["retained"] == retained
+        payload = b"synthetic owner-bound admission"
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(keys["active-dev-key"])).verify(
+            signer.sign(payload), payload
+        )
+        assert "CONSENT_ED25519_PRIVATE_KEY" not in env
+        assert private not in json.dumps(config)
+        assert env["HUSHH_DEPLOY_ENV"] == "dev"
+        assert env["CORS_ALLOWED_ORIGINS"] == "https://dev.one.hushh.ai"
+        for name in ("HUSHH_DEPLOY_ENV", "ENVIRONMENT", "CORS_ALLOWED_ORIGINS"):
+            monkeypatch.delenv(name, raising=False)
+        empty_config = _backend().render_deploy_config(_spec())
+        empty_env = {
+            entry["name"]: entry.get("value")
+            for entry in empty_config["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        assert empty_env["HUSHH_DEPLOY_ENV"] == ""
+        assert empty_env["CORS_ALLOWED_ORIGINS"] == ""
+    finally:
+        token_signing.reset_caches()

@@ -1484,3 +1484,49 @@ service-UID fence. Focused client/update checks passed 153 tests; reviewer guard
 checks passed 25. An unknown provider outcome still retains its operation lease.
 A known pre-submission refusal may require operator reconciliation through the
 existing workflow; no timeout-based lease clearing or automatic retry was added.
+
+### Reviewer maintenance and direct admission — 2026-09-26
+
+Writer revision `3d2e95e86` passed complete canonical local CI (10,207 frontend,
+6,994 backend, 522 voice, 101 frontend integration and 92 backend PKM checks)
+and GitHub CI 36286167834. Governed dev deployment 36287199197 is in progress;
+this entry does not establish its serving result. History cleanup 250 remains
+parked. The developer branch and unrelated PDF work remain preserved.
+
+The approved existing reviewer pod maintenance now verifies the immutable dev
+bridge image, unchanged service identity and recovery resource bindings,
+authenticated idle handoff, durable public-key continuity across restart and
+installed-digest registry readback. Owner-cloud repository setup was repaired
+through the existing bootstrap identity. These are maintenance receipts, not a
+normal owner-approved Settings update. Initial sealed storage contained no
+retained user file fixture; identity recovery is not user-file continuity proof.
+The correct protected handoff route is `/api/one/pod/upgrade/status`, including
+its required pod identity header. An earlier probe of another path cannot prove
+route absence; legacy classification also used the installed revision's source.
+
+The controlled reviewer direct ingress passes dev CORS, anonymous machine-route
+refusal and authenticated browser admission. Readiness was published for the
+verified incarnation. Live testing found a consumed-grant reconnect refusal:
+the pod correctly rejects repeated binding versions, while the browser reused
+the hub's latest consumed envelope. The correction reissues once through the
+owner-authenticated hub and repeats signature, owner, endpoint, challenge and
+possession validation before pinning. The patched SDK passed signed endpoint
+discovery against dev; it is not yet the deployed frontend. Focused coverage
+includes bounded retry, hub refusal, revocation, invalid signatures and no
+premature pin. Cross-authority concurrent revocation remains an owning
+`iam-consent-governance` follow-up: higher signed grants can supersede tombstones,
+and device revocation and grant issuance do not yet share an atomic boundary.
+
+Provisioning now exports the canonical active and retained public verifiers,
+explicit environment/CORS strings, and enables durable BYOC identity. No private
+signing material is rendered. Live durable-key evidence remains necessary even
+with that setting enabled. The two backend renderer suites pass 63 tests; the
+browser endpoint suite passes 26. Independent read-only review checked these
+trust boundaries. Eight measured size findings are explicitly rebaselined for
+these bounded authority corrections and their tests; no threshold or rule is
+weakened, and no unrelated finding is accepted. This retains the owning facades
+rather than introducing a structural migration into the release repair.
+
+The affected private Wiki section was updated and read back. Real Hermes access,
+separate-network Puppy acceptance, normal software-update continuity, live BYOK
+writer acceptance and destructive-history cutover remain separate open gates.
