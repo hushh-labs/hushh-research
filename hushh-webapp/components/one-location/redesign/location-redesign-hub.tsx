@@ -6407,6 +6407,7 @@ function AskFlow({
         >
           <FlowActionGroup
             stacked
+            className={SHARE_CONFIRM_ACTIONS_CLASSNAME}
             primary={
               <Button
                 onClick={sendRequest}
@@ -6414,7 +6415,7 @@ function AskFlow({
                 disabled={!isRequestFormValid || sendingRequest}
                 aria-disabled={!isRequestFormValid || sendingRequest}
                 isLoading={sendingRequest}
-                className="text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+                className={SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME}
               >
                 Send request
               </Button>

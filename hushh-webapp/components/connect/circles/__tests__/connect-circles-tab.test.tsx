@@ -292,15 +292,23 @@ describe("ConnectCirclesTab", () => {
     // Red, round and filled -- the identity, not a tinted utility well.
     expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
     expect(disc.className).toContain("rounded-full");
-    // The 28px status mark stays secondary to the 40px member photos; it does
-    // not compete with their identity or make the preview taller.
-    expect(disc.className).toContain("h-7");
-    expect(disc.className).toContain("w-7");
+    // SMS is the primary 40px icon; member previews carry no duplicate badge.
+    expect(disc.className).toContain("size-10");
+    expect(
+      within(smsRow)
+        .getByTestId("connect-circle-cluster")
+        .querySelector("[data-one-sms-text-icon]"),
+    ).toBeNull();
 
     // The SMS identity remains distinct within the new circle tile layout.
     expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
     const trusted = screen.getByTestId("connect-circle-trusted");
     expect(within(trusted).getByTestId("connect-circle-cluster")).toBeTruthy();
+    expect(
+      within(trusted)
+        .getByTestId("connect-circle-cluster")
+        .querySelector("svg.lucide-shield-check"),
+    ).toBeNull();
     expect(trusted.querySelector("svg")).not.toBeNull();
   });
 

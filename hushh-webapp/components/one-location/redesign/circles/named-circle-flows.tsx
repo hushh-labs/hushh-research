@@ -41,6 +41,11 @@ import {
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
+import {
+  SHARE_CONFIRM_ACTIONS_CLASSNAME,
+  SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME,
+} from "@/components/one-location/redesign/location-cta-layout";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
@@ -2314,6 +2319,7 @@ export function CircleDetailFlow({
                     </div>
                     <FlowActionGroup
                       stacked
+                      className={SHARE_CONFIRM_ACTIONS_CLASSNAME}
                       secondary={
                         <Button
                           type="button"
@@ -2329,7 +2335,8 @@ export function CircleDetailFlow({
                       primary={
                         <Button
                           type="button"
-                          size="standard"
+                          size="prominent"
+                          className={SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME}
                           disabled={busy}
                           onClick={() =>
                             void onShareCode(circle, inviteCode.code)
@@ -2372,11 +2379,13 @@ export function CircleDetailFlow({
                   <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                     <FlowActionGroup
                       stacked
+                      className={SHARE_CONFIRM_ACTIONS_CLASSNAME}
                       secondary={
                         <Button
                           type="button"
                           variant="ghost"
                           size="standard"
+                          className={SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME}
                           onClick={() => setInviteCodeSheetOpen(false)}
                         >
                           Cancel
@@ -2386,6 +2395,7 @@ export function CircleDetailFlow({
                         <Button
                           type="button"
                           size="prominent"
+                          className={SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME}
                           disabled={busy}
                           isLoading={busy}
                           onClick={() =>

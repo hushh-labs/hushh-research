@@ -20,7 +20,7 @@ type FlowActionGroupProps = {
 /**
  * Canonical two-action composition.
  *
- * Phone: secondary above primary, both full width.
+ * Phone and stacked layouts: primary above secondary, both full width.
  * Tablet/desktop: secondary left, primary right, content width.
  * The slots make the hierarchy independent from call-site DOM ordering.
  */
