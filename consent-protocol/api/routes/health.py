@@ -157,6 +157,16 @@ def _select_review_mode_identity(
     signing it into a different account.
     """
     primary = (_resolve_reviewer_uid(), "reviewer")
+    # The configured primary is already available to the review-mode button
+    # without a passphrase. An explicit primary selection must not resolve to
+    # the counterpart merely because they share a vault passphrase.
+    if (
+        requested_uid is not None
+        and primary[0]
+        and str(requested_uid).strip() == primary[0]
+        and not _is_production_runtime()
+    ):
+        return primary
     provided_passphrase = str(smoke_passphrase or "").strip()
     matched = (
         _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())

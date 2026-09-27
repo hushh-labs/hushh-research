@@ -1656,3 +1656,16 @@ rehearsal passed after rerunning its startup timeout. Complete final-SHA GitHub
 validation is still required before deployment. No timeout was loosened and no
 core test was removed. The canonical reviewer's live Software updates preflight
 preserved its BYOC assignment and bridge version; no installation was requested.
+
+The final refresh includes CI-only ADK/main revision `ade6a3579`; its 23 workflow
+contract tests and protocol manifest parity pass. Merge-warning review confirmed
+history/connector helper extraction, generated-contract additions, diagram moves,
+and deliberate migration deferral. It also found and corrected explicit primary
+reviewer selection when a shared passphrase matched the counterpart. All 26
+review-mode tests pass; counterpart authentication and unknown-identity refusal
+remain enforced. The Plaid guide no longer recommends an unused history-window
+setting or describes transient provider processing as vault-only residence.
+
+TestFlight's incoming early backend-provenance probe has a possible stale-evidence
+window before shipping. The owning `release-ios-appstore` workflow must recheck
+release-time provenance; dev deployment does not exercise or establish that lane.

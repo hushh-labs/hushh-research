@@ -583,3 +583,34 @@ def test_review_mode_requested_uid_unknown_is_refused(monkeypatch):
     assert response.status_code == 403
     assert response.json()["detail"] == "Reviewer identity mismatch"
     assert minted == {}
+
+
+def test_requested_primary_uid_mints_primary_despite_shared_passphrase(monkeypatch):
+    _clear_reviewer_env(monkeypatch)
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    monkeypatch.setenv("REVIEWER_UID", "reviewer_uid_123")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_UID", "counterpart_uid_456")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_VAULT_PASSPHRASE", "shared-passphrase")
+    minted = _install_fake_minter(monkeypatch)
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/app-config/review-mode/session",
+        json={
+            "subject": "reviewer",
+            "reviewer_uid": "reviewer_uid_123",
+            "smoke_passphrase": "shared-passphrase",
+        },
+    )
+    assert response.status_code == 200
+    assert minted["uid"] == "reviewer_uid_123"
+    minted.clear()
+    refused = client.post(
+        "/api/app-config/review-mode/session",
+        json={
+            "subject": "reviewer",
+            "reviewer_uid": "counterpart_uid_456",
+            "smoke_passphrase": "wrong-passphrase",
+        },
+    )
+    assert refused.status_code == 403
+    assert minted == {}

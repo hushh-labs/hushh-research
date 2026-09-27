@@ -1,5 +1,5 @@
 {
-  "finding_count": 1889,
+  "finding_count": 1890,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -15776,7 +15776,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_health_review_mode.py",
       "symbol": null,
-      "value": 585
+      "value": 616
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17001,6 +17001,15 @@
       "path": "consent-protocol/tests/test_production_image_promotion_contract.py",
       "symbol": "_preflight",
       "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/health.py",
+      "symbol": null,
+      "value": 510
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -18270,6 +18279,23 @@
         "value": 503
       }
     ],
+    "reviewer_primary_20260927": {
+      "accepted_findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/tests/test_health_review_mode.py||module exceeds the advisory operon budget",
+          "previous_value": 585,
+          "value": 616
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
+          "previous_value": null,
+          "value": 510
+        }
+      ],
+      "reason": "Restore main primary-reviewer behavior inside the existing identity selector while retaining stricter counterpart authentication. Focused regression covers primary selection and counterpart refusal; a parallel selector or test authority would be disproportionate. Thresholds and non-size gates unchanged."
+    },
     "revocation_repair_20260926": {
       "accepted_findings": [
         {

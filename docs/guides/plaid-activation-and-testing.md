@@ -43,7 +43,6 @@ Set these in the backend runtime profile:
 - `PLAID_CLIENT_NAME=Hussh Kai`
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/one/kai/plaid/oauth/return`
-- `PLAID_TX_HISTORY_DAYS=730`
 
 `APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 
@@ -96,7 +95,7 @@ cache to refresh; on Android, repeat the verified-link check on the device.
 
 BYOK note:
 
-- the access token and every record live only in the person's encrypted vault
+- the current vault flow persists the access token and downloaded records in the person's encrypted vault; authorized Plaid requests process them transiently, and legacy server-custody retirement requires separate environment evidence
 - the web OAuth return keeps only the link token (never an access token) in tab session
   storage for 30 minutes, single use; the vault key is never persisted
 
