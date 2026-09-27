@@ -1420,3 +1420,35 @@ The staged writer candidate enables BYOK writes in source only. Deploy it only
 after the bridge serves 100% and incompatible writers are drained; the source
 flag is not live evidence. Its rollback target is the read-capable bridge, never
 a platform-key writer. Migration 250 remains deferred in this writer stage.
+
+### Crash recovery and continued verification — 2026-09-26
+
+After the host restart, the detached writer candidate `322b51915` was recovered
+from Git into an ignored workspace directory. The original infrastructure branch
+remained at `dbd658599`; its exact-SHA GitHub CI run 36281591910 passed. The
+governed dev compatibility deployment is run 36282936734; dispatch and successful
+build steps do not establish serving or reviewer acceptance.
+
+The recovered candidate's complete CI attempt passed governance, typecheck,
+lint and production build, then reported 10,199 passing frontend tests and eight
+failures in a microphone fixture missing its verified hosting precondition.
+The fixture now explicitly selects pod commands; all 14 focused tests pass.
+Backend checking found a WebSocket exception-detail typing error, corrected at
+the existing admission boundary; targeted mypy, Ruff and 17 voice tests pass.
+Only those two reviewed module-size findings were updated in the debt baseline.
+Package verification and integration (101 frontend and 92 backend PKM tests)
+passed; complete final-candidate CI remains required.
+
+Synthetic recovery on `322b51915` retained 12 real owner-cipher fields across
+cutover and idempotent replay. After a PostgreSQL 15.18 restart, guarded restores
+recovered 48 pre-cutover rows and 32 post-cutover rows exactly; fresh cipher
+contexts decrypted all 12 retained fields in each clone. Wrong checksums and
+nonempty restore targets were refused. This used eight source-defined relations,
+synthetic information and disposable local resources, which were removed. It
+does not prove live writer drain, Cloud SQL recovery or browser continuity.
+
+Comparison with frozen ADK `fc6449bbe` found no missing Drive or migration
+authority correction. The missing connector-schema import isolation was carried
+as `b3aa053a0`; active ADK UI edits remain in their owning worktree. The candidate
+retains immutable migration 904 plus additive 913 and guarded parked 250; the
+ADK tree's historical migration edits must not replace those contracts.

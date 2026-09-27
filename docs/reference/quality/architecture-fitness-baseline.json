@@ -16100,7 +16100,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-command-bar.test.tsx",
       "symbol": null,
-      "value": 560
+      "value": 568
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16964,7 +16964,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/voice.py",
       "symbol": null,
-      "value": 520
+      "value": 526
     }
   ],
   "purpose": "post-pilot new-or-worsened architecture debt ratchet",
@@ -17608,6 +17608,27 @@
       ],
       "scope": "Nineteen individually reviewed imported size findings; no budget or authority rule relaxed. 162 backend and 140 frontend tests pass; live acceptance remains separate.",
       "source": "51296b7b1"
+    },
+    "post_crash_voice_20260926": {
+      "audit": "docs/reference/quality/adk-orchestration-docs-audit.md#crash-recovery-and-continued-verification--2026-09-26",
+      "findings": [
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|hushh-webapp/__tests__/components/location-command-bar.test.tsx||module exceeds the advisory operon budget",
+          "previous_value": 560,
+          "reason": "Explicit verified pod-command fixture preserves microphone interaction coverage without bypassing production hosting admission.",
+          "value": 568
+        },
+        {
+          "disposition": "retain_reviewed_size_debt",
+          "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
+          "previous_value": 520,
+          "reason": "Narrow HTTPException detail at the existing WebSocket hosting refusal boundary; fixed safe fallback, no new authority. Includes the required Ruff formatting.",
+          "value": 526
+        }
+      ],
+      "integration_revision": "b3aa053a0",
+      "verification": "Read-only post_crash_adk_delta review; focused voice and command-bar checks. Full candidate CI required."
     },
     "previous_source_base": "db88f8bd2554512e581eca3b875bb26ba4f393bc + regenerated capability projections",
     "reason_definitions": {

@@ -53,7 +53,7 @@ vi.mock("@/lib/one-voice/readiness", () => ({
   useOneVoiceLiveEnabled: () => false,
   useOneVoiceCommandsEnabled: () => true,
   useOneVoiceReadiness: () => ({
-    status: "ready",
+    status: "resolved",
     microphoneOwner: "pod_commands",
   }),
 }));

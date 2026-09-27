@@ -378,7 +378,13 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     try:
         await _require_shared_live_hosting(claims.user_id)
     except HTTPException as exc:
-        await websocket.send_json(protocol.error(exc.detail["code"], exc.detail["message"]))
+        detail: dict[str, str] = exc.detail if isinstance(exc.detail, dict) else {}
+        await websocket.send_json(
+            protocol.error(
+                detail.get("code", "AGENT_HOSTING_UNAVAILABLE"),
+                detail.get("message", "Your agent connection could not be verified."),
+            )
+        )
         await websocket.close(code=protocol.CLOSE_DISABLED)
         return
 
