@@ -52,6 +52,14 @@ def circle_fixture(db, monkeypatch, action):
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id TEXT NOT NULL, key_id TEXT NOT NULL,
           public_key_jwk JSONB NOT NULL, algorithm TEXT NOT NULL DEFAULT 'ECDH-P256-AES256-GCM',
           status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+        -- get_circle() also selects identity.phone_verified; sms_schema's
+        -- actor_identity_cache (unlike audience_writer_schema's) doesn't
+        -- carry that column.
+        ALTER TABLE actor_identity_cache ADD COLUMN phone_verified BOOLEAN;
+        -- get_circle()'s is_ria EXISTS subquery reads ria_profiles, which
+        -- nothing in this fixture's migration chain creates (mirrors the
+        -- fixture at test_location_command_postgres.py's ria_profiles line).
+        CREATE TABLE ria_profiles(user_id TEXT, verification_status TEXT);
     """)
     migrations = Path(__file__).resolve().parents[2] / "db/migrations"
     for name in (
