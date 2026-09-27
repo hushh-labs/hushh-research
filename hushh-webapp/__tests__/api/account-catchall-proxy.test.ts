@@ -14,6 +14,10 @@ type AccountCatchAllRoute = {
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
   ) => Promise<Response>;
+  PATCH: (
+    request: NextRequest,
+    props: { params: Promise<{ path: string[] }> }
+  ) => Promise<Response>;
 };
 
 let route: AccountCatchAllRoute;
@@ -24,6 +28,38 @@ beforeEach(async () => {
 });
 
 describe("/api/account/[...path] proxy", () => {
+  it("forwards display-name PATCH with its body and authorization", async () => {
+    // The profile display-name editor saves with PATCH; the proxy exported only
+    // GET/POST/DELETE, so Next answered 405 and the backend was never called.
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ display_name: "Parth" })
+    );
+    const body = { display_name: "Parth" };
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/identity/display-name",
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer firebase-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const response = await route.PATCH(request, {
+      params: Promise.resolve({ path: ["identity", "display-name"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/identity/display-name",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify(body) })
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer firebase-token");
+  });
+
   it("forwards identity refresh with authorization", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, user_id: "user_1" })
