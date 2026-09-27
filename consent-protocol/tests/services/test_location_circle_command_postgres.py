@@ -41,6 +41,10 @@ def circle_fixture(db, monkeypatch, action):
     """)
     migrations = Path(__file__).resolve().parents[2] / "db/migrations"
     for name in (
+        # get_circle() left-joins one_location_recipient_keys; sms_schema's
+        # minimal fixture doesn't create it, so create_or_get_circle's read-back
+        # 500s without this (see audience_writer_schema, which needs it too).
+        "061_one_location_agent.sql",
         "138_circle_member_connection_origin.sql",
         "158_one_location_circle_member_limit_100.sql",
         "159_one_location_circle_invite_max_uses_100.sql",
