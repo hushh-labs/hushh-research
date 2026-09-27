@@ -1,5 +1,6 @@
 "use client";
 
+import { RadioGroup as RadioPrimitive } from "radix-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircleIcon as CheckCircle2, SpinnerGapIcon as Loader2, TrashIcon as Trash2 } from "@/components/icons";
@@ -49,6 +50,7 @@ type GeminiRuntimeSettingsCardProps = {
   requiresExplicitSelection?: boolean;
   initiallyConfigured?: boolean;
   initialSetupChoice?: OneRuntimeSetupChoice | null;
+  onCanContinueChange?: (ready: boolean) => void;
   onSelectionReadyChange?: (
     choice: OneRuntimeSetupChoice,
   ) => void | Promise<void>;
@@ -105,6 +107,7 @@ function OwnerRuntimeSettingsCard({
   initiallyConfigured = true,
   initialSetupChoice = null,
   onSelectionReadyChange,
+  onCanContinueChange,
   onPreVaultDraftStaged,
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
@@ -163,6 +166,7 @@ function OwnerRuntimeSettingsCard({
   const [hasExplicitSelection, setHasExplicitSelection] = useState(
     !requiresExplicitSelection || initiallyConfigured,
   );
+  const [selectedOption, setSelectedOption] = useState<string>(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
 
   useEffect(() => {
@@ -172,7 +176,12 @@ function OwnerRuntimeSettingsCard({
   const invalidateCredentialValidation = useCallback(() => {
     credentialRevisionRef.current += 1;
     setCredentialValidation({ status: "idle" });
-  }, []);
+    if (requiresExplicitSelection) setHasExplicitSelection(false);
+  }, [requiresExplicitSelection]);
+
+  useEffect(() => {
+    onCanContinueChange?.(hasExplicitSelection && !isSaving && !isRemoving);
+  }, [hasExplicitSelection, isSaving, isRemoving, onCanContinueChange]);
 
   useEffect(() => {
     setHasExplicitSelection(!requiresExplicitSelection || initiallyConfigured);
@@ -180,58 +189,63 @@ function OwnerRuntimeSettingsCard({
 
   useEffect(() => {
     if (!requiresExplicitSelection) return;
+    setSelectedOption(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
     setMode(
       initialSetupChoice === "byok_pending_vault"
         ? "byok"
         : "hushh_managed_vertex",
     );
-  }, [initialSetupChoice, requiresExplicitSelection]);
+  }, [initialSetupChoice, initiallyConfigured, requiresExplicitSelection]);
 
   const refresh = useCallback(async () => {
     const ownerIsCurrent = captureOwnerGuard();
     if (!ownerIsCurrent()) return;
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
-      setMode("hushh_managed_vertex");
+      if (!requiresExplicitSelection) setMode("hushh_managed_vertex");
       setHasSavedKey(null);
       return;
     }
     const selectionRevision = selectionRevisionRef.current;
     try {
-      const [savedMode, savedKey, savedTransport, savedProject, savedLocation] =
-        await Promise.all([
-          PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
-          }),
-          PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-          }),
-          PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
-          }),
-          PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_PROJECT_REF,
-          }),
-          PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_LOCATION_REF,
-          }),
-        ]);
+      const [savedMode, savedKey, savedTransport, savedProject, savedLocation] = await Promise.all([
+        PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
+        }),
+        PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+        }),
+        PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
+        }),
+        PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_VERTEX_PROJECT_REF,
+        }),
+        PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_VERTEX_LOCATION_REF,
+        }),
+      ]);
       if (!ownerIsCurrent() || selectionRevisionRef.current !== selectionRevision) return;
-      setMode(savedMode === "byok" ? "byok" : "hushh_managed_vertex");
+      const restoredMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
+      setMode(restoredMode);
+      if (requiresExplicitSelection) {
+        setSelectedOption((current) => current ? restoredMode : "");
+        if (restoredMode === "byok" && !savedKey) setHasExplicitSelection(false);
+      }
       setHasSavedKey(Boolean(savedKey));
       setTransport(
         savedTransport === "vertex_api_key"
@@ -242,13 +256,14 @@ function OwnerRuntimeSettingsCard({
       setVertexLocation(savedLocation || "global");
     } catch {
       if (!ownerIsCurrent() || selectionRevisionRef.current !== selectionRevision) return;
-      setMode("hushh_managed_vertex");
+      if (requiresExplicitSelection) setHasExplicitSelection(false);
+      else setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       setTransport("developer_api");
       setVertexProject("");
       setVertexLocation("global");
     }
-  }, [captureOwnerGuard, userId, vaultKey, vaultOwnerToken, vaultReady]);
+  }, [captureOwnerGuard, userId, vaultKey, vaultOwnerToken, vaultReady, requiresExplicitSelection]);
 
   useEffect(() => {
     void refresh();
@@ -287,6 +302,10 @@ function OwnerRuntimeSettingsCard({
     selectionRevisionRef.current += 1;
     const previousMode = mode;
     const previousSelection = hasExplicitSelection;
+    const previousOption = selectedOption;
+    setSelectedOption("hushh_managed_vertex");
+    setIsSaving(true);
+    if (requiresExplicitSelection) setHasExplicitSelection(false);
     try {
       // Verify BEFORE persisting, exactly as the BYOK path does. Two reasons this
       // ordering matters and is not merely tidy:
@@ -334,6 +353,7 @@ function OwnerRuntimeSettingsCard({
       if (!ownerIsCurrent()) return;
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
+      setSelectedOption(previousOption);
       // The schedule-time cloud verdicts route to the exact recovery, not a generic
       // retry: a gone project needs reconnecting (reinit), a revoked grant needs the
       // authorization step re-run. Both land on the cloud setup page.
@@ -362,12 +382,15 @@ function OwnerRuntimeSettingsCard({
     } finally {
       // The lock belongs to this keyed instance, never a subsequent owner.
       selectionPendingRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const selectByok = async () => {
     if (selectionPendingRef.current) return;
-    if (requiresExplicitSelection && !vaultReady) {
+    if (requiresExplicitSelection) {
+      selectionRevisionRef.current += 1;
+      setSelectedOption("byok");
       setMode("byok");
       setHasExplicitSelection(false);
       setDraftKey("");
@@ -387,14 +410,11 @@ function OwnerRuntimeSettingsCard({
     if (!ownerIsCurrent()) return;
     const credential = draftKey.trim();
     if (!credential) {
-      toast.error("Enter your Gemini API key.");
+      setCredentialValidation({ status: "error", message: "Enter your Gemini API key." });
       return;
     }
-    if (
-      transport === "vertex_api_key" &&
-      (!vertexProject.trim() || !vertexLocation.trim())
-    ) {
-      toast.error("Enter the Google Cloud project ID and Vertex location.");
+    if (transport === "vertex_api_key" && (!vertexProject.trim() || !vertexLocation.trim())) {
+      setCredentialValidation({ status: "error", message: "Enter the Google Cloud project ID and Vertex location." });
       return;
     }
     if (
@@ -442,8 +462,7 @@ function OwnerRuntimeSettingsCard({
       Date.now() - credentialValidation.validatedAt <=
         CREDENTIAL_VALIDATION_TTL_MS;
     if (!validationIsFresh) {
-      setCredentialValidation({ status: "idle" });
-      toast.error("Validate this Gemini key before confirming it.");
+      setCredentialValidation({ status: "error", message: "Validate this Gemini key before confirming it." });
       return;
     }
     if (requiresExplicitSelection && !vaultReady && userId) {
@@ -594,11 +613,11 @@ function OwnerRuntimeSettingsCard({
       invalidateCredentialValidation();
       setMode("byok");
       setHasSavedKey(true);
-      setHasExplicitSelection(true);
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("byok_pending_vault");
       }
       if (!ownerIsCurrent()) return;
+      setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success(
         "Your Gemini configuration is saved in your encrypted vault.",
@@ -683,6 +702,7 @@ function OwnerRuntimeSettingsCard({
       if (!ownerIsCurrent()) return;
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
+      setSelectedOption("hushh_managed_vertex");
       setHasSavedKey(false);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your saved Gemini key was removed.");
@@ -695,7 +715,7 @@ function OwnerRuntimeSettingsCard({
   };
 
   return (
-    <>
+    <div className={requiresExplicitSelection ? "space-y-6" : "contents"}>
       {agentOutcome ? (
         <p
           role="status"
@@ -704,66 +724,70 @@ function OwnerRuntimeSettingsCard({
           {agentOutcome}
         </p>
       ) : null}
+      <RadioPrimitive.Root
+        asChild
+        value={selectedOption}
+        onValueChange={(value) => { if (value === "byok") void selectByok(); else void selectManaged(); }}
+        role={requiresExplicitSelection ? "radiogroup" : "group"}
+        aria-label="Choose your AI"
+        disabled={isSaving || isRemoving}
+      >
+      <div>
       <SettingsGroup
         title="Gemini"
-        description="Available now"
+        description={requiresExplicitSelection ? undefined : "Available now"}
         testId="profile-gemini-runtime"
         separatorInset
       >
         <SettingsRow
-          asChild
-          leading={<GeminiLogo className="h-8 w-8" />}
-          // The first option is the POD's own AI, and it is named for where the
-          // pod lives (founder direction, 2026-09-02): a person on their own cloud
-          // is choosing Vertex AI in their own project on the pod's identity, not
-          // a shared hussh runtime; a person on a hussh pod is choosing hussh's key.
-          // The stored choice is the same either way: the pod's default AI.
-          title={ownCloudProject ? "Use your pod's AI" : "Use Hussh's AI"}
-          description={
-            ownCloudProject
-              ? `Vertex AI in your own project ${ownCloudProject}, on your pod's own identity. No key needed; billed to you. Typed turns run on your pod; voice still runs on Hussh's hub for now.`
-              : "No key needed. Runs on your hussh pod's key."
-          }
-          // The default we want people to take. Until it is chosen the row says
-          // so out loud, so the fast path is the obvious one rather than the one
-          // you work out by elimination.
-          trailing={
-            mode === "hushh_managed_vertex" && hasExplicitSelection ? (
-              <Badge variant="secondary">Selected</Badge>
-            ) : (
-              <Badge variant="outline">Recommended</Badge>
-            )
-          }
-          testId="profile-managed-runtime"
-        >
-          <button
-            type="button"
-            onClick={() => void selectManaged()}
-            aria-pressed={mode === "hushh_managed_vertex"}
-          />
+        asChild
+        leading={<GeminiLogo className="h-8 w-8" />}
+        title={ownCloudProject ? "Use your pod's AI" : "Use Hussh's AI"}
+        description={ownCloudProject
+          ? `Vertex AI in your own project ${ownCloudProject}, on your pod's identity. Typed turns run on your pod; voice still runs on Hussh's hub for now.`
+          : "No key needed."}
+        // The default we want people to take. Until it is chosen the row says
+        // so out loud, so the fast path is the obvious one rather than the one
+        // you work out by elimination.
+        trailing={
+          requiresExplicitSelection ? (
+            <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
+              {selectedOption === "hushh_managed_vertex" ? <span className="size-3 rounded-full bg-primary" /> : null}
+            </span>
+          ) : mode === "hushh_managed_vertex" && hasExplicitSelection ? (
+            <Badge variant="secondary">Selected</Badge>
+          ) : (
+            <Badge variant="outline">Recommended</Badge>
+          )
+        }
+        testId="profile-managed-runtime"
+      >
+        {requiresExplicitSelection ? <RadioPrimitive.Item value="hushh_managed_vertex" onClick={() => {
+          if (selectedOption === "hushh_managed_vertex" && !hasExplicitSelection) void selectManaged();
+        }} /> : <button type="button" onClick={() => void selectManaged()} aria-pressed={mode === "hushh_managed_vertex"} />}
         </SettingsRow>
 
         <SettingsRow
-          asChild
-          leading={<GeminiLogo className="h-8 w-8" />}
-          title="Use your own key"
-          description={
-            requiresExplicitSelection && !vaultReady
-              ? "Add your own Gemini key. It runs on your pod and stays locked to you."
-              : "Your key runs on your pod and stays locked to you."
-          }
-          trailing={
-            mode === "byok" && hasExplicitSelection ? (
-              <Badge variant="secondary">Selected</Badge>
-            ) : null
-          }
-          testId="profile-byok-runtime"
-        >
-          <button
-            type="button"
-            onClick={() => void selectByok()}
-            aria-pressed={mode === "byok"}
-          />
+        asChild
+        leading={<GeminiLogo className="h-8 w-8" />}
+        title="Use your own key"
+        description={
+          requiresExplicitSelection && !vaultReady
+            ? "Add your own Gemini key."
+            : "Your key stays locked to you."
+        }
+        trailing={
+          requiresExplicitSelection ? (
+            <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
+              {selectedOption === "byok" ? <span className="size-3 rounded-full bg-primary" /> : null}
+            </span>
+          ) : mode === "byok" && hasExplicitSelection ? (
+            <Badge variant="secondary">Selected</Badge>
+          ) : null
+        }
+        testId="profile-byok-runtime"
+      >
+        {requiresExplicitSelection ? <RadioPrimitive.Item value="byok" /> : <button type="button" onClick={() => void selectByok()} aria-pressed={mode === "byok"} />}
         </SettingsRow>
 
         {mode === "byok" ? (
@@ -771,13 +795,7 @@ function OwnerRuntimeSettingsCard({
             <div className="flex items-center justify-between gap-3">
               <CardTitle as="p">Gemini connection</CardTitle>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
-                {needsVaultCreation
-                  ? "Vault needed"
-                  : needsUnlock
-                    ? "Locked"
-                    : hasSavedKey
-                      ? "Saved"
-                      : "Not set"}
+                {needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
               </Badge>
             </div>
             <FormLabel className="block space-y-1">
@@ -870,14 +888,19 @@ function OwnerRuntimeSettingsCard({
               }
               disabled={isSaving || isRemoving}
               aria-label="Gemini API key"
+              aria-invalid={credentialValidation.status === "error"}
+              aria-describedby="gemini-key-validation"
             />
             <HelperText
               as="div"
               className="min-h-5"
-              role="status"
+              id="gemini-key-validation"
+              role={credentialValidation.status === "error" ? "alert" : "status"}
               aria-live="polite"
             >
-              {credentialValidation.status === "checking" ? (
+              {requiresExplicitSelection && hasExplicitSelection ? (
+                "Your key is validated. Continue to finish setup."
+              ) : credentialValidation.status === "checking" ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Checking key access and available quota…
@@ -896,7 +919,7 @@ function OwnerRuntimeSettingsCard({
               )}
             </HelperText>
             <div className="flex flex-wrap gap-2">
-              {credentialValidation.status === "ready" ? (
+              {requiresExplicitSelection && hasExplicitSelection ? null : credentialValidation.status === "ready" ? (
                 // In first-run the footer "Finish AI access setup" is the screen's one
                 // primary; this in-panel step demotes to solid blue so the gradient
                 // footer reads as primary (Restraint Charter: one primary action). In
@@ -923,8 +946,7 @@ function OwnerRuntimeSettingsCard({
                   disabled={
                     isSaving ||
                     isRemoving ||
-                    credentialValidation.status === "checking" ||
-                    !draftKey.trim()
+                    credentialValidation.status === "checking"
                   }
                 >
                   {credentialValidation.status === "checking" ? (
@@ -959,6 +981,8 @@ function OwnerRuntimeSettingsCard({
           </div>
         ) : null}
       </SettingsGroup>
+      </div>
+      </RadioPrimitive.Root>
 
       {/* Settings context only. On the mandatory first-run AI-access step the person
           can only choose Gemini, so a list of future providers does not change that
@@ -987,6 +1011,6 @@ function OwnerRuntimeSettingsCard({
           ))}
         </SettingsGroup>
       ) : null}
-    </>
+    </div>
   );
 }

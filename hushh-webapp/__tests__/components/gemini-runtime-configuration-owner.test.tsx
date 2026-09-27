@@ -34,12 +34,13 @@ vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
 vi.mock("@/components/connections/private-agent-card", () => ({ PrivateAgentCard: () => null }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
 vi.mock("@/components/connections/gemini-runtime-settings-card", () => ({
-  GeminiRuntimeSettingsCard: ({ onSelectionReadyChange }: {
+  GeminiRuntimeSettingsCard: ({ onSelectionReadyChange, onCanContinueChange }: {
+    onCanContinueChange?: (value: boolean) => void;
     onSelectionReadyChange?: (choice: "hushh_managed_vertex") => Promise<void>;
-  }) => <button onClick={() => void onSelectionReadyChange?.("hushh_managed_vertex")}>Choose managed</button>,
+  }) => <button onClick={() => void onSelectionReadyChange?.("hushh_managed_vertex").then(() => onCanContinueChange?.(true))}>Choose managed</button>,
 }));
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
-  SetupCompletionFooter: ({ disabled }: { disabled: boolean }) => <button disabled={disabled}>Continue</button>,
+  SetupCompletionFooter: ({ disabled, onComplete }: { disabled: boolean; onComplete: () => void }) => <button disabled={disabled} onClick={onComplete}>Continue</button>,
 }));
 
 describe("runtime setup owner settlement", () => {
@@ -92,6 +93,8 @@ describe("runtime setup owner settlement", () => {
     render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose managed" }));
     await act(async () => { settle(); });
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(navigate).toHaveBeenCalledOnce();
     expect(clearDraft).toHaveBeenCalledWith("owner-a");
     expect(clearDraft.mock.invocationCallOrder[0]).toBeLessThan(navigate.mock.invocationCallOrder[0]);

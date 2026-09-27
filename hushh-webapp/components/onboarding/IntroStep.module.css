@@ -164,42 +164,15 @@
   gap: 10px;
   color: #626b80;
   font-family: var(--font-app-body);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 20px;
 }
 
 :global(.dark) .shell .privacy > div { color: #bfbfc8; }
 
-.cta {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  width: 100%;
-  height: 52px;
-  min-height: 52px;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  padding: 0 20px;
-  border: 0;
-  border-radius: 999px;
-  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
-  color: #fff;
-  font-family: var(--font-app-body);
-  font-size: 17px;
-  font-weight: 500;
-  line-height: 22px;
-  cursor: pointer;
-}
-
-:global(.dark) .cta {
-  background-image: url("/onboarding/figma/intro-dark-cta-material.png");
-}
-
 .ctaLabel { position: relative; }
 
-.cta:focus-visible,
 .link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 
 .links {

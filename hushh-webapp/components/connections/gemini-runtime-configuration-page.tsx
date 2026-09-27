@@ -14,6 +14,7 @@ import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runti
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -69,6 +70,7 @@ function OwnerRuntimeConfigurationPage({
   const [setupChoice, setSetupChoice] = useState<OneRuntimeSetupChoice | null>(
     null,
   );
+  const [canContinue, setCanContinue] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
@@ -150,7 +152,7 @@ function OwnerRuntimeConfigurationPage({
   }, [router]);
 
   const finishConnections = useCallback(async () => {
-    if (!hasRuntimeChoice) {
+    if (!canContinue) {
       return {
         status: "blocked" as const,
         summary: "Choose your AI first.",
@@ -169,7 +171,7 @@ function OwnerRuntimeConfigurationPage({
       routeAfter: ROUTES.ONE_SETUP,
       screenAfter: "one_setup",
     };
-  }, [finishing, hasRuntimeChoice, returnToSetupHub]);
+  }, [finishing, canContinue, returnToSetupHub]);
 
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
@@ -182,7 +184,7 @@ function OwnerRuntimeConfigurationPage({
     title: setupMode ? "AI access setup" : "Gemini settings",
     purpose: "Choose how the private agent reaches Gemini.",
     actions:
-      setupMode && hasRuntimeChoice && !finishing
+      setupMode && canContinue && !finishing
         ? [
             {
               id: "finish_connections",
@@ -261,14 +263,13 @@ function OwnerRuntimeConfigurationPage({
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
+          className={setupMode ? setupStyles.setupHeader : undefined}
         />
       </AppPageHeaderRegion>
       {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
-      <AppPageContentRegion className="space-y-6">
-        {/* Below the AI-connection card, deliberately: a pod runs on the person's
-            own model key, so it is offered only after there is a key to run it on. */}
+      <AppPageContentRegion className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}>
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
@@ -278,7 +279,11 @@ function OwnerRuntimeConfigurationPage({
           onRequestVaultCreation={() => setUnlockOpen(true)}
           onRequestVaultUnlock={() => setUnlockOpen(true)}
           requiresExplicitSelection={setupMode}
-          initiallyConfigured={hasRuntimeChoice === true}
+          initiallyConfigured={hasRuntimeChoice === true && (
+            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
+          )}
+          onCanContinueChange={setupMode ? setCanContinue : undefined}
           initialSetupChoice={setupChoice}
           onSelectionReadyChange={
             setupMode && user?.uid
@@ -293,16 +298,8 @@ function OwnerRuntimeConfigurationPage({
                   if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
-                  // Taking the recommended option IS the whole decision —
-                  // there is nothing further to enter — so it finishes this
-                  // step instead of parking the person on a Continue button
-                  // they have to find. Bringing your own key still continues
-                  // below, because that path has a form left to fill.
                   if (choice === "hushh_managed_vertex") {
-                    // Navigation can unmount the card before its callback resumes.
-                    // Retire BYOK only after the managed choice was persisted.
                     PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
-                    returnToSetupHub();
                   }
                 }
               : undefined
@@ -338,7 +335,7 @@ function OwnerRuntimeConfigurationPage({
           label="Continue"
           onComplete={() => void finishConnections()}
           busy={finishing}
-          disabled={!hasRuntimeChoice || finishing}
+          disabled={!canContinue || finishing}
           controlId="one-setup-connections-terminal"
           actionId="setup.finish_connections"
           purpose="Record the selected Gemini runtime and return to setup."

@@ -251,9 +251,9 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("hover:!text-[var(--app-accent)]");
-    expect(source).toContain("disabled:!text-muted-foreground");
-    expect(source).toContain("disabled:!opacity-100");
+    expect(source).toContain('size="prominent"');
+    expect(source).toContain("disabled={disabled}");
+    expect(source).toContain("aria-disabled={isBlockedTappableAction || undefined}");
   });
 
   it("prevents KYC setup settlement while its server preference is saving", () => {
@@ -400,11 +400,10 @@ describe("One setup hub terminal action contract", () => {
     expect(page).toContain("RUNTIME_PROVIDER_CATALOG");
     expect(gate).not.toContain("data-runtime-provider-lane");
 
-    // Taking the recommended option finishes AI choice and returns to the hub,
-    // where cloud and phone prerequisites still guard the master exit.
-    expect(page).toContain('if (choice === "hushh_managed_vertex") {');
-    expect(page).toContain('PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)');
-    expect(page).toContain('returnToSetupHub();');
+    // Saving either choice requires a separate, enabled Continue action.
+    expect(page).not.toContain("void finishSetupAndGoHome();");
+    expect(page).toContain("disabled={!canContinue || finishing}");
+    expect(page).toContain("returnToSetupHub();");
   });
 
   it("names the recommended AI option so the default is not worked out by elimination", () => {

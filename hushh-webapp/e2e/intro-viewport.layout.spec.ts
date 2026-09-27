@@ -55,13 +55,13 @@ for (const dark of [false, true]) {
         if (viewport.height >= 667) expect(ancestor.y, `${ancestor.tag} vertical overflow`).toBeLessThanOrEqual(1);
       }
       expect(result.lines).toEqual([1]);
-      expect(result.privacyFont).toBe("14px");
+      expect(result.privacyFont).toBe("13px");
       expect(result.privacyLine).toBe("20px");
       expect(result.buttonFont).toBe("17px");
-      expect(result.buttonWeight).toBe("500");
+      expect(result.buttonWeight).toBe("600");
       expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48, 0);
       expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(10, 0);
-      expect(result.button.height).toBeCloseTo(52, 0);
+      expect(result.button.height).toBeCloseTo(50, 0);
       expect(result.button.width).toBeCloseTo(Math.min(viewport.width, 440) - 48, 0);
       expect(result.button.x).toBeGreaterThanOrEqual(0);
       expect(result.button.right).toBeLessThanOrEqual(viewport.width);

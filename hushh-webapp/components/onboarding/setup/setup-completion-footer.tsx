@@ -68,7 +68,7 @@ export function SetupCompletionFooter({
   purpose,
   supportingText,
   insetBottom = true,
-  variant = "blue-gradient",
+  variant = "blue",
   effect = "fill",
 }: SetupCompletionFooterProps) {
   // A pending setup is deliberately secondary, but it must retain the same
@@ -76,7 +76,7 @@ export function SetupCompletionFooter({
   // on the existing `none` + `fade` contract avoids creating a second setup
   // action vocabulary while preventing the light-theme gray container look.
   const isQuietSetupAction = variant === "none" && effect === "fade";
-  const visualVariant = isQuietSetupAction ? "blue" : variant;
+  const visualVariant = isQuietSetupAction || variant === "blue-gradient" ? "blue" : variant;
   // Accent means "this works". The stock disabled treatment only fades the
   // accent fill to 50%, which still reads as the blue primary action on a
   // light surface -- so a blocked finish looked tappable, absorbed the tap,
@@ -101,19 +101,19 @@ export function SetupCompletionFooter({
   return (
     <div
       className={cn(
-        "mt-6 sm:mt-8",
+        "mt-4",
         insetBottom
           ? "pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:pb-8"
           : "pb-6",
       )}
     >
-      <div className="relative z-20 space-y-2 bg-transparent py-2">
+      <div className="relative z-20 space-y-2 bg-transparent">
         {supportingText ? (
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-[13px] leading-5 text-muted-foreground">
             {supportingText}
           </p>
         ) : null}
-        <div className="mx-auto w-full sm:max-w-[22rem]">
+        <div className="mx-auto w-full">
           <Button
             type="button"
             onClick={onComplete}
@@ -122,10 +122,9 @@ export function SetupCompletionFooter({
             loading={busy}
             variant={visualVariant}
             effect={effect}
-            size="lg"
+            size="prominent"
             fullWidth
             className={cn(
-              "h-12 text-base",
               isQuietSetupAction &&
                 "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
               isBlockedFilledAction &&
