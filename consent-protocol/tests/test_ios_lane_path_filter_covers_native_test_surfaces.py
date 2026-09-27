@@ -8,6 +8,11 @@ parses the filter the way GitHub does (dorny/paths-filter, whose globs and
 `pathspec`'s gitignore rules agree for every slash-anchored pattern) and checks
 it against the files the CI-run test actually touches.
 
+The filter excludes `components/onboarding/setup/**`, the post-sign-in setup
+screens, which alone used to schedule the lane. That exclusion is only safe
+while nothing the XCUITest renders imports them, so the render path's
+transitive imports are traced and checked for exactly that.
+
 It also pins the checkout depth and base-ref env of every lane that reaches
 the capability graph check (`generate_capability_graph.py --check`), which
 must diff against the pull request base and fails closed under CI when that
@@ -36,6 +41,10 @@ QUEUE_LANES_REACHING_THE_GRAPH_CHECK = ("web-full-check", "protocol-check")
 WEBAPP_DIR = ROOT / "hushh-webapp"
 UI_TESTS_PATH = WEBAPP_DIR / "ios" / "App" / "AppUITests" / "AppUITests.swift"
 RENDER_ROOTS = (WEBAPP_DIR / "app", WEBAPP_DIR / "components")
+ONBOARDING_DIR = "hushh-webapp/components/onboarding/"
+ONBOARDING_SETUP_DIR = "hushh-webapp/components/onboarding/setup/"
+# The Next.js layouts that wrap the /login route the XCUITest renders.
+CI_RUN_XCUITEST_LAYOUTS = ("hushh-webapp/app/layout.tsx", "hushh-webapp/app/login/layout.tsx")
 
 # Web files the CI-run XCUITest (testAccountNotFoundRecoveryReturnsToLogin)
 # renders or depends on: the /login route and its AuthStep, the native route
@@ -63,6 +72,25 @@ MARKER_RE = re.compile(r"native-route-[a-z0-9-]+")
 ONLY_TESTING_RE = re.compile(r"-only-testing:AppUITests/AppUITests/(\w+)")
 SWIFT_FUNC_BOUNDARY_RE = re.compile(r"\n    (?:private |fileprivate )?func ")
 GLOB_CHARS = set("*?[")
+IMPORT_RE = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']"""
+)
+CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
+RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json")
+
+
+class _Filter:
+    """dorny/paths-filter under `predicate-quantifier: some-with-excludes`:
+    a file matches when one pattern includes it and no '!' pattern excludes it."""
+
+    def __init__(self, patterns: list[str]) -> None:
+        includes = [p for p in patterns if not p.startswith("!")]
+        excludes = [p[1:] for p in patterns if p.startswith("!")]
+        self._include = pathspec.PathSpec.from_lines("gitignore", includes)
+        self._exclude = pathspec.PathSpec.from_lines("gitignore", excludes)
+
+    def match_file(self, path: str) -> bool:
+        return self._include.match_file(path) and not self._exclude.match_file(path)
 
 
 def _load_workflow(path: Path) -> dict:
@@ -90,8 +118,46 @@ def _ios_filter_patterns() -> list[str]:
     return [str(pattern) for pattern in patterns]
 
 
-def _ios_spec() -> pathspec.PathSpec:
-    return pathspec.PathSpec.from_lines("gitignore", _ios_filter_patterns())
+def _ios_spec() -> _Filter:
+    return _Filter(_ios_filter_patterns())
+
+
+def _resolve_import(source: Path, specifier: str) -> Path | None:
+    if specifier.startswith("@/"):
+        base = WEBAPP_DIR / specifier[2:]
+    elif specifier.startswith("."):
+        base = source.parent / specifier
+    else:
+        return None
+    for suffix in RESOLVE_SUFFIXES:
+        candidate = Path(f"{base}{suffix}")
+        if candidate.is_file():
+            return candidate.resolve()
+    for suffix in (".ts", ".tsx", ".js", ".jsx"):
+        candidate = base / f"index{suffix}"
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _ci_run_xcuitest_render_closure() -> set[str]:
+    """Every repo file transitively imported from what the XCUITest renders."""
+    pending = [
+        (ROOT / path).resolve() for path in (*CI_RUN_XCUITEST_RENDERS, *CI_RUN_XCUITEST_LAYOUTS)
+    ]
+    seen: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.suffix not in CODE_SUFFIXES:
+            continue
+        for specifier in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+            resolved = _resolve_import(path, specifier)
+            if resolved is not None and resolved not in seen:
+                pending.append(resolved)
+    return {path.relative_to(ROOT.resolve()).as_posix() for path in seen}
 
 
 def _ci_run_ui_test_names() -> list[str]:
@@ -160,7 +226,7 @@ def test_ios_filter_patterns_are_slash_anchored_and_point_at_real_paths() -> Non
     # anchors it at the root. Requiring a slash keeps this test's engine and
     # dorny/paths-filter's engine in agreement, so a green here means green
     # on GitHub. The prefix check stops a typo from becoming a dead pattern.
-    for pattern in _ios_filter_patterns():
+    for pattern in (p.removeprefix("!") for p in _ios_filter_patterns()):
         assert "/" in pattern, f"ios filter pattern is not slash-anchored: {pattern}"
         glob_at = min(
             (index for index, char in enumerate(pattern) if char in GLOB_CHARS),
@@ -189,6 +255,29 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     assert spec.match_file("hushh-webapp/components/app-ui/native-route-marker.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/other-component.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
+
+
+def test_nothing_the_ci_run_xcuitest_renders_imports_the_onboarding_setup_screens() -> None:
+    # The ios: filter excludes components/onboarding/setup/**. The moment a
+    # render-path file imports from there, a setup-only change can break the
+    # XCUITest without scheduling it, so the exclusion must go.
+    closure = _ci_run_xcuitest_render_closure()
+    assert "hushh-webapp/components/onboarding/AuthStep.tsx" in closure
+    assert len(closure) > len(CI_RUN_XCUITEST_RENDERS), "the import trace found nothing"
+    reached = sorted(path for path in closure if path.startswith(ONBOARDING_SETUP_DIR))
+    assert not reached, (
+        "The CI-run XCUITest now renders onboarding setup files; remove the "
+        f"'!{ONBOARDING_SETUP_DIR}**' exclusion from the ios: filter: {reached}"
+    )
+
+
+def test_ios_filter_covers_every_onboarding_file_the_xcuitest_renders() -> None:
+    spec = _ios_spec()
+    rendered = sorted(p for p in _ci_run_xcuitest_render_closure() if p.startswith(ONBOARDING_DIR))
+    assert rendered, "the import trace reached no onboarding file"
+    unmatched = [path for path in rendered if not spec.match_file(path)]
+    assert not unmatched, f"The ios: filter no longer schedules rendered files: {unmatched}"
+    assert not spec.match_file(f"{ONBOARDING_SETUP_DIR}one-setup-hub.tsx")
 
 
 def test_every_marker_the_ci_run_xcuitest_expects_is_rendered_by_a_filtered_file() -> None:

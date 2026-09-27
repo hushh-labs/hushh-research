@@ -14,7 +14,7 @@ flowchart TB
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
-    queueci["Queue Validation<br/>authoritative pre-merge"]
+    queueci["Queue Validation<br/>configured, not currently run<br/>(maintainers bypass the queue)"]
     queue["GitHub merge queue"]
     main["main"]
   end
@@ -152,7 +152,7 @@ Web validation is intentionally split:
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
 2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity.
-3. Merge queue runs `web-full`, which includes `web-core`, full Vitest, voice gateway generation check, surface-map parity, and Capacitor static parity.
+3. `Queue Validation` is configured to run `web-full`, which includes `web-core`, full Vitest, voice gateway generation check, surface-map parity, and Capacitor static parity. In practice it does not run: see [The merge queue in practice](#the-merge-queue-in-practice).
 4. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
 Fail-fast contract:
@@ -165,7 +165,7 @@ Fail-fast contract:
 3. This intentionally saves CI minutes on governance failures. The tradeoff is
    that green runs start heavy jobs only after preflight completes.
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, block a pull request that is behind its base through `Base Freshness Gate` (named `Main Freshness Gate` in older text; it feeds `CI Status Gate`), trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### Protected pipeline surfaces
 
@@ -220,20 +220,68 @@ mandatory regardless of the expensive-lane selection.
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
-| Merge queue | `main` | `Queue Validation` full authoritative pre-merge CI |
+| Merge queue | `main` | `Queue Validation` full pre-merge CI, only for a PR that enters the queue (none has since 2026-09-01) |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
 | Manual | Any | `PR Validation` `workflow_dispatch` with scope: `frontend` \| `backend` \| `all` |
 
 **Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs both stacks for deterministic gating, and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
-- **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, or `scripts/ci/**` change.
-- **Backend job** runs when `consent-protocol/**`, protected CI workflow files, or `scripts/ci/**` change.
+- **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
+- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
 - **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it.
 - **Integration job** runs when either frontend or backend paths change.
 
+**How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
+actually run it, instead of every lane:
+
+| `scripts/ci/` file | Schedules | Why |
+|---|---|---|
+| `orchestrate.sh` | frontend and backend | dispatches every stage |
+| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
+| every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
+
+The backend side is written as `scripts/ci/**` minus `!scripts/ci/web-*.sh`, so
+a new script is backend by default rather than scheduling nothing. The filter
+step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
+filters without a `!` pattern behave exactly as before. The iOS filter uses
+the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,
+which nothing the CI-run XCUITest renders imports.
+
+Guards, both in the backend CI manifest:
+`consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
+which `scripts/ci/` files each path-filtered job runs (through
+`orchestrate.sh <stage>` and everything those scripts reference, plus every
+script the lane's own code names) and fails when one of them would not
+schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
+traces the XCUITest render path's imports and fails if it ever reaches
+`components/onboarding/setup/`.
+
+One gap is known: the guard runs in the backend lane, so a PR that changes
+only `web-*.sh` does not run it. If such a PR makes a web script call a
+non-web `scripts/ci/` file, the guard catches it on the next backend-scheduling
+change, not in that PR. Add the called file to the frontend filter in the same
+change.
+
 ### Duplicate-Run Policy
 
-Feature and hotfix branches intentionally rely on `pull_request` CI only. Merge queue absorbs stale-base risk before merge, and `main` then runs a smaller smoke bundle on the real landed SHA.
+Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR that is behind its base, and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+
+### The merge queue in practice
+
+The `main merge queue` ruleset is active, but its bypass list holds the
+governed maintainer cohort, and those maintainers land PRs directly. No PR has
+entered the queue since 2026-09-01, the date of the last `Queue Validation`
+run. So, today:
+
+- the queue does **not** absorb stale-base risk; `Base Freshness Gate` on the
+  PR is what blocks a stale branch;
+- `Queue Validation`'s lanes, `web-full` included, run for nothing that merges;
+- **the full Vitest suite (`npm run test:ci`) gates no merge.** It runs only in
+  `web-full`, which only `Queue Validation` runs. PRs run `web-core` and the
+  changed-path packs in `web-targeted`; `Main Post-Merge Smoke` does not run
+  Vitest either. Whether to gate merges on the full suite again (a PR lane, the
+  smoke, or routing maintainers back through the queue) is an **open founder
+  decision**, not a settled policy.
 
 ---
 
@@ -243,7 +291,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. Merge 
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
-| Main Freshness Gate | Show branch freshness before merge | Advisory on pull requests, blocking on `merge_group` |
+| Main Freshness Gate (job name `Base Freshness Gate`) | Block a branch that is behind its base | Blocking on pull requests (`MAIN_SYNC_MODE: block`, feeds `CI Status Gate`) and on `merge_group` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 Operational note:

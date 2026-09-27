@@ -101,6 +101,63 @@ jobs:
           bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
+      # The UAT backend provenance check lives here, on ubuntu, rather than in
+      # the macOS ship job: it needs only gcloud, and it is the step that fails
+      # most often, so it must fail before any macOS runner or Xcode setup is
+      # paid for. The check itself is unchanged; its resolver is read from the
+      # exact release SHA, the same file the ship job's checkout used to run.
+      - name: Set up Python for the provenance resolver
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud with workload identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify matching UAT backend revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
+          git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
+          service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format=json > "$service_json"
+          revision="$(python3 "$resolver" \
+            --service-json "$service_json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          actual_sha="$(gcloud run revisions describe "$revision" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format='value(metadata.labels.deploy-sha)')"
+          test "$actual_sha" = "$EXPECTED_SHA" || {
+            echo "UAT backend provenance does not match the TestFlight source SHA." >&2
+            exit 1
+          }
+
   hardware-capture:
     name: Prove physical iPhone capture gate
     needs: preflight
@@ -221,29 +278,6 @@ jobs:
             -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" \
             >/dev/null 2>&1 || true
           echo "Distribution certificate imported into signing keychain."
-
-      - name: Verify matching UAT backend revision
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ needs.preflight.outputs.release_sha }}
-        run: |
-          set -euo pipefail
-          service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
-          gcloud run services describe "$BACKEND_SERVICE" \
-            --project="$GCP_PROJECT_ID" \
-            --region="$GCP_REGION" \
-            --format=json > "$service_json"
-          revision="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
-            --service-json "$service_json" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
-          actual_sha="$(gcloud run revisions describe "$revision" \
-            --project="$GCP_PROJECT_ID" \
-            --region="$GCP_REGION" \
-            --format='value(metadata.labels.deploy-sha)')"
-          test "$actual_sha" = "$EXPECTED_SHA" || {
-            echo "UAT backend provenance does not match the TestFlight source SHA." >&2
-            exit 1
-          }
 
       - name: Run local One Voice safety and native contract gates
         shell: bash

@@ -362,6 +362,12 @@ tests/test_adk_pin_contract.py
 # decoration.
 tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
 tests/test_capability_graph_gate_compares_against_base.py
+# (2026-09-26) scripts/ci is split between the frontend and backend path
+# filters by the lane that runs each script; this proves every script a lane
+# runs, or its own code names, still schedules that lane. The TestFlight guard
+# keeps the UAT backend provenance check in front of the macOS job.
+tests/test_ci_path_filters_cover_lane_scripts.py
+tests/test_testflight_backend_provenance_runs_before_macos.py
 
 # Consent and information sharing, proven end to end: the lifecycle proof
 # (request, approve with duration, export, decrypt, deny, revoke, cancel,

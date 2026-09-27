@@ -182,13 +182,28 @@ jobs:
         id: filter
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         with:
+          # A leading '!' pattern removes files from its own filter only; the
+          # filters below without one behave exactly as under the default
+          # 'some'. Without this setting a '!' pattern would match every other
+          # file in the repository.
+          predicate-quantifier: 'some-with-excludes'
+          # scripts/ci is split by the lane that executes each script.
+          # The web lanes run nothing under scripts/ci except orchestrate.sh
+          # and the web-*.sh scripts it dispatches (web-common.sh included),
+          # so those alone schedule them. Every other script, including any
+          # added later, stays on the backend side, which covers the protocol,
+          # MCP and integration lanes and every deploy script the protocol
+          # tests exercise. orchestrate.sh dispatches both sides and is in both.
+          # Guarded by
+          # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
           filters: |
             frontend:
               - 'hushh-webapp/**'
               - '.github/workflows/ci.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
-              - 'scripts/ci/**'
+              - 'scripts/ci/orchestrate.sh'
+              - 'scripts/ci/web-*.sh'
             backend:
               - 'consent-protocol/**'
               - 'packages/hushh-mcp/**'
@@ -198,6 +213,7 @@ jobs:
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/**'
+              - '!scripts/ci/web-*.sh'
             ios:
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
@@ -212,6 +228,10 @@ jobs:
               # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
               - 'hushh-webapp/app/login/**'
               - 'hushh-webapp/components/onboarding/**'
+              # The post-sign-in capability setup screens. Nothing the XCUITest
+              # renders imports them (asserted by the guard above), and they
+              # alone used to schedule this 13-minute lane.
+              - '!hushh-webapp/components/onboarding/setup/**'
               - 'hushh-webapp/components/auth/**'
               - 'hushh-webapp/components/app-ui/native-*'
               - 'hushh-webapp/components/vault/**'
@@ -406,7 +426,11 @@ jobs:
       - name: Install Playwright browsers
         run: |
           set -euo pipefail
-          npm ci --prefix hushh-webapp
+          # The one dependency install for this job. It is the same
+          # web_ci_install the targeted check runs, done here because the
+          # Playwright CLI must exist first; the check step below is told
+          # (WEB_CI_DEPS_INSTALLED) not to repeat it.
+          bash -c 'source scripts/ci/web-common.sh && web_ci_install'
           # `--with-deps` installs the browsers AND the apt libraries they link
           # against. The apt half is not covered by the cache (it writes outside
           # ~/.cache/ms-playwright), so on a cache hit install only the system
@@ -420,6 +444,7 @@ jobs:
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
+          WEB_CI_DEPS_INSTALLED: "1"
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
@@ -738,6 +763,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
+
+      # mypy's incremental state (backend-check.sh runs mypy from
+      # consent-protocol/, so the default .mypy_cache lands there). This only
+      # saves time, never a verdict: mypy discards the whole cache when its
+      # version or options differ and rechecks every module whose source hash
+      # changed. The key follows the locked toolchain and the mypy config.
+      - name: Cache mypy incremental state
+        uses: actions/cache@v4
+        with:
+          path: consent-protocol/.mypy_cache
+          key: ${{ runner.os }}-mypy-py${{ env.PYTHON_VERSION }}-${{ hashFiles('consent-protocol/uv.lock', 'consent-protocol/pyproject.toml') }}
 
       - name: Run protocol check script (single source of truth)
         timeout-minutes: 22
