@@ -294,3 +294,73 @@ export const HOUNDSTOOTH_ACCOUNTS: AccountSeed[] = [
 export const GINGHAM_ACCOUNTS: AccountSeed[] = [
   ["auto", "Gingham Auto Loan", "1357", "loan", "auto", 8420.55, null],
 ];
+
+/**
+ * Plaid's documented id shape: 37 base62 characters, e.g. the docs' account
+ * "BxBXxLj1m4HMXBm9WZZmCWVbPjX16EHwv99vp". The short ids above are easy to
+ * read in assertions but look nothing like what a real sandbox link stores,
+ * and a check for leaked ids is only as good as the ids it is shown.
+ */
+export function plaidShapedId(seed: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = Math.imul(hash ^ seed.charCodeAt(index), 16777619) >>> 0;
+  }
+  let out = "";
+  while (out.length < 37) {
+    hash = Math.imul(hash ^ out.length, 16777619) >>> 0;
+    out += alphabet[hash % alphabet.length];
+  }
+  return out;
+}
+
+/** Tartan Bank as a sandbox link returns it: Plaid's standard accounts, real-shaped ids. */
+export const TARTAN_SANDBOX = { id: "ins_109511", name: "Tartan Bank" };
+export const TARTAN_SANDBOX_ITEM_ID = plaidShapedId("tartan-item");
+
+export function tartanSandboxSnapshot(itemId: string = TARTAN_SANDBOX_ITEM_ID): PlaidVaultSnapshot {
+  const accountId = (suffix: string) => plaidShapedId(`${itemId}-account-${suffix}`);
+  const securityId = (id: string) => plaidShapedId(`security-${id}`);
+  const accounts = seedAccounts("tartan", FIRST_PLATYPUS_ACCOUNTS).map((account, index) => ({
+    ...account,
+    account_id: accountId(FIRST_PLATYPUS_ACCOUNTS[index]![0]),
+    persistent_account_id: plaidShapedId(`persistent-${FIRST_PLATYPUS_ACCOUNTS[index]![0]}`),
+  }));
+  const holdings = seedHoldings("tartan").map((holding) => ({
+    ...holding,
+    account_id: accountId(holding.account_id.replace("tartan_", "")),
+    security_id: securityId(holding.security_id),
+  }));
+  const securities = FIRST_PLATYPUS_SECURITIES.map((security) => ({
+    ...security,
+    security_id: securityId(security.security_id),
+  }));
+  const sandboxTx = (id: string, suffix: string, date: string, amount: number, name: string, merchant: string | null, primary: string, detailed: string): PlaidTx => ({
+    ...tx("tartan", id, suffix, date, amount, name, merchant, primary, detailed),
+    transaction_id: plaidShapedId(`tx-${id}`),
+    account_id: accountId(suffix),
+  });
+  return {
+    item: {
+      item_id: itemId,
+      institution_id: TARTAN_SANDBOX.id,
+      products: ["investments", "transactions"],
+      consented_products: ["investments", "transactions"],
+      error: null,
+    },
+    accounts,
+    investments: { holdings, securities },
+    transactions: {
+      added: [
+        sandboxTx("uber", "chk", "2026-09-20", 6.33, "Uber 063015 SF**POOL**", "Uber", "TRANSPORTATION", "TRANSPORTATION_TAXIS_AND_RIDE_SHARES"),
+        sandboxTx("pay", "chk", "2026-09-15", -2500, "GUSTO PAY 123456", "Gusto", "INCOME", "INCOME_WAGES"),
+        sandboxTx("nflx", "cc", "2026-09-05", 15.49, "NETFLIX.COM", "Netflix", "ENTERTAINMENT", "ENTERTAINMENT_TV_AND_MOVIES"),
+      ],
+      modified: [],
+      removed: [],
+      next_cursor: plaidShapedId("tartan-cursor"),
+      pages: 1,
+    },
+  };
+}

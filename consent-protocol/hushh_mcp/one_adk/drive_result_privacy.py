@@ -15,9 +15,16 @@ from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_S
 _OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required", "review_required"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
 _PRIVATE_TOOLS = frozenset(
-    {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
+    {
+        DRIVE_READ_TOOL_NAME,
+        "inspect_selected_drive_files",
+        "read_workspace_tool",
+        "read_selected_drive_search_result",
+    }
 )
-_PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp"})
+_PRIVATE_SOURCES = frozenset(
+    {DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp", "drive_saved_search"}
+)
 _DYNAMIC_MCP_TOOL = re.compile(r"mcp_[0-9a-f]{40}\Z")
 _CONNECTOR_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _REVIEW_OUTCOMES = frozenset({"read_only", "no_credential", "approved"})

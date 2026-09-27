@@ -1,8 +1,10 @@
 import type { LucideIcon } from "@/components/icons";
 import {
   AlertTriangle,
+  CalendarDays,
   Database,
   FileText,
+  Mail,
   MapPin,
   Newspaper,
   ShieldCheck,
@@ -21,6 +23,7 @@ import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
+import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
 export type FeedItemPresentation = {
   icon: LucideIcon;
@@ -853,6 +856,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "kai_analysis_completed": {
       const ticker = metadataString(item.metadata, "ticker");
+      const runId = metadataString(item.metadata, "run_id");
       return {
         icon,
         domainLabel,
@@ -860,8 +864,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: ticker
           ? `One finished analyzing ${ticker}.`
           : "One finished an analysis.",
-        href: ticker
-          ? buildKaiMarketRoute("analysis", { ticker })
+        // Open this run's own saved result. `?ticker=` is the stock-preview
+        // route: it opened the "Start debate" sheet instead of the result.
+        // Older items without a run id land on the analysis history.
+        href: runId
+          ? buildKaiMarketRoute("analysis", {
+              analysis_id: getAnalysisHistoryRunRouteId(runId),
+            })
           : buildKaiMarketRoute("analysis"),
       };
     }
@@ -929,6 +938,121 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: "Couldn't get your data",
         description: "Something went wrong bringing it in.",
         href: ROUTES.CONNECTED_SYSTEMS,
+      };
+    case "calendar_connected":
+      return {
+        icon: CalendarDays,
+        domainLabel: "Calendar",
+        label: "Calendar connected",
+        description: "Your calendar is ready in One.",
+        href: ROUTES.CALENDAR,
+      };
+    case "calendar_reconnect_required":
+      return {
+        icon: CalendarDays,
+        domainLabel: "Calendar",
+        label: "Calendar needs reconnection",
+        description: "Reconnect Calendar to keep using it in One.",
+        href: ROUTES.CALENDAR,
+      };
+    case "calendar_disconnected":
+      return {
+        icon: CalendarDays,
+        domainLabel: "Calendar",
+        label: "Calendar disconnected",
+        description: "One no longer has access to your calendar.",
+        href: ROUTES.CALENDAR,
+      };
+    case "calendar_event_created":
+    case "calendar_event_rescheduled":
+    case "calendar_event_canceled":
+      return {
+        icon: CalendarDays,
+        domainLabel: "Calendar",
+        label:
+          item.event_type === "calendar_event_created"
+            ? "Event created"
+            : item.event_type === "calendar_event_rescheduled"
+              ? "Event rescheduled"
+              : "Event canceled",
+        description: "Your confirmed Calendar change is complete.",
+        href: ROUTES.CALENDAR,
+      };
+    case "mail_connected":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Mail connected",
+        description: "Your Mail connection is ready in One.",
+        href: ROUTES.GMAIL,
+      };
+    case "mail_reconnect_required":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Mail connection needs attention",
+        description: "Open Mail to check your connection.",
+        href: ROUTES.GMAIL,
+      };
+    case "mail_disconnected":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Mail disconnected",
+        description: "One no longer has access to your mailbox.",
+        href: ROUTES.GMAIL,
+      };
+    case "mail_information_request_detected":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Information request detected",
+        description: "Review a new request in Mail before sharing anything.",
+        href: `${ROUTES.GMAIL}?workspace=kyc`,
+      };
+    case "mail_receipts_imported":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "New receipts found",
+        description: "Your Mail receipts are ready to review.",
+        href: `${ROUTES.GMAIL}?workspace=receipts`,
+      };
+    case "mail_sync_completed":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Mail is up to date",
+        description: "Your manual sync finished without new receipts.",
+        href: `${ROUTES.GMAIL}?workspace=receipts`,
+      };
+    case "mail_sync_failed":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label: "Mail sync interrupted",
+        description: "Open Mail for the current status; One may retry automatically.",
+        href: `${ROUTES.GMAIL}?workspace=receipts`,
+      };
+    case "mail_message_sent":
+    case "mail_message_failed":
+    case "mail_delivery_unconfirmed":
+      return {
+        icon: Mail,
+        domainLabel: "Mail",
+        label:
+          item.event_type === "mail_message_sent"
+            ? "Message sent"
+            : item.event_type === "mail_message_failed"
+              ? "Message wasn't sent"
+              : "Message delivery unconfirmed",
+        description:
+          item.event_type === "mail_message_sent"
+            ? "Your approved message was sent."
+            : item.event_type === "mail_message_failed"
+              ? "Open Mail to review what happened."
+              : "Check Mail before trying again; delivery may have succeeded.",
+        href: `${ROUTES.GMAIL}?workspace=kyc`,
       };
     // Connection events use the same person-first layout: title is the other
     // person's name, subtitle is the action. Name comes from `counterpart_label`

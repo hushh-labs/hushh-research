@@ -5,14 +5,18 @@ from __future__ import annotations
 import logging
 from functools import partial
 from typing import Literal, Optional
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
-from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.support_email_service import (
+    SupportEmailDeliveryUncertainError,
     SupportEmailNotConfiguredError,
+    SupportEmailSendError,
     get_support_email_service,
 )
 
@@ -32,10 +36,9 @@ class SupportMessageRequest(BaseModel):
     page_url: Optional[str] = Field(default=None, max_length=1000)
 
 
-@router.post("/support/message", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/support/message")
 async def send_support_message(
     payload: SupportMessageRequest,
-    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
@@ -43,44 +46,44 @@ async def send_support_message(
         support_email_service = get_support_email_service()
         cfg = support_email_service.config
         if not cfg.configured:
-            raise SupportEmailNotConfiguredError(
-                "Support email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
-                "SUPPORT_EMAIL_* variables."
-            )
+            raise SupportEmailNotConfiguredError("Support email is not configured")
 
-        queue_result = await get_email_delivery_queue_service().enqueue(
-            kind="support_message",
-            send_callable=partial(
+        app = get_firebase_auth_app()
+        if app is None:
+            raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"})
+        from firebase_admin import auth as firebase_auth
+
+        account = await run_in_threadpool(firebase_auth.get_user, firebase_uid, app=app)
+        verified_email = (
+            str(account.email).strip()
+            if getattr(account, "email_verified", False) and getattr(account, "email", None)
+            else None
+        )
+        page_path = urlsplit(payload.page_url or "").path[:256] or None
+        await run_in_threadpool(
+            partial(
                 support_email_service.send_message,
                 kind=payload.kind,
                 subject=payload.subject.strip(),
                 message=payload.message.strip(),
-                user_id=payload.user_id,
-                user_email=(payload.user_email or "").strip() or None,
-                user_display_name=(payload.user_display_name or "").strip() or None,
+                user_id=firebase_uid,
+                user_email=verified_email,
+                user_display_name=getattr(account, "display_name", None),
                 persona=(payload.persona or "").strip() or None,
-                page_url=(payload.page_url or "").strip() or None,
-                user_agent=request.headers.get("user-agent"),
-            ),
-            context={
-                "user_id": payload.user_id,
-                "kind": payload.kind,
-                "subject": payload.subject.strip(),
-            },
+                page_url=page_path,
+                user_agent=None,
+            )
         )
+        logger.info("support_email.accepted kind=%s", payload.kind)
         return {
             "accepted": True,
-            "delivery_status": queue_result["delivery_status"],
-            "job_id": queue_result["job_id"],
+            "delivery_status": "accepted_by_provider",
             "kind": payload.kind,
-            "delivery_mode": cfg.delivery_mode,
-            "recipient": cfg.effective_recipient,
-            "intended_recipient": cfg.support_to_email,
-            "from_email": cfg.from_email,
         }
+    except HTTPException:
+        raise
     except SupportEmailNotConfiguredError as exc:
-        logger.warning("kai.support.not_configured user_id=%s reason=%s", payload.user_id, exc)
+        logger.warning("support_email.not_configured")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -88,12 +91,30 @@ async def send_support_message(
                 "message": "Support messaging is temporarily unavailable.",
             },
         ) from exc
+    except SupportEmailDeliveryUncertainError as exc:
+        logger.warning("support_email.uncertain")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "code": "SUPPORT_DELIVERY_UNCERTAIN",
+                "message": "Delivery could not be confirmed. Please wait before retrying.",
+            },
+        ) from exc
+    except SupportEmailSendError as exc:
+        logger.error("support_email.failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "SUPPORT_DELIVERY_FAILED",
+                "message": "We could not send your message.",
+            },
+        ) from exc
     except Exception as exc:
-        logger.exception("kai.support.unexpected_failure user_id=%s", payload.user_id)
+        logger.error("support_email.unexpected_failure error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": "SUPPORT_MESSAGE_FAILED",
-                "message": "Failed to queue support message. Please try again later.",
+                "message": "We could not send your message.",
             },
         ) from exc

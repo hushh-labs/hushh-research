@@ -973,12 +973,14 @@ def kms_key_resolution_strict() -> bool:
 
 
 def kai_analyze_durable_run_store_enabled() -> bool:
-    """Feature flag: persist a coarse terminal checkpoint for resumable Kai
-    analyze ("debate") runs to Postgres so a /stream request that lands on a
-    different Cloud Run instance can replay the final DecisionCard instead of
-    404ing (the multi-instance prod-parity bug). Defaults off; when off the
-    run manager behaves exactly as before with zero durable-store I/O."""
-    return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=False)
+    """Kill switch for cross-process Kai run state (``kai_run_state``).
+
+    Debate and portfolio-import runs live in the memory of the worker process
+    that started them; this state is what lets any other process answer
+    active-run, follow the run and cancel it. Every lane serves more than one
+    worker process, so it is required for correctness and defaults ON. Set
+    ``KAI_ANALYZE_DURABLE_RUN_STORE=false`` only as an emergency rollback."""
+    return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=True)
 
 
 def one_wallet_card_enabled() -> bool:

@@ -196,6 +196,30 @@ test.beforeEach(async ({ page }) => {
   await awaitProductFont(page);
 });
 
+for (const width of [390, 1440])
+  test(`Profile Connectors page keeps the reading width at ${width}px`, async ({ page }) => {
+    // Founder report: the settings page spanned the whole desktop window
+    // (width="standard" is 90rem, i.e. 1440px). It now shares Profile's measure.
+    await page.setViewportSize({ width, height: 820 });
+    await page.evaluate(() => (window as unknown as { __renderConnectorsSettingsPage: () => void }).__renderConnectorsSettingsPage());
+    const shell = page.locator('main[data-app-shell-width]');
+    const panel = shell.locator('[data-surface="settings"]');
+    await expect(panel.getByRole("heading", { name: "Connected" })).toBeVisible();
+    const readingMeasure = await page.evaluate(() =>
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-shell-reading")) *
+      parseFloat(getComputedStyle(document.documentElement).fontSize));
+    expect(readingMeasure).toBeGreaterThan(0);
+    const box = (await shell.boundingBox())!;
+    if (width > readingMeasure) {
+      expect(box.width).toBeLessThanOrEqual(readingMeasure + 1);
+      expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2);
+    } else {
+      expect(Math.abs(box.x)).toBeLessThan(1);
+      expect(Math.abs(box.width - width)).toBeLessThan(1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+
 for (const width of [390, 768])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 640 });

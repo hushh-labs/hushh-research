@@ -77,6 +77,8 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import {
   formatAgentChatErrorMessage,
+  findInformationRequestConversation,
+  parseRestoredTurnActivity,
   getAgentChatHistory,
   listAgentChatConversations,
   recordAgentChatInformationRequest,
@@ -89,11 +91,35 @@ import { ApiService } from "@/lib/services/api-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ChatKeyRefusalError, noteChatKeyAccepted } from "@/lib/vault/one-chat-key";
+import {
+  AGENT_TURN_DETACH_REASON,
+  clearWatchedAgentTurns,
+  detachAttachedAgentTurns,
+  isAgentTurnWatched,
+  listWatchedAgentTurns,
+  settleWatchedAgentTurn,
+  waitForWatchedAgentTurn,
+  watchDetachedAgentTurn,
+} from "@/lib/agent/agent-chat-turn-watch";
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
 describe("One chat key transport", () => {
+  it("forwards a saved Drive result only for the selected turn", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.runAgent.mockClear();
+    mockTransport.aborted = false;
+    mockTransport.failWith = null;
+    const selection = { jobId: "11111111-1111-4111-8111-111111111111", position: 3 };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Show me this file",
+      vaultOwnerToken: "owner-token", driveSearchSelection: selection });
+    expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.driveSearchSelection).toEqual(selection);
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token" });
+    expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps).not.toHaveProperty("driveSearchSelection");
+  });
+
   it("sends only the derived chat key, in a header, never in the turn body", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
@@ -544,6 +570,30 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_DIAGNOSTIC");
   });
 
+  it("shows a selected Drive result as a redacted Activity step live and after reload", async () => {
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: {
+        toolCallId: "saved-result", toolCallName: "read_selected_drive_search_result",
+      } });
+      subscriber.onToolCallResultEvent({ event: {
+        toolCallId: "saved-result", content: JSON.stringify({
+          status: "ok", result: { file: { name: "PRIVATE FILE", id: "private-id" } },
+        }),
+      } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Show me this file",
+      vaultOwnerToken: "fixture", handlers: { onToolResult, onToolWaiting } });
+    expect(onToolResult.mock.calls[0][0].message).toBe("Drive file checked.");
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("PRIVATE FILE");
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("private-id");
+    const restored = parseRestoredTurnActivity({ activityType: "one.turn_activity.v1", content: { steps: [
+      { id: "saved-result", tool: "read_selected_drive_search_result", status: "done", readStatus: "ok" },
+    ] } });
+    expect(restored[0]?.message).toBe("Drive file checked.");
+  });
+
   it.each([
     { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
     { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },
@@ -671,6 +721,7 @@ describe("AG-UI Agent One client", () => {
 
     expect(result).toEqual({
       conversationId: "thread-1",
+      detached: false,
       model: null,
       text: "Hello",
       interrupted: false,
@@ -814,6 +865,25 @@ describe("AG-UI Agent One client", () => {
     });
   });
 
+  it("carries a pending mail draft only on a turn that has one", async () => {
+    const pendingEmailDraft = {
+      to: "pat@example.com", cc: "", bcc: "", subject: "Details",
+      body: "The details are attached.", sourceBound: false,
+    };
+    const turn = { vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1",
+      vaultOwnerToken: "owner-token", handlers: {} };
+
+    await streamAgentChat({ ...turn, message: "Add priya@example.com to cc", pendingEmailDraft });
+    await streamAgentChat({ ...turn, message: "What is on my calendar?", pendingEmailDraft: null });
+
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pendingEmailDraft).toEqual(
+      pendingEmailDraft,
+    );
+    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty(
+      "pendingEmailDraft",
+    );
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
@@ -897,6 +967,19 @@ describe("AG-UI Agent One client", () => {
     expect(visible).not.toContain("one_adk_sessions");
     expect(visible).not.toContain("owner-1");
     expect(visible).not.toContain("ciphertext");
+  });
+
+  it("uses hosting placement for consent conversation lookup", async () => {
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
+      new Response(JSON.stringify({ conversationId: "synthetic-thread" }), { status: 200 }),
+    );
+    expect(await findInformationRequestConversation({
+      bundleId: "synthetic-bundle", vaultOwnerToken: "owner-token", vaultKey: TEST_VAULT_KEY,
+    })).toBe("synthetic-thread");
+    expect(ApiService.agentChatRequest).toHaveBeenCalledWith(
+      "/api/one/agent-chat/information-requests/synthetic-bundle/conversation",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("maps typed database failures to stable actionable copy", () => {
@@ -1266,5 +1349,87 @@ describe("parsePendingConsentRequestIds", () => {
       ),
     ).toEqual([]);
     expect(parsePendingConsentRequestIds("list_pending_information_requests", "not json")).toEqual([]);
+  });
+});
+
+describe("a turn the app stops reading keeps running server-side", () => {
+  const liveTurnEvents = (subscriber: Record<string, (input: any) => void>) => {
+    // RUN_STARTED alone does not prove a turn: the server starts it after that event.
+    subscriber.onEvent?.({ event: { type: "RUN_STARTED" } });
+    subscriber.onEvent?.({ event: { type: "TEXT_MESSAGE_START" } });
+  };
+
+  beforeEach(() => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.aborted = false;
+    mockTransport.outcome = "success";
+    clearWatchedAgentTurns();
+  });
+
+  it("detaches without a failure and watches the turn for its written answer", async () => {
+    mockTransport.emitEvents = (subscriber) => {
+      liveTurnEvents(subscriber);
+      expect(detachAttachedAgentTurns()).toBe(1); // the native app went to the background
+    };
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+
+    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Plan my week",
+      conversationId: "thread-detached", vaultOwnerToken: "owner-token", handlers: { onError, onComplete } });
+
+    expect(result.detached).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(isAgentTurnWatched("user-1", "thread-detached")).toBe(true);
+    // Only identifiers are watched: never the prompt, a token or a key.
+    const watchedTurns = JSON.stringify(listWatchedAgentTurns());
+    for (const secret of ["Plan my week", "owner-token", TEST_VAULT_KEY, TEST_CHAT_KEY]) {
+      expect(watchedTurns).not.toContain(secret);
+    }
+  });
+
+  it("leaving the chat detaches, while any other abort cancels", async () => {
+    for (const [reason, watched] of [[AGENT_TURN_DETACH_REASON, true], [undefined, false]] as const) {
+      clearWatchedAgentTurns();
+      mockTransport.aborted = false;
+      const controller = new AbortController();
+      mockTransport.emitEvents = (subscriber) => {
+        liveTurnEvents(subscriber);
+        controller.abort(reason);
+      };
+      const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+        conversationId: "thread-left", vaultOwnerToken: "owner-token", signal: controller.signal });
+      expect(result.detached).toBe(watched);
+      expect(isAgentTurnWatched("user-1", "thread-left")).toBe(watched);
+    }
+  });
+
+  it("holds a new prompt until the left turn settles, and never hangs on a cleared watch", async () => {
+    const conversationId = "thread-still-running";
+    watchDetachedAgentTurn({ ownerId: "user-1", conversationId, startedAtMs: Date.now() });
+    let released = false;
+    const waiting = waitForWatchedAgentTurn("user-1", conversationId).then(() => { released = true; });
+    await Promise.resolve();
+    expect(released).toBe(false); // a second run would share the conversation
+    settleWatchedAgentTurn("user-1", conversationId, true);
+    await waiting;
+    expect(released).toBe(true);
+
+    watchDetachedAgentTurn({ ownerId: "user-1", conversationId, startedAtMs: Date.now() });
+    const signedOut = waitForWatchedAgentTurn("user-1", conversationId);
+    clearWatchedAgentTurns();
+    await expect(signedOut).resolves.toBeUndefined();
+  });
+
+  it("does not watch a turn the server never started", async () => {
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onEvent?.({ event: { type: "RUN_STARTED" } });
+      detachAttachedAgentTurns();
+    };
+    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      conversationId: "thread-unstarted", vaultOwnerToken: "owner-token" });
+    // Reported as detached (not as an empty answer), but there is nothing to reattach to.
+    expect(result.detached).toBe(true);
+    expect(isAgentTurnWatched("user-1", "thread-unstarted")).toBe(false);
   });
 });

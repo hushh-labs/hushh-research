@@ -24,8 +24,9 @@ function normalizeLocalOffset(value?: string | null): string {
 const STANDARD_PAGE_TOP_START = "32px";
 
 /**
- * The top shell paints further down the screen than it reserves: the mask runs
- * to `--top-shell-reserved-height` and then dissolves over `--top-fade-active`.
+ * The top shell clears further down the screen than it reserves: the mask runs
+ * to `--top-shell-reserved-height` and keeps a `--top-fade-active` clearance
+ * band below it (a painted fade until 2026-09-27, now unpainted).
  * A fullscreen flow used to start its body at the RESERVED height, so its first
  * line always landed inside that dissolve and read as the header sitting on top
  * of the page. Clearing the fade too puts the body exactly at the mask's last
@@ -36,8 +37,9 @@ const STANDARD_PAGE_TOP_START = "32px";
 const FULLSCREEN_FLOW_PAGE_TOP_START = "var(--top-fade-active)";
 
 /**
- * How far the top mask dissolves past its solid edge, published by the route
- * shell in `app/providers.tsx`.
+ * How far the top shell's clearance band extends past its solid edge (it was
+ * a painted fade until 2026-09-27), published by the route shell in
+ * `app/providers.tsx`.
  *
  * The `:root` fallback in `globals.css` is a much smaller 8px, so anything that
  * reproduces the shell outside the app -- notably

@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -252,12 +253,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ).mappings()
             )
             files = [
-                self.search_cipher.open(
-                    item["metadata_envelope"],
-                    user_id=user_id,
-                    resource_id=f"{identity}:{item['position']}",
-                    purpose="owner-search-result",
-                )
+                {
+                    **self.search_cipher.open(
+                        item["metadata_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{identity}:{item['position']}",
+                        purpose="owner-search-result",
+                    ),
+                    "position": item["position"],
+                }
                 for item in rows[:limit]
             ]
             return {
@@ -269,6 +273,43 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 if len(rows) > limit
                 else None,
             }
+
+        return await self._transaction(operation)
+
+    async def reference(self, *, user_id, job_id, position):
+        """Resolve one owner-selected positive result, never a cached absence.
+
+        The caller must verify this file against live Drive before using it as
+        current evidence. The opaque job and position do not grant file access.
+        """
+        identity = _identity(job_id)
+        if type(position) is not int or not 1 <= position <= MAX_RESULTS:
+            raise DriveReadError("invalid_argument")
+        await self.purge()
+
+        def operation(connection):
+            current = self._access(connection, user_id)
+            row = self._owned(connection, user_id, identity)
+            # The SQL lookup also filters expiry. Keep the selected-result
+            # fence explicit even when bounded cleanup has not reached this row.
+            if row["expires_at"] <= datetime.now(UTC):
+                raise DriveReadError("search_not_found")
+            if row["connection_generation"] != current["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            result = self._row(
+                connection,
+                "SELECT metadata_envelope FROM drive_owner_search_results "
+                "WHERE job_id=:job AND user_id=:user AND position=:position",
+                {"job": identity, "user": user_id, "position": position},
+            )
+            if result is None:
+                raise DriveReadError("search_not_found")
+            return self.search_cipher.open(
+                result["metadata_envelope"],
+                user_id=user_id,
+                resource_id=f"{identity}:{position}",
+                purpose="owner-search-result",
+            )
 
         return await self._transaction(operation)
 

@@ -1,0 +1,33 @@
+{
+  "displayName": "[Managed] One Account Mail Delivery Failure",
+  "documentation": {
+    "content": "One support or account-security mail failed or has uncertain delivery. Inspect sanitized backend event codes; do not blindly retry an uncertain send.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "ops"
+  },
+  "conditions": [
+    {
+      "displayName": "One account mail failure in 1m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_account_mail_failure_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ]
+}

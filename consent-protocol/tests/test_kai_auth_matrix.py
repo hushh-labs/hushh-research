@@ -592,38 +592,39 @@ class TestKaiChatKeyEndpoints:
         assert response.status_code not in {401, 403}
 
 
-def test_support_message_is_queued(monkeypatch):
+def test_support_message_requires_provider_acceptance_and_verified_reply_to(monkeypatch):
+    from types import SimpleNamespace
+
+    from firebase_admin import auth as firebase_auth
+
     from api.middleware import require_firebase_auth
     from api.routes.kai import support as support_routes
 
-    queued_calls: list[dict[str, object]] = []
+    sent_calls: list[dict[str, object]] = []
 
     class _FakeConfig:
         configured = True
         delivery_mode = "live"
-        effective_recipient = "support@hushh.ai"
-        support_to_email = "support@hushh.ai"
-        from_email = "kai@hushh.ai"
+        effective_recipient = "one@hushh.ai"
+        support_to_email = "one@hushh.ai"
+        from_email = "one@hushh.ai"
 
     class _FakeSupportService:
         config = _FakeConfig()
 
         def send_message(self, **kwargs):  # noqa: ANN003
-            raise AssertionError("send_message should not run inline")
-
-    class _FakeQueue:
-        async def enqueue(self, **kwargs):  # noqa: ANN003
-            queued_calls.append(kwargs)
-            return {
-                "accepted": True,
-                "delivery_status": "queued",
-                "job_id": "job_1",
-                "kind": kwargs["kind"],
-                "queued_at": "2026-04-13T00:00:00Z",
-            }
+            sent_calls.append(kwargs)
+            return {"accepted": True, "message_id": "gmail_1"}
 
     monkeypatch.setattr(support_routes, "get_support_email_service", lambda: _FakeSupportService())
-    monkeypatch.setattr(support_routes, "get_email_delivery_queue_service", lambda: _FakeQueue())
+    monkeypatch.setattr(support_routes, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "get_user",
+        lambda uid, app: SimpleNamespace(
+            email="verified@example.com", email_verified=True, display_name="Owner"
+        ),
+    )
 
     app = FastAPI()
     app.include_router(kai_router)
@@ -635,16 +636,17 @@ def test_support_message_is_queued(monkeypatch):
         json={
             "user_id": "user_a",
             "kind": "support_request",
-            "subject": "Queue check",
-            "message": "Please queue this support request instead of sending inline.",
+            "subject": "Support check",
+            "message": "Please send this support request and confirm acceptance.",
+            "user_email": "forged@example.com",
         },
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 200
     payload = response.json()
-    assert payload["delivery_status"] == "queued"
-    assert payload["recipient"] == "support@hushh.ai"
-    assert queued_calls[0]["kind"] == "support_message"
+    assert payload["delivery_status"] == "accepted_by_provider"
+    assert sent_calls[0]["user_email"] == "verified@example.com"
+    assert sent_calls[0]["kind"] == "support_request"
 
 
 def test_fixture_token_is_deterministically_valid(vault_owner_token_for_user):

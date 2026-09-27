@@ -12,6 +12,8 @@
  *    - Tier B (private derived facts): `derived_v1`, recomputed from Tier A.
  *    - Tier C (shareable summary): `summary`, bands, percentages and counts
  *      only.
+ *    - Readable view (private): `linked_accounts`, the same records organised
+ *      by kind of account, institution and account for a person to browse.
  */
 
 // ---------------------------------------------------------------------------
@@ -368,6 +370,106 @@ export interface ShareableSummaryV1 {
   last_updated: string;
 }
 
+// ---------------------------------------------------------------------------
+// Readable view (financial.linked_accounts)
+// ---------------------------------------------------------------------------
+
+/**
+ * The lane's machine records. They are keyed by Plaid's own ids, which is
+ * right for syncing and wrong for a person to browse, so Memory and the
+ * private agent's context read `linked_accounts` instead.
+ */
+export const PLAID_VAULT_RECORD_BRANCHES = [
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+  "derived_v1",
+] as const;
+
+/** The readable view of the records above, rebuilt from them on every change. */
+export const LINKED_ACCOUNTS_BRANCH = "linked_accounts";
+
+/**
+ * Everything `assemble()` rebuilds whole. Nothing else may write here: a change
+ * would be erased by the next refresh. Mirrors FINANCIAL_SOURCE_MANAGED_BRANCHES
+ * in consent-protocol/hushh_mcp/services/domain_contracts.py.
+ */
+export const PLAID_VAULT_SOURCE_MANAGED_BRANCHES = [
+  ...PLAID_VAULT_RECORD_BRANCHES,
+  "summary",
+  LINKED_ACCOUNTS_BRANCH,
+] as const;
+export const LINKED_ACCOUNTS_SCHEMA_VERSION = 1;
+
+export interface LinkedHoldingView {
+  name: string;
+  ticker?: string;
+  kind: string;
+  quantity: number;
+  value: number;
+  cost_basis?: number;
+}
+
+export interface LinkedTransactionView {
+  name: string;
+  date: string;
+  money_out?: number;
+  money_in?: number;
+  category: string;
+  pending?: true;
+}
+
+/**
+ * One account, named the way a person names it ("Plaid Checking ••0000").
+ * Only the fields that apply to its kind of account are present.
+ */
+export interface LinkedAccountView {
+  name: string;
+  account_type: string;
+  current_balance?: number;
+  available_balance?: number;
+  balance_owed?: number;
+  credit_limit?: number;
+  available_credit?: number;
+  total_value?: number;
+  currency?: string;
+  holdings?: LinkedHoldingView[];
+  transactions?: LinkedTransactionView[];
+}
+
+export interface LinkedInstitutionView {
+  name: string;
+  connection: "Connected" | "Needs to be reconnected";
+  last_updated?: string;
+  accounts: LinkedAccountView[];
+}
+
+export interface LinkedAccountsTotalsView {
+  net_worth: number;
+  total_assets: number;
+  total_owed: number;
+  cash_in_bank: number;
+  invested: number;
+  as_of: string;
+}
+
+/**
+ * `financial.linked_accounts`: Finance -> kind of account -> institution ->
+ * account. Lists, not maps, so no Plaid id is ever a path segment; each entry
+ * is named by its `name`. Private: sealed like the records it is built from.
+ */
+export interface LinkedAccountsViewV1 {
+  schema_version: typeof LINKED_ACCOUNTS_SCHEMA_VERSION;
+  bank_accounts?: LinkedInstitutionView[];
+  investments?: LinkedInstitutionView[];
+  credit_cards?: LinkedInstitutionView[];
+  loans?: LinkedInstitutionView[];
+  other_accounts?: LinkedInstitutionView[];
+  totals: LinkedAccountsTotalsView;
+}
+
 /** The part of the financial domain this lane owns. Other keys pass through untouched. */
 export interface PlaidVaultMemory {
   connections_v1?: Record<string, ConnectionRecord>;
@@ -377,6 +479,7 @@ export interface PlaidVaultMemory {
   transactions_v1?: Record<string, TransactionRecord>;
   derived_v1?: DerivedFactsV1;
   summary?: ShareableSummaryV1;
+  linked_accounts?: LinkedAccountsViewV1;
 }
 
 export type FinancialDomain = Record<string, unknown> & PlaidVaultMemory;

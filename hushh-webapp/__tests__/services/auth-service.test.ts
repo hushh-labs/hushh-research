@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
+import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 
 const {
   mockAuth,

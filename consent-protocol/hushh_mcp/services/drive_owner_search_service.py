@@ -12,7 +12,7 @@ import hashlib
 import time
 from datetime import UTC, datetime
 
-from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader
+from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -223,6 +223,114 @@ class DriveOwnerSearchService:
         )
         await require_current()
         return result
+
+    @drive_operation(job_key="job_id")
+    async def resolve_selection(self, *, user_id, job_id, position, require_current):
+        """Use a saved ID as a lead, then verify that exact file in live Drive.
+
+        A background result does not prove current existence or authorize a
+        content read or share. Rechecking the saved row after provider I/O also
+        fences a disconnect, account switch, expiry, or account erasure.
+        """
+        started = time.perf_counter()
+        status = "failed"
+        try:
+            await require_current()
+            saved = await self.store.reference(user_id=user_id, job_id=job_id, position=position)
+            file_id = saved.get("id") if isinstance(saved, dict) else None
+            if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
+                raise DriveReadError("provider_response_invalid")
+            result = await self.transport.read_tool(
+                user_id=user_id,
+                tool_name="get_file_metadata",
+                arguments={"fileId": file_id},
+            )
+            if result.is_error or result.truncated or not isinstance(result.payload, dict):
+                raise DriveReadError("provider_response_invalid")
+            current = result.payload.get("file")
+            if (
+                not isinstance(current, dict)
+                or current.get("id") != file_id
+                or not isinstance(current.get("title"), str)
+                or not current["title"]
+                or current["title"] != saved.get("name")
+            ):
+                raise DriveReadError("source_changed")
+            await require_current()
+            again = await self.store.reference(user_id=user_id, job_id=job_id, position=position)
+            if again != saved:
+                raise DriveReadError("source_changed")
+            await require_current()
+            status = "verified"
+            return {
+                "id": file_id,
+                "name": current["title"],
+                "mimeType": current.get("mimeType")
+                if isinstance(current.get("mimeType"), str)
+                else "",
+                "modifiedTime": current.get("modifiedTime"),
+                "openUrl": _open_url(file_id, current.get("viewUrl")),
+            }
+        finally:
+            logger.info(
+                "drive_search.selection status=%s elapsed_ms=%.2f",
+                status,
+                (time.perf_counter() - started) * 1000,
+            )
+
+    @drive_operation(job_key="job_id")
+    async def read_selection_content(
+        self, *, user_id, job_id, position, file, require_current
+    ) -> dict:
+        """Optional exact-ID read after a live selection check, with a fresh fence.
+
+        A failed export keeps the verified metadata usable. A revoked owner or
+        changed Drive generation never does. No content enters a search job.
+        """
+        started = time.perf_counter()
+        outcome = "unavailable"
+        try:
+            await require_current()
+            saved = await self.store.reference(user_id=user_id, job_id=job_id, position=position)
+            if saved.get("id") != file.get("id") or saved.get("name") != file.get("name"):
+                raise DriveReadError("source_changed")
+            try:
+                result = await asyncio.wait_for(
+                    self.transport.read_tool(
+                        user_id=user_id,
+                        tool_name="read_file_content",
+                        arguments={"fileId": file["id"]},
+                    ),
+                    timeout=18,
+                )
+            except Exception:  # noqa: BLE001 - optional read errors never erase verified metadata
+                result = None
+            # Even when the optional read failed, revoked access must not leak
+            # a previously verified filename or link into the answer.
+            await require_current()
+            again = await self.store.reference(user_id=user_id, job_id=job_id, position=position)
+            if again != saved:
+                raise DriveReadError("source_changed")
+            if result is None or result.is_error or not isinstance(result.payload, dict):
+                return {"status": "unavailable"}
+            payload = result.payload
+            body = payload.get("fileContent")
+            if not isinstance(body, str) or not body.strip():
+                return {"status": "unsupported"}
+            outcome = "ok"
+            return {
+                "status": "ok",
+                "text": body[:12000],
+                "truncated": bool(
+                    result.truncated or payload.get("contentTruncated") or len(body) > 12000
+                ),
+            }
+        finally:
+            logger.info(
+                "drive_search.selection_content status=%s elapsed_ms=%.2f",
+                outcome,
+                (time.perf_counter() - started) * 1000,
+            )
 
     async def stop(self, *, user_id, job_id, require_current):
         await require_current()

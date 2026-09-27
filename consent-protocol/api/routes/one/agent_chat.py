@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import uuid
@@ -30,6 +31,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_DRIVE_SEARCH_SELECTION,
     STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
     STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID,
     STATE_PKM_CONTEXT,
@@ -44,6 +46,11 @@ from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities, build_authenticated_agui
 from hushh_mcp.one_adk.agui_factory import _DurableSessionManager as _DurableSessionManager
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, TimedADKAgent
+from hushh_mcp.one_adk.consent_continuation import (
+    ConsentContinuationError,
+    admit_consent_continuation,
+    continued_outcomes,
+)
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -105,10 +112,19 @@ from hushh_mcp.one_adk.history_projection import (
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.pending_email_draft import (
+    STATE_PENDING_EMAIL_DRAFT,
+    admit_pending_email_draft,
+)
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
     store_request_secret,
+)
+from hushh_mcp.one_adk.turn_completion import (
+    newest_turn_answered,
+    newest_turn_pending,
+    notify_one_reply,
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
@@ -124,6 +140,7 @@ from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
 )
+from hushh_mcp.services.person_profile_service import PersonProfileService
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
@@ -136,6 +153,103 @@ def _user_id(input_data: RunAgentInput) -> str:
     if not value:
         raise ValueError("Authenticated Agent One user is missing.")
     return value
+
+
+async def _admit_drive_search_selection(
+    selection: object,
+    *,
+    request: Request,
+    authorization: str | None,
+    consent_header: str | None,
+    owner_id: str,
+    content_authorized: bool = False,
+    share_authorized: bool = False,
+) -> str:
+    """Bound the untrusted pointer; the tool verifies owner and live Drive later."""
+    if selection is None:
+        return ""
+    if (
+        not owner_id
+        or not isinstance(selection, dict)
+        or set(selection) != {"jobId", "position"}
+        or not isinstance(selection.get("jobId"), str)
+        or type(selection.get("position")) is not int
+        or not 1 <= selection["position"] <= 10000
+    ):
+        raise HTTPException(status_code=400, detail="Selected Drive result is invalid.")
+    try:
+        job_id = str(uuid.UUID(selection["jobId"]))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Selected Drive result is invalid.") from None
+
+    async def require_current() -> None:
+        try:
+            current = await require_vault_owner_token(
+                request=request,
+                authorization=authorization,
+                hushh_consent=consent_header,
+            )
+        except HTTPException:
+            raise PermissionError("owner session changed") from None
+        if str(current.get("user_id") or "") != owner_id:
+            raise PermissionError("owner session changed")
+
+    try:
+        await require_current()
+    except PermissionError:
+        raise HTTPException(
+            status_code=403, detail="Unlock One to use this Drive result."
+        ) from None
+    # Only the opaque lookup pointer crosses into the turn. One may pause on a
+    # reviewed action for ten minutes, so cleanup is scheduled just after it.
+    return store_request_secret(
+        json.dumps(
+            {
+                "jobId": job_id,
+                "position": selection["position"],
+                "contentAllowed": content_authorized is True,
+                "shareAllowed": share_authorized is True,
+            }
+        ),
+        ttl_seconds=660,
+    )
+
+
+def _current_user_text(input_data: RunAgentInput) -> str:
+    messages = input_data.messages
+    last = messages[-1] if messages else None
+    if getattr(last, "role", None) != "user":
+        return ""
+    text = getattr(last, "content", None)
+    if not isinstance(text, str) or len(text) > 2048:
+        return ""
+    return text
+
+
+def _selected_content_authorized(input_data: RunAgentInput) -> bool:
+    """Only an explicit current owner request can authorize a selected-file export."""
+    text = _current_user_text(input_data)
+    return bool(
+        re.match(
+            r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
+            r"(?:read\b|summari[sz]e\b|show\s+(?:me\s+)?(?:the\s+)?(?:contents?|text)\b|"
+            r"what\s+(?:does\s+(?:this|the)\s+(?:file|document)\s+say|is\s+in\s+(?:this|the)\s+(?:file|document)))",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _selected_share_authorized(input_data: RunAgentInput) -> bool:
+    """Untrusted file metadata cannot induce an unasked-for share draft."""
+    return bool(
+        re.match(
+            r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
+            r"(?:share\b|send\s+(?:this|the)\s+(?:file|document)\b)",
+            _current_user_text(input_data),
+            re.IGNORECASE,
+        )
+    )
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
@@ -219,6 +333,16 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                     "code": "CHAT_CONVERSATION_RETIRED",
                 },
             )
+    drive_search_selection = await _admit_drive_search_selection(
+        forwarded.get("driveSearchSelection"),
+        request=request,
+        authorization=authorization,
+        consent_header=consent_header,
+        owner_id=user_id if token else "",
+        content_authorized=_selected_content_authorized(input_data),
+        share_authorized=_selected_share_authorized(input_data),
+    )
+    forwarded.pop("driveSearchSelection", None)
     try:
         mcp_approval = admit_resume_receipt(
             forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
@@ -267,12 +391,20 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=403, detail="Connector configuration is unavailable. Unlock and try again."
         ) from None
+    consent_continuation = await _admit_consent_continuation(
+        forwarded, input_data=input_data, owner_id=user_id if token else ""
+    )
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
+    # The person's unsent draft card, so a follow-up can revise it. Only an
+    # unlocked owner turn keeps it; it never becomes conversation state.
+    pending_email_draft = admit_pending_email_draft(forwarded)
     if not (token and user_id):
         consume_request_secret(turn_location)
         turn_location = ""
+        consume_request_secret(pending_email_draft)
+        pending_email_draft = ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
         STATE_TURN_LOCATION: turn_location,
@@ -283,6 +415,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_CONSENT_TOKEN: store_request_secret(str(token["token"])) if token else "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
+        STATE_DRIVE_SEARCH_SELECTION: drive_search_selection,
         # This is only an untrusted selection request. The resolver validates
         # it against owner/thread-bound server-issued choices before any read.
         # A picker handle is an untrusted, current-turn admission request. The
@@ -307,7 +440,58 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         )
         if workflow_id
         else "",
+        **consent_continuation,
+        STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
     }
+
+
+async def _admit_consent_continuation(
+    forwarded: dict[str, Any], *, input_data: RunAgentInput, owner_id: str
+) -> dict[str, Any]:
+    """Admit the follow-up turn that reports an owner's answer, or nothing."""
+    if forwarded.get("consentContinuation") is None:
+        return {}
+    session = None
+    if owner_id and input_data.thread_id:
+        session = await _session_service.get_session(
+            app_name=ONE_APP_NAME, user_id=owner_id, session_id=input_data.thread_id
+        )
+    session_state = dict(session.state) if session is not None else None
+
+    def asked_here(bundle_id: str) -> bool:
+        # The submission event this conversation recorded when the request was sent.
+        for event in session.events if session is not None else []:
+            metadata = _record(event.custom_metadata) or {}
+            card = _record(metadata.get("card")) or {}
+            if (
+                metadata.get("kind") == "information_request_submission_v1"
+                and str(card.get("bundleId") or "").lower() == bundle_id
+            ):
+                return True
+        return False
+
+    def person_name(person_ref: str) -> str:
+        try:
+            return str(PersonProfileService().get_public_profile(person_ref)["displayName"])
+        except Exception:  # noqa: BLE001 - a missing name must not block the answer
+            return ""
+
+    try:
+        return await admit_consent_continuation(
+            forwarded,
+            owner_id=owner_id,
+            messages=input_data.messages,
+            session_state=session_state,
+            asked_here=asked_here,
+            get_bundle=InformationRequestService().get,
+            person_name=person_name,
+        )
+    except ConsentContinuationError as exc:
+        logger.info("one.consent_continuation_refused status=%s", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+    except InformationRequestError as exc:
+        logger.info("one.consent_continuation_refused status=%s", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
 _intro_app = App(
@@ -358,6 +542,23 @@ _intro_agent = TimedADKAgent.from_app(
     emit_messages_snapshot=True,
     capabilities=_intro_capabilities,
 )
+
+
+async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
+    """A turn finished after its client left: wake the owner's device, once.
+
+    Runs from the turn's own background task, which still holds the chat key it
+    received, so the sealed session can be read. The push carries no content.
+    """
+    session = await _session_service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner_id, session_id=conversation_id
+    )
+    if session is None or not newest_turn_answered(session.events):
+        return
+    await notify_one_reply(owner_id=owner_id, conversation_id=conversation_id)
+
+
+_agent.detached_turn_hook = _notify_detached_turn
 
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
@@ -525,15 +726,46 @@ async def conversation_history(
         source_id for event in session.events if (source_id := _submitted_source_id(event))
     }
     call_providers = _call_providers(session.events)
-    return project_conversation_history(
+    result = project_conversation_history(
         session.events,
         conversation_id,
         limit,
+        session_state=session.state,
         project_event=lambda event: (
             _event_text(event),
             _safe_agent_history_metadata(event, submitted_discovery_ids, call_providers),
         ),
     )
+    result.update(
+        turn={"pending": newest_turn_pending(session.events)},
+        consentOutcomes=continued_outcomes(session.state),
+    )
+    return result
+
+
+@router.get("/api/one/agent-chat/information-requests/{bundle_id}/conversation")
+async def information_request_conversation(
+    bundle_id: uuid.UUID,
+    token: dict = Depends(require_vault_owner_chat_key),
+):
+    """The requester's own conversation that sent this request, after unlock.
+
+    A push about an answered request carries only the bundle id; the conversation
+    lives in the requester's sealed history, which only their chat key opens.
+    """
+    owner = str(token["user_id"])
+    wanted = str(bundle_id)
+    response = await _session_service.list_sessions(app_name=ONE_APP_NAME, user_id=owner)
+    for session in sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True):
+        for event in session.events:
+            metadata = _record(event.custom_metadata) or {}
+            card = _record(metadata.get("card")) or {}
+            if (
+                metadata.get("kind") == "information_request_submission_v1"
+                and str(card.get("bundleId") or "") == wanted
+            ):
+                return {"conversationId": session.id}
+    raise HTTPException(status_code=404, detail="Conversation not found.")
 
 
 @router.patch("/api/one/agent-chat/conversations/{conversation_id}")

@@ -1,0 +1,5 @@
+{
+  "name": "obs_account_mail_failure_count",
+  "description": "Sanitized One support and account-security delivery failures or uncertain outcomes",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"consent-protocol\" AND (textPayload=~\"(support_email\\.(failed|uncertain)|account_security_email\\.failed|account_welcome\\.(delivery_failed|delivery_uncertain))\" OR jsonPayload.message=~\"(support_email\\.(failed|uncertain)|account_security_email\\.failed|account_welcome\\.(delivery_failed|delivery_uncertain))\")"
+}

@@ -41,6 +41,9 @@ describe("application icon and motion contracts", () => {
     expect(source).toContain('import * as Phosphor from "@phosphor-icons/react"');
     expect(source).toContain('defaultWeight: IconWeight = "duotone"');
     expect(source).toContain('Phosphor.CircleNotch, "regular"');
+    expect(source).toContain(
+      'export const MoreHorizontal = createCanonicalIcon(Phosphor.DotsThree, "regular");',
+    );
     expect(source).toContain("forwardRef<SVGSVGElement");
     expect(source).toContain('data-canonical-icon="true"');
 
@@ -53,6 +56,9 @@ describe("application icon and motion contracts", () => {
       "utf8",
     );
     expect(uiIcons).toContain('weight = "regular"');
+    expect(uiIcons).toContain(
+      'export function DotsThreeIcon({\n  size = "1em",\n  weight = "regular",',
+    );
     expect(detailIcons).toContain(
       'ArrowsClockwiseIcon({ weight = "regular"',
     );

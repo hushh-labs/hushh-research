@@ -17,12 +17,15 @@ export type DriveSearchStatus = {
   errorCode: string | null;
 };
 export type DriveSearchFile = {
+  position: number;
   id: string;
   name: string;
   mimeType: string;
   modifiedTime: string | null;
   openUrl: string | null;
 };
+/** A single saved result, resolved and rechecked by the owner-authenticated chat route. */
+export type DriveSearchSelection = { jobId: string; position: number };
 export type DriveSearchResults = {
   jobId: string;
   revision: number;
@@ -54,6 +57,11 @@ function count(value: unknown, max = 10_000): number {
     throw new DriveSearchError("invalid_response");
   return value;
 }
+function position(value: unknown): number {
+  const result = count(value);
+  if (result === 0) throw new DriveSearchError("invalid_response");
+  return result;
+}
 function date(value: unknown): string {
   const result = text(value, 64);
   if (!Number.isFinite(Date.parse(result))) throw new DriveSearchError("invalid_response");
@@ -84,7 +92,7 @@ function file(value: unknown): DriveSearchFile {
       url.username || url.password || url.port) throw new DriveSearchError("invalid_response");
     openUrl = url.href;
   }
-  return { id: text(item.id, 256), name: text(item.name, 1000), mimeType: text(item.mimeType, 256),
+  return { position: position(item.position), id: text(item.id, 256), name: text(item.name, 1000), mimeType: text(item.mimeType, 256),
     modifiedTime: item.modifiedTime == null ? null : date(item.modifiedTime), openUrl };
 }
 
@@ -135,7 +143,8 @@ export class DriveSearchService {
     if (id(value.jobId) !== jobId || !Array.isArray(value.files) || value.files.length > 25)
       throw new DriveSearchError("invalid_response");
     const files = value.files.map(file);
-    if (new Set(files.map(item => item.id)).size !== files.length) throw new DriveSearchError("invalid_response");
+    if (new Set(files.map(item => item.id)).size !== files.length ||
+      new Set(files.map(item => item.position)).size !== files.length) throw new DriveSearchError("invalid_response");
     return { jobId, revision: count(value.revision, Number.MAX_SAFE_INTEGER), files,
       matched: count(value.matched), nextCursor: value.nextCursor == null ? null : text(value.nextCursor, 1024) };
   }

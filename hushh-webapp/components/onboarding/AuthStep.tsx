@@ -696,7 +696,7 @@ export function AuthStep({
               action: provider,
               result: "success",
             });
-            void ApiService.notifyAuthMail("signed_in", { idToken });
+            void ApiService.notifyFirstWelcome({ idToken });
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,

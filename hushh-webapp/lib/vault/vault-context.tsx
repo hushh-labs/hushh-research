@@ -392,6 +392,23 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () => clearTimeout(timer);
   }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, renewalFailures, retryOwnerTokenRenewal]);
 
+  // WebKit and Chromium timers count awake time only, so after a night of
+  // device or laptop sleep both timers above fire hours late. Re-check the wall
+  // clock whenever the page is shown again (Capacitor raises this on app
+  // resume). This path only renews; it never locks the vault itself.
+  useEffect(() => {
+    if (!vaultKey || !authReady) return;
+    const handleVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const expiresAt = tokenExpiresAtRef.current;
+      if (expiresAt === null) return;
+      updateTokenClock((value) => value + 1);
+      if (Date.now() >= expiresAt - OWNER_TOKEN_RENEWAL_LEAD_MS) void retryOwnerTokenRenewal();
+    };
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => document.removeEventListener("visibilitychange", handleVisible);
+  }, [authReady, vaultKey, retryOwnerTokenRenewal]);
+
   // Native bridges can collapse expiry and revocation into the same invalid
   // owner code. Expiry withdraws authority, not local key custody; authenticated
   // renewal decides whether that expired lineage was actually revoked.

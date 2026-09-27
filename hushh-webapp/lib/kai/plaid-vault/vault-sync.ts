@@ -35,6 +35,7 @@ import {
   setActivePlaidSource,
   setActiveStatementSnapshot,
 } from "@/lib/kai/brokerage/financial-sources";
+import { linkedAccountsViewIsStale } from "@/lib/kai/plaid-vault/linked-accounts";
 import {
   applyConnectionLink,
   applySnapshot,
@@ -555,7 +556,12 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   const due = Object.entries(vaultConnections(params.financial)).filter(
     ([, connection]) => params.force === true || isDueForBackgroundRefresh(connection, nowMs),
   );
-  if (due.length === 0) return outcome;
+  // Memory saved before the readable `linked_accounts` view existed gets it
+  // here, where the key is: one recompute-only write, no Plaid call. Without
+  // this a person whose every connection needs a relink (UAT 2026-09-27) would
+  // never be saved again, and their banks would stay unreadable in Memory.
+  const viewStale = linkedAccountsViewIsStale(params.financial);
+  if (due.length === 0 && !viewStale) return outcome;
 
   const read: Array<{ itemId: string; pages: PlaidVaultSnapshot[] }> = [];
   for (const [itemId, connection] of due) {
@@ -573,7 +579,11 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
       outcome.failed += 1;
     }
   }
-  if (read.length === 0 || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
+  if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
+  // A person's own refresh that read nothing must still report failure; the
+  // next unlock adds the view.
+  const viewOnly = read.length === 0;
+  if (viewOnly && (!viewStale || params.force === true)) return outcome;
 
   const now = new Date().toISOString();
   const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -589,7 +599,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
     confirmation: {
       authorizationMode: "owner_connected_source_sync",
       surface: params.surface ?? "web",
-      source: "plaid_vault_refresh",
+      source: viewOnly ? "plaid_vault_view_upgrade" : "plaid_vault_refresh",
       connectedSourceProvider: "plaid",
     },
     build: (context) => {
@@ -598,7 +608,11 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
         if (!vaultConnections(domainData)[itemId]) continue; // disconnected meanwhile
         domainData = applyPages(domainData, itemId, pages, now);
       }
-      domainData = withVaultPortfolio(recomputeDerived(domainData, now), now);
+      // The view-only write changes nothing an ordinary refresh would not,
+      // and less: it leaves the portfolio and source copies untouched.
+      domainData = viewOnly
+        ? recomputeDerived(domainData, now)
+        : withVaultPortfolio(recomputeDerived(domainData, now), now);
       return {
         domainData,
         summary: buildFinancialDomainSummary(domainData),

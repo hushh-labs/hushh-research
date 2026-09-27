@@ -10,6 +10,12 @@ import {
 } from "@/lib/kai/plaid-vault/projection";
 import { scanSummaryForLeaks, scorePlaidVaultQuality } from "@/lib/kai/plaid-vault/quality";
 import type { FinancialDomain, PlaidVaultSnapshot } from "@/lib/kai/plaid-vault/types";
+import { resolvePkmMemoryLevel, type PkmMemoryLevelView } from "@/lib/pkm/pkm-memory-level";
+import {
+  shouldSkipPkmAgentContextKey,
+  shouldSkipPkmMemoryKey,
+  type PkmPathSegment,
+} from "@/lib/pkm/pkm-memory-cards";
 
 import {
   FIRST_PLATYPUS,
@@ -22,10 +28,13 @@ import {
   PLATYPUS_OAUTH,
   TARTAN,
   TARTAN_ACCOUNTS,
+  TARTAN_SANDBOX,
+  TARTAN_SANDBOX_ITEM_ID,
   firstPlatypusSecondPage,
   firstPlatypusSnapshot,
   platypusOauthSnapshot,
   smallInstitutionSnapshot,
+  tartanSandboxSnapshot,
 } from "./fixtures";
 
 const EARLIER = "2026-09-23T11:00:00.000Z";
@@ -451,5 +460,190 @@ describe("quality report", () => {
     expect(report.checks.totals.passed).toBe(false);
     expect(report.checks.replay.passed).toBe(false);
     expect(report.passed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What a person sees: Finance in Memory
+// ---------------------------------------------------------------------------
+
+/** Tartan Bank linked twice (a re-link), as a real sandbox link stores it. */
+function tartanLinkedTwice(): FinancialDomain {
+  const first = applySnapshot(link(null, TARTAN_SANDBOX_ITEM_ID, TARTAN_SANDBOX), TARTAN_SANDBOX_ITEM_ID, tartanSandboxSnapshot(), NOW);
+  const relinkId = `${TARTAN_SANDBOX_ITEM_ID.slice(0, 30)}Relink1`;
+  return applySnapshot(link(first, relinkId, TARTAN_SANDBOX), relinkId, tartanSandboxSnapshot(relinkId), NOW);
+}
+
+function memoryLevel(financial: FinancialDomain, pathStack: PkmPathSegment[] = []): PkmMemoryLevelView {
+  return resolvePkmMemoryLevel({ domainKey: "financial", domainTitle: "Finance", data: financial, pathStack });
+}
+
+function openGroup(financial: FinancialDomain, labels: string[]): PkmMemoryLevelView {
+  const stack: PkmPathSegment[] = [];
+  let view = memoryLevel(financial);
+  for (const label of labels) {
+    const group = view.entries.find((entry) => entry.kind === "group" && entry.label === label);
+    if (!group || group.kind !== "group") {
+      throw new Error(`"${label}" not found under ${view.crumbs.join(" > ")}: ${view.entries.map((e) => (e.kind === "group" ? e.label : e.card.title)).join(", ")}`);
+    }
+    stack.push(group.segment);
+    view = memoryLevel(financial, stack);
+  }
+  return view;
+}
+
+/** Every label and value a person can reach in Finance, by walking Memory the way they would. */
+function everythingShown(financial: Record<string, unknown>): string[] {
+  const shown: string[] = [];
+  const visit = (stack: PkmPathSegment[]) => {
+    const view = resolvePkmMemoryLevel({ domainKey: "financial", domainTitle: "Finance", data: financial, pathStack: stack });
+    shown.push(...view.crumbs);
+    for (const entry of view.entries) {
+      if (entry.kind === "group") visit([...stack, entry.segment]);
+      else shown.push(entry.card.title, entry.card.value);
+    }
+  };
+  visit([]);
+  return shown;
+}
+
+function plaidIdsIn(financial: FinancialDomain): string[] {
+  const ids = new Set<string>();
+  for (const [key, account] of Object.entries(financial.accounts_v1 ?? {})) {
+    ids.add(key);
+    ids.add(account.account_id);
+    ids.add(account.item_id);
+    if (account.persistent_account_id) ids.add(account.persistent_account_id);
+  }
+  for (const holding of Object.values(financial.holdings_v1 ?? {})) ids.add(holding.security_id);
+  for (const id of Object.keys(financial.transactions_v1 ?? {})) ids.add(id);
+  return [...ids];
+}
+
+function leaked(shown: string[], ids: string[]): string[] {
+  return shown.filter((text) => ids.some((id) => text.includes(id) || text.replace(/\s+/g, "").includes(id)));
+}
+
+describe("Finance in Memory, from a Plaid sandbox link", () => {
+  it("reads Finance > kind of account > institution > account, in plain words", () => {
+    const financial = tartanLinkedTwice();
+    const top = memoryLevel(financial).entries.map((entry) => (entry.kind === "group" ? entry.label : entry.card.title));
+    expect(top).toContain("Linked Accounts");
+    for (const machine of ["Accounts V1", "Connections V1", "Holdings V1", "Securities V1", "Transactions V1", "Derived V1"]) {
+      expect(top).not.toContain(machine);
+    }
+
+    const kinds = openGroup(financial, ["Linked Accounts"]).entries.map((entry) => (entry.kind === "group" ? entry.label : entry.card.title));
+    expect(kinds).toEqual(["Bank Accounts", "Investments", "Credit Cards", "Loans", "Totals"]);
+
+    // A re-link is the same bank, once.
+    const banks = openGroup(financial, ["Linked Accounts", "Bank Accounts"]);
+    expect(banks.entries.map((entry) => entry.kind === "group" && entry.label)).toEqual(["Tartan Bank"]);
+
+    const tartan = openGroup(financial, ["Linked Accounts", "Bank Accounts", "Tartan Bank"]);
+    const accounts = tartan.entries.find((entry) => entry.kind === "group" && entry.label === "Accounts");
+    expect(accounts).toBeDefined();
+    const accountNames = openGroup(financial, ["Linked Accounts", "Bank Accounts", "Tartan Bank", "Accounts"]).entries.map(
+      (entry) => entry.kind === "group" && entry.label,
+    );
+    expect(accountNames).toEqual([
+      "Plaid CD \u2022\u20222222",
+      "Plaid Cash Management \u2022\u20229002",
+      "Plaid Checking \u2022\u20220000",
+      "Plaid HSA \u2022\u20229001",
+      "Plaid Money Market \u2022\u20224444",
+      "Plaid Saving \u2022\u20221111",
+    ]);
+
+    const checking = openGroup(financial, ["Linked Accounts", "Bank Accounts", "Tartan Bank", "Accounts", "Plaid Checking \u2022\u20220000"]);
+    expect(checking.crumbs).toEqual(["Finance", "Linked Accounts", "Bank Accounts", "Tartan Bank", "Accounts", "Plaid Checking \u2022\u20220000"]);
+    const leaves = Object.fromEntries(
+      checking.entries.flatMap((entry) => (entry.kind === "leaf" ? [[String(entry.key), entry.card.value]] : [])),
+    );
+    expect(leaves).toMatchObject({ account_type: "Checking", current_balance: "110", available_balance: "100" });
+    const titles = checking.entries.flatMap((entry) => (entry.kind === "leaf" ? [entry.card.title] : []));
+    expect(titles.some((title) => title.startsWith("Your name is"))).toBe(false);
+    // The bank connection rebuilds this on every refresh: Memory offers no edit
+    // or forget that would silently come back. An ordinary memory still can.
+    expect(checking.entries.every((entry) => entry.kind !== "leaf" || entry.card.editable === false)).toBe(true);
+    const own = memoryLevel({ ...financial, goals: { emergency_fund: "Six months" } } as FinancialDomain, ["goals"]);
+    expect(own.entries.map((entry) => entry.kind === "leaf" && entry.card.editable)).toEqual([true]);
+
+    const ira = openGroup(financial, ["Linked Accounts", "Investments", "Tartan Bank", "Accounts", "Plaid IRA \u2022\u20225555", "Holdings"]);
+    expect(ira.entries.map((entry) => entry.kind === "group" && entry.label)).toEqual(["U S Dollar", "Achillion Pharmaceuticals Inc."]);
+
+    const loans = financial.linked_accounts!.loans![0]!.accounts.map((account) => [account.name, account.account_type, account.balance_owed]);
+    expect(loans).toContainEqual(["Plaid Student Loan \u2022\u20227777", "Student loan", 65262]);
+    expect(loans).toContainEqual(["Plaid Home Equity Line of Credit \u2022\u20229004", "Home equity line", 13500.5]);
+  });
+
+  it("never shows a Plaid id, and the check would catch one", () => {
+    const financial = tartanLinkedTwice();
+    const ids = plaidIdsIn(financial);
+    expect(ids.length).toBeGreaterThan(30);
+
+    expect(leaked(everythingShown(financial), ids)).toEqual([]);
+    // No key anywhere in the readable view is an id either.
+    const keys = JSON.stringify(financial.linked_accounts).match(/"([^"]+)":/g) ?? [];
+    expect(keys.filter((key) => ids.some((id) => key.includes(id)))).toEqual([]);
+    // Plaid's type codes never stand in for a word.
+    const shown = everythingShown(financial);
+    for (const code of ["depository", "Depository", "credit card", "ira", "401k"]) {
+      expect(shown).not.toContain(code);
+    }
+
+    // Negative control: the same records under a key Memory does not hide.
+    const exposed = { ...financial, plaid_records: financial.accounts_v1 };
+    expect(leaked(everythingShown(exposed), ids).length).toBeGreaterThan(0);
+  });
+});
+
+describe("the private agent's context packet", () => {
+  it("keeps reading the linked-bank records and skips their repeated view", () => {
+    // The packet formats list items without their names; the view would lose
+    // which balance belongs to which account. What One reads is unchanged.
+    expect(shouldSkipPkmAgentContextKey("linked_accounts")).toBe(true);
+    for (const branch of ["accounts_v1", "holdings_v1", "transactions_v1", "derived_v1"]) {
+      expect(shouldSkipPkmAgentContextKey(branch), branch).toBe(false);
+      expect(shouldSkipPkmMemoryKey(branch), branch).toBe(true);
+    }
+  });
+});
+
+describe("adding the readable view to memory saved before it existed", () => {
+  function savedBeforeTheView(): FinancialDomain {
+    const financial = { ...tartanLinkedTwice(), profile: { risk_profile: "balanced" } } as FinancialDomain;
+    delete financial.linked_accounts;
+    return financial;
+  }
+
+  it("only adds linked_accounts: every stored occurrence is kept, byte for byte", () => {
+    const before = savedBeforeTheView();
+    const beforeJson = JSON.stringify(before);
+    const after = recomputeDerived(before, NOW);
+
+    expect(JSON.stringify(before)).toBe(beforeJson);
+    expect(Object.keys(after).sort()).toEqual([...Object.keys(before), "linked_accounts"].sort());
+    for (const key of Object.keys(before)) {
+      expect(after[key], key).toEqual(before[key]);
+    }
+    expect(after.linked_accounts?.schema_version).toBe(1);
+  });
+
+  it("is idempotent, and rolls back by removing one key", () => {
+    const before = savedBeforeTheView();
+    const once = recomputeDerived(before, NOW);
+    expect(recomputeDerived(once, NOW)).toEqual(once);
+
+    const rolledBack = { ...once };
+    delete rolledBack.linked_accounts;
+    expect(rolledBack).toEqual(before);
+  });
+
+  it("disappears with the last bank, like the other derived branches", () => {
+    const financial = tartanLinkedTwice();
+    let next = financial;
+    for (const itemId of Object.keys(financial.connections_v1 ?? {})) next = removeConnection(next, itemId, NOW);
+    expect(next.linked_accounts).toBeUndefined();
   });
 });

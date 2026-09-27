@@ -180,6 +180,13 @@ function notificationTapTarget(data) {
   ) {
     return "/one/location?section=shared";
   }
+  // The requester's answer opens the chat that asked, found after unlock.
+  if (type === "information_request_updated") {
+    const bundleId = String(data?.bundle_id || "").trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bundleId)
+      ? `/?informationRequest=${encodeURIComponent(bundleId)}`
+      : "/";
+  }
   if (type !== "consent_request") {
     return self.__HUSHH_FCM_DEFAULT_TARGET__;
   }

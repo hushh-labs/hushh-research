@@ -24,7 +24,7 @@
           }
         ],
         "comparison": "COMPARISON_GT",
-        "thresholdValue": 5,
+        "thresholdValue": 5000,
         "duration": "600s",
         "trigger": {
           "count": 1

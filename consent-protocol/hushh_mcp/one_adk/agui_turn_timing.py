@@ -11,15 +11,16 @@ user id, the thread id, the state projection or any message text.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import json
 import logging
 import os
 import re
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import uuid4
 
@@ -32,6 +33,7 @@ from ag_ui.core import (
     ToolMessage,
 )
 from ag_ui_adk import ADKAgent
+from google.adk.models.llm_response import LlmResponse
 
 from hushh_mcp.one_adk.drive_result_privacy import (
     ConfirmationWireProjection,
@@ -157,6 +159,40 @@ _DETAILED_TIMING_ENV = "HUSHH_ONE_CHAT_TIMING_DETAIL"
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _CURRENT_TURN: contextvars.ContextVar[TurnTiming | None] = contextvars.ContextVar(
     "one_chat_turn_timing", default=None
+)
+_ANONYMOUS_OWNER_PREFIX = "anonymous:"
+# The detached-turn hook reads the sealed session and sends one bare push. It is
+# bounded so a slow store or provider can never hold the retained chat key long.
+DETACHED_TURN_HOOK_TIMEOUT_SECONDS = 20.0
+# The background run can settle while its answer still sits in the unbounded
+# queue; the reader then decides, by delivering it or leaving. Wait this long.
+CONSUMER_SETTLE_GRACE_SECONDS = 5.0
+# Only a client that asks for it gets the push: the native app. A web tab's
+# closed stream must not wake the person's phone.
+NOTIFY_ON_DETACH_PROP = "notifyOnDetach"
+
+DetachedTurnHook = Callable[[str, str], Awaitable[None]]
+
+
+@dataclass
+class DetachWatch:
+    """Whether the stream consumer left before the bridge's background run settled.
+
+    The bridge runs the ADK turn in its own task and keeps it running after the
+    client disconnects, so the turn still finishes and persists. This records
+    only what the completion notice needs: the owner and the conversation id. It
+    never holds message text, state or a key.
+    """
+
+    owner_id: str
+    conversation_id: str
+    consumer_detached: bool = False
+    # Set once the reader either handed on the terminal event or left.
+    resolved: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+_CURRENT_DETACH: contextvars.ContextVar[DetachWatch | None] = contextvars.ContextVar(
+    "one_chat_detach_watch", default=None
 )
 
 
@@ -379,6 +415,22 @@ class TimedADKAgent(ADKAgent):
     """``ADKAgent`` that logs one timing line per run for the labelled head."""
 
     head: str = HEAD_UNLABELED
+    # Called once, from the background run, when a turn whose client had already
+    # disconnected settles. Only authenticated One turns are watched.
+    detached_turn_hook: DetachedTurnHook | None = None
+
+    def _detach_watch(self, input: RunAgentInput) -> DetachWatch | None:
+        if self.head != HEAD_ONE or self.detached_turn_hook is None:
+            return None
+        forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
+        if forwarded.get(NOTIFY_ON_DETACH_PROP) is not True:
+            return None
+        state = input.state if isinstance(input.state, dict) else {}
+        owner_id = str(state.get("hussh:user_id") or "").strip()
+        conversation_id = str(input.thread_id or "").strip()
+        if not owner_id or owner_id.startswith(_ANONYMOUS_OWNER_PREFIX) or not conversation_id:
+            return None
+        return DetachWatch(owner_id=owner_id, conversation_id=conversation_id)
 
     def _default_run_config(self, input: RunAgentInput):
         from hushh_mcp.hushh_adk.telemetry import private_telemetry
@@ -405,6 +457,10 @@ class TimedADKAgent(ADKAgent):
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         timing = TurnTiming(head=self.head, run=run_label(input), started_at=time.perf_counter())
         timing_context = _CURRENT_TURN.set(timing)
+        # Set before the bridge starts its background task, which copies this
+        # context and so shares the same watch object.
+        detach_watch = self._detach_watch(input)
+        detach_context = _CURRENT_DETACH.set(detach_watch)
         interrupted = False
         private_call_ids: set[str] = set()
         confirmations = ConfirmationWireProjection()
@@ -438,6 +494,8 @@ class TimedADKAgent(ADKAgent):
                             if event is None:
                                 continue
                         timing.observe(event)
+                        if timing.terminal_observed and detach_watch is not None:
+                            detach_watch.resolved.set()
                         projected = (
                             public_event(event, allow_thought_summary=self.head == HEAD_ONE)
                             if self.head in (HEAD_ONE, HEAD_INTRO)
@@ -461,6 +519,10 @@ class TimedADKAgent(ADKAgent):
             # an emitted finish or error with a disconnect diagnosis.
             if not timing.terminal_observed:
                 timing.outcome = OUTCOME_CLIENT_DISCONNECT
+                if detach_watch is not None:
+                    detach_watch.consumer_detached = True
+            if detach_watch is not None:
+                detach_watch.resolved.set()
             raise
         except Exception as exc:
             timing.outcome = OUTCOME_ERROR
@@ -475,7 +537,14 @@ class TimedADKAgent(ADKAgent):
             if interrupted or timing.outcome in (OUTCOME_ERROR, OUTCOME_CLIENT_DISCONNECT):
                 await self._release_execution(input)
             timing.log()
-            _CURRENT_TURN.reset(timing_context)
+            if detach_watch is not None:
+                detach_watch.resolved.set()
+            # A finalizer may close this generator from another Context; one
+            # failed reset must not skip the other.
+            with contextlib.suppress(ValueError):
+                _CURRENT_DETACH.reset(detach_context)
+            with contextlib.suppress(ValueError):
+                _CURRENT_TURN.reset(timing_context)
 
     async def _run_adk_in_background(self, *args: Any, **kwargs: Any) -> Any:
         """Keep the request's chat key alive until this background run settles.
@@ -486,7 +555,36 @@ class TimedADKAgent(ADKAgent):
         write would fail. The binding still has a hard ceiling in ``chat_key``.
         """
         with retain_request_chat_key():
-            return await super()._run_adk_in_background(*args, **kwargs)
+            result = await super()._run_adk_in_background(*args, **kwargs)
+            # Still inside the retained binding: the hook reads the sealed
+            # session with the key this turn received and never stores it.
+            await self._settle_detached_turn()
+            return result
+
+    async def _settle_detached_turn(self) -> None:
+        """Hand a turn that finished after its client left to the completion hook.
+
+        A consumer that is still attached receives the terminal event itself, so
+        only a detached turn is handed over. The hook never raises into the run.
+        """
+        watch = _CURRENT_DETACH.get()
+        hook = self.detached_turn_hook
+        if watch is None or hook is None:
+            return
+        if not watch.resolved.is_set():
+            # Settled first: let the reader deliver the answer or leave.
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(CONSUMER_SETTLE_GRACE_SECONDS):
+                    await watch.resolved.wait()
+        if not watch.consumer_detached:
+            return
+        try:
+            async with asyncio.timeout(DETACHED_TURN_HOOK_TIMEOUT_SECONDS):
+                await hook(watch.owner_id, watch.conversation_id)
+        except Exception as exc:  # noqa: BLE001 - a notice never fails the turn
+            logger.warning(
+                "one.detached_turn_hook_failed kind=%s", _bridge_failure_kind((type(exc),))
+            )
 
     async def _release_execution(self, input: RunAgentInput) -> None:
         """Drop the bridge's execution entry for a run that ended in error or disconnect.
@@ -537,13 +635,16 @@ def record_connector_discovery(elapsed_ms: float) -> None:
         timing.connector_discovery_ms += max(0.0, elapsed_ms)
 
 
-def timed_one_before_model(callback_context: Any, llm_request: Any) -> None:
+def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
-    before_external_read_model(callback_context, llm_request)
+    guarded_response = before_external_read_model(callback_context, llm_request)
+    if guarded_response is not None:
+        return guarded_response
     timing = _CURRENT_TURN.get()
     if timing is not None:
         timing.begin_model_call(llm_request)
+    return None
 
 
 def timed_one_after_model(_callback_context: Any, _llm_response: Any) -> None:

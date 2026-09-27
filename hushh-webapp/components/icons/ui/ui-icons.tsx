@@ -412,7 +412,7 @@ export function SlidersIcon({
 
 export function DotsThreeIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {

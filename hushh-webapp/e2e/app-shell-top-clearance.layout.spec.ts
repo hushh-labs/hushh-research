@@ -19,10 +19,11 @@ import { SECTION_TOC_RAIL_CLASSNAME } from "../components/app-ui/section-toc-con
 /**
  * Nothing a route paints may sit under the fixed top shell.
  *
- * The shell paints further down the screen than it reserves. The mask is solid
- * to `--top-shell-reserved-height` and then dissolves over `--top-fade-active`;
- * `--top-shell-mask-visible-height` is the sum, and it is the real bottom edge
- * of the header a person sees. Content that starts above that line is under the
+ * The shell clears further down the screen than it reserves. The mask is solid
+ * to `--top-shell-reserved-height` and keeps a `--top-fade-active` clearance
+ * band below it (a painted fade until 2026-09-27, now unpainted);
+ * `--top-shell-mask-visible-height` is the sum, and it is the header's
+ * clearance edge. Content that starts above that line is under the
  * header, whether or not it clears the reserved band.
  *
  * A fullscreen flow used to start its body at exactly the reserved height, so

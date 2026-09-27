@@ -3,17 +3,24 @@ Tests: CWE-209 -- support route must not leak internal exception detail.
 
 Both the SupportEmailNotConfiguredError path (503) and the generic
 Exception path (500) must return opaque messages to the client while
-logging the real cause server-side.
+logging only a sanitized failure code server-side.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.kai.support import router
-from hushh_mcp.services.support_email_service import SupportEmailNotConfiguredError
+from hushh_mcp.services.support_email_service import (
+    SupportEmailDeliveryUncertainError,
+    SupportEmailNotConfiguredError,
+    SupportEmailSendError,
+)
 
 
 def _build_client(overrides: dict) -> TestClient:
@@ -80,7 +87,7 @@ class TestSupportNotConfiguredDoesNotLeak:
 class TestSupportGenericExceptionDoesNotLeak:
     """500 path: unexpected exceptions must not expose internal details."""
 
-    def test_500_does_not_leak_exception_message(self, monkeypatch):
+    def test_500_does_not_leak_exception_message(self, monkeypatch, caplog):
         def _bad_service():
             raise RuntimeError("DB connection string: postgres://admin:pass@internal-host/db")
 
@@ -98,6 +105,8 @@ class TestSupportGenericExceptionDoesNotLeak:
         assert "admin" not in msg
         assert "internal-host" not in msg
         assert "pass" not in msg
+        assert "postgres://" not in caplog.text
+        assert "internal-host" not in caplog.text
 
     def test_500_message_is_generic(self, monkeypatch):
         def _bad_service():
@@ -127,3 +136,42 @@ class TestSupportGenericExceptionDoesNotLeak:
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         body = resp.json()
         assert body["detail"]["code"] == "SUPPORT_MESSAGE_FAILED"
+
+
+@pytest.mark.parametrize(
+    ("failure", "status", "code"),
+    [
+        (SupportEmailSendError("provider-secret-body"), 502, "SUPPORT_DELIVERY_FAILED"),
+        (
+            SupportEmailDeliveryUncertainError("provider-secret-body"),
+            504,
+            "SUPPORT_DELIVERY_UNCERTAIN",
+        ),
+    ],
+)
+def test_provider_failure_and_timeout_are_sanitized(monkeypatch, caplog, failure, status, code):
+    from firebase_admin import auth as firebase_auth
+
+    from api.routes.kai import support as support_routes
+
+    class FakeService:
+        config = SimpleNamespace(configured=True)
+
+        def send_message(self, **_kwargs):
+            raise failure
+
+    monkeypatch.setattr(support_routes, "get_support_email_service", lambda: FakeService())
+    monkeypatch.setattr(support_routes, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "get_user",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            email="verified@example.com", email_verified=True, display_name="Owner"
+        ),
+    )
+    client = _build_client({require_firebase_auth: _auth_override("user123")})
+    response = client.post("/support/message", json=_VALID_PAYLOAD)
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == code
+    assert "provider-secret-body" not in caplog.text
+    assert "provider-secret-body" not in response.text

@@ -111,12 +111,21 @@ upsert_dashboard() {
   render_template "${DASHBOARD_TEMPLATE}" "${rendered}"
 
   if gcloud monitoring dashboards describe "${dashboard_resource}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
-    log "Replacing dashboard: ${dashboard_resource}"
-    gcloud monitoring dashboards delete "${dashboard_resource}" --project "${PROJECT_ID}" --quiet >/dev/null
-  else
-    log "Creating dashboard: ${dashboard_resource}"
+    local etag
+    etag="$(gcloud monitoring dashboards describe "${dashboard_resource}" --project "${PROJECT_ID}" --format=json | jq -r '.etag // empty')"
+    if [[ -z "${etag}" ]]; then
+      echo "ERROR: dashboard etag unavailable; refusing unsafe replacement" >&2
+      return 1
+    fi
+    jq --arg etag "${etag}" '.etag = $etag' "${rendered}" > "${rendered}.update"
+    log "Updating dashboard: ${dashboard_resource}"
+    gcloud monitoring dashboards update "${dashboard_resource}" \
+      --config-from-file="${rendered}.update" \
+      --project "${PROJECT_ID}" >/dev/null
+    return
   fi
 
+  log "Creating dashboard: ${dashboard_resource}"
   gcloud monitoring dashboards create \
     --config-from-file="${rendered}" \
     --project "${PROJECT_ID}" >/dev/null
@@ -133,12 +142,12 @@ ensure_email_channel() {
     --limit=1)"
 
   if [[ -n "${existing}" ]]; then
-    log "Notification channel already exists for ${email}"
+    log "Notification channel already exists for ${email}" >&2
     echo "${existing}"
     return
   fi
 
-  log "Creating email notification channel for ${email}"
+  log "Creating email notification channel for ${email}" >&2
   gcloud beta monitoring channels create \
     --project "${PROJECT_ID}" \
     --display-name="Observability Alerts (${email})" \
@@ -343,6 +352,7 @@ main() {
 
   upsert_log_metric "${LOG_METRICS_DIR}/obs_request_summary_count.json"
   upsert_log_metric "${LOG_METRICS_DIR}/obs_unexpected_error_count.json"
+  upsert_log_metric "${LOG_METRICS_DIR}/obs_account_mail_failure_count.json"
   upsert_log_metric "${LOG_METRICS_DIR}/obs_data_health_anomaly_count.json"
 
   upsert_dashboard
@@ -360,6 +370,7 @@ main() {
   upsert_alert_policy "${ALERTS_DIR}/backend-5xx-policy.json.in" "${channels_json}"
   upsert_alert_policy "${ALERTS_DIR}/backend-latency-policy.json.in" "${channels_json}"
   upsert_alert_policy "${ALERTS_DIR}/unexpected-errors-policy.json.in" "${channels_json}"
+  upsert_alert_policy "${ALERTS_DIR}/account-mail-failures-policy.json.in" "${channels_json}"
   upsert_alert_policy "${ALERTS_DIR}/data-health-anomaly-policy.json.in" "${channels_json}"
   # The per-user pod fleet. Selects on the `app=hussh-one-pod` service label rather
   # than a service name, because pods are named `one-pod-<hushh-id>` and every other

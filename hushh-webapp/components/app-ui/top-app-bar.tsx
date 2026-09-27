@@ -8,8 +8,8 @@
  *   2. Header row  –  actor title · actions
  *   3. Optional route-owned contextual tab row
  *
- * One continuous frosted-glass backdrop + mask-image fade covers the
- * signed-in shell so page content scrolls seamlessly underneath.
+ * One continuous solid top surface (no fade band) covers the signed-in
+ * shell so page content scrolls cleanly underneath.
  *
  * All sizing uses CSS custom properties from globals.css
  * (--top-inset, --top-bar-h, --top-tabs-total, --top-glass-h, etc.)

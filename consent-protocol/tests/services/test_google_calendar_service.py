@@ -523,6 +523,68 @@ async def test_find_openings_never_treats_failed_availability_as_free(monkeypatc
         )
 
 
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_calendar_execute_records_confirmed_outcome_for_feed(
+    monkeypatch: pytest.MonkeyPatch,
+    cleanup_fails: bool,
+) -> None:
+    class _ClaimDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
+            self.calls.append((sql, params))
+            if (
+                cleanup_fails
+                and "DELETE FROM google_calendar_action_proposals" in sql
+                and "status = 'executed'" in sql
+            ):
+                raise RuntimeError("cleanup unavailable")
+            if "RETURNING action" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "action": "create",
+                            "payload_json": {
+                                "title": "Private event title",
+                                "start_at": "2026-10-01T10:00:00Z",
+                                "end_at": "2026-10-01T11:00:00Z",
+                                "time_zone": "UTC",
+                                "attendees": [],
+                                "description": "",
+                                "location": "",
+                                "send_updates": False,
+                                "conflicts": [],
+                            },
+                            "expected_event_etag": None,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    db = _ClaimDb()
+    service = GoogleCalendarService(db=db, connections=_Connections())
+
+    async def created(**_: object) -> dict[str, object]:
+        return {"id": "google-event-id", "summary": "Private event title"}
+
+    monkeypatch.setattr(service, "_find_conflicts", _no_conflicts)
+    monkeypatch.setattr(service, "_request", created)
+    result = asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+
+    assert result["action"] == "create"
+    completed = next(
+        index
+        for index, (sql, params) in enumerate(db.calls)
+        if "SET status = 'executed', executed_at = NOW()" in sql
+        and params == {"proposal_id": "gcal_example", "user_id": "user-1"}
+    )
+    cleaned = next(
+        index
+        for index, (sql, _) in enumerate(db.calls)
+        if "DELETE FROM google_calendar_action_proposals" in sql and "status = 'executed'" in sql
+    )
+    assert completed < cleaned
+    assert not any("SET status = 'failed'" in sql for sql, _ in db.calls)
+
+
 # --- reschedule: events.patch with only what changed ------------------------
 
 _OWNER = {

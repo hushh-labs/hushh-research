@@ -9,7 +9,7 @@ const status = { jobId, status: "running", revision: 1, matched: 1, pagesScanned
   incompleteSearch: false, canStop: true, createdAt: "2026-09-27T00:00:00Z",
   expiresAt: "2026-09-28T00:00:00Z", updatedAt: "2026-09-27T00:00:02Z", errorCode: null };
 const page = { jobId, revision: 1, matched: 1, nextCursor: "opaque+/=",
-  files: [{ id: "file-one", name: "Explain For Product", mimeType: "application/vnd.google-apps.document",
+  files: [{ position: 1, id: "file-one", name: "Explain For Product", mimeType: "application/vnd.google-apps.document",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }] };
 beforeEach(() => { vi.resetAllMocks(); });
 describe("owner Drive search API boundary", () => {
@@ -31,6 +31,8 @@ describe("owner Drive search API boundary", () => {
       { ...page, files: [{ ...page.files[0], openUrl: "https://evil.invalid/drive" }] },
       { ...page, files: [{ ...page.files[0], openUrl: "javascript:alert(1)" }] },
       { ...page, files: [page.files[0], page.files[0]] },
+      { ...page, files: [{ ...page.files[0], position: 0 }] },
+      { ...page, files: [{ ...page.files[0], position: 10_001 }] },
       { ...page, files: Array.from({ length: 26 }, (_, index) => ({ ...page.files[0], id: String(index) })) },
     ]) {
       api.fetch.mockResolvedValueOnce(Response.json(value));

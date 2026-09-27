@@ -187,4 +187,21 @@ describe("market route overlays", () => {
     expect(analysis).toContain("onBrowseRecommendations={handleBrowseRecommendations}");
     expect(analysis).toContain("onChangeStock={handleChangePreviewStock}");
   });
+
+  it('labels the preview start button "Start analysis debate" on every surface', () => {
+    const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+    const analysis = read("app/one/kai/analysis/page.tsx");
+    const preview = read("components/kai/cards/stock-comparison-preview.tsx");
+    const voice = JSON.parse(read("components/kai/analysis-controls.voice-action-contract.json")) as {
+      actions: Array<{ action_id: string; aliases: string[] }>;
+    };
+
+    for (const source of [analysis, preview]) {
+      expect(source).toContain('"Start analysis debate"');
+      expect(source).not.toContain(': "Start debate"');
+    }
+    // Saying the button's text reaches the same action; the id is unchanged.
+    const confirm = voice.actions.find((action) => action.action_id === "analysis.confirm_preview");
+    expect(confirm?.aliases).toContain("start analysis debate");
+  });
 });

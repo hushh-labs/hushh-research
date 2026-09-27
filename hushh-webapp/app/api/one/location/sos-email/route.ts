@@ -12,10 +12,8 @@
  * Every other `/api/one/*` path proxies straight to the protocol backend. This
  * one deliberately shadows the catch-all, because the mail has to be sent from
  * here: `MAIL_API_KEY` / `MAIL_API_ENDPOINT` are bound in the webapp lane only,
- * and `hushh-mail-api` is the service that already sends sign-in, phone
- * conflict and capability-linked mail. Sending an emergency alert from a second
- * identity is how you find out about an SPF/DKIM misalignment at the worst
- * possible moment.
+ * and `hushh-mail-api` is the existing SOS delivery authority. Account and
+ * support notices use the separate delegated One mailbox.
  *
  * So the work splits:
  *   backend  →  authorization + recipient resolution (only it can validate the

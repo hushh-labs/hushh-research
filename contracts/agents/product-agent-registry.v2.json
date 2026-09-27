@@ -3793,7 +3793,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.7-flash",
+            "name": "gemini-3.6-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3839,7 +3839,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.7-flash",
+            "name": "gemini-3.6-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3880,7 +3880,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "4f44bb209d791c9d4c5599621643ef6cb7e813a6658e3d9c37936ebf74bbd160",
+      "system_instruction_sha256": "bad97c00c7ba168c797ad31631b655cc5a4f559437d1b67c3745ed033a39c82b",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -4298,7 +4298,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "9bd60df3cd12acccccbc159a024f5803020e7079a8c5fd607e7303fb927f0c29",
+      "system_instruction_sha256": "1d8ba91564f0239bf23de304e7f2ef478cff6fd0f7bff9a7f52152fdc9385a6a",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

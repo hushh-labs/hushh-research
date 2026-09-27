@@ -766,6 +766,20 @@ jobs:
               ./scripts/ci/pkm-upgrade-gate.sh
           fi
 
+      - name: Verify One mail sender configuration
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM; do
+            sender="$(gcloud secrets versions access latest \
+              --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}")"
+            if [ "${sender}" != "one@hushh.ai" ]; then
+              echo "${secret_name} must name the One mailbox before backend deployment." >&2
+              exit 1
+            fi
+          done
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'

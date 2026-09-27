@@ -105,7 +105,6 @@ export function marketplaceOutcomeToVoice(
 export type SupportSubmitOutcome =
   | { kind: "accepted" }
   | { kind: "too_short" }
-  | { kind: "invalid_reply_email" }
   | { kind: "offline" }
   | { kind: "rejected" }
   | { kind: "failed" }
@@ -124,10 +123,8 @@ export function supportOutcomeToVoice(
         status: "blocked",
         summary: "Tell me a bit more about the problem and I will send it to support.",
       };
-    case "invalid_reply_email":
-      return { status: "blocked", summary: "The reply mail on the form isn't valid yet." };
     case "offline":
-      return { status: "blocked", summary: "You're offline. I'll send it once you reconnect." };
+      return { status: "blocked", summary: "You're offline. Reconnect and try sending again." };
     case "busy":
       return { status: "blocked", summary: "A support message is already being sent." };
     case "no_user":

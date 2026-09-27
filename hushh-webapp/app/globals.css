@@ -2831,9 +2831,10 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
 
 /* Anchor clearance: hash-targeted elements must clear the fixed top shell.
    Against the VISIBLE height, not the reserved one -- the mask is solid to
-   --top-shell-reserved-height and then dissolves over --top-fade-active, so
-   reserving only the solid part landed every jumped-to heading inside the
-   dissolve. See safe-changes R21. */
+   --top-shell-reserved-height and keeps a --top-fade-active clearance band
+   below it (a painted fade until 2026-09-27, now unpainted), so reserving only
+   the solid part landed every jumped-to heading inside that band. See
+   safe-changes R21. */
 [id]:target,
 [data-page-primary][id],
 [data-section-header][id] {
@@ -4781,7 +4782,8 @@ md-ripple.morphy-md-ripple {
   contain: paint;
 }
 
-/* Ambient chrome is the only persistent top/bottom fade. The engine samples
+/* Ambient chrome owns the persistent top/bottom edges: a solid top surface
+ * and the only bottom fade. The engine samples
  * the painted content beneath each edge and publishes these tokens; fallbacks
  * keep first paint theme-correct when no sample exists yet. */
 :root {
@@ -4816,8 +4818,9 @@ html[data-perf-experiment*="ambient-mask-off"] .ambient-chrome-mask {
   --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur))
     saturate(1.3);
   --ambient-chrome-wash: 58%;
-  /* One feather profile drives both chrome edges. Edge classes may choose
-     geometry, never their own opacity curve. */
+  /* One feather profile drives the bottom edge's dissolve. The top edge is
+     solid with no feather. Edge classes may choose geometry, never their own
+     opacity curve. */
   --ambient-chrome-fade-solid: 100%;
   --ambient-chrome-fade-dense: 91%;
   --ambient-chrome-fade-mid: 72%;
@@ -4840,12 +4843,15 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
-  /* The top edge stays fully opaque across the reserved bar height so scrolled
-     page headings dissolve behind solid chrome instead of slicing through a
-     translucent strip. The eased fade tail below only softens the edge. */
+  /* The top edge is a plain, fully opaque surface across the solid bar height
+     and stops there with no fade band (founder direction, 2026-09-27). Scrolled
+     page content passes under a solid header instead of dissolving through a
+     gradient tail. The element still spans --top-shell-mask-visible-height so
+     layout clearance and ambient sampling geometry are unchanged; the mask
+     simply clips everything below the solid edge, including the backdrop
+     blur. */
   --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
   --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
-  --ambient-chrome-top-visible-height: var(--top-shell-mask-visible-height);
   background-color: color-mix(
     in srgb,
     var(--ambient-chrome-bg) var(--ambient-chrome-wash),
@@ -4853,47 +4859,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    #000
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
-      ),
-    transparent var(--ambient-chrome-top-visible-height)
+    transparent var(--ambient-chrome-top-solid-height)
   );
   mask-image: linear-gradient(
     to bottom,
-    #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    #000
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
-      ),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
-      ),
-    transparent var(--ambient-chrome-top-visible-height)
+    transparent var(--ambient-chrome-top-solid-height)
   );
 }
 

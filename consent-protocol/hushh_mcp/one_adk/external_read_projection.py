@@ -9,23 +9,29 @@ from google.adk.sessions import Session
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult
 from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
+    STATE_DRIVE_READ_OUTCOME,
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
     STATE_EXTERNAL_READ_CONTINUATION,
+    STATE_SELECTED_DRIVE_SHARE,
 )
 
 _EPHEMERAL = frozenset(
     {
         STATE_EXECUTION_SURFACE,
+        STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
+        STATE_SELECTED_DRIVE_SHARE,
         "temp:hussh:workspace_chat_admission",
+        "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
         "temp:hussh:gmail_information_request_workflow_id",
         "temp:hussh:gmail_information_request_context",
+        "temp:hussh:pending_email_draft",
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
     }

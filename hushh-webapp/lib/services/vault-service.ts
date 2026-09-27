@@ -1383,6 +1383,7 @@ export class VaultService {
     userId: string;
     vaultKeyHash: string;
     wrapper: VaultWrapper;
+    vaultOwnerToken: string;
   }): Promise<void> {
     return this.withAccountBoundary(
       params.userId,
@@ -1410,6 +1411,7 @@ export class VaultService {
             passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
             passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
             authToken,
+            vaultOwnerToken: params.vaultOwnerToken,
           });
           if (!result?.success) {
             throw new Error("Native vault wrapper upsert failed.");
@@ -1425,6 +1427,7 @@ export class VaultService {
           "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
 
         const response = await fetch(url, {
           method: "POST",
@@ -1538,7 +1541,9 @@ export class VaultService {
     userId: string,
     primaryMethod: VaultMethod,
     primaryWrapperId?: string,
+    vaultOwnerToken?: string,
   ): Promise<void> {
+    if (!vaultOwnerToken) throw new Error("Unlock your vault before changing its primary method.");
     return this.withAccountBoundary(
       userId,
       "/api/vault/primary/set",
@@ -1554,6 +1559,7 @@ export class VaultService {
             primaryMethod: normalizedMethod,
             primaryWrapperId: normalizedWrapperId,
             authToken,
+            vaultOwnerToken,
           });
           if (!result?.success) {
             throw new Error("Native primary vault method update failed.");
@@ -1569,6 +1575,7 @@ export class VaultService {
           "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        headers["X-Hushh-Consent"] = `Bearer ${vaultOwnerToken}`;
 
         const response = await fetch(url, {
           method: "POST",

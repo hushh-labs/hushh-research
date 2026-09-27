@@ -63,8 +63,14 @@ def _text(event_id: str, text: str, *, author: str = "one", invocation: str = "t
     )
 
 
-async def _history(monkeypatch, events: list[Event]) -> dict:
-    session = Session(id="thread", app_name=agent_chat.ONE_APP_NAME, user_id="owner", events=events)
+async def _history(monkeypatch, events: list[Event], state: dict | None = None) -> dict:
+    session = Session(
+        id="thread",
+        app_name=agent_chat.ONE_APP_NAME,
+        user_id="owner",
+        events=events,
+        state=state or {},
+    )
 
     class SessionStore:
         async def get_session(self, *, app_name, user_id, session_id):
@@ -360,3 +366,133 @@ def test_private_connector_card_keeps_only_validated_names() -> None:
     assert PRIVATE not in json.dumps(
         agent_chat._safe_workspace_connector_setup_descriptor(smuggled)
     )
+
+
+# ── Reattaching to a turn that outlived its client ────────────────────────────
+
+USER_PROMPT = "summarize my private holdings for me"
+ANSWER = "Your holdings are concentrated in two private positions."
+
+
+@pytest.mark.asyncio
+async def test_history_reports_a_running_turn_until_its_answer_is_written(monkeypatch) -> None:
+    started = _text("user-event", USER_PROMPT, author="user")
+    running = await _history(monkeypatch, [started])
+    # The client left mid-turn; the turn is still running, so it reattaches.
+    assert running["turn"] == {"pending": True}
+
+    finished = await _history(monkeypatch, [started, _text("answer-event", ANSWER)])
+    assert finished["turn"] == {"pending": False}
+    assert finished["messages"][-1]["role"] == "assistant"
+    assert finished["messages"][-1]["content"] == ANSWER
+
+
+@pytest.mark.asyncio
+async def test_a_turn_that_never_answered_stops_reading_as_running(monkeypatch) -> None:
+    from hushh_mcp.one_adk.turn_completion import PENDING_WINDOW_SECONDS
+
+    started = _text("user-event", USER_PROMPT, author="user")
+    started.timestamp -= PENDING_WINDOW_SECONDS + 1
+    history = await _history(monkeypatch, [started])
+    # Bounded: a turn that died without a final event never keeps a client waiting.
+    assert history["turn"] == {"pending": False}
+
+
+async def _detached_notice(monkeypatch, events: list[Event]) -> list[dict]:
+    session = Session(id="thread", app_name=agent_chat.ONE_APP_NAME, user_id="owner", events=events)
+
+    class SessionStore:
+        async def get_session(self, *, app_name, user_id, session_id):
+            return session if (user_id, session_id) == ("owner", "thread") else None
+
+    sent: list[dict] = []
+
+    def capture(user_id: str, **push) -> int:
+        sent.append({"user_id": user_id, **push})
+        return 1
+
+    monkeypatch.setattr(agent_chat, "_session_service", SessionStore())
+    monkeypatch.setattr("hushh_mcp.services.push_notifications.send_user_data_push", capture)
+    await agent_chat._notify_detached_turn("owner", "thread")
+    return sent
+
+
+def _carries(push: dict, secret: str) -> bool:
+    return secret in json.dumps(push, default=sorted)
+
+
+@pytest.mark.asyncio
+async def test_detached_answer_push_is_a_bare_signal(monkeypatch) -> None:
+    sent = await _detached_notice(
+        monkeypatch,
+        [_text("user-event", USER_PROMPT, author="user"), _text("answer-event", ANSWER)],
+    )
+
+    assert len(sent) == 1
+    push = sent[0]
+    assert (push["title"], push["body"]) == ("Hussh One", "One replied")
+    assert push["notification_type"] == "one_reply"
+    assert set(push["data"]) == {"conversation_id", "message_id"}
+    assert push["data"]["conversation_id"] == "thread"
+    assert push["include_user_id"] is False
+    assert push["platforms"] == frozenset({"ios", "android"})
+    for secret in (ANSWER, USER_PROMPT, PRIVATE):
+        assert not _carries({k: v for k, v in push.items() if k != "user_id"}, secret)
+    # Negative control: the same check does catch a push that carries content.
+    assert _carries({**push, "body": ANSWER}, ANSWER)
+
+
+@pytest.mark.asyncio
+async def test_no_push_when_the_detached_turn_has_nothing_to_open(monkeypatch) -> None:
+    assert (
+        await _detached_notice(monkeypatch, [_text("user-event", USER_PROMPT, author="user")]) == []
+    )
+
+
+def _bridge_state_write() -> Event:
+    # What ag_ui_adk appends after a review pause: bookkeeping, not a turn.
+    return Event(invocation_id="state_update_1760000000", author="user")
+
+
+def _review_pause() -> Event:
+    event = _call("call-review", "adk_request_confirmation")
+    event.long_running_tool_ids = {"call-review"}
+    return event
+
+
+@pytest.mark.asyncio
+async def test_bridge_state_writes_after_a_turn_do_not_read_as_a_new_turn(monkeypatch) -> None:
+    from hushh_mcp.one_adk.turn_completion import newest_turn_answered
+
+    started = _text("user-event", USER_PROMPT, author="user")
+    answered = [started, _text("answer-event", ANSWER), _bridge_state_write()]
+    assert (await _history(monkeypatch, answered))["turn"] == {"pending": False}
+    assert newest_turn_answered(answered)
+
+    paused = [started, _review_pause(), _bridge_state_write()]
+    assert (await _history(monkeypatch, paused))["turn"] == {"pending": False}
+    # A review waiting on the person is something to open: it earns the push.
+    assert len(await _detached_notice(monkeypatch, paused)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_consent_follow_up_restores_as_a_status_chip_and_is_reported_once(
+    monkeypatch,
+) -> None:
+    bundle = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    events = [
+        _text("ask", USER_PROMPT, author="user"),
+        _text("sent", ANSWER),
+        _text("chip", "Consent approved", author="user", invocation="turn-2"),
+        _text("answer", ANSWER, invocation="turn-2"),
+    ]
+    history = await _history(
+        monkeypatch, events, state={f"hussh:consent_outcome:{bundle}": "granted"}
+    )
+
+    assert history["consentOutcomes"] == {bundle: "granted"}
+    chip = next(message for message in history["messages"] if message["id"] == "chip")
+    assert chip["metadata"] == {"kind": "selection", "display": "Consent approved"}
+    # A typed prompt is never re-labelled.
+    typed = next(message for message in history["messages"] if message["id"] == "ask")
+    assert not (typed["metadata"] or {}).get("kind")

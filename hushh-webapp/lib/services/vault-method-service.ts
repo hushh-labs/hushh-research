@@ -137,6 +137,7 @@ export class VaultMethodService {
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
       }
+      const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       if (params.targetMethod === "passphrase") {
         const passphrase = params.passphrase?.trim();
@@ -152,6 +153,7 @@ export class VaultMethodService {
         await VaultService.upsertVaultWrapper({
           userId: params.userId,
           vaultKeyHash,
+          vaultOwnerToken,
           wrapper: {
             method: "passphrase",
             encryptedVaultKey: wrapped.encryptedVaultKey,
@@ -160,7 +162,7 @@ export class VaultMethodService {
           },
         });
 
-        await VaultService.setPrimaryVaultMethod(params.userId, "passphrase");
+        await VaultService.setPrimaryVaultMethod(params.userId, "passphrase", "default", vaultOwnerToken);
         dispatchVaultRekeyed(params.userId, "vault_method_switched_to_passphrase");
         trackEvent("profile_method_switch_result", {
           result: "success",
@@ -195,6 +197,7 @@ export class VaultMethodService {
         await VaultService.upsertVaultWrapper({
           userId: params.userId,
           vaultKeyHash,
+          vaultOwnerToken,
           wrapper: {
             method: material.mode,
             wrapperId,
@@ -234,6 +237,7 @@ export class VaultMethodService {
           params.userId,
           material.mode,
           wrapperId,
+          vaultOwnerToken,
         );
         // This write is the commit point. A later cancellation cannot undo it
         // or truthfully report failed enrollment. The UI's epoch check still
@@ -282,6 +286,7 @@ export class VaultMethodService {
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
       }
+      const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       const nextPassphrase = params.newPassphrase.trim();
       if (nextPassphrase.length < 8) {
@@ -296,6 +301,7 @@ export class VaultMethodService {
       await VaultService.upsertVaultWrapper({
         userId: params.userId,
         vaultKeyHash,
+        vaultOwnerToken,
         wrapper: {
           method: "passphrase",
           wrapperId: "default",
@@ -311,6 +317,7 @@ export class VaultMethodService {
           params.userId,
           "passphrase",
           "default",
+          vaultOwnerToken,
         );
         dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
         return { primaryMethod: "passphrase", passphraseUpdated: true };

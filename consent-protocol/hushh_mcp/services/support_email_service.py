@@ -12,17 +12,20 @@ from typing import Literal, Optional
 
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
+from requests.exceptions import RequestException
 
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 
 logger = logging.getLogger(__name__)
 
 SupportMessageKind = Literal["bug_report", "support_request", "developer_reachout"]
+AccountNoticeKind = Literal["welcome", "passkey_added", "passkey_removed", "passphrase_changed"]
 SupportDeliveryMode = Literal["live", "test"]
 
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 _DEFAULT_ONE_EMAIL_ADDRESS = "one@hushh.ai"
+_DEFAULT_SUPPORT_BCC = "kushal@hushh.ai"
 
 
 def _clean_text(value: str | None) -> str:
@@ -97,6 +100,7 @@ class SupportEmailConfig:
     test_to_email: str | None
     delivery_mode: SupportDeliveryMode
     configured: bool
+    support_bcc_email: str | None = _DEFAULT_SUPPORT_BCC
 
     @classmethod
     def from_env(cls) -> "SupportEmailConfig":
@@ -120,6 +124,7 @@ class SupportEmailConfig:
         delegated_user = _clean_text(os.getenv("SUPPORT_EMAIL_DELEGATED_USER")) or one_email_address
         from_email = _clean_text(os.getenv("SUPPORT_EMAIL_FROM")) or delegated_user
         support_to_email = _clean_text(os.getenv("SUPPORT_EMAIL_TO")) or one_email_address
+        support_bcc_email = _DEFAULT_SUPPORT_BCC
         test_to_email = _clean_text(os.getenv("SUPPORT_EMAIL_TEST_TO")) or None
 
         delivery_mode_raw = _clean_text(os.getenv("SUPPORT_EMAIL_MODE")).lower()
@@ -151,7 +156,11 @@ class SupportEmailConfig:
                 service_account_info["client_id"] = client_id
 
         configured = bool(
-            service_account_email and private_key and delegated_user and support_to_email
+            service_account_email
+            and private_key
+            and delegated_user.lower() == _DEFAULT_ONE_EMAIL_ADDRESS
+            and from_email.lower() == _DEFAULT_ONE_EMAIL_ADDRESS
+            and support_to_email.lower() == _DEFAULT_ONE_EMAIL_ADDRESS
         )
         return cls(
             service_account_info=service_account_info or {},
@@ -162,6 +171,7 @@ class SupportEmailConfig:
             delegated_user=delegated_user,
             from_email=from_email,
             support_to_email=support_to_email,
+            support_bcc_email=support_bcc_email,
             test_to_email=test_to_email,
             delivery_mode=delivery_mode,
             configured=configured,
@@ -180,6 +190,10 @@ class SupportEmailNotConfiguredError(RuntimeError):
 
 class SupportEmailSendError(RuntimeError):
     """Raised when Gmail delivery fails."""
+
+
+class SupportEmailDeliveryUncertainError(RuntimeError):
+    """The request timed out after dispatch; Gmail may have accepted it."""
 
 
 class SupportEmailService:
@@ -203,6 +217,12 @@ class SupportEmailService:
                 "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
                 "SUPPORT_EMAIL_* variables."
             )
+        if (
+            cfg.delegated_user.lower() != _DEFAULT_ONE_EMAIL_ADDRESS
+            or cfg.from_email.lower() != _DEFAULT_ONE_EMAIL_ADDRESS
+            or cfg.support_to_email.lower() != _DEFAULT_ONE_EMAIL_ADDRESS
+        ):
+            raise SupportEmailNotConfiguredError("One account mail must use the One mailbox")
         if self._session is None:
             credentials = service_account.Credentials.from_service_account_info(
                 cfg.service_account_info,
@@ -249,6 +269,8 @@ class SupportEmailService:
             subject=subject,
             delivery_mode=cfg.delivery_mode,
         )
+        if cfg.support_bcc_email and cfg.support_bcc_email != cfg.effective_recipient:
+            msg["Bcc"] = cfg.support_bcc_email
         if user_email:
             msg["Reply-To"] = user_email
 
@@ -270,6 +292,69 @@ class SupportEmailService:
         ]
         msg.set_content("\n".join(sections))
         return msg
+
+    def _send_email(self, email_message: EmailMessage) -> str | None:
+        encoded = base64.urlsafe_b64encode(email_message.as_bytes()).decode("utf-8")
+        try:
+            session = self._build_authorized_session()
+            response = session.post(_GMAIL_SEND_ENDPOINT, json={"raw": encoded}, timeout=20)
+        except SupportEmailNotConfiguredError:
+            raise
+        except RequestException as exc:
+            logger.warning("one_email.delivery_uncertain")
+            raise SupportEmailDeliveryUncertainError(
+                "Gmail delivery could not be confirmed"
+            ) from exc
+        except Exception as exc:
+            logger.error("one_email.transport_failed error_type=%s", type(exc).__name__)
+            raise SupportEmailSendError("Gmail send failed") from exc
+        if response.status_code >= 500:
+            logger.warning("one_email.delivery_uncertain status_class=5xx")
+            raise SupportEmailDeliveryUncertainError("Gmail delivery could not be confirmed")
+        if response.status_code < 200 or response.status_code >= 300:
+            logger.error("one_email.send_failed status=%s", response.status_code)
+            raise SupportEmailSendError(f"Gmail send failed with status {response.status_code}")
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {}
+        message_id = payload.get("id") if isinstance(payload, dict) else None
+        if not isinstance(message_id, str) or not message_id:
+            logger.warning("one_email.delivery_uncertain reason=missing_receipt")
+            raise SupportEmailDeliveryUncertainError("Gmail delivery could not be confirmed")
+        return message_id
+
+    def send_account_notice(self, *, kind: AccountNoticeKind, to_email: str) -> str | None:
+        """Send a fixed, content-free account notice from Hussh's One mailbox."""
+        if not _clean_text(to_email):
+            raise ValueError("A verified recipient is required")
+        copy = {
+            "welcome": ("Welcome to One", "Welcome to One. Your private agent is ready."),
+            "passkey_added": (
+                "Passkey added to One",
+                "A passkey was added to your One vault unlock methods.",
+            ),
+            "passkey_removed": (
+                "Passkey removed from One",
+                "A passkey was removed from your One vault unlock methods.",
+            ),
+            "passphrase_changed": (
+                "One vault passphrase updated",
+                "Your One vault passphrase unlock was updated.",
+            ),
+        }
+        subject, body = copy[kind]
+        notice = EmailMessage()
+        cfg = self.config
+        notice["To"] = (
+            cfg.test_to_email
+            if cfg.delivery_mode == "test" and cfg.test_to_email
+            else to_email.strip()
+        )
+        notice["From"] = f"One <{_DEFAULT_ONE_EMAIL_ADDRESS}>"
+        notice["Subject"] = f"[TEST] {subject}" if cfg.delivery_mode == "test" else subject
+        notice.set_content(body + "\n\nIf this was unexpected, contact one@hushh.ai.\n")
+        return self._send_email(notice)
 
     def send_message(
         self,
@@ -295,54 +380,14 @@ class SupportEmailService:
             page_url=page_url,
             user_agent=user_agent,
         )
-        encoded = base64.urlsafe_b64encode(email_message.as_bytes()).decode("utf-8")
-        try:
-            session = self._build_authorized_session()
-            response = session.post(_GMAIL_SEND_ENDPOINT, json={"raw": encoded}, timeout=20)
-        except SupportEmailNotConfiguredError:
-            raise
-        except Exception as exc:
-            logger.exception(
-                "support_email.transport_failed delegated_user=%s recipient=%s",
-                self.config.delegated_user,
-                self.config.effective_recipient,
-            )
-            raise SupportEmailSendError(
-                "Gmail API authorization failed. Verify Workspace domain-wide delegation "
-                f"for client ID `{self.config.client_id or 'unknown'}` and that "
-                f"`{self.config.delegated_user}` is a valid mailbox user."
-            ) from exc
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {}
-
-        if response.status_code >= 400:
-            logger.error(
-                "support_email.send_failed status=%s recipient=%s payload=%s",
-                response.status_code,
-                self.config.effective_recipient,
-                payload,
-            )
-            detail_message = (
-                payload.get("error", {}).get("message")
-                if isinstance(payload, dict)
-                and isinstance(payload.get("error"), dict)
-                and isinstance(payload.get("error", {}).get("message"), str)
-                else None
-            )
-            raise SupportEmailSendError(
-                detail_message or f"Gmail send failed with status {response.status_code}"
-            )
-
-        message_id = payload.get("id") if isinstance(payload, dict) else None
+        message_id = self._send_email(email_message)
         return {
             "accepted": True,
             "delivery_mode": self.config.delivery_mode,
             "recipient": self.config.effective_recipient,
             "intended_recipient": self.config.support_to_email,
             "from_email": self.config.from_email,
-            "message_id": message_id if isinstance(message_id, str) else None,
+            "message_id": message_id,
         }
 
 

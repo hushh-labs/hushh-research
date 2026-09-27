@@ -1,5 +1,5 @@
 {
   "name": "obs_request_summary_count",
   "description": "Count of structured request.summary logs emitted by consent-protocol observability middleware",
-  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"consent-protocol\" AND jsonPayload.message=\"request.summary\""
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"consent-protocol\" AND (textPayload=~\"request\\.summary\" OR jsonPayload.message=~\"request\\.summary\")"
 }

@@ -652,7 +652,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
-      await screen.findByText(/does not scan KYC requests here/i),
+      await screen.findByText(/One organizes your email receipts into a shopping summary/i),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Explore receipts" }));
     expect(await screen.findByText(/No receipts yet/i)).toBeVisible();
@@ -1349,6 +1349,20 @@ describe("ProfileReceiptsPage", () => {
     ).toBeVisible();
   });
 
+  it("retains the KYC panel while switching between Mail tabs", async () => {
+    render(<ProfileReceiptsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    const panel = await screen.findByText("KYC requests");
+    expect(panel).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(panel).not.toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+    expect(panel).not.toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(screen.getByText("KYC requests")).toBe(panel);
+    expect(panel).toBeVisible();
+  });
+
   it("restores the KYC workspace after a secure-session remount", async () => {
     const firstMount = render(<ProfileReceiptsPage />);
 
@@ -1368,6 +1382,29 @@ describe("ProfileReceiptsPage", () => {
       "true",
     );
     expect(await screen.findByText("KYC requests")).toBeVisible();
+  });
+
+  it("opens a Feed-requested workspace over the saved session tab", async () => {
+    const firstMount = render(<ProfileReceiptsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    firstMount.unmount();
+
+    const feedMount = render(<ProfileReceiptsPage forceWorkspace="receipts" />);
+    expect(screen.getByRole("tab", { name: "Receipts" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    feedMount.unmount();
+
+    render(<ProfileReceiptsPage />);
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("falls back to same-window OAuth when the retained popup is unavailable", async () => {
@@ -1466,6 +1503,7 @@ describe("ProfileReceiptsPage", () => {
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
         serverClientId: "native-client-id",
         purpose: "read",
+        preserveModify: false,
       });
       expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
@@ -1665,8 +1703,9 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
     );
-    // Disconnect lives on the Mail overview tab since #7105/#7106.
+    // Disconnect is available through Manage on the Mail overview.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    fireEvent.click(screen.getByRole("button", { name: /^manage$/i }));
     fireEvent.click(
       await screen.findByRole("button", { name: /^disconnect mail$/i }),
     );

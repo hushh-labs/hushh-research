@@ -4,12 +4,22 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
-import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
 import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
-import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
+import {
+  informationRequestOutcome,
+  openGrantedPersonInformation,
+  type ConsentOutcome,
+} from "@/lib/consent/open-granted-person-information";
+import {
+  claimConsentContinuation,
+  isConsentContinuationArmed,
+  mountInformationRequestCard,
+  releaseConsentContinuation,
+  watchSentInformationRequest,
+} from "@/lib/agent/consent-continuation";
+import { getAgentChatConsentOutcomes } from "@/lib/services/agent-chat-client";
 import { DecryptedRecordContent } from "@/components/connections/decrypted-grant-card";
-import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
@@ -57,6 +67,23 @@ import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-rece
 export const AgentPersonSelectionContext = createContext<
   ((handle: string, name: string, sourceTool: PersonSelectionSourceTool) => void) | null
 >(null);
+
+/**
+ * The chat that shows an information request card, and how it continues once
+ * the other person answers. Null outside a live chat workspace, where a card
+ * only shows status.
+ */
+export type AgentConsentContinuationHandler = {
+  conversationId: string | null;
+  continueWithOutcome: (input: {
+    bundleId: string;
+    subjectRef: string;
+    outcome: ConsentOutcome;
+    domainFor: (requestId: string) => string | null | undefined;
+  }) => Promise<boolean>;
+};
+
+export const AgentConsentContinuationContext = createContext<AgentConsentContinuationHandler | null>(null);
 
 export type InformationRequestSubmissionReceipt = {
   bundleId: string;
@@ -472,6 +499,8 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   const [revealState, setRevealState] = useState<"idle" | "opening" | "unavailable">("idle");
   const [autoRevealRequestId, setAutoRevealRequestId] = useState<string | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
+  const [answer, setAnswer] = useState<ConsentOutcome | null>(null);
+  const continuation = useContext(AgentConsentContinuationContext);
   const [revealed, setRevealed] = useState<{
     viewerUid: string;
     ownerToken: string;
@@ -534,38 +563,18 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     setRevealed(null);
     setRevealState("opening");
     try {
-      const bundle = await PersonProfileService.getInformationRequest({ bundleId: experience.bundleId, vaultOwnerToken });
-      if (generation !== revealGeneration.current) return;
-      if (bundle.bundleId !== experience.bundleId || bundle.personRef !== experience.subjectRef) throw new Error("Mismatched request");
-      const granted = bundle.items.filter((item) => item.status === "granted");
-      if (!granted.length) throw new Error("No current grant");
-      const connector = await OneKycClientZkService.readStoredConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
-      if (generation !== revealGeneration.current) return;
-      if (!connector) throw new Error("Connection unavailable");
-      const exports = await PersonProfileService.getInformationRequestExports({ bundleId: bundle.bundleId, vaultOwnerToken });
-      if (generation !== revealGeneration.current) return;
-      const values: Array<{ requestId: string; label: string; data: Record<string, unknown> }> = [];
-      let expiresAtMs = Number.MAX_SAFE_INTEGER;
-      for (const item of granted) {
-        if (generation !== revealGeneration.current) return;
-        const exact = exports.find((entry) => entry.requestId === item.requestId);
-        if (!exact || !isCurrentPersonExport({ item, scopeRef: exact.scopeRef, exportPackage: exact.encryptedExport, nowMs: Date.now() })) {
-          throw new Error("Export unavailable or changed");
-        }
-        const payload = await OneKycClientZkService.decryptScopedExport({ exportPackage: exact.encryptedExport, connector });
-        if (generation !== revealGeneration.current) return;
-        const domain = current?.fields.find((field) => field.requestId === item.requestId)?.domain;
-        values.push({ requestId: item.requestId, label: item.label, data: projectGrantPayload(payload, domain) });
-        expiresAtMs = Math.min(expiresAtMs, exact.encryptedExport.export_envelope.aad.expires_at_ms);
-      }
-      const latest = await PersonProfileService.getInformationRequest({ bundleId: bundle.bundleId, vaultOwnerToken });
-      if (generation !== revealGeneration.current) return;
-      if (latest.bundleId !== bundle.bundleId || latest.personRef !== experience.subjectRef
-        || !values.every((value) => latest.items.some((item) => item.requestId === value.requestId && item.status === "granted"))) {
-        throw new Error("Grant changed while opening information");
-      }
-      if (generation !== revealGeneration.current) return;
-      setRevealed({ viewerUid: user.uid, ownerToken: vaultOwnerToken, bundleId: bundle.bundleId, expiresAtMs, values });
+      const opened = await openGrantedPersonInformation({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        bundleId: experience.bundleId,
+        subjectRef: experience.subjectRef,
+        domainFor: (requestId) => current?.fields.find((field) => field.requestId === requestId)?.domain,
+        isCurrent: () => generation === revealGeneration.current,
+      });
+      if (!opened || generation !== revealGeneration.current) return;
+      const { values, expiresAtMs } = opened;
+      setRevealed({ viewerUid: user.uid, ownerToken: vaultOwnerToken, bundleId: experience.bundleId, expiresAtMs, values });
       setRevealState("idle");
     } catch {
       if (generation === revealGeneration.current) setRevealState("unavailable");
@@ -624,6 +633,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         status: item.status,
       }));
       setCurrent({ status, fields });
+      setAnswer(informationRequestOutcome(bundle));
       setRevealed((previous) => previous && previous.values.every((value) =>
         bundle.items.some((item) => item.requestId === value.requestId && item.status === "granted"),
       ) ? previous : null);
@@ -633,6 +643,58 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     });
     return () => { active = false; };
   }, [experience.bundleId, experience.fields, experience.phase, experience.subjectRef, isVaultUnlocked, vaultOwnerToken, refreshRevision]);
+
+  // A request this person sent from this chat: while it waits, the app shell
+  // watches it; once it is answered, this chat continues exactly once.
+  const isOutgoingSubmitted = experience.direction === "outgoing" && experience.phase === "submitted";
+  useEffect(() => {
+    if (!isOutgoingSubmitted || !user?.uid || !experience.bundleId || !continuation) return;
+    return mountInformationRequestCard(user.uid, experience.bundleId);
+  }, [continuation, experience.bundleId, isOutgoingSubmitted, user?.uid]);
+
+  useEffect(() => {
+    // A restored card registers only once the ledger confirms it is still
+    // waiting; a card sent in this tab is registered at Send by the workspace.
+    if (!isOutgoingSubmitted || !user?.uid || !experience.bundleId || !experience.subjectRef
+      || !continuation?.conversationId || refreshState !== "loaded" || current?.status !== "pending") return;
+    watchSentInformationRequest({
+      ownerId: user.uid,
+      bundleId: experience.bundleId,
+      conversationId: continuation.conversationId,
+      subjectRef: experience.subjectRef,
+      personName: experience.personName,
+    });
+  }, [isOutgoingSubmitted, user?.uid, experience.bundleId, experience.subjectRef, experience.personName,
+    continuation?.conversationId, refreshState, current?.status]);
+
+  useEffect(() => {
+    const ownerId = user?.uid;
+    const bundleId = experience.bundleId;
+    const subjectRef = experience.subjectRef;
+    const conversationId = continuation?.conversationId;
+    if (!isOutgoingSubmitted || !ownerId || !bundleId || !subjectRef || !conversationId || !answer
+      || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || refreshState !== "loaded") return;
+    // Only an answer this tab was waiting for, or one the person opened from
+    // its notice, continues; an old chat never replays by itself.
+    if (!isConsentContinuationArmed(ownerId, bundleId)) return;
+    let active = true;
+    void (async () => {
+      const done = await getAgentChatConsentOutcomes({ conversationId, vaultOwnerToken, vaultKey })
+        .catch(() => null);
+      if (!active || !done || bundleId.toLowerCase() in done) return;
+      if (!claimConsentContinuation(ownerId, bundleId)) return;
+      const started = await continuation.continueWithOutcome({
+        bundleId,
+        subjectRef,
+        outcome: answer,
+        domainFor: (requestId) => current?.fields.find((field) => field.requestId === requestId)?.domain
+          ?? experience.fields.find((field) => field.requestId === requestId)?.domain,
+      }).catch(() => false);
+      if (!started) releaseConsentContinuation(ownerId, bundleId);
+    })();
+    return () => { active = false; };
+  }, [answer, continuation, current?.fields, experience.bundleId, experience.fields, experience.subjectRef,
+    isOutgoingSubmitted, isVaultUnlocked, refreshState, user?.uid, vaultKey, vaultOwnerToken]);
 
   const displayFields = current?.fields || experience.fields;
   const displayStatus = current?.status || experience.status;
@@ -684,9 +746,9 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       : experience.direction === "incoming" && displayStatus === "pending"
         ? "Waiting for your decision"
         : experience.direction === "outgoing" && displayStatus === "pending"
-          ? "Waiting for their decision"
+          ? `Waiting for ${experience.personName}'s approval`
           : displayStatus === "granted"
-            ? "Access granted"
+            ? experience.direction === "outgoing" ? "Consent approved" : "Access granted"
             : displayStatus === "mixed"
               ? "Mixed outcomes; see each item below"
             : displayStatus === "denied"

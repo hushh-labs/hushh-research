@@ -408,6 +408,20 @@ async def test_browser_cannot_supply_system_instructions_on_either_chat_surface(
     assert private.value.detail["code"] == "AGENT_SYSTEM_MESSAGE_REFUSED"
 
 
+@pytest.mark.parametrize(
+    "field", ["consentContinuation", "driveSearchSelection", "pendingEmailDraft"]
+)
+def test_private_chat_refuses_unavailable_shared_authority_instead_of_dropping_it(field):
+    from types import SimpleNamespace
+
+    from api.routes.one.pod_agent_chat import trusted_state
+
+    with pytest.raises(HTTPException) as refused:
+        trusted_state(incoming(forwarded_props={field: {"synthetic": True}}), SimpleNamespace())
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "POD_CHAT_AUTHORITY_UNAVAILABLE"
+
+
 @pytest.mark.parametrize("fail", [False, True])
 async def test_private_chat_stream_has_single_sse_framing_and_safe_errors(monkeypatch, fail):
     import json

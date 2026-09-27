@@ -1110,12 +1110,13 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "kai_analyze_runs"
+        "kai_analyze_runs",
+        "kai_run_state"
       ],
       "id": "kai_analyze_run_store",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read."
+      "primary_access_path": "Cross-process state for Kai's long-running runs. kai_run_state (migration 253) holds one row per debate or portfolio-import run: the owning worker process writes a running row at start, refreshes a heartbeat and metadata-only progress every 5s and reads owner cancel requests in the same round trip, then writes a terminal receipt. Any process serves GET .../run/active, follows a run it does not hold to its end via GET .../run/{id}/stream, and records POST .../run/{id}/cancel. kai_analyze_runs (migration 125) is the earlier terminal-only checkpoint; migration 128 purges it on every replay and the runtime no longer writes it. On by default; KAI_ANALYZE_DURABLE_RUN_STORE=false is an emergency kill switch."
     },
     {
       "data_class": "provider_cache",
@@ -5951,12 +5952,12 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "9ac6c0bc516bbea17d3127b6f7b010a45dd9c8324c301f6f2d4481832c187da3",
-    "agent_registry": "ffe2c828bbb31146b3c26a115e25ba470ab4c6f07ac1358f685ecc3f9471d8ee",
+    "action_gateway": "6bdd1868b2422e4935394b43af8f4b652aade187bf431668fdd2bac842ab98ef",
+    "agent_registry": "185e8b421c8a10b0359cd46096e114a1a98323f86efd35ef048245b634a0a064",
     "cache_manifest": "9e299de1d2fe0b01c06daa7cc8610b769b4bb9b321e0611e58c258329f2ab715",
-    "data_plane": "888f5f214ed741711db201dce38be4f98e5e46a6da7ac9dc52d0f324562c33bd",
+    "data_plane": "0a766be818d180369139fc434805a9aa3439b45dd09137ed8e1e6d2b75a4fa31",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "f2b3bcff2ae09e270d8421a09ec23cfd47e26393738bf552b05d76443d4ab72f",
+    "one_specialist_tools": "c6f25e8542e503520292ac3af49990110ff560dd63aa5bfa3d4db4366e309630",
     "route_index": "7e5627296d02ca538ac5abac003a79feeff77ee4f18466d7c1ab60efe27f95a1",
     "route_layout": "4b762a8d4c9817a322810c5477147e8293b34b9079a4bb38e0fde8161752fad5",
     "surface_map": "968d20138cdfa29dde72af7e8b49623d883a0e208e28532b5a3cd886f5b1ca48",

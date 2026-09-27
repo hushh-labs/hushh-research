@@ -603,6 +603,11 @@ class HushhVaultPlugin : Plugin() {
             ?: call.getInt("passkeyLastUsedAt")?.toLong()
         val wrapperId = call.getString("wrapperId") ?: "default"
         val authToken = call.getString("authToken")
+        val vaultOwnerToken = call.getString("vaultOwnerToken")
+        if (vaultOwnerToken.isNullOrBlank()) {
+            call.reject("Vault owner authorization required")
+            return
+        }
         val backendUrl = getBackendUrl(call)
 
         Thread {
@@ -633,6 +638,7 @@ class HushhVaultPlugin : Plugin() {
                 if (authToken != null) {
                     requestBuilder.addHeader("Authorization", "Bearer $authToken")
                 }
+                requestBuilder.addHeader("X-Hushh-Consent", "Bearer $vaultOwnerToken")
 
                 val response = httpClient.newCall(requestBuilder.build()).execute()
                 val success = response.isSuccessful
@@ -665,6 +671,11 @@ class HushhVaultPlugin : Plugin() {
         }
 
         val authToken = call.getString("authToken")
+        val vaultOwnerToken = call.getString("vaultOwnerToken")
+        if (vaultOwnerToken.isNullOrBlank()) {
+            call.reject("Vault owner authorization required")
+            return
+        }
         val backendUrl = getBackendUrl(call)
 
         Thread {
@@ -683,6 +694,7 @@ class HushhVaultPlugin : Plugin() {
                 if (authToken != null) {
                     requestBuilder.addHeader("Authorization", "Bearer $authToken")
                 }
+                requestBuilder.addHeader("X-Hushh-Consent", "Bearer $vaultOwnerToken")
                 val response = httpClient.newCall(requestBuilder.build()).execute()
                 val success = response.isSuccessful
                 val responseBody = response.body?.string().orEmpty()

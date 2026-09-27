@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import type { FeedItem } from "@/lib/services/feed-service";
+import {
+  findAnalysisHistoryEntryByRouteId,
+  type AnalysisHistoryEntry,
+} from "@/lib/services/kai-history-service";
 
 function feedItem(
   eventType: string,
@@ -233,5 +237,76 @@ describe("notification-backed Feed projection renderers", () => {
     expect(presented.label).toBe("Alice shared information with you");
     expect(presented.description).toBe("Granted access to Employment status. Tap to view.");
     expect(presented.href).toBe("/people/alice-public-ref?section=shared");
+  });
+
+  it.each([
+    ["calendar_connected", "Calendar", "/one/calendar"],
+    ["calendar_reconnect_required", "Calendar", "/one/calendar"],
+    ["calendar_disconnected", "Calendar", "/one/calendar"],
+    ["calendar_event_created", "Calendar", "/one/calendar"],
+    ["calendar_event_rescheduled", "Calendar", "/one/calendar"],
+    ["calendar_event_canceled", "Calendar", "/one/calendar"],
+    ["mail_connected", "Mail", "/one/gmail"],
+    ["mail_reconnect_required", "Mail", "/one/gmail"],
+    ["mail_disconnected", "Mail", "/one/gmail"],
+    ["mail_information_request_detected", "Mail", "/one/gmail?workspace=kyc"],
+    ["mail_receipts_imported", "Mail", "/one/gmail?workspace=receipts"],
+    ["mail_sync_completed", "Mail", "/one/gmail?workspace=receipts"],
+    ["mail_sync_failed", "Mail", "/one/gmail?workspace=receipts"],
+    ["mail_message_sent", "Mail", "/one/gmail?workspace=kyc"],
+    ["mail_message_failed", "Mail", "/one/gmail?workspace=kyc"],
+    ["mail_delivery_unconfirmed", "Mail", "/one/gmail?workspace=kyc"],
+  ])("renders %s as safe, actionable Feed history", (eventType, domain, href) => {
+    const sensitive = "private-subject@example.com";
+    const presented = presentFeedItem(
+      feedItem(
+        eventType,
+        { subject: sensitive, email: sensitive, event_title: sensitive },
+        "connected_systems",
+      ),
+    );
+    expect(presented.domainLabel).toBe(domain);
+    expect(presented.label).not.toBe("");
+    expect(presented.description).not.toBe("");
+    expect(`${presented.label} ${presented.description}`).not.toContain(sensitive);
+    expect(presented.href).toBe(href);
+  });
+});
+
+// Founder report (UAT): tapping "Analysis ready" opened the "Start debate"
+// sheet, because the item linked to `?ticker=` -- the stock-preview route.
+describe("Kai analysis ready Feed item", () => {
+  const savedEntry: AnalysisHistoryEntry = {
+    ticker: "NVDA",
+    timestamp: "2026-09-27T10:00:00.000Z",
+    decision: "hold",
+    confidence: 0.6,
+    consensus_reached: true,
+    agent_votes: {},
+    final_statement: "",
+    raw_card: { debate_run_id: "run_abc" },
+  };
+
+  function openedAnalysisId(metadata: Record<string, unknown>): string | null {
+    const href = presentFeedItem(feedItem("kai_analysis_completed", metadata, "kai")).href;
+    const query = new URLSearchParams(href.split("?")[1] ?? "");
+    // The stock preview (and its start sheet) opens only from `ticker`.
+    expect(query.has("ticker")).toBe(false);
+    return query.get("analysis_id");
+  }
+
+  it("opens the run's own saved result", () => {
+    const analysisId = openedAnalysisId({ ticker: "NVDA", run_id: "run_abc" });
+    expect(analysisId).not.toBeNull();
+    expect(
+      findAnalysisHistoryEntryByRouteId({ NVDA: [savedEntry] }, analysisId!),
+    ).toBe(savedEntry);
+    // A result that is gone resolves to nothing, which the analysis page shows
+    // as "This analysis is no longer available" rather than a start sheet.
+    expect(findAnalysisHistoryEntryByRouteId({}, analysisId!)).toBeNull();
+  });
+
+  it("sends older items without a run id to the analysis history", () => {
+    expect(openedAnalysisId({ ticker: "NVDA" })).toBeNull();
   });
 });

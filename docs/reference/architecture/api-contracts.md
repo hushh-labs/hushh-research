@@ -205,6 +205,34 @@ submitted descriptor. This history receipt is presentation-only: grant status
 and encrypted exports must still be reread under current authority, and no
 vault key, connector credential, scope payload, or decrypted value is stored.
 
+#### Continuing the asking chat after an answer
+
+When the other person approves, declines, or lets a chat-sent request expire,
+the requester's app opens one follow-up turn in the same conversation with
+`forwardedProps.consentContinuation = {bundleId, outcome, sharedInformation?}`
+and the fixed message `Consent approved`, `Request declined` or `Request
+expired`. `POST /api/one/agent-chat` admits it only with the requester's
+VAULT_OWNER token and chat key, only in the conversation that recorded the
+submission, only when the ledger's current outcome for that bundle (read as the
+requester) equals `outcome`, and only once per bundle (`409` otherwise). No tool
+runs in that turn. `sharedInformation` is accepted only for
+an approval (≤ 12,000 characters), is the text the requester's device decrypted
+from the approved export, and is held as a 10-minute in-memory request secret;
+session state carries only its reference. Anything else returns `400`/`409`.
+`GET /api/one/agent-chat/history/{conversation_id}` returns `consentOutcomes`
+(`{bundleId: outcome}` for bundles already continued) and restores the follow-up
+message as a `selection` chip.
+
+`GET /api/one/agent-chat/information-requests/{bundle_id}/conversation`
+(VAULT_OWNER + chat key) returns `{conversationId}` for the requester's own
+conversation that recorded the submission, or `404`. It exists because the
+answer push carries only the bundle id; the conversation lives in sealed history.
+
+`GET /api/one/information-requests/shared-with-me` (VAULT_OWNER) lists the
+current approvals other people gave this person: display names, item labels,
+bundle and request ids, purpose and expiry. It never returns values; those stay
+in each encrypted export and open on the person's own device.
+
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
 profile named by `person_ref`; the profile URL alone grants no access. A self
@@ -795,7 +823,7 @@ delete/absent lifecycle with cleanup.
 | GET    | `/api/one/agent-chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
 | PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
 | DELETE | `/api/one/agent-chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
-| GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
+| GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner; `turn.pending` is true while the newest turn is still running server-side (bounded at 300 s, the detached turn's chat-key ceiling), so a client that left mid-turn can reattach |
 | POST   | `/api/one/adk/relay-session`                          | Retired: HTTP 410; clients must use the Location command lifecycle                                     |
 | WS     | `/api/one/adk/live`                                   | Retired: policy close with an explicit command-runtime retirement response                                 |
 | GET    | `/api/kai/chat/history/{conversation_id}`             | Conversation history                                                                                                                                          |
@@ -888,7 +916,9 @@ the documented integration path for new clients.
 
 | Method | Path                       | Description                                                                                                         |
 | ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/kai/support/message` | Send a profile-originated bug report, support request, or developer reachout through the Gmail-backed support inbox |
+| POST   | `/api/kai/support/message` | Firebase-authenticated support send from `one@hushh.ai` to the One inbox, with an internal support-lead BCC. Returns `accepted_by_provider` only after Gmail returns a receipt; known failure and uncertain delivery are distinct. The verified Firebase email, never client text, supplies Reply-To. No report body is persisted by this route. |
+
+`POST /api/account/welcome` is Firebase-authenticated and sends only a first-account welcome to the verified Firebase email. Existing-vault wrapper upsert and primary-method changes require both Firebase auth and a matching `X-Hushh-Consent` VAULT_OWNER bearer, like wrapper deletion. Committed passkey add/remove and existing-passphrase updates trigger a best-effort account notice from One; mail failure cannot roll back the vault change.
 
 #### Kai Analysis
 
@@ -1505,7 +1535,7 @@ preparation, downloads content, indexes documents, or grants sharing permissions
 | `POST /` | `{clientRequestId,query,backgroundConsent:true,timezone}`; idempotent by owner, request ID and original query/timezone. The Documents planner runs once, then the frozen search is checkpointed. Returns initial job progress after at most one 25-file page. Another active search returns `409 search_in_progress`. |
 | `GET /` | Up to 20 unexpired searches belonging to the current owner, newest first. |
 | `GET /{id}` | `{jobId,status,revision,matched,pagesScanned,incompleteSearch,canStop,createdAt,updatedAt,expiresAt,errorCode}`. Status is `queued`, `running`, `completed`, `stopped`, `failed`, or `limited`. |
-| `GET /{id}/results?cursor=…` | Up to 25 metadata records (`id,name,mimeType,modifiedTime,openUrl`), result count, revision and opaque `nextCursor`, bound to owner and search. Requires the same active Drive connection generation. |
+| `GET /{id}/results?cursor=…` | Up to 25 metadata records (`position,id,name,mimeType,modifiedTime,openUrl`), result count, revision and opaque `nextCursor`, bound to owner and search. `position` is a stable, one-based result reference within the job. Requires the same active Drive connection generation. |
 | `POST /{id}/stop` | Empty body; invalidates the lease atomically. Late provider responses cannot append. Cancellation remains available after search-feature or provider-access revocation. |
 
 Search jobs retain encrypted queries/checkpoints and result metadata for 24 hours, with one active
@@ -1514,6 +1544,20 @@ seconds, checkpoints every page, and resumes through the existing Drive suggesti
 A queued slice wakes its successor; the scheduler remains the recovery path. Search-only consent
 survives tab closure; Stop, connection changes and account deletion fence subsequent collection.
 Expired records are excluded from reads before bounded cleanup removes them.
+
+The recent-results panel is an operational cache, not PKM or a document index. Its
+query/checkpoint/results use a server-held Drive encryption key, so autonomous
+searches that survive tab closure must not be described as strict client-key
+zero knowledge. It never writes Drive listings into `source_library`. When an
+owner selects a result for One chat, the client forwards only `{jobId,position}`
+for that turn. The chat route treats this pointer as untrusted and checks the
+owner session. The selected-result tool checks current owner and connection
+generation, resolves the saved positive result, and verifies the exact file
+with live Drive metadata before providing it to One. A stale,
+deleted, inaccessible, or expired result is refused; cached absence never proves
+that a file does not exist. Selection alone does not read content or grant sharing;
+an explicit read request may fetch content after a fresh access check, and sharing
+still requires the existing review and Share action.
 
 The REST compiler uses exact `name =` for literal titles before pagination, Google's token/phrase
 full-text rules for topics and dates, and preserves provider relevance order. It searches the user

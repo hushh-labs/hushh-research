@@ -1,3 +1,5 @@
+import type { DriveSearchSelection } from "@/lib/services/drive-search-service";
+
 export type QueuedAgentPrompt = {
   id: string;
   text: string;
@@ -19,6 +21,8 @@ export type QueuedAgentPrompt = {
    * decrypted inventory to hydrate.
    */
   deferPkmContext?: boolean;
+  /** One selected saved Drive result. Owner authorization is rechecked at chat ingress. */
+  driveSearchSelection?: DriveSearchSelection;
 };
 
 export function enqueueAgentPrompt(
@@ -33,7 +37,11 @@ export function editQueuedAgentPrompt(
   id: string,
   text: string,
 ): QueuedAgentPrompt[] {
-  return queue.map((prompt) => (prompt.id === id ? { ...prompt, text } : prompt));
+  // Editing a queued message changes its intent. The old file choice must be
+  // made explicitly again instead of silently following the revised text.
+  return queue.map((prompt) =>
+    prompt.id === id ? { ...prompt, text, driveSearchSelection: undefined } : prompt,
+  );
 }
 
 export function removeQueuedAgentPrompt(

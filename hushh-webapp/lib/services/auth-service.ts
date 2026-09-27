@@ -12,7 +12,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
-import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
+import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,

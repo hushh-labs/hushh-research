@@ -49,7 +49,6 @@ import {
   type CountryPhoneOption,
 } from "@/lib/constants/country-phone-options";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { ApiService } from "@/lib/services/api-service";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -61,25 +60,6 @@ import { CountryPicker } from "@/components/auth/country-picker";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-
-/**
- * Firebase reports a number that is verified on a *different* account with one
- * of these. It is the case where somebody made an account earlier, forgot it,
- * and is now blocked on a number they own — so the server mails them the
- * masked address of the account that holds it.
- */
-const PHONE_TAKEN_ERROR_CODES = new Set([
-  "credential-already-in-use",
-  "phone-number-already-exists",
-]);
-
-function isPhoneTakenByAnotherAccount(error: unknown): boolean {
-  const code = String((error as { code?: unknown })?.code ?? "").replace(
-    /^auth\//,
-    "",
-  );
-  return PHONE_TAKEN_ERROR_CODES.has(code);
-}
 
 // Country metadata owns national-number length and validity.
 const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
@@ -789,11 +769,6 @@ export function PhoneVerificationFlow({
           action: mode,
           result: "error",
         });
-        if (isPhoneTakenByAnotherAccount(error)) {
-          void ApiService.notifyAuthMail("phone_conflict", {
-            phoneNumber: normalizedPhone,
-          });
-        }
         morphyToast.error(
           error instanceof Error
             ? error.message
@@ -923,11 +898,6 @@ export function PhoneVerificationFlow({
         });
         // The link only fails on the code step, so this is where the conflict
         // usually surfaces.
-        if (isPhoneTakenByAnotherAccount(error) && submittedPhoneNumber) {
-          void ApiService.notifyAuthMail("phone_conflict", {
-            phoneNumber: submittedPhoneNumber,
-          });
-        }
         // An expired code can never succeed by resubmitting the same digits,
         // so clear the input and leave the person on the OTP screen with
         // Resend available. A wrong code stays in place -- it may be a typo
@@ -956,7 +926,7 @@ export function PhoneVerificationFlow({
         setBusy(false);
       }
     },
-    [busy, codePresentation, confirmVerification, mode, onCompleted, submittedPhoneNumber],
+    [busy, codePresentation, confirmVerification, mode, onCompleted],
   );
 
   const handleConfirmVerification = useCallback(async () => {

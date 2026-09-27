@@ -26,6 +26,16 @@ const mocks = vi.hoisted(() => ({
   identityRefresh: vi.fn(),
   clearMarketingSeen: vi.fn(),
   markForceIntroOnce: vi.fn(),
+  deleteFCMToken: vi.fn(),
+  replaceDocument: vi.fn(),
+}));
+
+vi.mock("@/lib/notifications/fcm-service", () => ({
+  deleteFCMToken: mocks.deleteFCMToken,
+}));
+
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  replaceWindowLocation: mocks.replaceDocument,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -127,7 +137,6 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getAccountSessionStatus: mocks.apiGetAccountSessionStatus,
     deleteSession: mocks.apiDeleteSession,
-    notifyAuthMail: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -236,6 +245,7 @@ function SessionProbe() {
   return (
     <>
       <p>Vault content for {user.uid}</p>
+      <button type="button" onClick={() => void signOut()}>Sign out</button>
       <button
         type="button"
         onClick={() =>
@@ -277,6 +287,19 @@ function ScopedSignOutRaceProbe() {
   );
 }
 
+function OrdinarySignOutProbe() {
+  const { signOut } = useAuth();
+  return <button onClick={() => void signOut()}>Leave profile</button>;
+}
+
+function InteractiveSettlementProbe() {
+  const { beginPostAuthSettlement, completePostAuthSettlement } = useAuth();
+  return <button onClick={() => {
+    const settlement = beginPostAuthSettlement(mocks.firebaseUser as User);
+    completePostAuthSettlement(settlement);
+  }}>Complete interactive sign-in</button>;
+}
+
 describe("AuthProvider terminal session invalidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -298,6 +321,7 @@ describe("AuthProvider terminal session invalidation", () => {
     mocks.clearForUser.mockResolvedValue(undefined);
     mocks.clearMarketingSeen.mockResolvedValue(undefined);
     mocks.markForceIntroOnce.mockResolvedValue(undefined);
+    mocks.deleteFCMToken.mockResolvedValue(undefined);
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -307,6 +331,75 @@ describe("AuthProvider terminal session invalidation", () => {
   afterEach(() => {
     vi.useRealTimers();
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("withdraws the live identity immediately and leaves profile when push cleanup stalls", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    vi.useFakeTimers();
+    const cleanup = deferred<void>();
+    mocks.deleteFCMToken.mockReturnValueOnce(cleanup.promise);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out", exact: true }));
+    await act(async () => { await Promise.resolve(); });
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+
+    expect(mocks.authServiceSignOut).toHaveBeenCalledOnce();
+    expect(mocks.apiDeleteSession).toHaveBeenCalledOnce();
+    expect(mocks.replaceDocument).toHaveBeenCalledWith("/");
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    const signal = mocks.deleteFCMToken.mock.calls[0]?.[2]?.signal as AbortSignal;
+    expect(signal.aborted).toBe(true);
+    cleanup.resolve();
+  });
+
+  it("finishes ordinary sign-out when the optional notification token never resolves", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    const token = deferred<string>();
+    vi.mocked((mocks.firebaseUser as User).getIdToken).mockReturnValue(token.promise);
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out", exact: true }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(mocks.authServiceSignOut).toHaveBeenCalledOnce();
+    expect(mocks.replaceDocument).toHaveBeenCalledWith("/");
+    await act(async () => { token.resolve("late-token"); await token.promise; });
+    expect(mocks.deleteFCMToken).not.toHaveBeenCalled();
+  });
+
+  it("allows verification after interactive sign-in overlaps an auth snapshot", async () => {
+    render(<AuthProvider><SessionProbe /><InteractiveSettlementProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    const validation = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(validation.promise);
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await waitFor(() => expect(screen.getByText("Checking session")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Complete interactive sign-in" }));
+    await act(async () => {
+      validation.resolve(activeSessionResponse());
+      await validation.promise;
+    });
+    act(() => requestExplicitSessionVerification());
+    await screen.findByText("Vault content for account-owner");
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+  });
+
+  it("does not republish a pre-sign-out auth snapshot after its validation finishes", async () => {
+    render(<AuthProvider><SessionProbe /><OrdinarySignOutProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    const validation = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(validation.promise);
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    fireEvent.click(screen.getByRole("button", { name: "Leave profile" }));
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/"));
+    await act(async () => {
+      validation.resolve(activeSessionResponse());
+      await validation.promise;
+    });
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
   });
 
   it("does not refresh the identity shadow during automated reviewer bootstrap", async () => {
@@ -335,12 +428,16 @@ describe("AuthProvider terminal session invalidation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Finish account-A deletion" }));
 
-    expect(await screen.findByText("Signed out")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/"));
+    // The loading gate stays held until the document unloads; releasing it
+    // lets route guards race a client-side /login replace against this one.
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
+    expect(screen.queryByText("Signed out")).not.toBeInTheDocument();
     expect(currentUser.getIdToken).not.toHaveBeenCalled();
     expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     expect(mocks.apiDeleteSession).toHaveBeenCalledTimes(1);
     expect(mocks.clearForUser).toHaveBeenCalledWith("account-owner");
-    expect(mocks.routerReplace).toHaveBeenCalledWith("/");
+    expect(mocks.replaceDocument).toHaveBeenCalledWith("/");
   });
 
   it("does not revalidate an already-published session on web foreground", async () => {
@@ -423,9 +520,9 @@ describe("AuthProvider terminal session invalidation", () => {
     });
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledTimes(1);
+      expect(mocks.replaceDocument).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.routerReplace).toHaveBeenCalledWith(
+    expect(mocks.replaceDocument).toHaveBeenCalledWith(
       "/login?auth_notice=account_not_found",
     );
     expect(mocks.cacheSignedOut).toHaveBeenCalledWith("account-owner");
@@ -459,7 +556,7 @@ describe("AuthProvider terminal session invalidation", () => {
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.routerReplace).toHaveBeenCalledWith(
+    expect(mocks.replaceDocument).toHaveBeenCalledWith(
       "/login?auth_notice=account_not_found",
     );
   });
@@ -487,7 +584,7 @@ describe("AuthProvider terminal session invalidation", () => {
       await screen.findByText("Vault content for account-owner"),
     ).toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
 
   it("fails closed when an in-flight deletion remains unresolved after one bounded web re-probe", async () => {
@@ -510,7 +607,7 @@ describe("AuthProvider terminal session invalidation", () => {
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.routerReplace).toHaveBeenCalledWith(
+    expect(mocks.replaceDocument).toHaveBeenCalledWith(
       "/login?auth_notice=account_deletion_uncertain",
     );
     expect(
@@ -543,7 +640,7 @@ describe("AuthProvider terminal session invalidation", () => {
       );
     });
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith(
+      expect(mocks.replaceDocument).toHaveBeenCalledWith(
         "/login?auth_notice=account_deleted",
       );
     });
@@ -557,7 +654,7 @@ describe("AuthProvider terminal session invalidation", () => {
 
     expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     expect(mocks.apiDeleteSession).toHaveBeenCalledTimes(1);
-    expect(mocks.routerReplace).toHaveBeenCalledTimes(1);
+    expect(mocks.replaceDocument).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a late terminal event after sign-out until a new UID is established", async () => {
@@ -566,13 +663,13 @@ describe("AuthProvider terminal session invalidation", () => {
 
     act(() => dispatchAccountNotFoundInvalidation());
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledTimes(1);
+      expect(mocks.replaceDocument).toHaveBeenCalledTimes(1);
     });
 
     act(() => dispatchAccountNotFoundInvalidation());
     await act(async () => Promise.resolve());
     expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
-    expect(mocks.routerReplace).toHaveBeenCalledTimes(1);
+    expect(mocks.replaceDocument).toHaveBeenCalledTimes(1);
 
     const nextUser = makeUser("next-account-owner");
     mocks.firebaseUser = nextUser;
@@ -584,7 +681,7 @@ describe("AuthProvider terminal session invalidation", () => {
     act(() => dispatchAccountNotFoundInvalidation());
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(2);
-      expect(mocks.routerReplace).toHaveBeenCalledTimes(2);
+      expect(mocks.replaceDocument).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -627,7 +724,7 @@ describe("AuthProvider terminal session invalidation", () => {
 
       await waitFor(() => {
         expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
-        expect(mocks.routerReplace).toHaveBeenCalledWith(
+        expect(mocks.replaceDocument).toHaveBeenCalledWith(
           "/login?auth_notice=account_not_found",
         );
       });
@@ -747,7 +844,7 @@ describe("AuthProvider terminal session invalidation", () => {
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
 
     vi.mocked(currentUser.getIdToken).mockResolvedValue("persisted-token");
     fireEvent.click(screen.getByRole("button", { name: "Retry verification" }));
@@ -873,7 +970,7 @@ describe("AuthProvider terminal session invalidation", () => {
 
     expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
 
   it("keeps the auth gate closed while account B validation overlaps account A foreground validation", async () => {
@@ -949,7 +1046,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     expect(mocks.apiDeleteSession).not.toHaveBeenCalled();
     expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
 
   it("does not republish a latched UID or reopen its vault while sign-out is pending", async () => {
@@ -1001,7 +1098,7 @@ describe("AuthProvider terminal session invalidation", () => {
       await screen.findByText("Verification required"),
     ).toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
 
   it("refreshes the candidate user instead of accepting a different global Firebase identity", async () => {
@@ -1031,7 +1128,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(accountB.getIdToken).toHaveBeenCalledWith(true);
     expect(mocks.authServiceGetIdToken).not.toHaveBeenCalled();
     expect(mocks.clearForUser).toHaveBeenCalledWith("account-b");
-    expect(mocks.routerReplace).toHaveBeenCalledWith(
+    expect(mocks.replaceDocument).toHaveBeenCalledWith(
       "/login?auth_notice=account_not_found",
     );
   });
@@ -1065,7 +1162,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.cacheSignedOut).toHaveBeenCalledWith(
       "cold-restored-deleted-user",
     );
-    expect(mocks.routerReplace).toHaveBeenCalledWith(
+    expect(mocks.replaceDocument).toHaveBeenCalledWith(
       "/login?auth_notice=account_not_found",
     );
   });

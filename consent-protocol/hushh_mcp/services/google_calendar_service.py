@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
@@ -25,6 +26,7 @@ from hushh_mcp.services.google_connection_service import (
 )
 
 _CALENDAR_BASE = "https://www.googleapis.com/calendar/v3"
+logger = logging.getLogger(__name__)
 # events.list returns at most 250 events per page by default
 # (https://developers.google.com/workspace/calendar/api/v3/reference/events/list).
 # One page, never an unbounded walk: a caller learns when more exist.
@@ -718,19 +720,35 @@ class GoogleCalendarService:
                     )
                     response = {"id": plan["event_id"], "status": "cancelled"}
             await self._execute_raw_async(
-                "DELETE FROM google_calendar_action_proposals WHERE proposal_id = :proposal_id AND user_id = :user_id",
+                """UPDATE google_calendar_action_proposals
+                   SET status = 'executed', executed_at = NOW()
+                   WHERE proposal_id = :proposal_id AND user_id = :user_id
+                     AND status = 'executing'""",
                 {"proposal_id": proposal_id, "user_id": user_id},
             )
-            return {
-                "action": action,
-                "event": self._event_summary(response) if response.get("id") else response,
-            }
         except Exception:
             await self._execute_raw_async(
                 "UPDATE google_calendar_action_proposals SET status = 'failed' WHERE proposal_id = :proposal_id",
                 {"proposal_id": proposal_id},
             )
             raise
+
+        # The executed transition is the Feed projection seam. Remove the
+        # short-lived, content-bearing plan as before, but cleanup trouble
+        # must not recast a successful Google mutation as a failed one.
+        try:
+            await self._execute_raw_async(
+                """DELETE FROM google_calendar_action_proposals
+                   WHERE proposal_id = :proposal_id AND user_id = :user_id
+                     AND status = 'executed'""",
+                {"proposal_id": proposal_id, "user_id": user_id},
+            )
+        except Exception:
+            logger.warning("Calendar proposal cleanup failed after a confirmed action")
+        return {
+            "action": action,
+            "event": self._event_summary(response) if response.get("id") else response,
+        }
 
     @staticmethod
     def _reject_new_conflicts(*, planned: object, current: list[dict[str, Any]]) -> None:

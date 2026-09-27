@@ -2926,6 +2926,28 @@ async def propose_drive_share(
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     request = str(files_request or "").strip()
+    # A selected saved-search result may lead to this review-only card after
+    # one verified read. Bind the draft to that live title, never to a model
+    # argument influenced by untrusted filename or content instructions.
+    from hushh_mcp.one_adk.external_read_boundary import (
+        STATE_EXECUTION_SURFACE,
+        STATE_SELECTED_DRIVE_SHARE,
+    )
+
+    marker = tool_context.state.get(STATE_SELECTED_DRIVE_SHARE)
+    if (
+        tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and isinstance(marker, dict)
+        and marker.get("invocation") == tool_context.invocation_id
+        and isinstance(marker.get("titleRef"), str)
+        and marker["titleRef"].startswith("one_secret_ref:")
+    ):
+        request = resolve_request_secret(marker["titleRef"])
+        if not request:
+            return {
+                "status": "needs_clarification",
+                "message": "That Drive result expired. Select it again before sharing.",
+            }
     if not request or len(request) > 2000 or len(request.encode()) > 2048:
         return {
             "status": "needs_clarification",

@@ -27,7 +27,19 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--top-shell-mask-visible-height");
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
-    expect(styles).toContain("--ambient-chrome-top-visible-height");
+    // The top edge is a plain solid surface with no fade band (founder
+    // direction, 2026-09-27). Read the rule itself so a fade tail cannot come
+    // back through the shared feather tokens the bottom edge still uses.
+    const topRuleStart = styles.indexOf(".ambient-chrome-mask--top {");
+    const topRule = styles.slice(
+      topRuleStart,
+      styles.indexOf("}", topRuleStart),
+    );
+    expect(topRule).toContain(
+      "#000 var(--ambient-chrome-top-solid-height),\n    transparent var(--ambient-chrome-top-solid-height)",
+    );
+    expect(topRule).not.toContain("--top-fade-active");
+    expect(topRule).not.toContain("--ambient-chrome-fade-mask");
     expect(styles).toContain(
       "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
     );
@@ -89,7 +101,7 @@ describe("tabbed ambient chrome contract", () => {
     );
   });
 
-  it("keeps the top dissolve while leaving the bottom navigation unmasked", () => {
+  it("keeps the bottom feather tokens while leaving the bottom navigation unmasked", () => {
     const styles = read("app/globals.css");
     const mask = read("components/app-ui/ambient-chrome-mask.tsx");
 

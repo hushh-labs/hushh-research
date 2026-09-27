@@ -6,10 +6,11 @@ These tools never execute provider writes or accept an owner from model input.
 
 from __future__ import annotations
 
+import json
 import re
 from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
@@ -35,7 +36,7 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
 )
-from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, DriveReadError
 from hushh_mcp.services.google_drive_mcp_service import (
     GOOGLE_DRIVE_MCP_ENDPOINT,
     GoogleDriveMcpService,
@@ -52,6 +53,8 @@ from hushh_mcp.services.mcp_capability_policy import arguments_valid
 WorkspaceProvider = Literal["drive", "gmail", "calendar"]
 WORKSPACE_CHAT_ADMISSION_STATE = "temp:hussh:workspace_chat_admission"
 WORKSPACE_PRIVATE_SOURCE = "workspace_mcp"
+STATE_DRIVE_SEARCH_SELECTION = "temp:hussh:drive_search_selection"
+SAVED_DRIVE_SEARCH_SOURCE = "drive_saved_search"
 _TRUSTED_TOOL_DESCRIPTIONS = {
     "drive": {
         "get_file_metadata": "Read the name, type, time, size and opening link of one Drive file.",
@@ -737,6 +740,108 @@ async def read_workspace_tool(
         if receipt is not None:
             response["structured"] = receipt
             response["truncated"] = receipt["truncated"]
+    return response
+
+
+async def read_selected_drive_search_result(
+    tool_context: ToolContext, mode: Literal["metadata", "content"] = "metadata"
+) -> dict[str, Any]:
+    """Read this turn's owner-selected result with live Drive verification.
+
+    The model supplies no file, job or owner identifier. The API route bound a
+    pointer to this turn; this tool verifies its owner, expiry, connection and
+    exact file against Drive at invocation time. Content is read only when the
+    owner explicitly requests it and the model selects content mode. Tool data
+    never grants sharing authority.
+    """
+    owner = await _owner(tool_context, "drive")
+    if owner is None:
+        return {"status": "blocked", "message": "Unlock One to use this Drive result."}
+    reference = tool_context.state.get(STATE_DRIVE_SEARCH_SELECTION)
+    if not isinstance(reference, str) or not reference.startswith("one_secret_ref:"):
+        return {"status": "input_required", "message": "Choose a file in Drive searches first."}
+    raw = resolve_request_secret(reference)
+    try:
+        selection = json.loads(raw)
+    except (TypeError, ValueError):
+        selection = None
+    if (
+        not isinstance(selection, dict)
+        or not {"jobId", "position"}
+        <= set(selection)
+        <= {"jobId", "position", "contentAllowed", "shareAllowed"}
+        or not isinstance(selection.get("jobId"), str)
+        or type(selection.get("position")) is not int
+        or not 1 <= selection["position"] <= 10000
+        or ("contentAllowed" in selection and type(selection["contentAllowed"]) is not bool)
+        or ("shareAllowed" in selection and type(selection["shareAllowed"]) is not bool)
+    ):
+        return {"status": "unavailable", "message": "This Drive result is no longer available."}
+    try:
+        job_id = str(UUID(selection["jobId"]))
+    except ValueError:
+        return {"status": "unavailable", "message": "This Drive result is no longer available."}
+
+    async def require_current() -> None:
+        if await _owner(tool_context, "drive") != owner:
+            raise PermissionError("owner session changed")
+
+    try:
+        from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+
+        file = await DriveOwnerSearchService().resolve_selection(
+            user_id=owner,
+            job_id=job_id,
+            position=selection["position"],
+            require_current=require_current,
+        )
+    except PermissionError:
+        return {"status": "blocked", "message": "The Drive session changed. Try again."}
+    except (DriveReadError, DriveOAuthError) as error:
+        if str(error) in {
+            "search_not_found",
+            "search_expired",
+            "source_changed",
+            "source_unavailable",
+            "connection_changed",
+            "connect_required",
+            "reconnect_required",
+            "permission_denied",
+        }:
+            return {
+                "status": "input_required",
+                "message": "This Drive result changed or expired. Search again.",
+            }
+        return {"status": "unavailable", "message": "Could not verify this Drive result right now."}
+    except Exception:  # noqa: BLE001 - no provider text reaches the model
+        return {"status": "unavailable", "message": "Could not verify this Drive result right now."}
+    content_allowed = mode == "content" and selection.get("contentAllowed") is True
+    response = {
+        "status": "ok",
+        "source": SAVED_DRIVE_SEARCH_SOURCE,
+        "provider": "drive",
+        "metadata_only": not content_allowed,
+        "result": {"file": file},
+    }
+    if mode == "content" and not content_allowed:
+        response["content"] = {"status": "authorization_required"}
+    elif content_allowed:
+        try:
+            content = await DriveOwnerSearchService().read_selection_content(
+                user_id=owner,
+                job_id=job_id,
+                position=selection["position"],
+                file=file,
+                require_current=require_current,
+            )
+        except (PermissionError, DriveReadError, DriveOAuthError):
+            return {
+                "status": "input_required",
+                "message": "This Drive result changed or expired. Search again.",
+            }
+        except Exception:  # noqa: BLE001 - optional content has no provider diagnostics
+            content = {"status": "unavailable"}
+        response["content"] = content
     return response
 
 

@@ -727,3 +727,212 @@ async def test_pod_disconnect_retains_admission_until_memory_acknowledgement(mon
     with pytest.raises(asyncio.CancelledError):
         await consumer
     assert (await admission.status(incarnation="synthetic"))["activeWork"] == 0
+
+
+# ── A turn outlives its client ─────────────────────────────────────────────────
+# These drive the installed ag_ui_adk bridge with a real ADK agent and session
+# store, so they prove the bridge's own behaviour rather than a scripted stand-in:
+# the run is a task of its own, and closing the stream does not cancel it.
+
+DETACHED_ANSWER = "the answer written after the client left"
+CHAT_KEY = bytes.fromhex("3c" * 32)
+
+
+def _slow_answer_agent(delay: float = 0.2):
+    from google.adk.agents import BaseAgent
+    from google.adk.events import Event
+    from google.genai import types
+
+    class SlowAnswer(BaseAgent):
+        async def _run_async_impl(self, ctx):
+            yield Event(
+                author=self.name,
+                invocation_id=ctx.invocation_id,
+                partial=True,
+                content=types.Content(role="model", parts=[types.Part(text="working")]),
+            )
+            await asyncio.sleep(delay)
+            yield Event(
+                author=self.name,
+                invocation_id=ctx.invocation_id,
+                content=types.Content(role="model", parts=[types.Part(text=DETACHED_ANSWER)]),
+            )
+
+    return SlowAnswer(name="one")
+
+
+def _bridge_agent(hook, delay: float = 0.2):
+    from google.adk.sessions import InMemorySessionService
+
+    store = InMemorySessionService()
+    agent = TimedADKAgent(
+        adk_agent=_slow_answer_agent(delay),
+        app_name="one_detach_probe",
+        user_id_extractor=lambda _input: USER_ID,
+        session_service=store,
+        use_in_memory_services=True,
+        use_thread_id_as_session_id=True,
+    )
+    agent.head = HEAD_ONE
+    agent.detached_turn_hook = hook
+    return agent, store
+
+
+async def _leave_mid_turn(stream) -> None:
+    # The bridge starts the turn's task only after RUN_STARTED, so a client that
+    # leaves on that first event never started a turn at all. Leave once the
+    # turn is visibly running, as a person switching away mid-answer does.
+    assert (await anext(stream)).type == "RUN_STARTED"
+    await anext(stream)
+    await stream.aclose()
+
+
+def _owner_input() -> RunAgentInput:
+    run = _input()
+    run.state = {"hussh:user_id": USER_ID}
+    run.forwarded_props = {"notifyOnDetach": True}  # the native app asks for the push
+    return run
+
+
+async def _stored_texts(store) -> list[str]:
+    session = await store.get_session(
+        app_name="one_detach_probe", user_id=USER_ID, session_id=THREAD_ID
+    )
+    return [
+        part.text
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if part.text
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_finishes_and_persists_after_its_client_leaves():
+    from hushh_mcp.one_adk.turn_completion import newest_turn_answered, newest_turn_pending
+
+    settled: asyncio.Queue = asyncio.Queue()
+
+    async def hook(owner_id: str, conversation_id: str) -> None:
+        await settled.put((owner_id, conversation_id))
+
+    agent, store = _bridge_agent(hook)
+    await _leave_mid_turn(agent.run(_owner_input()))  # before the answer existed
+
+    assert await asyncio.wait_for(settled.get(), timeout=5) == (USER_ID, THREAD_ID)
+    assert DETACHED_ANSWER in await _stored_texts(store)
+    session = await store.get_session(
+        app_name="one_detach_probe", user_id=USER_ID, session_id=THREAD_ID
+    )
+    # What the history route tells a returning client: settled, with an answer.
+    assert newest_turn_answered(session.events)
+    assert not newest_turn_pending(session.events)
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_stays_gets_the_answer_and_no_detached_notice():
+    calls: list[tuple[str, str]] = []
+
+    async def hook(owner_id: str, conversation_id: str) -> None:
+        calls.append((owner_id, conversation_id))
+
+    agent, store = _bridge_agent(hook)
+    events = [event async for event in agent.run(_owner_input())]
+
+    assert events[-1].type == "RUN_FINISHED"
+    await asyncio.sleep(0.1)  # let the background task finish its own cleanup
+    # The attached client saw the answer live; a push beside it is a duplicate.
+    assert calls == []
+    assert DETACHED_ANSWER in await _stored_texts(store)
+
+
+@pytest.mark.asyncio
+async def test_a_detached_turn_seals_with_its_own_key_then_drops_it():
+    from hushh_mcp.services.chat_key import (
+        RequestChatKey,
+        bind_request_chat_key,
+        request_has_chat_key,
+    )
+
+    held_during_hook: list[bool] = []
+    settled = asyncio.Event()
+
+    async def hook(owner_id: str, _conversation_id: str) -> None:
+        held_during_hook.append(request_has_chat_key(owner_id))
+        settled.set()
+
+    agent, store = _bridge_agent(hook)
+    holder = RequestChatKey(CHAT_KEY)
+    holder.bind_owner(USER_ID)
+    with bind_request_chat_key(holder):  # the HTTP exchange, as ChatKeyMiddleware binds it
+        await _leave_mid_turn(agent.run(_owner_input()))
+    # The exchange is over; only the turn's own reference keeps the key alive.
+    await asyncio.wait_for(settled.wait(), timeout=5)
+    await asyncio.sleep(0.05)
+
+    assert held_during_hook == [True]
+    assert not holder.bound  # released once the turn settled, not kept for later
+    session = await store.get_session(
+        app_name="one_detach_probe", user_id=USER_ID, session_id=THREAD_ID
+    )
+    stored = session.model_dump_json()
+    assert CHAT_KEY.hex() not in stored and CHAT_KEY.hex().upper() not in stored
+
+
+def test_only_authenticated_one_turns_are_watched_for_a_detached_notice():
+    async def hook(_owner_id: str, _conversation_id: str) -> None:
+        return None
+
+    agent = _agent(HEAD_ONE)
+    agent.detached_turn_hook = hook
+    run = _owner_input()
+    assert agent._detach_watch(run) is not None
+    # A web tab does not ask for it: its closed stream must not wake a phone.
+    web = _owner_input()
+    web.forwarded_props = {}
+    assert agent._detach_watch(web) is None
+    run.state = {"hussh:user_id": "anonymous:abc"}
+    assert agent._detach_watch(run) is None
+    intro = _agent(HEAD_INTRO)
+    intro.detached_turn_hook = hook
+    assert intro._detach_watch(_owner_input()) is None
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_leaves_after_the_run_settled_is_still_notified():
+    settled: asyncio.Queue = asyncio.Queue()
+
+    async def hook(owner_id: str, conversation_id: str) -> None:
+        await settled.put((owner_id, conversation_id))
+
+    # The run finishes at once, while its answer still waits in the bridge's
+    # queue for a reader that then leaves without taking it.
+    agent, _store = _bridge_agent(hook, delay=0.0)
+    stream = agent.run(_owner_input())
+    assert (await anext(stream)).type == "RUN_STARTED"
+    await anext(stream)
+    await asyncio.sleep(0.3)
+    await stream.aclose()
+
+    assert await asyncio.wait_for(settled.get(), timeout=10) == (USER_ID, THREAD_ID)
+
+
+def test_failed_drive_guard_does_not_count_a_model_call():
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk.external_read_boundary import STATE_DRIVE_READ_OUTCOME
+
+    context = SimpleNamespace(
+        invocation_id="current",
+        state={STATE_DRIVE_READ_OUTCOME: {"invocation": "current", "outcome": "failed"}},
+    )
+    timing = agui_turn_timing.TurnTiming(head=HEAD_ONE, run="run", started_at=time.perf_counter())
+    token = agui_turn_timing._CURRENT_TURN.set(timing)
+    try:
+        result = agui_turn_timing.timed_one_before_model(context, LlmRequest())
+        assert result is not None and result.turn_complete is True
+        agui_turn_timing.timed_one_after_model(context, result)
+        assert timing.model_calls == 0
+        assert timing.model_call_total_ms == 0
+    finally:
+        agui_turn_timing._CURRENT_TURN.reset(token)

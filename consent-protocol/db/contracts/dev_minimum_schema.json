@@ -1,8 +1,9 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 251,
+  "expected_migration_version": 253,
   "migration_version_policy": "minimum",
   "required_functions": [
+    "project_calendar_mail_feed",
     "ensure_drive_share_management_context",
     "invalidate_selected_drive_documents",
     "resolve_feed_counterpart_user_id",

@@ -1,5 +1,5 @@
 {
   "name": "obs_unexpected_error_count",
   "description": "Count of unexpected client/server errors from request.summary logs",
-  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"consent-protocol\" AND jsonPayload.message=\"request.summary\" AND (jsonPayload.outcome_class=\"client_error\" OR jsonPayload.outcome_class=\"server_error\")"
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"consent-protocol\" AND ((textPayload=~\"request\\.summary\" AND (textPayload=~\"client_error\" OR textPayload=~\"server_error\")) OR (jsonPayload.message=~\"request\\.summary\" AND (jsonPayload.message=~\"client_error\" OR jsonPayload.message=~\"server_error\" OR jsonPayload.outcome_class=\"client_error\" OR jsonPayload.outcome_class=\"server_error\")))"
 }

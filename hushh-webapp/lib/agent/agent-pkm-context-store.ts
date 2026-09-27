@@ -223,6 +223,38 @@ function appendWithinBudget(
   return nextLength;
 }
 
+/**
+ * Round-robin across sections (domain plus first path segment), shallow facts
+ * first within each, until the character budget is spent. Deterministic and
+ * structural: it never reads the question, so nothing is chosen by keywords.
+ */
+function selectFactsWithinBudget(facts: PkmInventoryFact[], budgetChars: number): Set<PkmInventoryFact> {
+  const sections = new Map<string, PkmInventoryFact[]>();
+  for (const fact of facts) {
+    const key = `${fact.domain}\u0000${fact.path[0] ?? ""}`;
+    const bucket = sections.get(key);
+    if (bucket) bucket.push(fact);
+    else sections.set(key, [fact]);
+  }
+  const queues = [...sections.values()].map((bucket) =>
+    [...bucket].sort((left, right) =>
+      left.path.length - right.path.length || formatFactPath(left).localeCompare(formatFactPath(right))),
+  );
+  const selected = new Set<PkmInventoryFact>();
+  let used = 0;
+  for (let round = 0; queues.some((queue) => round < queue.length); round += 1) {
+    for (const queue of queues) {
+      const fact = queue[round];
+      if (!fact) continue;
+      const cost = `- ${formatFactPath(fact)}: ${fact.value}`.length + 1;
+      if (used + cost > budgetChars) continue;
+      used += cost;
+      selected.add(fact);
+    }
+  }
+  return selected;
+}
+
 function buildContextText(params: {
   workingSet: AgentPkmWorkingSet;
   maxChars: number;
@@ -247,10 +279,21 @@ function buildContextText(params: {
     "Profile facts:",
   ].filter((line): line is string => Boolean(line));
 
+  // Choose what fits fairly, then print it in reading order. Filling the budget
+  // alphabetically let one large domain (thousands of imported transactions
+  // under Financial) crowd every later domain out of the owner's own turn:
+  // measured 2026-09-27, 88 of 9,049 facts sent and Health absent, so One could
+  // not tell its owner their own allergy. Every section now gets a turn, and a
+  // section's shallow facts (a budget, an allergy) come before its deep rows.
+  const selected = selectFactsWithinBudget(
+    facts,
+    maxChars - COVERAGE_FOOTER_RESERVE_CHARS - lines.join("\n").length - 1,
+  );
   let selectedFactCount = 0;
   const selectedDomains = new Set<string>();
   let currentLength = lines.join("\n").length;
   for (const fact of facts) {
+    if (!selected.has(fact)) continue;
     const nextLength = appendWithinBudget(
       lines,
       `- ${formatFactPath(fact)}: ${fact.value}`,

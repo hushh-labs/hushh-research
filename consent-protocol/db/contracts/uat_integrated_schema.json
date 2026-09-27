@@ -1,8 +1,9 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 251,
+  "expected_migration_version": 253,
   "migration_version_policy": "exact",
   "required_functions": [
+    "project_calendar_mail_feed",
     "ensure_drive_share_management_context",
     "invalidate_selected_drive_documents",
     "resolve_feed_counterpart_user_id",
@@ -1111,6 +1112,26 @@
       "terminal_payload",
       "started_at_iso",
       "completed_at_iso",
+      "created_at",
+      "expires_at"
+    ],
+    "kai_run_state": [
+      "run_id",
+      "user_id",
+      "run_kind",
+      "session_id",
+      "ticker",
+      "status",
+      "terminal_event",
+      "terminal_receipt",
+      "progress",
+      "started_at_iso",
+      "completed_at_iso",
+      "heartbeat_at",
+      "finished_at",
+      "cancel_requested_at",
+      "relay_public_key",
+      "relay_ciphertext",
       "created_at",
       "expires_at"
     ],

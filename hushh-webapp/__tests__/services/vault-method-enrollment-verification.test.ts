@@ -7,6 +7,7 @@ const vault = vi.hoisted(() => ({
   upsertVaultWrapper: vi.fn(),
   getWrapperByMethod: vi.fn(),
   assertVaultKeyMatchesState: vi.fn(),
+  getOrIssueVaultOwnerToken: vi.fn(),
   setPrimaryVaultMethod: vi.fn(),
 }));
 const bootstrap = vi.hoisted(() => ({
@@ -76,6 +77,7 @@ describe("VaultMethodService generated enrollment verification", () => {
     vault.hashVaultKey.mockResolvedValue("vault-hash");
     vault.getWrapperByMethod.mockImplementation(wrapperFor);
     vault.assertVaultKeyMatchesState.mockResolvedValue(undefined);
+    vault.getOrIssueVaultOwnerToken.mockResolvedValue({ token: "synthetic-owner-token" });
     vault.upsertVaultWrapper.mockResolvedValue(undefined);
     vault.setPrimaryVaultMethod.mockResolvedValue(undefined);
     bootstrap.preferDeviceBiometricWrapper.mockResolvedValue(undefined);
@@ -140,6 +142,7 @@ describe("VaultMethodService generated enrollment verification", () => {
       "owner",
       "generated_default_native_biometric",
       "device-new",
+      "synthetic-owner-token",
     );
     expect(vault.assertVaultKeyMatchesState.mock.invocationCallOrder[0]).toBeLessThan(
       vault.setPrimaryVaultMethod.mock.invocationCallOrder[0],

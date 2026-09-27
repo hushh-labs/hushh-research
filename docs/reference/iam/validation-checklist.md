@@ -1,5 +1,11 @@
 # Validation Checklist
 
+- [ ] Sign-out withdraws the live identity immediately so vault and realtime
+  consumers dispose their session. Token retrieval and notification cleanup share
+  a two-second best-effort budget; expired cleanup cannot start later push deletion.
+  Auth credentials, the web session cookie, and local owner state are still cleared
+  before terminal document replacement. A late auth validation cannot republish
+  the signed-out identity, and Profile does not issue a competing navigation.
 - [ ] Owner renewal: expired same-user self-owner evidence can renew only with
   an intact durable grant; wrong user/scope/device, unknown grant, and any later
   revocation fail closed. An outage must not fall back to bootstrap issuance.

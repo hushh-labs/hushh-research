@@ -64,6 +64,7 @@ import {
   PkmDataManagerPanel,
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
+import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import {
   ProfileStackNavigator,
   type ProfileStackEntry,
@@ -181,6 +182,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import {
   SupportService,
+  SupportDeliveryUncertainError,
   type SupportMessageKind,
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
@@ -398,10 +400,6 @@ function normalizeSupportKind(value: string | null): SupportMessageKind | null {
     return value;
   }
   return null;
-}
-
-function isValidReplyEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function normalizeProfileVaultReturnTo(value: string | null): string | null {
@@ -707,13 +705,9 @@ function ProfilePageContent({
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportMessage, setSupportMessage] = useState("");
-  const [supportReplyEmail, setSupportReplyEmail] = useState("");
   const [supportMessageError, setSupportMessageError] = useState<string | null>(
     null,
   );
-  const [supportReplyEmailError, setSupportReplyEmailError] = useState<
-    string | null
-  >(null);
   const [supportComposerState, setSupportComposerState] =
     useState<SupportComposerState>({ status: "editing" });
   const [gmailActionBusy, setGmailActionBusy] = useState<
@@ -728,7 +722,6 @@ function ProfilePageContent({
   >(null);
   const vaultUnlockCompletingRef = useRef(false);
   const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
-  const supportReplyEmailRef = useRef<HTMLInputElement | null>(null);
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const legacyProfileRedirectHref = useMemo(
@@ -762,15 +755,11 @@ function ProfilePageContent({
   const supportRouteKind = supportComposeKind ?? supportQueryKind;
   const sendingSupportMessage = supportComposerState.status === "sending";
   const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
-  const hasAccountReplyEmail = Boolean(user?.email?.trim());
-  const effectiveReplyEmail = hasAccountReplyEmail
-    ? user?.email?.trim() || ""
-    : supportReplyEmail.trim();
+  const effectiveReplyEmail = user?.emailVerified ? user.email?.trim() || "" : "";
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
-    : "No reply mail added.";
+    : "Verify an account email to receive a reply.";
   const supportMessageErrorId = "support-message-error";
-  const supportReplyEmailErrorId = "support-reply-email-error";
   const supportSendStatusId = "support-send-status";
   const profileNativeRouteId = useMemo(
     () =>
@@ -808,7 +797,6 @@ function ProfilePageContent({
     if (!supportRouteKind || supportRouteKind === supportKind) return;
     setSupportKind(supportRouteKind);
     setSupportMessageError(null);
-    setSupportReplyEmailError(null);
   }, [supportKind, supportRouteKind]);
 
   const legacySupportRouteHref = useMemo(() => {
@@ -1523,7 +1511,6 @@ function ProfilePageContent({
   const handleSignOut = async () => {
     try {
       await signOut();
-      router.push(ROUTES.HOME);
     } catch (error) {
       console.error("Sign out error:", error);
     }
@@ -1857,7 +1844,6 @@ function ProfilePageContent({
     // validation below still runs on it -- a dictated message that is too
     // short is refused exactly like a typed one.
     const trimmedMessage = (messageOverride ?? supportMessage).trim();
-    const trimmedReplyEmail = supportReplyEmail.trim();
     const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
     if (trimmedMessage.length < 10) {
@@ -1865,17 +1851,6 @@ function ProfilePageContent({
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
       return { kind: "too_short" };
-    }
-
-    if (
-      !hasAccountReplyEmail &&
-      trimmedReplyEmail &&
-      !isValidReplyEmail(trimmedReplyEmail)
-    ) {
-      setSupportReplyEmailError("Enter a valid mail.");
-      setSupportComposerState({ status: "editing" });
-      supportReplyEmailRef.current?.focus();
-      return { kind: "invalid_reply_email" };
     }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1887,7 +1862,6 @@ function ProfilePageContent({
     }
 
     setSupportMessageError(null);
-    setSupportReplyEmailError(null);
     setSupportComposerState({ status: "sending" });
     try {
       const idToken = await user.getIdToken();
@@ -1899,8 +1873,6 @@ function ProfilePageContent({
         kind: supportKind,
         subject: presentation.internalSubject,
         message: trimmedMessage,
-        userEmail: user.email?.trim() || trimmedReplyEmail || null,
-        userDisplayName: user.displayName,
         persona: personaState?.active_persona || null,
         pageUrl,
       });
@@ -1917,10 +1889,12 @@ function ProfilePageContent({
       setSupportMessage("");
       return { kind: "accepted" };
     } catch (error) {
-      console.error("[ProfilePage] Failed to send support message:", error);
+      console.error("[ProfilePage] Support delivery failed:", error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed");
       setSupportComposerState({
         status: "error",
-        message: "We couldn't send your message. Try again.",
+        message: error instanceof SupportDeliveryUncertainError
+          ? "We couldn't confirm delivery. Please wait before trying again."
+          : "We couldn't send your message. Try again.",
       });
       return { kind: "failed" };
     }
@@ -2020,6 +1994,7 @@ function ProfilePageContent({
         user.uid,
         targetMethod,
         wrapperId ?? "default",
+        vaultOwnerToken ?? undefined,
       );
       setVaultMethod(targetMethod);
       toast.success(
@@ -2056,6 +2031,7 @@ function ProfilePageContent({
         user.uid,
         "passphrase",
         "default",
+        vaultOwnerToken ?? undefined,
       );
       setVaultMethod("passphrase");
       toast.success("Primary unlock updated to passphrase.");
@@ -3374,6 +3350,7 @@ function ProfilePageContent({
           )
         }
       />
+      {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
     </div>
   );
 
@@ -3696,7 +3673,6 @@ function ProfilePageContent({
             className="h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => {
               setSupportComposerState({ status: "editing" });
-              setSupportReplyEmail("");
               updateProfileView({ panel: null, detail: null }, "replace");
             }}
           >
@@ -3730,7 +3706,6 @@ function ProfilePageContent({
                   if (!nextKind) return;
                   setSupportKind(nextKind);
                   setSupportMessageError(null);
-                  setSupportReplyEmailError(null);
                   if (supportComposerState.status === "error") {
                     setSupportComposerState({ status: "editing" });
                   }
@@ -3786,53 +3761,12 @@ function ProfilePageContent({
             ) : null}
           </div>
 
-          {!hasAccountReplyEmail ? (
-            <div className="mt-4 space-y-1.5">
-              <label
-                htmlFor="support-reply-email"
-                className="text-[15px] font-semibold leading-5 text-foreground"
-              >
-                Mail for reply (optional)
-              </label>
-              <Input
-                id="support-reply-email"
-                ref={supportReplyEmailRef}
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                value={supportReplyEmail}
-                onChange={(event) => {
-                  setSupportReplyEmail(event.target.value);
-                  if (supportReplyEmailError) setSupportReplyEmailError(null);
-                  if (supportComposerState.status === "error") {
-                    setSupportComposerState({ status: "editing" });
-                  }
-                }}
-                placeholder="name@example.com"
-                disabled={sendingSupportMessage}
-                aria-invalid={Boolean(supportReplyEmailError)}
-                aria-describedby={
-                  supportReplyEmailError ? supportReplyEmailErrorId : undefined
-                }
-                className="h-12 rounded-[12px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] px-4 text-[16px] leading-[22px] shadow-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
-              />
-              {supportReplyEmailError ? (
-                <p
-                  id={supportReplyEmailErrorId}
-                  role="alert"
-                  className="px-1 text-[13px] leading-[18px] text-destructive"
-                >
-                  {supportReplyEmailError}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {effectiveReplyEmail ? (
-            <p className="mt-3 text-[13px] leading-[18px] text-muted-foreground">
-              {supportReplyLine}
-            </p>
-          ) : null}
+          <p className="mt-3 text-[13px] leading-[18px] text-muted-foreground">
+            {supportReplyLine}
+          </p>
+          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
+            Your message goes to One support, with an internal copy to our support lead. No automatic receipt is sent.
+          </p>
 
           {supportComposerState.status === "error" ? (
             <p

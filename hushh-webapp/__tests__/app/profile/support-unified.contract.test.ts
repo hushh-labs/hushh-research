@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import { ApiService } from "@/lib/services/api-service";
+import { SupportDeliveryUncertainError, SupportService } from "@/lib/services/support-service";
 
 const profileSource = () =>
   readFileSync(
@@ -37,9 +40,8 @@ describe("Profile Help & feedback unified support flow", () => {
     expect(source).toMatch(
       /useState<SupportMessageKind>\(\s*"support_request"\s*\)/,
     );
-    expect(source).toContain(
-      "userEmail: user.email?.trim() || trimmedReplyEmail || null",
-    );
+    expect(source).not.toContain("userEmail:");
+    expect(source).toContain("Replies go to");
 
     expect(source).not.toContain("Sent in test mode to");
     expect(source).not.toContain("result.recipient");
@@ -73,7 +75,7 @@ describe("Profile support voice settlement", () => {
     expect(source).toContain(
       "async function submitSupportMessage(\n    messageOverride?: string,\n  ): Promise<SupportSubmitOutcome>",
     );
-    for (const kind of ["no_user", "busy", "too_short", "invalid_reply_email", "offline", "rejected", "accepted", "failed"]) {
+    for (const kind of ["no_user", "busy", "too_short", "offline", "rejected", "accepted", "failed"]) {
       expect(source).toContain(`return { kind: "${kind}" };`);
     }
     // No bare early return remains inside the function body.
@@ -90,5 +92,30 @@ describe("Profile support voice settlement", () => {
     expect(source).not.toContain(
       'await submitSupportMessage(message);\n      return { status: "succeeded" as const, summary: "Sent that to support." };',
     );
+  });
+});
+
+describe("Support delivery receipt", () => {
+  const request = {
+    idToken: "test-token",
+    userId: "test-owner",
+    kind: "bug_report" as const,
+    subject: "Synthetic issue",
+    message: "Synthetic issue details",
+  };
+
+  it("reports a dropped response as uncertain instead of inviting a duplicate send", async () => {
+    const fetch = vi.spyOn(ApiService, "apiFetch").mockRejectedValueOnce(new Error("connection lost"));
+    await expect(SupportService.submitMessage(request)).rejects.toBeInstanceOf(SupportDeliveryUncertainError);
+    fetch.mockRestore();
+  });
+
+  it("only accepts an explicit provider-accepted receipt", async () => {
+    const fetch = vi.spyOn(ApiService, "apiFetch").mockResolvedValueOnce(new Response(
+      JSON.stringify({ accepted: true, delivery_status: "accepted_by_provider", kind: "bug_report" }),
+      { status: 200 },
+    ));
+    await expect(SupportService.submitMessage(request)).resolves.toMatchObject({ accepted: true });
+    fetch.mockRestore();
   });
 });

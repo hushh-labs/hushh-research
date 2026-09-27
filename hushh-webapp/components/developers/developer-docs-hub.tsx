@@ -1197,8 +1197,8 @@ export function DeveloperDocsHub({
           ? await AuthService.signInWithGoogle()
           : await AuthService.signInWithApple();
       setNativeUser(authResult.user);
-      // Same sign-in, same mail as the main auth surface.
-      void ApiService.notifyAuthMail("signed_in");
+      // The backend decides whether this is the first-account welcome.
+      void ApiService.notifyFirstWelcome();
       await checkAuth();
       await refreshAccess(authResult.user);
     } catch (error) {

@@ -1559,7 +1559,7 @@ export class OneLocationService {
         // MAIL_API_KEY). On native, a relative path resolves against the
         // backend, where this path does not exist, so the alert's email leg
         // would 404 on iOS and Android — the two platforms an SOS is most
-        // likely to be sent from. Same treatment as `/api/auth/mail`.
+        // likely to be sent from. Use the Next.js origin for this route.
       }>(`${nextRouteOrigin()}/api/one/location/sos-email`, {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),

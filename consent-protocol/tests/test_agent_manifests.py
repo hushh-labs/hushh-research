@@ -281,3 +281,16 @@ def test_single_turn_genes_leave_room_for_thinking(path: Path) -> None:
             f"{gene.id}: set model.thinking_level or give max_output_tokens >= 4096 (is {budget})"
         )
         assert budget >= 2048 or thinking == "low", f"{gene.id}: {budget} tokens is too tight"
+
+
+def test_structure_agent_is_told_the_finance_hierarchy_and_its_source_managed_branches() -> None:
+    """The instruction and the validator guard must name the same branches."""
+    from hushh_mcp.services.domain_contracts import FINANCIAL_SOURCE_MANAGED_BRANCHES
+
+    instruction = load("pkm_structure").system_instruction
+    assert "Finance hierarchy" in instruction
+    for branch in ("profile", "goals", "events", "linked_accounts"):
+        assert f"- {branch}:" in instruction
+    for branch in FINANCIAL_SOURCE_MANAGED_BRANCHES:
+        named = branch in instruction or (branch.endswith("_v1") and "ending in _v1" in instruction)
+        assert named, branch

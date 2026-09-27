@@ -242,6 +242,82 @@ async def test_result_cursor_owner_job_and_ciphertext_bindings(store):
         )
 
 
+async def test_saved_result_reference_is_owner_connection_and_expiry_bound(store, monkeypatch):
+    state, _ = await create(store)
+    job = await store.claim(user_id="owner", job_id=state["jobId"])
+    await store.commit_page(job, checkpoint=job["checkpoint"], files=[result(1)], done=True)
+    page = await store.results(user_id="owner", job_id=state["jobId"])
+    assert page["files"][0]["position"] == 1
+    assert (await store.reference(user_id="owner", job_id=state["jobId"], position=1))[
+        "id"
+    ] == "file-1"
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="other", job_id=state["jobId"], position=1)
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="owner", job_id=state["jobId"], position=2)
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await store.reference(user_id="owner", job_id=state["jobId"], position=True)
+    sql(
+        store,
+        "UPDATE user_external_connector_connections SET connection_generation=8 WHERE user_id='owner'",
+    )
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await store.reference(user_id="owner", job_id=state["jobId"], position=1)
+    sql(
+        store,
+        "UPDATE user_external_connector_connections SET connection_generation=7 WHERE user_id='owner'",
+    )
+    sql(
+        store, "UPDATE drive_owner_search_jobs SET expires_at=clock_timestamp()-INTERVAL '1 second'"
+    )
+    # More than 100 expired jobs can sit beyond a bounded purge slice.
+    monkeypatch.setattr(store, "purge", AsyncMock())
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="owner", job_id=state["jobId"], position=1)
+
+
+async def test_saved_result_is_live_checked_without_content_or_share(store):
+    state, _ = await create(store)
+    job = await store.claim(user_id="owner", job_id=state["jobId"])
+    await store.commit_page(job, checkpoint=job["checkpoint"], files=[result(1)], done=True)
+    transport = SimpleNamespace(
+        read_tool=AsyncMock(
+            return_value=ExternalMcpToolResult(
+                False,
+                {
+                    "file": {
+                        "id": "file-1",
+                        "title": "Synthetic private file 1",
+                        "mimeType": "application/pdf",
+                        "modifiedTime": "2026-09-27T00:00:00Z",
+                        "viewUrl": "https://drive.google.com/open?id=file-1",
+                    }
+                },
+                False,
+            )
+        )
+    )
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    current = AsyncMock()
+    selected = await service.resolve_selection(
+        user_id="owner", job_id=state["jobId"], position=1, require_current=current
+    )
+    assert selected["id"] == "file-1"
+    assert selected["name"] == "Synthetic private file 1"
+    transport.read_tool.assert_awaited_once_with(
+        user_id="owner", tool_name="get_file_metadata", arguments={"fileId": "file-1"}
+    )
+    assert current.await_count == 3
+    transport.read_tool.reset_mock()
+    transport.read_tool.return_value = ExternalMcpToolResult(
+        False, {"file": {"id": "file-1", "title": "Renamed file"}}, False
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await service.resolve_selection(
+            user_id="owner", job_id=state["jobId"], position=1, require_current=current
+        )
+
+
 @pytest.mark.parametrize("mutation", ["generation", "revoked"])
 async def test_connection_change_prevents_commit_and_releases_no_private_results(store, mutation):
     state, _ = await create(store)

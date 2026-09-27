@@ -1069,6 +1069,7 @@ function OwnerConnectorsPanel({
               serverClientId: start.server_client_id,
               purpose: start.purpose,
               preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
+              preserveModify: gmail.status?.modify_permission_granted === true,
             });
           } catch (error) {
             GmailReceiptsService.recordConsentFailure(error, user.uid);

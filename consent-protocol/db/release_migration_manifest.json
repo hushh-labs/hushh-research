@@ -223,7 +223,9 @@
     "248_adk_chat_action_authority.sql",
     "249_public_profile_bridge.sql",
     "250_gmail_mailbox_action_proposals.sql",
-    "251_drive_owner_search_jobs.sql"
+    "251_drive_owner_search_jobs.sql",
+    "252_calendar_mail_feed_projection.sql",
+    "253_kai_run_state.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -371,7 +373,8 @@
       "223_one_location_setup_progress.sql",
       "224_setup_capability_declined_ids.sql",
       "237_gmail_personal_information_request_incremental_backfill.sql",
-      "238_gmail_personal_information_request_classifier_policy_version.sql"
+      "238_gmail_personal_information_request_classifier_policy_version.sql",
+      "252_calendar_mail_feed_projection.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -426,6 +429,8 @@
     ]
   },
   "rollback_migrations": {
+    "253_kai_run_state.sql": "rollback/253_kai_run_state.rollback.sql",
+    "252_calendar_mail_feed_projection.sql": "rollback/252_calendar_mail_feed_projection.rollback.sql",
     "250_gmail_mailbox_action_proposals.sql": "rollback/250_gmail_mailbox_action_proposals.rollback.sql",
     "238_gmail_personal_information_request_classifier_policy_version.sql": "rollback/238_gmail_personal_information_request_classifier_policy_version.rollback.sql",
     "237_gmail_personal_information_request_incremental_backfill.sql": "rollback/237_gmail_personal_information_request_incremental_backfill.rollback.sql",

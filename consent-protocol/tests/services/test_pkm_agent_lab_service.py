@@ -938,6 +938,101 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
     assert "events" in result["candidate_payload"]
     assert result["merge_decision"]["merge_mode"] == "extend_entity"
     assert run_agent_contract.await_count == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "blocked"),
+    [
+        # The bank connection rebuilds linked_accounts whole on every refresh.
+        (
+            {
+                "goals": {
+                    "entities": {"emergency_fund": {"summary": "Keep six months in checking."}}
+                },
+                "linked_accounts": {"bank_accounts": [{"name": "Tartan Bank"}]},
+            },
+            True,
+        ),
+        # Negative control: the same goal on its own is an ordinary finance memory.
+        (
+            {
+                "goals": {
+                    "entities": {"emergency_fund": {"summary": "Keep six months in checking."}}
+                }
+            },
+            False,
+        ),
+    ],
+)
+async def test_structure_preview_never_writes_a_source_managed_finance_branch(
+    monkeypatch, payload, blocked
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    message = "My emergency fund is six months of expenses in my Tartan checking"
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=[
+                _single_segment(message),
+                {
+                    "routing_decision": "sanctioned_financial_memory",
+                    "confidence": 0.9,
+                    "reason": "Durable financial goal.",
+                    "source_agent": "financial_guard_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "merge_mode": "create_entity",
+                    "target_domain": "financial",
+                    "target_entity_id": "",
+                    "target_entity_path": "",
+                    "match_confidence": 0.9,
+                    "match_reason": "New goal.",
+                    "source_agent": "memory_merge_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "candidate_payload": payload,
+                    "structure_decision": {
+                        "action": "extend_domain",
+                        "target_domain": "financial",
+                        "json_paths": sorted(payload),
+                        "top_level_scope_paths": sorted(payload),
+                        "externalizable_paths": [],
+                        "summary_projection": {},
+                        "sensitivity_labels": {},
+                        "confidence": 0.9,
+                        "source_agent": "pkm_structure_agent",
+                        "contract_version": 1,
+                    },
+                    "write_mode": "confirm_first",
+                    "target_entity_scope": "goals",
+                    "validation_hints": [],
+                },
+            ]
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        # A distinct owner per case: the preview cache is bound to owner and message.
+        user_id=f"user-5-{blocked}",
+        message=message,
+        current_domains=["financial"],
+    )
+
+    assert result["structure_decision"]["target_domain"] == "financial"
+    assert ("source_managed_branch_blocked" in result["validation_hints"]) is blocked
+    if blocked:
+        assert result["write_mode"] == "do_not_save"
+    else:
+        assert result["write_mode"] != "do_not_save"
     assert result["preview_cards"][0]["target_domain"] == "financial"
 
 

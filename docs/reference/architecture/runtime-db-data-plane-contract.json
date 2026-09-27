@@ -525,13 +525,14 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "kai_analyze_runs"
+        "kai_analyze_runs",
+        "kai_run_state"
       ],
-      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
-      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
-      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
-      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
-      "plaintext_posture": "terminal_result_and_metadata",
+      "primary_access_path": "Cross-process state for Kai's long-running runs. kai_run_state (migration 253) holds one row per debate or portfolio-import run: the owning worker process writes a running row at start, refreshes a heartbeat and metadata-only progress every 5s and reads owner cancel requests in the same round trip, then writes a terminal receipt. Any process serves GET .../run/active, follows a run it does not hold to its end via GET .../run/{id}/stream, and records POST .../run/{id}/cancel. kai_analyze_runs (migration 125) is the earlier terminal-only checkpoint; migration 128 purges it on every replay and the runtime no longer writes it. On by default; KAI_ANALYZE_DURABLE_RUN_STORE=false is an emergency kill switch.",
+      "retention_policy": "Rows carry expires_at (6h after the last heartbeat or the terminal write) and are deleted on every run start and every terminal write; a follower deletes relay ciphertext as soon as it reads it. Writes are coarse (start, one per 5s heartbeat, terminal), never per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are swept on run start and end.",
+      "trust_boundary": "Stores run identifiers, user_id, run kind, debate session id and ticker, status, timestamps, an event count with server-defined event and phase names, and a terminal receipt with a server-defined code. No holdings, statements, file names, decision cards, transcripts, model output, market material or PKM context. To hand the terminal frame to a different process for the same user, the requesting process stores only a one-time X25519 public key and keeps the private key in memory; the owner stores the frame sealed to it (X25519 + HKDF-SHA256 salted from the backend signing secret + AES-256-GCM, bound to run_id, user_id and both public keys) and the requester deletes it on read, or the owner when it stops answering, so it cannot be opened, forged or redirected from the database. All reads and writes are scoped by run_id and user_id.",
+      "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "low_per_user_run"
     },
     {

@@ -200,7 +200,7 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     ],
     [
       "/api/vault/primary/set",
-      () => VaultService.setPrimaryVaultMethod("mutation-user", "passphrase"),
+      () => VaultService.setPrimaryVaultMethod("mutation-user", "passphrase", "default", "synthetic-owner-token"),
     ],
   ] as const;
 

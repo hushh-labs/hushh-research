@@ -1,7 +1,7 @@
 # FCM Notifications
 
 > **Status**: Production (Pure Push)
-> **Last Updated**: August 2026
+> **Last Updated**: September 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
 
 
@@ -48,8 +48,12 @@ Before a routine notification type is added, its authoritative transition must
 already produce either a durable `feed_events` row or a live Feed actionable.
 Current coverage includes consent, connection actionables, the full One
 Location notification lifecycle (including Circle joins and referrals), and
-terminal funding-transfer statuses. A new emitter that only calls FCM is
-incomplete.
+terminal funding-transfer statuses. Calendar and Mail also project
+privacy-safe, durable in-app Feed outcomes: Calendar connection state and
+confirmed create/reschedule/cancel actions; Mail connection state, opted-in
+information requests, receipt sync outcomes, and owner-approved send outcomes.
+These Feed projections do not themselves send an OS push. A new emitter that
+only calls FCM is incomplete.
 
 `message_id` identifies one semantic transition and `notification_tag`
 identifies the system card it may replace. Connection requests are scoped by
@@ -69,6 +73,68 @@ already attended the system notification. Transient acknowledgement failures
 retry with capped backoff while Feed remains open and retry immediately when
 connectivity returns; permanent authorization or validation failures do not
 spin in the background.
+
+### One replied (`one_reply`)
+
+A One chat turn keeps running on the server after the app stops reading it
+(the person left the chat, or the native app went to the background), and its
+answer is sealed into the conversation with the turn's own chat key. When such
+a turn settles with something to open, the server sends one bare wake-up:
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `One replied` (fixed; never answer or prompt text) |
+| `type` | `one_reply` |
+| Data | `conversation_id` (opaque) and `message_id` only; no `user_id` |
+| Platforms | iOS and Android tokens only; a web token is skipped |
+| Body tap | `/?conversation=<id>`; the chat selects it after unlock through its owner-checked history load. `deep_link` is ignored |
+
+It is sent only when the stream had already closed before the turn settled
+(a client still reading receives the answer live), and only for turns whose
+client asked for it with `forwardedProps.notifyOnDetach` — the native app. A
+web tab's closed stream never wakes the person's phone. Bridge bookkeeping
+events (`state_update_*`) are not read as a turn, so a review pause counts as
+settled and earns the push. Inside the open app the chat
+shows its own "One replied" notice (see `AgentChatTurnNotifier`), and nothing
+while the person is looking at that conversation.
+
+**Exception to the Feed-row rule, by design.** The durable record is the
+conversation itself, sealed with the person's chat key. A `feed_events` row is
+not chat-key sealed, so writing one per reply would move chat metadata out of
+the sealed store. The body tap therefore opens the conversation, not Feed.
+
+### Consent request (`consent_request`) is bare
+
+The owner's push names who is asking and nothing else: title `Consent request`,
+body `{Name} asked to see your information` (final reminder: `{Name}'s request
+is still waiting for you.`). Data carries identifiers, the requester's display
+name and photo URL, and timing fields only. Scope, scope description, purpose,
+existing grants and access summaries are never in the push, because the push
+provider and the lock screen see it before the vault is unlocked. The app loads
+those details after unlock from the owner-scoped pending list. Built by
+`build_consent_push_content` in `api/consent_listener.py`; guarded by
+`tests/test_consent_listener_notifications.py`.
+
+### Information request answered (`information_request_updated`)
+
+When the owner approves or declines a person-to-person request, or it times
+out, the requester gets one bare alert:
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `Your information request has an answer` (fixed; never the outcome, scope or values) |
+| `type` | `information_request_updated` with `action` and `bundle_id`, `request_id` |
+| Alert | `CONSENT_GRANTED`, `CONSENT_DENIED`, `TIMEOUT`; `REVOKED` and `CANCELLED` stay silent |
+| Tag | `information-request:{bundle_id}` (one card per request) |
+| Body tap | `/?informationRequest=<bundle_id>`; after unlock the app finds the asking conversation in the person's sealed history and continues it there |
+
+Inside the open app the requester's One chat continues on its own
+(`AgentConsentContinuationNotifier`): on the chat, the request card shows
+`Consent approved` and One answers from the shared information; elsewhere in
+the app a `Consent approved` notice appears and the existing `One replied`
+notice follows. The notifier polls only the requests this tab saw waiting, so
+it works when web push is blocked. The durable record is the sealed
+conversation, the same exception to the Feed-row rule as `one_reply`.
 
 ### Emergency SMS alert policy
 
@@ -123,7 +189,7 @@ There is no midpoint reminder and no repeated reminder loop once a request has b
 2. Backend inserts consent_audit row
 3. PostgreSQL pg_notify trigger fires
 4. consent_listener.py receives event
-5. Enriches FCM payload: { request_id, scope, agent_id, scope_description }
+5. Builds a bare FCM payload: identifiers and the requester's name only (details load after unlock)
 6. Sends FCM message to user's registered tokens
 7. Client receives push → refreshes Feed/domain state; OS presents when the native app is backgrounded/terminated or no visible web client claims the push
 8. No polling and no production SSE requirement for notification data

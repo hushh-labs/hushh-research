@@ -7,12 +7,14 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
-import { DriveSearchError, DriveSearchService, type DriveSearchResults, type DriveSearchStatus } from "@/lib/services/drive-search-service";
+import { DriveSearchError, DriveSearchService, type DriveSearchResults, type DriveSearchSelection, type DriveSearchStatus } from "@/lib/services/drive-search-service";
 
 const CHANGED = "hushh:drive-searches-changed";
 const ACTIVE = new Set<DriveSearchStatus["status"]>(["queued", "running"]);
 const READ_BLOCKED = new Set(["connect_required", "reconnect_required", "connection_changed", "permission_denied", "search_expired", "search_not_found", "not_found"]);
 type OwnerProps = { getToken: () => string | null };
+export type SelectedDriveSearchFile = DriveSearchSelection & { name: string };
+type SearchSelectionProps = { onUseInChat?: (selection: SelectedDriveSearchFile) => void };
 
 /** Every async path rechecks the vault generation before publishing or acting. */
 function useOwnerGuard(getToken: OwnerProps["getToken"]) {
@@ -85,13 +87,13 @@ function ContinueUnlocked({ query, getToken }: OwnerProps & { query: string }) {
 }
 
 /** Reopening chat restores owner jobs from the server, not local storage. */
-export function DriveBackgroundSearches() {
+export function DriveBackgroundSearches({ onUseInChat }: SearchSelectionProps = {}) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked) return null;
-  return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} getToken={getVaultOwnerToken} />;
+  return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
 }
-function RecentSearches({ getToken }: OwnerProps) {
+function RecentSearches({ getToken, onUseInChat }: OwnerProps & SearchSelectionProps) {
   const owner = useOwnerGuard(getToken);
   const serial = useRef(0);
   const [jobs, setJobs] = useState<DriveSearchStatus[]>([]);
@@ -122,16 +124,16 @@ function RecentSearches({ getToken }: OwnerProps) {
   }, [load, invalidate]);
   if (!jobs.length && !error) return null;
   return <details open className="mx-auto w-full max-w-4xl rounded-2xl bg-foreground/[0.035] px-4 py-2 text-sm" aria-label="Drive searches">
-    <summary className="min-h-11 cursor-pointer content-center font-medium">Drive searches{jobs.length ? ` · ${jobs.length}` : ""}</summary>
+    <summary className="min-h-11 cursor-pointer content-center font-medium">Recent Drive searches{jobs.length ? ` · ${jobs.length}` : ""}</summary>
     {error ? <div className="space-y-2 py-2"><HelperText role="status">Couldn’t load your searches.</HelperText>
       <Button variant="muted" size="compact" onClick={() => void load()}>Try again</Button></div> : null}
     <div className="max-h-96 space-y-4 overflow-y-auto py-2">
-      {jobs.map(job => <DriveBackgroundSearchCard key={job.jobId} initial={job} getToken={getToken} />)}
+      {jobs.map(job => <DriveBackgroundSearchCard key={job.jobId} initial={job} getToken={getToken} onUseInChat={onUseInChat} />)}
     </div>
   </details>;
 }
 
-export function DriveBackgroundSearchCard({ initial, getToken }: OwnerProps & { initial: DriveSearchStatus }) {
+export function DriveBackgroundSearchCard({ initial, getToken, onUseInChat }: OwnerProps & SearchSelectionProps & { initial: DriveSearchStatus }) {
   const owner = useOwnerGuard(getToken);
   const [view, setView] = useState<DriveSearchStatus | null>(initial);
   const [page, setPage] = useState<DriveSearchResults | null>(null);
@@ -152,7 +154,9 @@ export function DriveBackgroundSearchCard({ initial, getToken }: OwnerProps & { 
   const stoppedReceipt = useRef<DriveSearchStatus | null>(null);
   const target = useRef<HTMLParagraphElement>(null);
   const now = useCoarseClock(1000);
-  const expired = now >= Date.parse(initial.expiresAt);
+  // The shared clock pauses in a hidden tab; use wall time on any resumed render.
+  const currentTime = Math.max(now, Date.now());
+  const expired = currentTime >= Date.parse(initial.expiresAt);
 
   const load = useCallback(async (nextCursor: string | null, decision = false) => {
     if (mutating.current || (!decision && activeRead.current)) return;
@@ -231,12 +235,14 @@ export function DriveBackgroundSearchCard({ initial, getToken }: OwnerProps & { 
   const state = view?.status;
   const label = state && ACTIVE.has(state) ? "Searching" : state === "completed" ? "Search complete" :
     state === "stopped" ? "Stopped" : state === "limited" ? "Search limit reached" : state === "failed" ? "Search interrupted" : "Search unavailable";
-  const end = view && !ACTIVE.has(view.status) ? Date.parse(view.updatedAt) : now;
+  const end = view && !ACTIVE.has(view.status) ? Date.parse(view.updatedAt) : currentTime;
   const elapsed = Math.max(0, Math.floor((end - Date.parse(initial.createdAt)) / 1000));
+  const remainingMinutes = Math.max(1, Math.ceil((Date.parse(initial.expiresAt) - currentTime) / 60_000));
+  const expiresIn = remainingMinutes < 60 ? `${remainingMinutes}m` : `${Math.ceil(remainingMinutes / 60)}h`;
   return <section className="space-y-2" aria-label="Background Drive search">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <HelperText ref={target} role="status" tabIndex={-1}>{!stoppedReceipt.current && notice ? notice : `${label} · ${matched.toLocaleString()} found`}</HelperText>
-      <div className="flex items-center gap-2"><HelperText>{elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}</HelperText>
+      <div className="flex items-center gap-2"><HelperText>{elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} elapsed · Expires in {expiresIn}</HelperText>
         {(canCancel || stopping) ? <Button type="button" variant="muted" size="compact" disabled={stopping} onClick={() => void stop()}>{stopping ? "Stopping…" : "Stop"}</Button> : null}
       </div>
     </div>
@@ -246,6 +252,10 @@ export function DriveBackgroundSearchCard({ initial, getToken }: OwnerProps & { 
     <div aria-label="Found Drive files" aria-busy={loading}>
       {page?.files.length ? <ul className="space-y-1">{page.files.map(file => <li key={file.id} className="min-w-0 break-words py-1">
         {file.openUrl ? <a className="text-primary underline underline-offset-4" href={file.openUrl} target="_blank" rel="noopener noreferrer">{file.name}</a> : file.name}
+        {onUseInChat ? <Button type="button" variant="muted" size="compact" className="ml-2" aria-label={`Use ${file.name} in chat`}
+          onClick={() => { try { owner().guard(); onUseInChat({ jobId: initial.jobId, position: file.position, name: file.name }); } catch { /* No stale-owner handoff. */ } }}>
+          Use in chat
+        </Button> : null}
       </li>)}</ul> : null}
     </div>
     {previous.length > 0 || page?.nextCursor ? <div className="flex gap-2">

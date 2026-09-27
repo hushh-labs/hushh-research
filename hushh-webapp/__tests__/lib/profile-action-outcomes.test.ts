@@ -87,11 +87,12 @@ describe("supportOutcomeToVoice", () => {
   it("every early return names why nothing was sent", () => {
     // Graph observation 6: the wrapper said "sent" after the helper returned
     // early on validation/offline or caught an error.
-    for (const kind of ["too_short", "invalid_reply_email", "offline", "busy", "no_user"] as const) {
+    for (const kind of ["too_short", "offline", "busy", "no_user"] as const) {
       const out = supportOutcomeToVoice({ kind });
       expect(out.status).toBe("blocked");
       expect(out.summary).not.toMatch(/sent that/i);
     }
+    expect(supportOutcomeToVoice({ kind: "offline" }).summary).not.toMatch(/once you reconnect/i);
     for (const kind of ["rejected", "failed"] as const) {
       const out = supportOutcomeToVoice({ kind });
       expect(out.status).toBe("failed");

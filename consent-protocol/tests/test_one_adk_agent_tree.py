@@ -84,6 +84,10 @@ from hushh_mcp.one_adk.agui_turn_timing import (
     timed_one_after_model,
     timed_one_before_model,
 )
+from hushh_mcp.one_adk.pending_email_draft import (
+    STATE_PENDING_EMAIL_DRAFT,
+    admit_pending_email_draft,
+)
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
@@ -992,6 +996,113 @@ class TestGmailEmailDraftDirective:
         assert "do not draft a refusal" in instruction
         assert "ask the owner plainly for exactly the missing information" in instruction
         assert "save the details privately and prepare the email" in instruction
+
+    def test_memory_in_the_persons_words_means_their_pkm(self):
+        # People say "memory" or "what you know about me"; the tools say PKM.
+        assert "'what you know about me'" in ONE_IDENTITY_INSTRUCTION
+        assert "otherwise read it with read_my_pkm_domain_summary" in ONE_IDENTITY_INSTRUCTION
+        assert "call it their memory, never PKM" in ONE_IDENTITY_INSTRUCTION
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("unlocked", [True, False])
+    async def test_route_admits_the_pending_draft_only_for_an_unlocked_owner_turn(
+        self, monkeypatch, unlocked
+    ):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from api.routes.one import agent_chat
+        from tests.helpers.chat_keys import bound_request_chat_key
+        from tests.test_agui_turn_timing import _input
+
+        vault = AsyncMock(return_value={"user_id": "owner", "token": "synthetic"})
+        if not unlocked:
+            vault.side_effect = HTTPException(status_code=403)
+        monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
+        monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+        monkeypatch.setattr(
+            agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        )
+        request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+        run = _input()
+        run.forwarded_props = {
+            "pendingEmailDraft": {
+                "to": "pat@example.com",
+                "subject": "Account details",
+                "body": "Account 12345678 is attached.",
+            }
+        }
+        with bound_request_chat_key("owner"):
+            state = await agent_chat._extract_state(request, run)
+
+        # Popped before the bridge can copy it; state only ever holds a reference.
+        assert "pendingEmailDraft" not in run.forwarded_props
+        assert "12345678" not in str(state)
+        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        if unlocked:
+            assert state[STATE_PENDING_EMAIL_DRAFT].startswith("one_secret_ref:")
+            assert "PENDING MAIL DRAFT" in instruction
+            assert "Account 12345678 is attached." in instruction
+        else:
+            assert state[STATE_PENDING_EMAIL_DRAFT] == ""
+            assert "PENDING MAIL DRAFT" not in instruction
+
+    @pytest.mark.asyncio
+    async def test_follow_up_turn_revises_the_pending_draft_without_sending(self):
+        forwarded = {
+            "pendingEmailDraft": {
+                "to": "pat@example.com",
+                "cc": "",
+                "bcc": "",
+                "subject": "Account details",
+                "body": "Hi Pat, my account number is 12345678.",
+                "driveFileId": "drive-file-1",
+                "sourceBound": False,
+            }
+        }
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_PENDING_EMAIL_DRAFT: admit_pending_email_draft(forwarded),
+        }
+
+        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "PENDING MAIL DRAFT" in instruction
+        assert "To: pat@example.com" in instruction
+        assert "Hi Pat, my account number is 12345678." in instruction
+        assert "Attached Drive file id: drive-file-1" in instruction
+        assert "call open_gmail_email_draft with their request and every field" in instruction
+        assert "Opening a revised draft never sends it" in instruction
+        # Negative control: no pending draft, no revision context.
+        assert "PENDING MAIL DRAFT" not in _one_runtime_instruction(
+            SimpleNamespace(state={STATE_USER_ID: "u1"})
+        )
+        # Malformed or oversized drafts are dropped, never partially admitted.
+        assert admit_pending_email_draft({"pendingEmailDraft": {"body": "x" * 12_001}}) == ""
+        assert admit_pending_email_draft({"pendingEmailDraft": {"to": ["a@example.com"]}}) == ""
+
+        # "Add priya@example.com to cc, remove the account number": One's revision
+        # is the same review tool, so it replaces the card and parks only a prompt.
+        result = await open_gmail_email_draft(
+            "Add priya@example.com to cc and remove the account number",
+            _tool_context(state),
+            drive_file_id="drive-file-1",
+            to="pat@example.com",
+            cc="priya@example.com",
+            subject="Account details",
+            body="Hi Pat, the details are attached.",
+        )
+        assert result["status"] == "draft_opened"
+        directives = {k: v for k, v in state.items() if k.startswith(f"{STATE_PENDING_DIRECTIVE}:")}
+        assert directives == {
+            f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft": {
+                "kind": "prompt",
+                "payload": {
+                    "kind": "gmail_email_draft",
+                    "instruction": "Add priya@example.com to cc and remove the account number",
+                    "drive_file_id": "drive-file-1",
+                },
+            }
+        }
 
     @pytest.mark.asyncio
     async def test_opens_only_an_editable_draft_directive(self):

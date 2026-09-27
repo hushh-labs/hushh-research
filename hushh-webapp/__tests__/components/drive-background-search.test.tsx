@@ -32,7 +32,7 @@ const job = (overrides: Partial<DriveSearchStatus> = {}): DriveSearchStatus => (
 });
 const page = (overrides: Partial<DriveSearchResults> = {}): DriveSearchResults => ({
   jobId, revision: 1, matched: 125, nextCursor: "page-two",
-  files: [{ id: "file-one", name: "Explain For Product", mimeType: "application/vnd.google-apps.document",
+  files: [{ position: 1, id: "file-one", name: "Explain For Product", mimeType: "application/vnd.google-apps.document",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }], ...overrides,
 });
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; };
@@ -44,7 +44,7 @@ beforeEach(() => {
   state.service.results.mockResolvedValue(page()); state.service.create.mockResolvedValue(job());
   state.service.stop.mockResolvedValue(job({ status: "stopped", revision: 3, canStop: false }));
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("durable Drive search UI", () => {
   it("requires a scoped tap and reuses the create key after an uncertain response", async () => {
@@ -63,8 +63,10 @@ describe("durable Drive search UI", () => {
   it("restores after reopening, pages results, and never stops on tab unmount", async () => {
     const rendered = render(<DriveBackgroundSearches />);
     await screen.findByRole("link", { name: "Explain For Product" });
+    expect(screen.getByText("Recent Drive searches · 1")).toBeTruthy();
     expect(screen.getByText("Searching · 125 found")).toBeTruthy();
-    state.service.results.mockResolvedValueOnce(page({ files: [{ ...page().files[0], id: "next", name: "Next match" }], nextCursor: null }));
+    expect(screen.getByText(/elapsed · Expires in/)).toBeTruthy();
+    state.service.results.mockResolvedValueOnce(page({ files: [{ ...page().files[0], position: 26, id: "next", name: "Next match" }], nextCursor: null }));
     fireEvent.click(screen.getByRole("button", { name: "Next 25" }));
     await screen.findByRole("link", { name: "Next match" });
     expect(state.service.results.mock.calls.at(-1)?.[3]).toBe("page-two");
@@ -73,6 +75,25 @@ describe("durable Drive search UI", () => {
     render(<DriveBackgroundSearches />);
     await screen.findByRole("link", { name: "Explain For Product" });
     expect(state.service.recent).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands a selected saved result to chat without sending its file ID or link", async () => {
+    const onUseInChat = vi.fn();
+    render(<DriveBackgroundSearches onUseInChat={onUseInChat} />);
+    await screen.findByRole("link", { name: "Explain For Product" });
+    fireEvent.click(screen.getByRole("button", { name: "Use Explain For Product in chat" }));
+    expect(onUseInChat).toHaveBeenCalledWith({ jobId, position: 1, name: "Explain For Product" });
+  });
+
+  it("hides results when their saved search expires", async () => {
+    const expiresAt = new Date(Date.now() + 5_000).toISOString();
+    state.service.recent.mockResolvedValueOnce([job({ expiresAt })]);
+    const rendered = render(<DriveBackgroundSearches />);
+    await screen.findByRole("link", { name: "Explain For Product" });
+    expect(screen.getByText(/Expires in/)).toBeTruthy();
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(expiresAt) + 1);
+    rendered.rerender(<DriveBackgroundSearches />);
+    expect(screen.queryByRole("link", { name: "Explain For Product" })).toBeNull();
   });
 
   it("Stop supersedes an in-flight poll so late running state cannot resume the card", async () => {
@@ -100,7 +121,7 @@ describe("durable Drive search UI", () => {
     await waitFor(() => expect(state.service.results).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("link", { name: "Explain For Product" })).toBeNull();
     state.service.results.mockResolvedValueOnce(page({ revision: 3,
-      files: [{ ...page().files[0], id: "second", name: "Second page result" }] }));
+      files: [{ ...page().files[0], position: 26, id: "second", name: "Second page result" }] }));
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     await screen.findByText("Stopped · 125 found");
     await screen.findByRole("link", { name: "Second page result" });

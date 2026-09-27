@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -30,6 +31,41 @@ def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(account.router)
     return app
+
+
+def test_first_welcome_uses_verified_firebase_email_only_once(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    claims = {}
+    sent = []
+    user = SimpleNamespace(
+        user_metadata=SimpleNamespace(
+            creation_timestamp=1_000_000, last_sign_in_timestamp=1_000_001
+        ),
+        custom_claims=claims,
+        email_verified=True,
+        email="verified@example.com",
+    )
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: user)
+    monkeypatch.setattr(
+        firebase_auth, "set_custom_user_claims", lambda _uid, value, **_kwargs: claims.update(value)
+    )
+    monkeypatch.setattr(
+        account,
+        "get_support_email_service",
+        lambda: SimpleNamespace(send_account_notice=lambda **kwargs: sent.append(kwargs)),
+    )
+    app = _build_app()
+    app.dependency_overrides[account.require_firebase_auth] = lambda: "owner-1"
+    client = TestClient(app)
+
+    first = client.post("/api/account/welcome", json={"to_email": "attacker@example.com"})
+    second = client.post("/api/account/welcome")
+
+    assert first.status_code == 200 and first.json()["status"] == "sent"
+    assert second.status_code == 200 and second.json()["status"] == "skipped"
+    assert sent == [{"kind": "welcome", "to_email": "verified@example.com"}]
 
 
 def _configure_firebase_verifier(monkeypatch, *, uid: str) -> None:

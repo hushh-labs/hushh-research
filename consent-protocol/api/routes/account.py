@@ -6,6 +6,7 @@ Account API Routes
 Endpoints for account lifecycle management.
 
 Routes:
+    POST /api/account/welcome - One-time first-account welcome to verified email
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
     POST /api/account/phone/claim - Claim a Firebase-verified phone for the signed-in actor
     GET /api/account/email-aliases - List verified/pending account email aliases
@@ -52,6 +53,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
 )
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
+    ACCOUNT_DELETION_PAUSED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
     PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
     AccountService,
@@ -59,6 +61,12 @@ from hushh_mcp.services.account_service import (
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
+)
+from hushh_mcp.services.support_email_service import (
+    SupportEmailDeliveryUncertainError,
+    SupportEmailNotConfiguredError,
+    SupportEmailSendError,
+    get_support_email_service,
 )
 from hushh_mcp.services.trusted_device_service import (
     TrustedDeviceError,
@@ -69,6 +77,58 @@ from hushh_mcp.services.trusted_device_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
+
+
+@router.post("/welcome")
+async def send_first_account_welcome(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Best-effort first-account welcome; routine sign-ins never qualify."""
+    app = get_firebase_auth_app()
+    if app is None:
+        raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"})
+    from firebase_admin import auth as firebase_auth
+
+    try:
+        user = await run_in_threadpool(firebase_auth.get_user, firebase_uid, app=app)
+    except Exception as exc:
+        logger.warning("account_welcome.identity_unavailable")
+        raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"}) from exc
+    metadata = getattr(user, "user_metadata", None)
+    created = getattr(metadata, "creation_timestamp", None)
+    signed_in = getattr(metadata, "last_sign_in_timestamp", None)
+    claims = getattr(user, "custom_claims", None) or {}
+    if (
+        claims.get("hushhWelcomeMailAt")
+        or not created
+        or (signed_in and signed_in - created > 60_000)
+    ):
+        return {"status": "skipped", "reason": "not_first_sign_in"}
+    if not getattr(user, "email_verified", False) or not getattr(user, "email", None):
+        return {"status": "skipped", "reason": "verified_email_required"}
+    try:
+        await run_in_threadpool(
+            get_support_email_service().send_account_notice,
+            kind="welcome",
+            to_email=str(user.email),
+        )
+    except SupportEmailDeliveryUncertainError:
+        logger.warning("account_welcome.delivery_uncertain")
+        return {"status": "uncertain"}
+    except (SupportEmailNotConfiguredError, SupportEmailSendError):
+        logger.error("account_welcome.delivery_failed")
+        return {"status": "failed"}
+    try:
+        await run_in_threadpool(
+            firebase_auth.set_custom_user_claims,
+            firebase_uid,
+            {**claims, "hushhWelcomeMailAt": int(time.time())},
+            app=app,
+        )
+    except Exception:
+        logger.warning("account_welcome.marker_failed")
+    return {"status": "sent", "kind": "welcome"}
+
 
 _FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS = 3.0
 _CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS = 5.0
@@ -1788,6 +1848,14 @@ async def delete_account(
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
                 },
+            )
+        if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:
+            # A deploy's release fence refused the erasure; it rolled back and
+            # will succeed once the release ends.
+            logger.warning("account.delete_paused user=%s reason=release_fence", user_id)
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.

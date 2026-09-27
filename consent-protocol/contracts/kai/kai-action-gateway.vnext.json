@@ -24468,7 +24468,8 @@
       "label": "Start Debate from Preview",
       "aliases": [
         "start debate",
-        "confirm analysis preview"
+        "confirm analysis preview",
+        "start analysis debate"
       ],
       "search_keywords": [
         "analysis",

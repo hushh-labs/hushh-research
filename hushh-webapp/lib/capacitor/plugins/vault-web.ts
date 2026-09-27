@@ -374,10 +374,13 @@ export class HushhVaultWeb extends WebPlugin {
     passkeyDeviceLabel?: string;
     passkeyLastUsedAt?: number;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }> {
+    const headers: HeadersInit = { "Content-Type": "application/json", "X-Hushh-Consent": `Bearer ${options.vaultOwnerToken}` };
+    if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
     const response = await fetch("/api/vault/wrapper/upsert", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(options),
     });
     if (!response.ok) throw new Error("Failed to upsert wrapper");
@@ -415,10 +418,13 @@ export class HushhVaultWeb extends WebPlugin {
     primaryMethod: string;
     primaryWrapperId?: string;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }> {
+    const headers: HeadersInit = { "Content-Type": "application/json", "X-Hushh-Consent": `Bearer ${options.vaultOwnerToken}` };
+    if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
     const response = await fetch("/api/vault/primary/set", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(options),
     });
     if (!response.ok) throw new Error("Failed to set primary method");

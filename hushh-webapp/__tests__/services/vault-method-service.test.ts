@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
     getVaultState: vi.fn(),
+    getOrIssueVaultOwnerToken: vi.fn(),
     hashVaultKey: vi.fn(),
     upsertVaultWrapper: vi.fn(),
     deleteVaultWrapper: vi.fn(),
@@ -28,6 +29,7 @@ import { VaultMethodService } from "@/lib/services/vault-method-service";
 
 describe("VaultMethodService.changePassphrase", () => {
   const getVaultStateMock = vi.mocked(VaultService.getVaultState);
+  const ownerTokenMock = vi.mocked(VaultService.getOrIssueVaultOwnerToken);
   const hashVaultKeyMock = vi.mocked(VaultService.hashVaultKey);
   const upsertWrapperMock = vi.mocked(VaultService.upsertVaultWrapper);
   const deleteWrapperMock = vi.mocked(VaultService.deleteVaultWrapper);
@@ -61,6 +63,7 @@ describe("VaultMethodService.changePassphrase", () => {
       ],
     };
     getVaultStateMock.mockResolvedValue(mockVaultState);
+    ownerTokenMock.mockResolvedValue({ token: "owner-token", expiresAt: 9999999999999, scope: "VAULT_OWNER" });
     hashVaultKeyMock.mockResolvedValue("vault-hash");
     rewrapMock.mockResolvedValue({
       encryptedVaultKey: "wrapped-key",
@@ -82,6 +85,7 @@ describe("VaultMethodService.changePassphrase", () => {
     expect(upsertWrapperMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "uid-1",
+        vaultOwnerToken: "owner-token",
         wrapper: expect.objectContaining({
           method: "passphrase",
           wrapperId: "default",
@@ -122,6 +126,7 @@ describe("VaultMethodService.changePassphrase", () => {
       "uid-1",
       "passphrase",
       "default",
+      "owner-token",
     );
     expect(result).toEqual({
       primaryMethod: "passphrase",

@@ -56,6 +56,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         forwarded.get(key)
         for key in (
             "mcpApproval",
+            "consentContinuation",
+            "driveSearchSelection",
+            "pendingEmailDraft",
             "gmailInformationRequestWorkflowId",
             "personSelectionHandle",
         )

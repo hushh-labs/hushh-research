@@ -215,6 +215,28 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.ownerTokenStatus).toBe("valid");
   });
 
+  // Timers count awake time only: after overnight sleep the renewal timer has
+  // not fired although the wall clock is hours past expiry. Resume must renew.
+  it("renews on resume when device sleep left the renewal timer behind the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 8 * 3_600_000 + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    vi.setSystemTime(NOW + 8 * 3_600_000);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+    setVisibility("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+  });
+
   it("never returns an expired token even before a lifecycle render", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));

@@ -23,12 +23,15 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.support_email_service import AccountNoticeKind, get_support_email_service
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,43 @@ ENFORCE_VAULT_WRITE_CLIENT_VERSION = os.getenv(
 # must not hold the authenticated setup/vault admission path while its separate
 # async database pool cold-starts through Cloud SQL.
 VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS = 2.0
+
+
+def _require_matching_vault_owner(vault_owner_token: dict, user_id: str) -> None:
+    if str(vault_owner_token.get("user_id") or "") != user_id:
+        raise HTTPException(
+            status_code=403, detail="VAULT_OWNER token userId does not match requested userId"
+        )
+
+
+def _is_passkey_method(method: str) -> bool:
+    return method in {"generated_default_web_prf", "generated_default_native_passkey_prf"}
+
+
+async def _send_vault_change_notice(user_id: str, kind: AccountNoticeKind) -> None:
+    """Best effort after commit; no client event can request an account notice."""
+    try:
+        app = get_firebase_auth_app()
+        if app is None:
+            raise RuntimeError("account lookup unavailable")
+        from firebase_admin import auth as firebase_auth
+
+        account = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+        if not getattr(account, "email_verified", False) or not getattr(account, "email", None):
+            logger.warning(
+                "account_security_email.skipped reason=verified_email_required kind=%s", kind
+            )
+            return
+        await run_in_threadpool(
+            get_support_email_service().send_account_notice,
+            kind=kind,
+            to_email=str(account.email),
+        )
+        logger.info("account_security_email.accepted kind=%s", kind)
+    except Exception as exc:
+        logger.error(
+            "account_security_email.failed kind=%s error_type=%s", kind, type(exc).__name__
+        )
 
 
 def _mask_user_id(user_id: str) -> str:
@@ -638,9 +678,11 @@ async def vault_wrapper_upsert(
     http_request: Request,
     request: VaultWrapperUpsertRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
 ):
     """Add or update a single vault wrapper for an enrolled method."""
     verify_user_id_match(firebase_uid, request.userId)
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/wrapper/upsert request user=%s method=%s",
@@ -650,6 +692,16 @@ async def vault_wrapper_upsert(
 
     try:
         service = VaultKeysService()
+        prior_state = await service.get_vault_state(request.userId)
+        previous_wrapper = next(
+            (
+                wrapper
+                for wrapper in (prior_state or {}).get("wrappers", [])
+                if wrapper.get("method") == request.method
+                and (wrapper.get("wrapperId") or "default") == (request.wrapperId or "default")
+            ),
+            None,
+        )
         await service.upsert_wrapper(
             user_id=request.userId,
             vault_key_hash=request.vaultKeyHash,
@@ -665,6 +717,21 @@ async def vault_wrapper_upsert(
             passkey_device_label=request.passkeyDeviceLabel,
             passkey_last_used_at=request.passkeyLastUsedAt,
         )
+        if _is_passkey_method(request.method) and previous_wrapper is None:
+            await _send_vault_change_notice(request.userId, "passkey_added")
+        elif (
+            request.method == "passphrase"
+            and previous_wrapper is not None
+            and any(
+                previous_wrapper.get(field) != value
+                for field, value in (
+                    ("encryptedVaultKey", request.encryptedVaultKey),
+                    ("salt", request.salt),
+                    ("iv", request.iv),
+                )
+            )
+        ):
+            await _send_vault_change_notice(request.userId, "passphrase_changed")
         return SuccessResponse(success=True)
 
     except ValueError as e:
@@ -699,17 +766,7 @@ async def vault_wrapper_delete(
 ):
     """Remove an enrolled non-passphrase vault wrapper."""
     verify_user_id_match(firebase_uid, request.userId)
-    token_user_id = str(vault_owner_token.get("user_id") or "")
-    if token_user_id != request.userId:
-        logger.warning(
-            "vault/wrapper/delete token mismatch token=%s request=%s",
-            _mask_user_id(token_user_id),
-            _mask_user_id(request.userId),
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="VAULT_OWNER token userId does not match requested userId",
-        )
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/wrapper/delete request user=%s method=%s",
@@ -727,6 +784,8 @@ async def vault_wrapper_delete(
             fallback_primary_method=request.fallbackPrimaryMethod,
             fallback_primary_wrapper_id=request.fallbackPrimaryWrapperId,
         )
+        if _is_passkey_method(request.method):
+            await _send_vault_change_notice(request.userId, "passkey_removed")
         return SuccessResponse(success=True)
 
     except ValueError as e:
@@ -756,9 +815,11 @@ async def vault_primary_set(
     http_request: Request,
     request: VaultPrimaryMethodSetRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
 ):
     """Set default vault unlock method among already enrolled wrappers."""
     verify_user_id_match(firebase_uid, request.userId)
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/primary/set request user=%s primary=%s",

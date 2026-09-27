@@ -535,6 +535,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let userId = call.getString("userId"),
               let vaultKeyHash = call.getString("vaultKeyHash"),
               let method = call.getString("method"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty,
               let encryptedVaultKey = call.getString("encryptedVaultKey"),
               let salt = call.getString("salt"),
               let iv = call.getString("iv") else {
@@ -575,7 +576,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             body["passkeyLastUsedAt"] = passkeyLastUsedAt
         }
 
-        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+        performRequest(urlStr: urlStr, body: body, authToken: authToken, vaultOwnerToken: vaultOwnerToken) { json, error in
             if let error = error {
                 call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
@@ -590,7 +591,8 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setPrimaryVaultMethod(_ call: CAPPluginCall) {
         guard let userId = call.getString("userId"),
-              let primaryMethod = call.getString("primaryMethod") else {
+              let primaryMethod = call.getString("primaryMethod"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
             call.reject("Missing required parameters")
             return
         }
@@ -605,7 +607,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             "primaryWrapperId": primaryWrapperId
         ]
 
-        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+        performRequest(urlStr: urlStr, body: body, authToken: authToken, vaultOwnerToken: vaultOwnerToken) { json, error in
             if let error = error {
                 call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return

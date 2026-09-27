@@ -655,6 +655,34 @@ Secret-scan note:
 
 ## Strict Launch Gate (Release Cut)
 
+One support/account-mail launch check (owner: `kushal@hushh.ai`): verify the
+Workspace domain-wide delegation grant for the configured service-account client
+ID includes `https://www.googleapis.com/auth/gmail.send`, then send synthetic
+`[TEST]` welcome, passkey-add/remove, passphrase-change, and each support type
+to the test inbox. Confirm a real Help & Feedback submission reaches
+`one@hushh.ai`, its internal BCC reaches the support lead, and no report body
+appears in application logs. Confirm one controlled UAT vault change produces
+one notice without changing the vault outcome if mail fails. The public privacy
+policy must explain support-message handling, the internal copy, and retention;
+the in-app account-deletion control must be exercised. Check the managed backend
+5xx and account-mail alert policies are enabled, target the verified
+`kushal@hushh.ai` notification channel, and deliver a test incident. Missing
+grant, policy wording, or alert delivery blocks public launch; source config
+alone is not proof.
+
+The first-welcome Firebase claim suppresses ordinary repeated sign-ins, but it
+is not a distributed exactly-once mail ledger: simultaneous first-sign-in
+requests or a failed claim update can duplicate an accepted welcome. Verify
+the expected first-login traffic pattern or add durable idempotency before
+claiming a strict at-most-once guarantee.
+
+During launch, the owner records a short daily readout from the existing Cloud
+Monitoring dashboard: backend 5xx/latency, support accepted versus failed or
+uncertain, security-mail failure events, and open support issues. Follow the
+existing production deploy traffic-rollback procedure for a bad application
+revision; do not roll back a completed vault transition because email failed,
+and do not blindly resend an uncertain Gmail submission.
+
 Before creating a release tag/public rollout, run strict gate commands from repo root:
 
 ```bash

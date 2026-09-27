@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from hushh_mcp.one_adk.consent_continuation import CONSENT_OUTCOME_LABELS, continued_outcomes
 from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connector_result
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
@@ -162,6 +163,7 @@ _ACTIVITY_TOOLS = frozenset(
         "propose_information_request",
         "list_my_connections",
         "inspect_selected_drive_files",
+        "read_selected_drive_search_result",
         "inspect_private_connectors",
         "discover_workspace_tools",
         "read_workspace_tool",
@@ -254,6 +256,14 @@ def _activity_step_from_response(name: str, response: Any) -> dict[str, Any]:
         if safe.get("connectorId"):
             step["connectorId"] = safe["connectorId"]
         return step
+    if name == "read_selected_drive_search_result":
+        status = (_record(response) or {}).get("status")
+        return {
+            "status": "done",
+            "readStatus": status
+            if isinstance(status, str) and status in _READ_STATUSES
+            else "unavailable",
+        }
     if name in READ_TOOLS and name != "inspect_selected_drive_files":
         structured = redacted_read_receipt(_record(response) or {}).get("structured")
         read_status = (_record(structured) or {}).get("status")
@@ -331,9 +341,16 @@ def _index_turns(events: list[Any], project_event: Callable) -> tuple:
 
 
 def project_conversation_history(
-    events: list[Any], conversation_id: str, limit: int, *, project_event: Callable
+    events: list[Any],
+    conversation_id: str,
+    limit: int,
+    *,
+    project_event: Callable,
+    session_state: dict | None = None,
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
+    outcomes = continued_outcomes(session_state or {})
+    outcome_labels = {CONSENT_OUTCOME_LABELS[outcome] for outcome in outcomes.values()}
     projected, turn_events, last_answer, last_card, receipts = _index_turns(events, project_event)
     # A turn's cards and Activity belong with its answer, as they were shown
     # live. Card-only tool events fold into the answer; a turn without an
@@ -382,6 +399,8 @@ def project_conversation_history(
                 metadata = {**(metadata or {}), "turnActivity": activity}
             if event.author == "one" and turn in receipts and answer_index == index:
                 metadata = {**(metadata or {}), "specialist_read": receipts[turn]}
+        if event.author == "user" and text in outcome_labels:
+            metadata = {**(metadata or {}), "kind": "selection", "display": text}
         messages.append(
             {
                 "id": event.id or f"{event.invocation_id}:{len(messages)}",

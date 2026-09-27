@@ -27,6 +27,10 @@ export async function POST(request: NextRequest) {
     }
 
     const authHeader = request.headers.get("Authorization");
+    const consentHeader = request.headers.get("X-Hushh-Consent");
+    if (!consentHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Vault owner authorization required" }, { status: 401 });
+    }
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
       if (!validation.valid && !devAuthBypassAllowed()) {
@@ -48,6 +52,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
         "x-hushh-client-version": vaultWriteProtocolVersion,
         ...(authHeader ? { Authorization: authHeader } : {}),
+        "X-Hushh-Consent": consentHeader,
       },
       body: JSON.stringify({ userId, primaryMethod, primaryWrapperId }),
     });
