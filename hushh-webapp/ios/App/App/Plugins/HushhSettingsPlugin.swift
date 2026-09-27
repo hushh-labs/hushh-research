@@ -28,7 +28,6 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
         "useRemoteLLM": true,
         "preferredLLMProvider": "google",
         "requireBiometricUnlock": false,
-        "autoLockTimeout": 5,
         "theme": "system",
         "hapticFeedback": true,
         "showDebugInfo": false,
@@ -43,7 +42,6 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
             "useRemoteLLM": defaults.object(forKey: "useRemoteLLM") as? Bool ?? defaultSettings["useRemoteLLM"] as! Bool,
             "preferredLLMProvider": defaults.string(forKey: "preferredLLMProvider") ?? defaultSettings["preferredLLMProvider"] as! String,
             "requireBiometricUnlock": defaults.object(forKey: "requireBiometricUnlock") as? Bool ?? defaultSettings["requireBiometricUnlock"] as! Bool,
-            "autoLockTimeout": defaults.object(forKey: "autoLockTimeout") as? Int ?? defaultSettings["autoLockTimeout"] as! Int,
             "theme": defaults.string(forKey: "theme") ?? defaultSettings["theme"] as! String,
             "hapticFeedback": defaults.object(forKey: "hapticFeedback") as? Bool ?? defaultSettings["hapticFeedback"] as! Bool,
             "showDebugInfo": defaults.object(forKey: "showDebugInfo") as? Bool ?? defaultSettings["showDebugInfo"] as! Bool,
@@ -67,9 +65,6 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let value = call.getBool("requireBiometricUnlock") {
             defaults.set(value, forKey: "requireBiometricUnlock")
-        }
-        if let value = call.getInt("autoLockTimeout") {
-            defaults.set(value, forKey: "autoLockTimeout")
         }
         if let value = call.getString("theme") {
             defaults.set(value, forKey: "theme")

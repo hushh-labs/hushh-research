@@ -281,3 +281,23 @@ async def test_history_exposes_receipt_once_on_final_answer_without_private_tool
     get_session.assert_awaited_once_with(
         app_name=agent_chat.ONE_APP_NAME, user_id="owner", session_id="thread"
     )
+
+
+def test_drive_current_evidence_state_is_ephemeral_even_without_read_events():
+    from hushh_mcp.one_adk.external_read_boundary import STATE_DRIVE_READ_OUTCOME
+
+    outcome = {"invocation": "current-turn", "outcome": "failed"}
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={STATE_DRIVE_READ_OUTCOME: outcome},
+        events=[
+            Event(
+                author="one", actions=EventActions(state_delta={STATE_DRIVE_READ_OUTCOME: outcome})
+            )
+        ],
+    )
+    projected = durable_external_read_projection(session)
+    assert STATE_DRIVE_READ_OUTCOME not in projected.model_dump_json()
+    assert session.state[STATE_DRIVE_READ_OUTCOME] == outcome

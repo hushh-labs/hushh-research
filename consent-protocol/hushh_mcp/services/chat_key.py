@@ -144,6 +144,20 @@ class RequestChatKey:
         with self._lock:
             return self._key is not None
 
+    def refusal_state(self, owner_id: str | None) -> str:
+        """Why this key can or cannot serve ``owner_id``. A category, never the key.
+
+        ``owner_id=None`` skips the owner comparison (the caller does not know it).
+        """
+        with self._lock:
+            if self._key is None or time.monotonic() >= self._deadline:
+                return "released"
+            if self._owner is None:
+                return "unowned"
+            if owner_id is not None and self._owner != owner_id:
+                return "owner_mismatch"
+            return "bound"
+
     def markers(self) -> tuple[str, ...]:
         """Printable forms of the key, only for leak guards."""
         with self._lock:
@@ -210,6 +224,12 @@ def retain_request_chat_key() -> Iterator[None]:
 def request_has_chat_key(owner_id: str) -> bool:
     holder = _request_key.get()
     return holder is not None and holder.key_for(owner_id) is not None
+
+
+def request_chat_key_state(owner_id: str | None = None) -> str:
+    """``absent`` when this request carried no chat key, else the holder's state."""
+    holder = _request_key.get()
+    return "absent" if holder is None else holder.refusal_state(owner_id)
 
 
 def current_chat_key_markers() -> tuple[str, ...]:
@@ -328,6 +348,7 @@ __all__ = [
     "get_chat_key_provider",
     "is_person_key_ciphertext",
     "parse_chat_key_header",
+    "request_chat_key_state",
     "request_has_chat_key",
     "retain_request_chat_key",
     "set_chat_key_provider",

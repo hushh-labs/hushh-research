@@ -59,7 +59,10 @@ for (const dark of [false, true]) {
       expect(result.privacyLine).toBe("20px");
       expect(result.buttonFont).toBe("17px");
       expect(result.buttonWeight).toBe("600");
-      expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48, 0);
+      const originalArtHeight = viewport.width >= 640 && viewport.height >= 860
+        ? 320
+        : Math.max(140, Math.min(360, viewport.height - 400 - viewport.top - viewport.bottom));
+      expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48 + originalArtHeight * 0.1 + 2.7, 0);
       expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(10, 0);
       expect(result.button.height).toBeCloseTo(50, 0);
       expect(result.button.width).toBeCloseTo(Math.min(viewport.width, 440) - 48, 0);

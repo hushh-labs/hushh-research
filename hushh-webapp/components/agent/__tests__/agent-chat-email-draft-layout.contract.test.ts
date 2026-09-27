@@ -22,8 +22,9 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("getGmailInformationRequestReplyPayload");
     expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
     expect(source).toContain(
-      '"Reply to the selected Gmail email with appropriate details from my PKM."',
+      '"Reply to the selected Gmail email with appropriate details from my memory."',
     );
+    expect(source).not.toContain("appropriate details from my PKM");
     expect(source).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
     expect(source).not.toContain("prepareScopedGmailInformationRequestDraft");
     expect(source).toContain("autoDraft={emailDraftAutoDraft}");
@@ -56,6 +57,32 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).not.toContain('aria-label="Draft an email"');
     expect(source).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',
+    );
+  });
+
+  it("keeps the composer open while a mail draft waits for review", () => {
+    const block = (start: string, end: string) => {
+      const from = source.indexOf(start);
+      expect(from).toBeGreaterThan(-1);
+      return source.slice(from, source.indexOf(end, from));
+    };
+    // The composer, its textarea and its expand control stay usable.
+    expect(block("const canSend =", ";")).not.toContain("emailDraftOpen");
+    expect(block('aria-label={composerExpanded ? "Expanded message One"', "placeholder=")).not.toContain(
+      "emailDraftOpen",
+    );
+    expect(block('aria-label={composerExpanded ? "Collapse message editor"', "onClick=")).not.toContain(
+      "emailDraftOpen",
+    );
+    // Voice turns do not carry the draft, so voice still waits on the card.
+    expect(block("const canToggleVoice =", ";")).toContain("!emailDraftOpen");
+    // The follow-up turn carries the draft as it is on screen, edits included.
+    expect(source).toContain("onDraftChange={handleEmailDraftChange}");
+    expect(source).toContain("pendingEmailDraft: pendingEmailDraftFrameRef.current");
+    expect(source).toContain("emailDraftCardValueRef.current,");
+    // A revision is not a confirmed KYC save.
+    expect(source).toContain(
+      "Boolean(gmailKycReplyRequest?.workflow_id) && !emailDraftOpen",
     );
   });
 

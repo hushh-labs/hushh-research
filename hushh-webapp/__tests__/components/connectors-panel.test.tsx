@@ -14,7 +14,10 @@ const state = vi.hoisted(() => ({
   calendarDisconnect: vi.fn(),
   calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
-  gmailStatus: { connected: false, compose_permission_granted: false },
+  gmailStatus: { connected: false, compose_permission_granted: false } as Record<string, boolean>,
+  connectGmail: vi.fn(),
+  startNativeConnect: vi.fn(),
+  completeNativeConnect: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
@@ -42,7 +45,14 @@ vi.mock("@/lib/services/external-connector-service", () => ({
 vi.mock("@/components/consent/trusted-document-rules", () => ({
   TrustedDocumentRules: () => null,
 }));
-vi.mock("@/lib/services/gmail-receipts-service", () => ({ GmailReceiptsService: {} }));
+vi.mock("@/lib/services/gmail-receipts-service", () => ({
+  GmailReceiptsService: {
+    startNativeConnect: state.startNativeConnect,
+    completeNativeConnect: state.completeNativeConnect,
+    recordConsentFailure: vi.fn(),
+  },
+}));
+vi.mock("@/lib/capacitor", () => ({ HushhAuth: { connectGmail: state.connectGmail } }));
 vi.mock("@/components/icons", () => ({
   ArrowLeftIcon: () => null,
   ChevronRightIcon: () => null,
@@ -50,6 +60,7 @@ vi.mock("@/components/icons", () => ({
   XIcon: () => null,
 }));
 
+import { Capacitor } from "@capacitor/core";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 
 const callbacks = {
@@ -209,6 +220,26 @@ describe("supported connector catalog", () => {
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+  });
+
+  // The backend refuses a native grant that drops a scope the connection holds,
+  // so a modify grant made on the web must ride along when drafts are enabled.
+  it("carries existing Gmail send and modify grants into native draft consent", async () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    state.gmailStatus = { connected: true, compose_permission_granted: false, send_permission_granted: true, modify_permission_granted: true };
+    state.startNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", purpose: "compose" });
+    state.connectGmail.mockResolvedValue({ serverAuthCode: "one-time-code" });
+    state.completeNativeConnect.mockResolvedValue(undefined);
+    try {
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enable Gmail drafts" }));
+      await waitFor(() => expect(state.connectGmail).toHaveBeenCalledWith({
+        serverClientId: "native-client", purpose: "compose", preserveSend: true, preserveModify: true,
+      }));
+    } finally {
+      vi.mocked(Capacitor.isNativePlatform).mockRestore();
+    }
   });
 
   it("shows a compact Gmail disconnect action and asks before changing access", async () => {

@@ -612,6 +612,15 @@ export function parseAgentToolResultExperience(
     return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
       ? receipt : null;
   }
+  if (toolName === "read_workspace_tool") {
+    const result = unwrapToolResult(content);
+    const argumentProvider = parseRecord(toolArguments)?.provider;
+    const resultProvider = result?.provider;
+    if ((resultProvider ?? argumentProvider) !== "drive" ||
+      (resultProvider !== undefined && argumentProvider !== undefined && resultProvider !== argumentProvider)) return null;
+    const receipt = parseConnectorReadReceipt(result?.structured);
+    return receipt?.connector === "drive" && result?.status === receipt.status ? receipt : null;
+  }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||
     toolName === "propose_information_request" ||

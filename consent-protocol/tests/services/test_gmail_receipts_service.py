@@ -112,6 +112,30 @@ async def test_default_connect_requests_both_read_and_send_scope(monkeypatch):
     scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
     assert "https://www.googleapis.com/auth/gmail.readonly" in scope
     assert "https://www.googleapis.com/auth/gmail.send" in scope
+    # A read-only person is never asked for the restricted mailbox-change scope.
+    assert "https://www.googleapis.com/auth/gmail.modify" not in scope
+
+
+@pytest.mark.asyncio
+async def test_modify_is_requested_only_as_its_own_incremental_scope(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
+
+    result = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=True,
+        purpose="modify",
+    )
+
+    query = parse_qs(urlparse(result["authorize_url"]).query)
+    scope = query["scope"][0].split()
+    assert query["include_granted_scopes"] == ["true"]
+    assert "https://www.googleapis.com/auth/gmail.modify" in scope
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" not in scope
 
 
 @pytest.mark.asyncio

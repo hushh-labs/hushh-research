@@ -30,6 +30,9 @@ from hushh_mcp.consent.pkm_scope_policy import (
         "attr.financial.transactions_v1.*",
         "attr.financial.transactions_v1.merchant_name",
         "attr.financial.derived_v1.*",
+        # Their readable view (Finance > kind of account > institution > account).
+        "attr.financial.linked_accounts.*",
+        "attr.financial.linked_accounts.bank_accounts",
     ],
 )
 def test_raw_financial_branches_cannot_be_requested(scope):
@@ -79,6 +82,7 @@ def test_vault_branches_are_registered_financial_subintents():
         "securities_v1",
         "transactions_v1",
         "derived_v1",
+        "linked_accounts",
     ):
         assert branch in FINANCIAL_INTENT_MAP
         assert f"financial.{branch}" in registered

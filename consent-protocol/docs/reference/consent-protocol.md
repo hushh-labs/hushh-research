@@ -599,6 +599,35 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 ---
 
+### 6. Consent inside One chat
+
+A person asks One about someone else; One offers what that person can share and
+the asker sends the request from the chat. The asking turn shows `Waiting for
+{name}'s approval`. The owner gets a bare push (`{Name} asked to see your
+information`) and reviews the details in their app after unlock. Approving
+encrypts the export in the owner's browser to the requester's connector key
+(`X25519-AES256-GCM` wrapped key; the server stores ciphertext and the wrapped
+key only, `export_key` is null). When the ledger shows the answer, the
+requester's own device decrypts the export and One's follow-up turn in the same
+conversation reads it as a one-turn, in-memory block. That turn runs no tools
+(enforced in code), so it can only answer in words. One's answer is part of the
+requester's conversation, sealed with their chat key like any message they
+received; it is not withdrawn when the grant later ends or is revoked. Declines
+and expiries continue the chat with an honest outcome and carry no values.
+
+What reaches the model:
+
+- **The person's own memory**, sensitive categories included (Health,
+  Financial), decrypted on their device and sent as the per-turn packet. The
+  packet is filled fairly across sections, shallow facts first, so one large
+  category cannot crowd others out. Credentials, regulated identifiers, raw
+  source material and quarantined records stay excluded, as before.
+- **Another person's information only through an approved grant**: the server
+  admits it only for the requester who owns the bundle, only in the
+  conversation that sent the request, only when the ledger's current outcome is
+  an approval, and only once. The decrypted text is never persisted or logged,
+  and no tool runs in that turn, so it cannot be saved to the requester's memory.
+
 ## Compliance
 
 ### CCPA

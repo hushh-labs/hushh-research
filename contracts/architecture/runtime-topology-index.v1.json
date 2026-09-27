@@ -844,6 +844,17 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "drive_owner_search_jobs",
+        "drive_owner_search_results"
+      ],
+      "id": "drive_owner_search",
+      "lifecycle_status": "customer0",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Owner-confirmed search create/status/results/stop; existing Drive worker claims bounded metadata-only page slices. Owner+client idempotency, one active job per owner, keyed result deduplication and lease CAS. No document indexing or sharing authority."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "drive_owner_shares"
       ],
       "id": "drive_owner_shares",
@@ -928,12 +939,13 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "gmail_owner_send_actions",
-        "google_email_send_actions"
+        "google_email_send_actions",
+        "gmail_mailbox_action_proposals"
       ],
       "id": "gmail_owner_approved_delivery",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation"
     },
     {
       "data_class": "workflow_state",
@@ -1045,12 +1057,13 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "kai_analyze_runs"
+        "kai_analyze_runs",
+        "kai_run_state"
       ],
       "id": "kai_analyze_run_store",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read."
+      "primary_access_path": "Cross-process state for Kai's long-running runs. kai_run_state (migration 253) holds one row per debate or portfolio-import run: the owning worker process writes a running row at start, refreshes a heartbeat and metadata-only progress every 5s and reads owner cancel requests in the same round trip, then writes a terminal receipt. Any process serves GET .../run/active, follows a run it does not hold to its end via GET .../run/{id}/stream, and records POST .../run/{id}/cancel. kai_analyze_runs (migration 125) is the earlier terminal-only checkpoint; migration 128 purges it on every replay and the runtime no longer writes it. On by default; KAI_ANALYZE_DURABLE_RUN_STORE=false is an emergency kill switch."
     },
     {
       "data_class": "provider_cache",
@@ -5689,12 +5702,12 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "4465f8801c8aa43707521248b09920ee86d57d0d71aeb562b47ede96c715c2c2",
+    "action_gateway": "5522c5d7849d2e9fcd743cba4310723afe18391038741c86770bb2820c1b8528",
+    "agent_registry": "f82115c2713ef5b9f8179fe00018e6837886a69a7fc97284b8da33f5c09de39b",
     "cache_manifest": "b8edb41e819d68f3de0c40ec9b971f214069786fe4d869ade00b24668c3b7b7e",
-    "data_plane": "883af95b0ff48a5d90e18087d49e6d2d068b51a85dee5c9accef382d195a324e",
+    "data_plane": "ef618ad4a15306223705f996b02d5528f833b8e7f16acea173ad2eda03085148",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "62a54d78776db967dd224f16d8ec9ae31f6cccb9a5f58e83c0b97a9d8a241dea",
+    "one_specialist_tools": "28931a57af05671c24af2a69e1c4f2476e5a8a69fde539dda68fcc0b978b2407",
     "route_index": "9c1d1649ac1b6118de6e394b09e596372feda71e6e52ee739cee07ea34bce5aa",
     "route_layout": "0078f6a0f60cc0296733f32ba580139d2eba8723a1eadfb42c424d8b0d944c04",
     "surface_map": "b8956cfbefc6edff1a5e3fa5b082b9a8a38aa723986391a1ddefff4414bbfce3",
@@ -5711,6 +5724,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 140,
     "semantic_routes": 14,
-    "table_families": 74
+    "table_families": 75
   }
 }

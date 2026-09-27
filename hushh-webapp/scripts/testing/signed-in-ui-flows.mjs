@@ -96,8 +96,8 @@ export const UI_FLOWS = [
         dataStates: ["loaded"],
         timeoutMs: 60000,
       },
-      { type: "wait_button", name: "Start debate", timeoutMs: 60000 },
-      { type: "click_button", name: "Start debate" },
+      { type: "wait_button", name: "Start analysis debate", timeoutMs: 60000 },
+      { type: "click_button", name: "Start analysis debate" },
       {
         type: "assert_visible_testid",
         testId: "kai-analysis-active-run",

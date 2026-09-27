@@ -224,6 +224,26 @@ FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "transactions_v1",
     "derived_v1",
     "summary",
+    # The readable view of the same records (Finance > kind of account >
+    # institution > account). Private like them; rebuilt from them on every change.
+    "linked_accounts",
+)
+
+# Finance branches the bank-connection lane rebuilds whole on every sync
+# (hushh-webapp/lib/kai/plaid-vault/projection.ts `assemble`). A memory agent's
+# write into one would be erased by the next refresh, or would corrupt the
+# records the refresh reads, so the PKM structure agents never target them.
+FINANCIAL_SOURCE_MANAGED_BRANCHES: frozenset[str] = frozenset(
+    {
+        "connections_v1",
+        "accounts_v1",
+        "holdings_v1",
+        "securities_v1",
+        "transactions_v1",
+        "derived_v1",
+        "summary",
+        "linked_accounts",
+    }
 )
 
 FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
@@ -324,6 +344,14 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         description="Private records and derived facts computed on device; never shared",
     ),
     DomainSubintentEntry(
+        domain_key="financial.linked_accounts",
+        parent_domain="financial",
+        display_name="Linked Accounts",
+        icon_name="landmark",
+        color_hex="#D4AF37",
+        description="Linked bank, investment, card, and loan accounts by institution; never shared",
+    ),
+    DomainSubintentEntry(
         domain_key="financial.summary",
         parent_domain="financial",
         display_name="Financial Summary",
@@ -400,6 +428,7 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
             "securities_v1",
             "transactions_v1",
             "derived_v1",
+            "linked_accounts",
         ),
         denied_manifest_path_parts=frozenset(
             {

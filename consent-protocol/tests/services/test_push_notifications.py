@@ -67,6 +67,43 @@ def test_opaque_push_can_exclude_the_raw_recipient_id_from_firebase_payload(monk
     assert captured["data"]["request_id"] == "22222222-2222-4222-8222-222222222222"
 
 
+def test_a_native_only_push_never_reaches_a_web_token(monkeypatch):
+    """The open web app shows its own notice; a browser push beside it would duplicate it."""
+    monkeypatch.setattr("api.utils.firebase_admin.ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        "db.db_client.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+                data=[
+                    {"token": "web-token", "platform": "web"},
+                    {"token": "ios-token", "platform": "ios"},
+                ]
+            )
+        ),
+    )
+    fake_firebase_admin = ModuleType("firebase_admin")
+    fake_firebase_admin.messaging = SimpleNamespace(send=MagicMock())
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_firebase_admin)
+    tokens: list[str] = []
+    monkeypatch.setattr(
+        "api.utils.fcm_messages.build_push_message",
+        lambda *_args, **kwargs: tokens.append(kwargs["token"]) or object(),
+    )
+
+    sent = push_module.send_user_data_push(
+        "owner",
+        notification_type="one_reply",
+        title="Hussh One",
+        body="One replied",
+        deep_link="/one/feed",
+        notification_tag="one_reply:thread",
+        notification_category="ONE_CHAT",
+        platforms=frozenset({"ios", "android"}),
+    )
+
+    assert (sent, tokens) == (1, ["ios-token"])
+
+
 def test_connection_request_body_names_the_requester():
     assert _connection_request_body("Ankit") == "Ankit wants to connect with you on Hussh."
 

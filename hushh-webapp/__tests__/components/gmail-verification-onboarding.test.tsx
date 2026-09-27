@@ -76,8 +76,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC profile" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
+    await screen.findByRole("button", { name: "Save profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     expect(onDetailsChange).toHaveBeenCalledWith("");
@@ -146,8 +146,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC profile" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
+    await screen.findByRole("button", { name: "Save profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     await waitFor(() => {
@@ -155,5 +155,6 @@ describe("GmailVerificationOnboarding", () => {
         "We couldn't save your KYC details to Memory. Nothing new was added.",
       );
     });
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
   });
 });

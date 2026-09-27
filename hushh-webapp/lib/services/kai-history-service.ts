@@ -22,6 +22,7 @@ import { PersonalKnowledgeModelService } from "./personal-knowledge-model-servic
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
@@ -112,7 +113,7 @@ export function getAnalysisHistoryEntryRouteId(
   entry: AnalysisHistoryEntry,
 ): string {
   const runId = extractRunId(entry);
-  if (runId) return `run:${runId}`;
+  if (runId) return getAnalysisHistoryRunRouteId(runId);
   return `saved:${entry.ticker.toUpperCase()}:${entry.timestamp}`;
 }
 

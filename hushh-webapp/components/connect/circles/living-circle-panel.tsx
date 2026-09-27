@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, UsersRound } from "@/components/icons";
+import { Plus, Trash2, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import type {
 } from "@/lib/one-location/types";
 
 const DRAG_TYPE = "application/x-hushh-circle-person";
+const REMOVE_DRAG_TYPE = "application/x-hushh-circle-remove-member";
 
 export function LivingCirclePanel({
   circleName,
@@ -26,6 +27,7 @@ export function LivingCirclePanel({
   error,
   addingUserId,
   onAdd,
+  onRemove,
   searchQuery,
   onSearchChange,
   hasMore,
@@ -44,6 +46,7 @@ export function LivingCirclePanel({
   error: string | null;
   addingUserId: string | null;
   onAdd: (userId: string) => void;
+  onRemove?: (userId: string) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   hasMore: boolean;
@@ -52,6 +55,8 @@ export function LivingCirclePanel({
   onRetry: () => void;
 }) {
   const [overCircle, setOverCircle] = useState(false);
+  const [overRemoveZone, setOverRemoveZone] = useState(false);
+  const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
   const owner = members.find((member) => member.role === "owner");
@@ -143,14 +148,35 @@ export function LivingCirclePanel({
             )
           }
           profileHrefForPerson={profileHref}
+          onMemberDragStart={
+            onRemove
+              ? (person, event) => {
+                  event.dataTransfer.setData(REMOVE_DRAG_TYPE, person.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  setDraggingMemberId(person.id);
+                }
+              : undefined
+          }
+          onMemberDragEnd={
+            onRemove
+              ? () => {
+                  setDraggingMemberId(null);
+                  setOverRemoveZone(false);
+                }
+              : undefined
+          }
         />
       </div>
       <p aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
         {overCircle
           ? "Release to add this person"
-          : memberCount <= 1
-            ? "Your circle starts with you"
-            : `${memberCount} people in this circle`}
+          : overRemoveZone
+            ? "Release to remove from circle"
+            : draggingMemberId
+              ? "Drag down to remove from circle"
+              : memberCount <= 1
+                ? "Your circle starts with you"
+                : `${memberCount} people in this circle`}
       </p>
       {memberCount === 1 && emptySlots > 0 ? (
         <p className="mt-1 text-center text-xs text-[color:var(--app-secondary-label)]">
@@ -158,89 +184,131 @@ export function LivingCirclePanel({
         </p>
       ) : null}
 
-      {canInvite ? (
-        <div className="mx-auto mt-6 max-w-[34rem] border-t border-[color:var(--app-card-border-standard)] pt-5">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
-              <p className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
-                Drag a person into the circle on desktop, or tap Add on any device.
-              </p>
+      {canInvite || onRemove ? (
+        <div
+          data-testid="connect-circle-remove-drop-zone"
+          className={`mx-auto mt-6 max-w-[34rem] rounded-[var(--app-card-radius-standard)] border-t border-[color:var(--app-card-border-standard)] pt-5 transition-[background-color,box-shadow] duration-200 ${
+            overRemoveZone
+              ? "bg-[color:var(--app-destructive-tint)] p-3 ring-2 ring-[color:var(--app-destructive-border)]"
+              : draggingMemberId
+                ? "bg-[color:var(--app-destructive-tint)]/40 p-3 ring-1 ring-dashed ring-[color:var(--app-destructive-border)]"
+                : ""
+          }`}
+          onDragOver={(event) => {
+            if (!onRemove || !event.dataTransfer.types.includes(REMOVE_DRAG_TYPE)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setOverRemoveZone(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) setOverRemoveZone(false);
+          }}
+          onDrop={(event) => {
+            if (!onRemove || !event.dataTransfer.types.includes(REMOVE_DRAG_TYPE)) return;
+            event.preventDefault();
+            const memberId = event.dataTransfer.getData(REMOVE_DRAG_TYPE);
+            setOverRemoveZone(false);
+            setDraggingMemberId(null);
+            if (memberId && onRemove) {
+              onRemove(memberId);
+            }
+          }}
+        >
+          {draggingMemberId || overRemoveZone ? (
+            <div
+              data-testid="connect-circle-remove-banner"
+              className="mb-4 flex items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] border border-dashed border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] px-4 py-3 text-sm font-medium text-destructive transition-[background-color,border-color] duration-150"
+            >
+              <Trash2 className="size-4 shrink-0" aria-hidden="true" />
+              <span>{overRemoveZone ? "Release to remove from circle" : "Drag down here to remove from circle"}</span>
             </div>
-            {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                onClick={() => {
-                  if (expanded) onSearchChange("");
-                  setExpanded(!expanded);
-                }}
-              >
-                {expanded ? "Show less" : `See all (${availableCount})`}
-              </Button>
-            ) : null}
-          </div>
-          {expanded ? (
-            <label className="mt-4 block">
-              <span className="sr-only">Search connections to add</span>
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Search connections"
-                className="h-11 w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 text-[color:var(--app-primary-label)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-              />
-            </label>
           ) : null}
-          {loading ? (
-            <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
-          ) : error ? (
-            <div className="mt-4 flex items-center gap-3">
-              <p className="ui-text-row-description text-[color:var(--app-secondary-label)]">{error}</p>
-              <Button type="button" variant="outline" size="compact" onClick={onRetry}>Retry</Button>
-            </div>
-          ) : remainingCapacity <= 0 ? (
-            <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
-          ) : shownCandidates.length ? (
-            <div className="mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
-              {shownCandidates.map((person) => (
-                <div
-                  key={person.userId}
-                  draggable={!addingUserId}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(DRAG_TYPE, person.userId);
-                    event.dataTransfer.effectAllowed = "copy";
-                  }}
-                  className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] sm:cursor-grab sm:active:cursor-grabbing"
-                >
-                  <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
-                  <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>
-                  <button
-                    type="button"
-                    className="inline-flex min-h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
-                    onClick={() => onAdd(person.userId)}
-                    disabled={Boolean(addingUserId)}
-                    aria-label={`Add ${person.displayName} to ${circleName}`}
-                  >
-                    <Plus aria-hidden="true" className="size-4" /> {addingUserId === person.userId ? "Adding…" : "Add"}
-                  </button>
+
+          {canInvite ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
+                  <p className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
+                    Drag a person into the circle on desktop, or tap Add on any device.
+                  </p>
                 </div>
-              ))}
-            </div>
-          ) : searchQuery.trim() ? (
-            <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
-              No matching connections.
-            </p>
-          ) : (
-            <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
-              No connections available to add. <Link className="font-semibold text-[color:var(--app-accent)] underline-offset-2 hover:underline" href={`${ROUTES.CONNECT}?tab=all`}>Find people</Link>
-            </p>
-          )}
-          {expanded && hasMore && !loading && !error && remainingCapacity > 0 ? (
-            <Button type="button" variant="outline" size="compact" className="mt-4 w-full" disabled={loadingMore} onClick={onLoadMore}>
-              {loadingMore ? "Loading…" : "Load more connections"}
-            </Button>
+                {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="compact"
+                    onClick={() => {
+                      if (expanded) onSearchChange("");
+                      setExpanded(!expanded);
+                    }}
+                  >
+                    {expanded ? "Show less" : `See all (${availableCount})`}
+                  </Button>
+                ) : null}
+              </div>
+              {expanded ? (
+                <label className="mt-4 block">
+                  <span className="sr-only">Search connections to add</span>
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => onSearchChange(event.target.value)}
+                    placeholder="Search connections"
+                    className="h-11 w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 text-[color:var(--app-primary-label)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                  />
+                </label>
+              ) : null}
+              {loading ? (
+                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
+              ) : error ? (
+                <div className="mt-4 flex items-center gap-3">
+                  <p className="ui-text-row-description text-[color:var(--app-secondary-label)]">{error}</p>
+                  <Button type="button" variant="outline" size="compact" onClick={onRetry}>Retry</Button>
+                </div>
+              ) : remainingCapacity <= 0 ? (
+                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
+              ) : shownCandidates.length ? (
+                <div className="mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
+                  {shownCandidates.map((person) => (
+                    <div
+                      key={person.userId}
+                      draggable={!addingUserId}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData(DRAG_TYPE, person.userId);
+                        event.dataTransfer.effectAllowed = "copy";
+                      }}
+                      className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] sm:cursor-grab sm:active:cursor-grabbing"
+                    >
+                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
+                      <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
+                        onClick={() => onAdd(person.userId)}
+                        disabled={Boolean(addingUserId)}
+                        aria-label={`Add ${person.displayName} to ${circleName}`}
+                      >
+                        <Plus aria-hidden="true" className="size-4" /> {addingUserId === person.userId ? "Adding…" : "Add"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : searchQuery.trim() ? (
+                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
+                  No matching connections.
+                </p>
+              ) : (
+                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
+                  No connections available to add. <Link className="font-semibold text-[color:var(--app-accent)] underline-offset-2 hover:underline" href={`${ROUTES.CONNECT}?tab=all`}>Find people</Link>
+                </p>
+              )}
+              {expanded && hasMore && !loading && !error && remainingCapacity > 0 ? (
+                <Button type="button" variant="outline" size="compact" className="mt-4 w-full" disabled={loadingMore} onClick={onLoadMore}>
+                  {loadingMore ? "Loading…" : "Load more connections"}
+                </Button>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}

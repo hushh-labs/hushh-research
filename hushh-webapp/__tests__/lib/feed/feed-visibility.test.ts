@@ -17,6 +17,29 @@ describe("Feed row visibility", () => {
     }
   });
 
+  it.each([
+    "calendar_connected",
+    "calendar_reconnect_required",
+    "calendar_disconnected",
+    "calendar_event_created",
+    "calendar_event_rescheduled",
+    "calendar_event_canceled",
+    "mail_connected",
+    "mail_reconnect_required",
+    "mail_disconnected",
+    "mail_information_request_detected",
+    "mail_receipts_imported",
+    "mail_sync_completed",
+    "mail_sync_failed",
+    "mail_message_sent",
+    "mail_message_failed",
+    "mail_delivery_unconfirmed",
+  ])("shows %s with CRM disabled", (event_type) => {
+    expect(
+      isFeedItemHidden({ source_domain: "connected_systems", event_type }, false),
+    ).toBe(false);
+  });
+
   it("keeps CRM rows behind the CRM build flag", () => {
     const crm = {
       source_domain: "connected_systems",

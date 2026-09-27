@@ -137,6 +137,18 @@ function safeErrorMessage(code: string | null, status: number): string {
       code === "IDEMPOTENCY_PAYLOAD_MISMATCH") {
     return "The selected Drive file or connection changed. Review the attachment again.";
   }
+  if (code === "GMAIL_MODIFY_PERMISSION_REQUIRED") {
+    return "Allow Gmail changes, then ask One to prepare this change again.";
+  }
+  if (code === "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE") {
+    return "That mailbox change expired or was already used. Ask One to prepare it again.";
+  }
+  if (code === "GMAIL_MAILBOX_CONNECTION_CHANGED" || code === "GMAIL_MAILBOX_SOURCE_CHANGED") {
+    return "Your mail changed since this review. Ask One to prepare the change again.";
+  }
+  if (code === "GMAIL_MAILBOX_UNAVAILABLE") {
+    return "Gmail did not apply that change. Please try again.";
+  }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
   }
@@ -200,6 +212,23 @@ export class EmailDeliveryService {
         "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
       );
     }
+  }
+  /** Apply the exact reviewed mailbox change; the server holds its messages and labels. */
+  static async executeMailboxProposal(
+    input: EmailDeliveryAuth & { proposalId: string },
+  ): Promise<{ action: string; count: number }> {
+    const payload = asRecord(
+      await postJson<unknown>("/api/one/email/mailbox/execute", input, {
+        proposal_id: input.proposalId,
+      }),
+    );
+    const count = payload?.count;
+    if (payload?.status !== "executed" || typeof count !== "number") {
+      throw new EmailDeliveryError(
+        "Gmail may have applied this change. Check Gmail before trying again.", 502,
+      );
+    }
+    return { action: stringValue(payload, "action"), count };
   }
   static async draft(input: EmailDeliveryAuth & { instruction: string }): Promise<EmailDraftResult> {
     const payload = await postJson<unknown>("/api/one/email/draft", input, {

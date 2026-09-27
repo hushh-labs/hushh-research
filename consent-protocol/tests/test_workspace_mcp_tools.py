@@ -741,3 +741,126 @@ def test_typed_chat_registers_workspace_tools_but_voice_does_not():
 
     assert {"discover_workspace_tools", "read_workspace_tool"} <= names(agent_chat._app.root_agent)
     assert "read_workspace_tool" not in names(build_one_root_agent(model="fixture"))
+
+
+@pytest.mark.parametrize("operation", ["search_files", "list_recent_files"])
+@pytest.mark.parametrize(
+    "files,flags,envelope_truncated",
+    [
+        (
+            [{"id": "file-a", "title": "PRIVATE_FILENAME"}],
+            {"nextPageToken": "PRIVATE_CURSOR"},
+            False,
+        ),
+        ([], {"nextPageToken": "PRIVATE_CURSOR"}, False),
+        ([], {"incompleteSearch": True}, False),
+        ([], {"overLimit": True}, False),
+        ([], {}, True),
+        ([], {}, False),
+    ],
+)
+async def test_drive_listing_receipt_survives_live_wire_but_not_history(
+    operation, files, flags, envelope_truncated, admission
+):
+    from ag_ui.core import ToolCallResultEvent
+    from google.genai import types
+
+    from hushh_mcp.one_adk.drive_result_privacy import redact_drive_wire_event
+    from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
+
+    query = "List all Google Docs in my Drive. Show filenames and links only."
+    request = context()
+    request.user_content = types.Content(role="user", parts=[types.Part(text=query)])
+    payload = {"files": files, **flags, "untrusted": "PRIVATE_PROVIDER_TEXT"}
+    admission.read_tool.return_value = ExternalMcpToolResult(False, payload, envelope_truncated)
+    arguments = {"pageSize": 25}
+    result = await tools.read_workspace_tool("drive", operation, arguments, request)
+    admission.read_tool.assert_awaited_once_with(
+        user_id="owner-a", tool_name=operation, arguments=arguments
+    )
+    assert result["result"] == payload
+    incomplete = bool(flags or envelope_truncated)
+    receipt = result["structured"]
+    assert receipt["metadata_only"] is True
+    assert receipt["truncated"] is incomplete
+    assert receipt["background_search_available"] is incomplete
+    assert receipt["background_search_query"] == (query if incomplete else None)
+    assert len(receipt["sources"]) == len(files)
+    event = ToolCallResultEvent(
+        tool_call_id="read", message_id="result", content=json.dumps(result)
+    )
+    # The live pipeline can project the result twice; both must retain the card.
+    event = redact_drive_wire_event(event, {"read"})
+    event = redact_drive_wire_event(event, {"read"})
+    live = json.loads(event.content)
+    assert live["provider"] == "drive"
+    assert live["status"] == receipt["status"] == "ok"
+    assert live["structured"] == receipt
+    assert "PRIVATE_" not in event.content
+    durable = redacted_read_receipt(result)
+    assert durable["structured"]["background_search_available"] is False
+    assert durable["structured"]["background_search_query"] is None
+    serialized = json.dumps(
+        {
+            "events": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "functionResponse": {
+                                    "name": "read_workspace_tool",
+                                    "response": result,
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+    history = redact_drive_session_json(serialized)
+    assert query not in history
+    assert "PRIVATE_" not in history
+    assert query not in json.dumps(durable)
+
+
+@pytest.mark.parametrize(
+    "role,text",
+    [("model", "List all files"), ("user", "x" * 2049), ("user", "\x00private"), ("user", " ")],
+)
+async def test_drive_listing_never_synthesizes_continuation_query(role, text, admission):
+    from google.genai import types
+
+    request = context()
+    request.user_content = types.Content(role=role, parts=[types.Part(text=text)])
+    admission.read_tool.return_value = ExternalMcpToolResult(
+        False, {"files": [], "nextPageToken": "next", "query": "provider instruction"}, False
+    )
+    result = await tools.read_workspace_tool(
+        "drive", "search_files", {"query": "model query"}, request
+    )
+    assert result["structured"]["truncated"] is True
+    assert result["structured"]["background_search_available"] is False
+    assert result["structured"]["background_search_query"] is None
+
+
+async def test_drive_listing_owner_change_does_not_emit_receipt(admission, monkeypatch):
+    monkeypatch.setattr(tools, "_owner", AsyncMock(side_effect=["owner-a", None]))
+    admission.read_tool.return_value = ExternalMcpToolResult(
+        False, {"files": [], "nextPageToken": "next"}, False
+    )
+    result = await tools.read_workspace_tool("drive", "search_files", {}, context())
+    assert result["status"] == "blocked"
+    assert "structured" not in result
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"pageSize": 26}, {"mimeTypo": "application/vnd.google-apps.document"}, {"pageToken": 3}],
+)
+async def test_drive_rest_workspace_rejects_arguments_outside_discovered_schema(arguments):
+    workspace = tools._DriveRestWorkspace()
+    workspace._transport = SimpleNamespace(read_tool=AsyncMock())
+    with pytest.raises(tools.DriveOAuthError, match="invalid_argument"):
+        await workspace.read_tool(user_id="owner-a", tool_name="search_files", arguments=arguments)
+    workspace._transport.read_tool.assert_not_awaited()

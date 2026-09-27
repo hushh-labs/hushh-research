@@ -76,7 +76,7 @@
       "action_id": "analysis.confirm_preview",
       "label": "Start Debate from Preview",
       "meaning": "Starts the debate after the user confirms the visible stock preview.",
-      "aliases": ["start debate", "confirm analysis preview"],
+      "aliases": ["start debate", "confirm analysis preview", "start analysis debate"],
       "search_keywords": ["analysis", "preview", "start debate", "confirm"],
       "guard_ids": ["analysis_idle_required", "explicit_user_confirmation"],
       "risk_level": "medium",

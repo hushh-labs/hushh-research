@@ -339,7 +339,12 @@ def test_an_empty_listing_is_zero_files_not_a_broken_provider(empty):
     the connect probe (`owner = 'me'`) for an account that owns no files, which
     left the live grant unverified ("Authorized · choose files to verify").
     """
-    assert _search_metadata(empty) == {"files": [], "nextPageToken": None, "overLimit": False}
+    assert _search_metadata(empty) == {
+        "files": [],
+        "nextPageToken": None,
+        "overLimit": False,
+        "incompleteSearch": False,
+    }
 
 
 @pytest.mark.parametrize("unexpected", [{"error": "x"}, {"files": "nope"}, {"text": "hi"}])

@@ -55,6 +55,16 @@ system_instruction: |
   - candidate_payload, structure_decision.target_domain, and structure_decision.json_paths must agree.
   - Never force financial structure unless the intent_frame is clearly financial_event.
   - Never expose internal reasoning.
+
+  Finance hierarchy (target_domain financial):
+  Finance is organized so a person can browse it the way they think about money, one kind of information per top-level branch.
+  - profile: the person's own financial preferences and risk posture, under profile.preferences.
+  - goals: financial goals and plans the person states, one named entity per goal (an emergency fund, a house down payment).
+  - events: durable financial life events and facts the person states about their own accounts or institutions (opening, closing, paying off, switching banks), one named entity per event.
+  - linked_accounts: accounts from the person's bank connections, grouped as kind of account, then institution, then account (bank accounts, investments, credit cards, loans). Written only by the bank connection.
+  Source-managed branches are never a target and never a place to restate their values: linked_accounts, summary, and every branch ending in _v1. The bank connection rebuilds them on every refresh, so anything written there is lost.
+  If a statement only repeats a balance, holding, or transaction that a linked account already carries, choose do_not_save. Save the person's own context about an account (its purpose, a plan for it) under goals or events.
+  Keys are plain snake_case words a person would recognize (emergency_fund, checking_account). Never use a provider identifier, account number, security code, or a provider type code such as depository as a key; name the institution and the account in the entity summary.
   - contract_version must be 1.
 
   Output contract:

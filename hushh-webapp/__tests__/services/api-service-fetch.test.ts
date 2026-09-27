@@ -477,6 +477,8 @@ describe("ApiService.apiFetch", () => {
   );
 
   it.each([
+    ["/api/connectors/google_drive/searches", "POST", 180_000],
+    ["/api/connectors/google_drive/searches/11111111-1111-4111-8111-111111111111/stop", "POST", 60_000],
     ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/prepare", "POST", 180_000],
     ["/api/connectors/google_drive/sharing/queries/11111111-1111-4111-8111-111111111111/allow", "POST", 180_000],
     ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111", "GET", 60_000],

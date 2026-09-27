@@ -69,6 +69,23 @@ describe("personal Gmail information-request scope boundary", () => {
     });
   });
 
+  it("loads only on first activation and keeps the warm workspace across tab switches", async () => {
+    const props = {
+      userId: "owner", vaultKey: null, vaultOwnerToken: null, isConnected: true,
+      idTokenProvider: () => Promise.resolve("firebase-token"),
+      onRequestVaultUnlock: vi.fn(),
+    };
+    const view = render(createElement(GmailInformationRequestsSection, { ...props, active: false }));
+    expect(gmailServiceMocks.getPreference).not.toHaveBeenCalled();
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Unlock to start" })).toBeEnabled());
+    expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: false }));
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: true }));
+    expect(screen.getByRole("button", { name: "Unlock to start" })).toBeEnabled();
+    expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts only one manifest-backed exact leaf segment", () => {
     expect(
       isExactDraftCandidate({
@@ -235,6 +252,26 @@ describe("personal Gmail information-request scope boundary", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Open your private vault before changing KYC monitoring.",
     );
+  });
+
+  it("retries an interrupted scan on return without repeating a completed scan", async () => {
+    gmailServiceMocks.getPreference.mockResolvedValue({ user_id: "owner", monitoring_enabled: true });
+    gmailServiceMocks.list.mockResolvedValue({ workflows: [], next_offset: null, total_count: 0 });
+    gmailServiceMocks.scanStream.mockImplementationOnce(({ signal }: { signal: AbortSignal }) =>
+      new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true })),
+    ).mockResolvedValue({ accepted: true, scanned_count: 0, matched_count: 0, unchanged_count: 0, failed_count: 0, workflow_ids: [] });
+    const props = { userId: "owner", vaultKey: "vault-key", vaultOwnerToken: "owner-token", isConnected: true,
+      idTokenProvider: () => Promise.resolve("firebase-token"), onRequestVaultUnlock: vi.fn() };
+    const view = render(createElement(GmailInformationRequestsSection, { ...props, active: true }));
+    await waitFor(() => expect(gmailServiceMocks.scanStream).toHaveBeenCalledTimes(1));
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: false }));
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: true }));
+    await waitFor(() => expect(gmailServiceMocks.scanStream).toHaveBeenCalledTimes(2));
+    await screen.findByText("Emails checked");
+    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: false }));
+    view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: true }));
+    expect(gmailServiceMocks.scanStream).toHaveBeenCalledTimes(2);
   });
 
   it("starts an incremental KYC scan when the unlocked KYC workspace opens", async () => {

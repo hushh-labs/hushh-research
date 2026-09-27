@@ -172,6 +172,12 @@ Does not own:
 - final persistence safety checks
 - Source Library files, collections, sharing, or its canonical private writer
 
+For `financial`, the structure agent's system instruction carries the Finance
+hierarchy a person browses: `profile` (preferences and risk), `goals`, `events`
+(financial life events and the person's own account facts), and the read-only
+`linked_accounts` written by the bank connection. Keys are plain words, never
+provider ids, account numbers or provider type codes.
+
 Mounted Drive or local-file requests route to the Hermes-local Source Library
 Steward. The generic PKM agents may organize ordinary user-authored memory about
 those requests, but they must never emit `source_library` as a candidate or
@@ -228,6 +234,10 @@ The validator may:
 - normalize finance payload/domain consistency
 - prevent unsafe scope emission
 - reject reserved-domain selection by a generic PKM agent
+- set `do_not_save` with `source_managed_branch_blocked` when a financial candidate
+  touches a branch the bank-connection lane rebuilds whole
+  (`FINANCIAL_SOURCE_MANAGED_BRANCHES`: `linked_accounts`, `summary`, `*_v1`); a
+  write there would be erased by the next refresh
 - strip user-facing internal metadata such as parser metadata, hashes, provenance, workflow ids, and debug traces from candidate payloads
 - emit non-user-facing drift flags:
   - `fallback_used`

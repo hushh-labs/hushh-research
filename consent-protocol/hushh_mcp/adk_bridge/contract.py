@@ -135,7 +135,8 @@ class SpecialistReadSource(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
     label: str = Field(max_length=80)
-    kind: Literal["metadata", "document"]
+    # "message" marks a Mail source whose readable text the person asked for.
+    kind: Literal["metadata", "document", "message"]
     page: int | None = Field(default=None, ge=1, le=100)
 
 
@@ -175,6 +176,10 @@ class SpecialistReadResult(BaseModel):
     owner_compile_available: bool = False
     owner_compile_query: str | None = Field(default=None, max_length=2048)
     owner_compile_window: OwnerCompileWindow | None = None
+    # Owner-only affordance; starting a search requires a separate explicit
+    # search-specific background authorization at the owner search endpoint.
+    background_search_available: bool = False
+    background_search_query: str | None = Field(default=None, max_length=2048)
 
 
 @dataclass(frozen=True)

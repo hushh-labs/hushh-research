@@ -404,6 +404,40 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("x".repeat(200));
   });
 
+  it("keeps a small sensitive domain in the owner's packet when a large domain overflows the budget", async () => {
+    // Regression (2026-09-27): 9,049 facts, 88 sent, Health absent, because the
+    // budget filled alphabetically and imported transactions came first.
+    pkmBlob = {
+      financial: {
+        budget: { dining_out_monthly: "400 dollars" },
+        transactions: Array.from({ length: 600 }, (_, index) => ({
+          merchant: `Merchant ${index}`,
+          amount: `${index}.00`,
+        })),
+      },
+      health: { allergies: { medication: "penicillin" } },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [
+        { ...METADATA.domains[0], key: "financial", displayName: "Financial" },
+        { ...METADATA.domains[0], key: "health", displayName: "Health" },
+      ],
+    });
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "am I allergic to anything?",
+    });
+
+    expect(context.coverage.clipped).toBe(true);
+    expect(context.text.length).toBeLessThanOrEqual(12_000);
+    expect(context.text).toContain("penicillin");
+    expect(context.text).toContain("400 dollars");
+  });
+
   it("warms the full agent-safe packet into browser RAM after unlock", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
