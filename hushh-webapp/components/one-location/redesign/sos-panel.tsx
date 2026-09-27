@@ -503,7 +503,7 @@ export function SosPanel({
           </div>
 
           <div className="mt-4 sm:mt-5">
-            <label htmlFor="sos-short-message" className="ui-text-row-label block">
+            <label htmlFor="sos-short-message" className="sr-only">
               Or write your own
             </label>
             <div
