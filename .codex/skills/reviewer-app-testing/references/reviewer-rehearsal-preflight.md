@@ -4,8 +4,7 @@ Run before Chromium: resolve the canonical reviewer and prevent unauthorized sha
 
 ## Required conditions
 
-1. Classify the run as `read_only` or `mutation_authorized` first. Routine
-   review is always read-only.
+1. Classify the run as `read_only` or `mutation_authorized`; routine review is read-only.
 2. Resolve the canonical reviewer through `reviewer-test-identity.mjs`. For a
    local UAT-backed rehearsal, set `REVIEWER_SECRET_PROJECT=hushh-pda-uat`.
    The preflight reads the approved Secret Manager values into its process only;
