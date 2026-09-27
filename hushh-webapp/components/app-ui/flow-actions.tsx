@@ -20,7 +20,7 @@ type FlowActionGroupProps = {
 /**
  * Canonical two-action composition.
  *
- * Phone: secondary above primary, both full width.
+ * Phone and stacked layouts: primary above secondary, both full width.
  * Tablet/desktop: secondary left, primary right, content width.
  * The slots make the hierarchy independent from call-site DOM ordering.
  */
@@ -52,14 +52,22 @@ export function FlowActionGroup({
         {secondary ? (
           <div
             data-action-priority="secondary"
-            className={cn("w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
+            className={cn(
+              "w-full order-2",
+              !stacked && "sm:w-auto sm:order-1",
+              "[&>*]:w-full",
+            )}
           >
             {secondary}
           </div>
         ) : null}
         <div
           data-action-priority="primary"
-          className={cn("w-full", !stacked && "sm:w-auto", "[&>*]:w-full")}
+          className={cn(
+            "w-full order-1",
+            !stacked && "sm:w-auto sm:order-2",
+            "[&>*]:w-full",
+          )}
         >
           {primary}
         </div>

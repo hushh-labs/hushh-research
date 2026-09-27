@@ -59,6 +59,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import {
+  SHARE_CONFIRM_ACTIONS_CLASSNAME,
+  SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+} from "@/components/one-location/redesign/location-cta-layout";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -3421,27 +3425,32 @@ export function NearbyCheckInSheet({
                   </div>
                 </section>
 
-                <Button
-                  type="button"
-                  size="prominent"
-                  className="w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
-                  disabled={
-                    busy !== null ||
-                    capturing ||
-                    searching ||
-                    !point ||
-                    !selectedPlace ||
-                    !consentAccepted
-                  }
-                  onClick={() => void checkIn()}
-                >
-                  {busy === "check-in" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <UsersRound className="h-4 w-4" />
-                  )}
-                  Check in
-                </Button>
+                <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
+                  <Button
+                    type="button"
+                    size="prominent"
+                    className={cn(
+                      SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+                      "disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100",
+                    )}
+                    disabled={
+                      busy !== null ||
+                      capturing ||
+                      searching ||
+                      !point ||
+                      !selectedPlace ||
+                      !consentAccepted
+                    }
+                    onClick={() => void checkIn()}
+                  >
+                    {busy === "check-in" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UsersRound className="h-4 w-4" />
+                    )}
+                    Check in
+                  </Button>
+                </div>
               </div>
             )}
           </div>

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, MessageCircle, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
+import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -205,15 +205,6 @@ function CircleCluster({
           )}
         </span>
       )}
-      {kind === "sms" ? (
-        <span className="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]">
-          <SmsTextIcon className="text-[8px]" />
-        </span>
-      ) : kind === "trusted" ? (
-        <span className="ml-2 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
-          <ShieldCheck className="size-4" />
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -234,7 +225,7 @@ function systemKindOf(circle: OneLocationCircleSummary): string | null {
 function circleVisual(circle: OneLocationCircleSummary) {
   const kind = systemKindOf(circle);
   if (kind === "trusted") return { Icon: ShieldCheck, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
-  if (kind === "sms") return { Icon: MessageCircle, tone: "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40" };
+  if (kind === "sms") return { Icon: SmsTextIcon, tone: "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]" };
   const name = circle.name.trim().toLowerCase();
   if (name === "family" || name === "family circle") return { Icon: Heart, tone: "text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40" };
   if (name === "finance" || name === "finance circle") return { Icon: Wallet, tone: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" };
@@ -836,7 +827,7 @@ export function ConnectCirclesTab({
       >
         <span className="flex w-full min-w-0 items-center justify-between gap-2">
           <span aria-hidden="true" className={`flex size-10 shrink-0 items-center justify-center rounded-full ${tone}`}>
-            <Icon className="size-5" />
+            <Icon className={kind === "sms" ? "text-[11px] font-bold" : "size-5"} />
           </span>
           <span className="ml-auto min-w-0 scale-90 origin-right sm:scale-100">
             <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
