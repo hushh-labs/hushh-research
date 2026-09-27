@@ -905,6 +905,26 @@ describe("AG-UI Agent One client", () => {
     ).toBe("One's conversation history is temporarily unavailable. Please try again.");
   });
 
+  it("explains a refused pod endpoint before dispatch without exposing transport details", async () => {
+    const onError = vi.fn();
+    mockTransport.failWith = Object.assign(new Error("private transport detail"), {
+      code: "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY",
+    });
+    const expected = "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+    try {
+      await expect(streamAgentChat({
+        vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+        vaultOwnerToken: "owner-token", handlers: { onError },
+      })).rejects.toThrow(expected);
+    } finally {
+      mockTransport.failWith = null;
+    }
+    expect(onError).toHaveBeenCalledWith(expected);
+    expect(formatAgentChatErrorMessage("ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY")).toBe(expected);
+    expect(formatAgentChatErrorMessage("private transport detail ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY"))
+      .toBe("One couldn't complete that response. Please try again.");
+  });
+
   it("maps untyped provider capacity failures without exposing runtime details", () => {
     const visible = formatAgentChatErrorMessage(
       "429 Too Many Requests: RESOURCE_EXHAUSTED",

@@ -2426,3 +2426,27 @@ the original error. This exposes the retained entry's Resume action without
 creating another file. Focused coverage verifies continuation with the same entry.
 These corrections still require deployed browser acceptance; the earlier failed
 journeys do not establish successful upload, download, undo or trash behavior.
+
+### Existing-pod recovery and chat discovery — 2026-09-27
+
+After owner billing restoration, authorized legacy maintenance replaced the image
+on the same dev service with source `a75d99e365`, retaining its durable public key,
+storage, KMS bindings and resource shape. Authenticated identity and handoff routes
+returned 200; an encrypted-log handoff completed and released. A fresh prospective
+authority snapshot was needed after the original whole-metadata fingerprint no
+longer matched. Historical equivalence was not claimed. The original evidence and
+reservation were retained until verified recovery and admission completed.
+
+An external admission probe verified the signed owner binding, challenge proof,
+CORS and machine-route wall before publishing direct readiness. Only its synthetic
+device was revoked afterward. Registry provenance was reconciled and the old
+maintenance reservation released. This is legacy maintenance evidence, not a normal
+owner-approved update or separate-network browser/Puppy acceptance.
+
+Frontend logs also showed endpoint discovery returning 409 without a subsequent
+chat dispatch. The client had reduced that connection refusal to a generic chat
+failure. Its error projection now preserves typed connection refusals and directs
+the owner to Hosting; arbitrary transport details remain private. A focused stream
+regression fails without the correction. Request logs did not establish the owner
+of the reported screenshot, and a health-based Online indicator does not prove
+successful admission, model inference or a completed response.

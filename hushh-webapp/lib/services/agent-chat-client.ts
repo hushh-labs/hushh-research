@@ -767,6 +767,15 @@ const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  // Direct discovery can refuse before a chat request exists. Preserve its
+  // typed boundary (or exact SDK message), never arbitrary transport details.
+  const connectionCode = code || message.trim();
+  if (connectionCode === "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY") {
+    return "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+  }
+  if (/^(ENDPOINT_UNAVAILABLE|BINDING_UNAVAILABLE|POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):[A-Z0-9_]+$/.test(connectionCode)) {
+    return "Your private agent connection could not be established. Check Hosting in Settings, then try again.";
+  }
   if (code === "POD_CHAT_BUSY") return "Your private agent is finishing active work. Try again shortly.";
   if (code === "POD_CHAT_RECOVERY_FAILED") return "This answer could not be saved safely. Reconnect to your private agent before continuing.";
   if (code === "POD_CHAT_AUTHORITY_UNAVAILABLE") return "This action is not available through your private agent yet.";
@@ -1504,7 +1513,7 @@ export async function streamAgentChat(input: {
       failure = refusal
         ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
             !runStarted && (error as Error & { status?: number }).status === 403)
-        : new Error(formatAgentChatErrorMessage(error.message || ""));
+        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -1582,7 +1591,7 @@ export async function streamAgentIntro(input: {
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      failure = new Error(formatAgentChatErrorMessage(error.message || ""));
+      failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
   };
