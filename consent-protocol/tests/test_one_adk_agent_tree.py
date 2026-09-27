@@ -1008,7 +1008,6 @@ class TestGmailEmailDraftDirective:
     async def test_route_admits_the_pending_draft_only_for_an_unlocked_owner_turn(
         self, monkeypatch, unlocked
     ):
-        from fastapi import HTTPException
         from starlette.requests import Request
 
         from api.routes.one import agent_chat
@@ -1016,14 +1015,14 @@ class TestGmailEmailDraftDirective:
         from tests.test_agui_turn_timing import _input
 
         vault = AsyncMock(return_value={"user_id": "owner", "token": "synthetic"})
-        if not unlocked:
-            vault.side_effect = HTTPException(status_code=403)
         monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
         monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
         monkeypatch.setattr(
             agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
         )
-        request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+        bearer = b"Bearer HCT:synthetic" if unlocked else b"Bearer synthetic"
+        request = Request({"type": "http", "headers": [(b"authorization", bearer)]})
+        monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
         run = _input()
         run.forwarded_props = {
             "pendingEmailDraft": {

@@ -2499,3 +2499,16 @@ A regenerated catalog's two lines and an unchanged initialization call's shifted
 location were reviewed separately. Budgets, comparison logic, unrelated ceilings
 and the endpoint module ceiling remain unchanged. Large imported modules remain
 measured debt, not a claim that their structure is optimal.
+
+A subsequent authenticated synthetic turn on the repaired dev owner pod returned
+HTTP 200 and nonempty text, with Gemini 3.6 Flash reported by the runtime. Both pod
+and hub revocation returned 200 for its temporary device. This proves direct pod
+inference, separately from that owner's browser-chat and Puppy journeys.
+
+The combined backend run identified three imported test-fixture mismatches with
+the retained ingress contract and extracted history owner. Fixtures now supply the
+vault-owner bearer for unlocked turns and call the owning history projection;
+runtime authentication was not relaxed. The affected suites passed 246 tests
+(with 73 existing skips). The isolated production build needed a copy-on-write
+local dependency view because Turbopack refuses an external node_modules symlink;
+the build command and gate remain unchanged.

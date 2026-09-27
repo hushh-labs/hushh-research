@@ -12,7 +12,7 @@ from google.genai import types
 from starlette.requests import Request
 
 from api.routes.one import agent_chat
-from hushh_mcp.one_adk import workspace_mcp_tools
+from hushh_mcp.one_adk import history_projection, workspace_mcp_tools
 from hushh_mcp.one_adk.agent_tree import (
     STATE_DRIVE_SEARCH_SELECTION,
     STATE_USER_ID,
@@ -38,7 +38,7 @@ from tests.test_agui_turn_timing import _input
 
 
 def _request():
-    return Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    return Request({"type": "http", "headers": [(b"authorization", b"Bearer HCT:synthetic")]})
 
 
 def _selection():
@@ -125,6 +125,7 @@ async def test_selected_search_result_is_server_resolved_for_one_turn(monkeypatc
 
 
 async def test_chat_ingress_discards_client_pointer_and_keeps_only_ephemeral_context(monkeypatch):
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setattr(
         agent_chat,
         "require_vault_owner_token",
@@ -200,7 +201,7 @@ async def test_malicious_filename_stays_in_lower_trust_tool_data_and_is_not_pers
 
 
 def test_selected_result_activity_keeps_only_outcome_enum():
-    assert agent_chat._activity_step_from_response(
+    assert history_projection._activity_step_from_response(
         "read_selected_drive_search_result",
         {"status": "ok", "result": {"file": {"name": "PRIVATE FILE"}}},
     ) == {"status": "done", "readStatus": "ok"}
