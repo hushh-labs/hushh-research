@@ -15,3 +15,9 @@ export function withOwnerPodSessionLock<T>(owner: string, operation: () => Promi
   }).catch(() => undefined);
   return next;
 }
+
+export function serializeOwnerPodOperation<Args extends unknown[], Result>(
+  operation: (owner: string, ...args: Args) => Promise<Result>,
+): (owner: string, ...args: Args) => Promise<Result> {
+  return (owner, ...args) => withOwnerPodSessionLock(owner, () => operation(owner, ...args));
+}

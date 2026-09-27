@@ -135,10 +135,12 @@ describe("owner pod endpoint", () => {
   });
 
   it("shares cold admission across concurrent requests without replacing the app identity", async () => {
+    const enrollment = ownerPod.ensureAppEnrollment(USER, world.transport());
     const connections = await Promise.all(Array.from({ length: 3 }, async () => {
       await ownerPod.refreshEndpointFromHub(USER, world.transport());
       return ownerPod.currentPodConnection(USER, world.transport());
     }));
+    await enrollment;
     expect(world.calls.filter(call => call.url === "/api/account/trusted-devices/self-enroll")).toHaveLength(1);
     expect(world.admitted).toHaveLength(1);
     expect(connections.every(value => value.session.session === connections[0].session.session)).toBe(true);

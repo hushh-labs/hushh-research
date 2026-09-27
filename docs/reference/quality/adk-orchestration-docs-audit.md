@@ -2488,3 +2488,14 @@ Focused integration checks passed: 165 backend tests (38 real-database fixture
 cases skipped), 126 frontend tests, and 28 endpoint tests. Independent read-only
 review found no remaining critical authority omission in the inspected merge.
 These checks do not substitute for hosted CI, migration execution or live rollout.
+
+The integration fitness baseline received a selective independent review: 66 size
+measurements match frozen ADK, 26 are exact additive root/ADK changes, and three
+cover the smaller combined chat facade, account-erasure cleanup inside the existing
+transaction, and its nearest client regression file. Root `2674ab39f` typed-refusal
+source/test growth is included explicitly, rather than mislabeled as upstream debt.
+The exact 95-entry key/value set is fingerprinted in the baseline review metadata.
+A regenerated catalog's two lines and an unchanged initialization call's shifted
+location were reviewed separately. Budgets, comparison logic, unrelated ceilings
+and the endpoint module ceiling remain unchanged. Large imported modules remain
+measured debt, not a claim that their structure is optimal.

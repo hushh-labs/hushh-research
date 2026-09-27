@@ -7,7 +7,7 @@
  * in IndexedDB (memory fallback in tests); revocations remain pending until delivered.
  */
 
-import { withOwnerPodSessionLock } from "./owner-pod-session-lock";
+import { serializeOwnerPodOperation } from "./owner-pod-session-lock";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
 import { OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
@@ -71,7 +71,6 @@ type PinRecord = {
   session: PodSessionRecord | null;
   pendingRevocations: PendingRevocation[];
 };
-
 
 /**
  * The two transports the module needs, injected so tests drive it without a
@@ -170,7 +169,7 @@ async function readPin(userId: string): Promise<PinRecord> {
 }
 
 /** Test and sign-out hook: forget everything held for one account. */
-export async function forgetOwnerPodState(userId: string): Promise<void> {
+async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
   memoryKeys.delete(userId);
   memoryPins.delete(userId);
   const db = await openDb();
@@ -189,7 +188,6 @@ export async function forgetOwnerPodState(userId: string): Promise<void> {
 }
 
 // -- the app key ----------------------------------------------------------------------
-
 
 async function ensureAppKey(userId: string): Promise<AppKeyRecord> {
   const existing = await readRecord<AppKeyRecord>(KEY_STORE, userId);
@@ -221,7 +219,6 @@ async function signWithAppKey(record: AppKeyRecord, payload: string): Promise<st
   return bytesToBase64(p1363ToDer(raw));
 }
 
-
 function detailCode(body: Record<string, unknown>): string {
   const detail = body.detail;
   if (detail && typeof detail === "object" && "code" in detail) {
@@ -233,7 +230,7 @@ function detailCode(body: Record<string, unknown>): string {
 // -- enrolment and discovery ---------------------------------------------------------
 
 /** Enrol THIS installation as an app subject of the owner's pod. Idempotent. */
-export async function ensureAppEnrollment(
+async function ensureAppEnrollmentUnlocked(
   userId: string,
   transport: OwnerPodTransport,
   deviceName = "This browser",
@@ -412,7 +409,7 @@ async function admitEndpoint(
   refreshGrant = false,
 ): Promise<PodSessionRecord> {
   const record = await ensureAppKey(userId);
-  const subjectId = record.subjectId ?? (await ensureAppEnrollment(userId, transport));
+  const subjectId = record.subjectId ?? (await ensureAppEnrollmentUnlocked(userId, transport));
   const { binding, signature } = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
   if (String(binding.pod_key_id ?? "") !== endpoint.podKeyId) {
     throw new OwnerPodError("BINDING_POD_KEY_MISMATCH");
@@ -603,7 +600,7 @@ function newIntentId(): string {
  * revocation is signed by the app key and couriered through the hub, and the
  * caller is told it is PENDING DELIVERY rather than done.
  */
-export async function revokeAtPod(
+async function revokeAtPodUnlocked(
   userId: string,
   subjectId: string,
   transport: OwnerPodTransport,
@@ -637,7 +634,7 @@ export async function revokeAtPod(
     }
   }
   const record = await ensureAppKey(userId);
-  const signer = record.subjectId ?? (await ensureAppEnrollment(userId, transport));
+  const signer = record.subjectId ?? (await ensureAppEnrollmentUnlocked(userId, transport));
   const intent = {
     kind: TOMBSTONE_INTENT_KIND,
     intentId: newIntentId(),
@@ -675,7 +672,7 @@ export async function pendingRevocations(userId: string): Promise<PendingRevocat
   return (await readPin(userId)).pendingRevocations;
 }
 
-export async function clearPendingRevocation(userId: string, intentId: string): Promise<void> {
+async function clearPendingRevocationUnlocked(userId: string, intentId: string): Promise<void> {
   const pin = await readPin(userId);
   await writeRecord(PIN_STORE, {
     ...pin,
@@ -699,22 +696,13 @@ export function decodePodSessionClaims(session: string): Record<string, unknown>
   }
 }
 
-// All admission/renewal entrypoints share one owner lock. Re-read persisted state
-// inside it so concurrent Files/chat requests and browser tabs reuse admission.
-export function refreshEndpointFromHub(userId: string, transport: OwnerPodTransport): Promise<PinnedEndpoint> {
-  return withOwnerPodSessionLock(userId, () => refreshEndpointFromHubUnlocked(userId, transport));
-}
-export function openPodSession(userId: string, transport: OwnerPodTransport, refreshGrant = false): Promise<PodSessionRecord> {
-  return withOwnerPodSessionLock(userId, () => openPodSessionUnlocked(userId, transport, refreshGrant));
-}
-export function renewPodSession(userId: string, transport: OwnerPodTransport): Promise<PodSessionRecord> {
-  return withOwnerPodSessionLock(userId, () => renewPodSessionUnlocked(userId, transport));
-}
-export function currentPodSession(userId: string, transport: OwnerPodTransport): Promise<PodSessionRecord> {
-  return withOwnerPodSessionLock(userId, () => currentPodSessionUnlocked(userId, transport));
-}
-export function currentPodConnection(userId: string, transport: OwnerPodTransport): Promise<{
-  endpoint: PinnedEndpoint; session: PodSessionRecord;
-}> {
-  return withOwnerPodSessionLock(userId, () => currentPodConnectionUnlocked(userId, transport));
-}
+// Authority mutations share the owner lock; internal composition never re-enters it.
+export const refreshEndpointFromHub = serializeOwnerPodOperation(refreshEndpointFromHubUnlocked);
+export const ensureAppEnrollment = serializeOwnerPodOperation(ensureAppEnrollmentUnlocked);
+export const openPodSession = serializeOwnerPodOperation(openPodSessionUnlocked);
+export const renewPodSession = serializeOwnerPodOperation(renewPodSessionUnlocked);
+export const currentPodSession = serializeOwnerPodOperation(currentPodSessionUnlocked);
+export const currentPodConnection = serializeOwnerPodOperation(currentPodConnectionUnlocked);
+export const revokeAtPod = serializeOwnerPodOperation(revokeAtPodUnlocked);
+export const clearPendingRevocation = serializeOwnerPodOperation(clearPendingRevocationUnlocked);
+export const forgetOwnerPodState = serializeOwnerPodOperation(forgetOwnerPodStateUnlocked);
