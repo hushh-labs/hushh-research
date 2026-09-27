@@ -130,6 +130,10 @@ class Scanner(Protocol):
     async def scan(self, content: bytes) -> None: ...
 
 
+class _StaleSignatures(DriveReadError):
+    """Signatures outside the freshness window; reported as scanner_unavailable."""
+
+
 class ClamAvScanner:
     """Fixed same-instance scanner, in-memory INSTREAM; unavailable fails closed."""
 
@@ -150,7 +154,9 @@ class ClamAvScanner:
             built_at = datetime.strptime(database_time, "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
             age = datetime.now(UTC) - built_at
             if not -timedelta(days=1) <= age <= self.MAX_SIGNATURE_AGE:
-                raise ValueError("stale scanner signatures")
+                raise _StaleSignatures("scanner_unavailable", retryable=True)
+        except _StaleSignatures:
+            raise
         except Exception:
             raise DriveReadError("scanner_unavailable", retryable=True) from None
         finally:
@@ -165,11 +171,38 @@ class ClamAvScanner:
         """Prove both recent signatures and real EICAR detection at startup."""
         try:
             await self.scan(self.EICAR)
+        except _StaleSignatures:
+            # clamd starts reading the image's baked database while freshclam is
+            # still writing today's, and freshclam cannot notify a clamd whose
+            # socket is not up yet. Once the baked set ages past the window every
+            # new instance fails here, so ask clamd to reload what is on disk;
+            # the caller's startup loop re-checks freshness afterwards.
+            await self._request_reload()
+            raise
         except DriveReadError as error:
             if str(error) == "unsafe_document":
                 return
             raise
         raise DriveReadError("scanner_unavailable", retryable=True)
+
+    async def _request_reload(self) -> None:
+        """Best effort: freshness is re-proven by the next check, never assumed."""
+        writer = None
+        try:
+            async with asyncio.timeout(3):
+                reader, writer = await asyncio.open_connection("127.0.0.1", 3310, limit=1024)
+                writer.write(b"zRELOAD\x00")
+                await writer.drain()
+                await reader.readuntil(b"\x00")
+        except Exception:
+            return
+        finally:
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except OSError:
+                    pass
 
     async def scan(self, content: bytes) -> None:
         if not content or len(content) > CONTENT_LIMIT:

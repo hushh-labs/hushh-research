@@ -59,10 +59,10 @@ def test_uat_exercises_durable_run_store() -> None:
 
 
 def test_prod_declares_durable_run_store_flag_explicitly() -> None:
-    """The flag must be present with an explicit boolean literal. An empty or
-    missing value silently defaults OFF in runtime_settings
-    (``_bool_from_value(..., default=False)``), which is exactly the invisible
-    failure mode this guard exists to prevent."""
+    """The flag must be present with an explicit boolean literal, so a
+    deliberate disable is always a reviewed edit. The runtime default is ON
+    (``kai_run_state`` is required on any multi-process lane); the variable is
+    an emergency kill switch only."""
     values = _flag_values(_read(".github/workflows/deploy-production.yml"))
     assert len(values) == 1, (
         f"expected exactly one {_FLAG}=<value> in deploy-production.yml, found {values}"
@@ -104,7 +104,7 @@ def test_durable_run_store_migration_present_when_enabled() -> None:
 def test_backend_cloudbuild_plumbs_flag_to_runtime() -> None:
     """The substitution set in the deploy workflows only takes effect if the
     Cloud Build backend config plumbs it into the Cloud Run runtime env. Guard
-    both the wiring and the empty default (empty => runtime default OFF)."""
+    both the wiring and the empty default (empty => runtime default ON)."""
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     assert f'add_env "{_FLAG.lstrip("_")}" "${{{_FLAG}}}"' in backend_build, (
         f"{_FLAG} not plumbed into Cloud Run env in backend.cloudbuild.yaml"

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
-import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
+import { applyConnectionLink, applySnapshot, recomputeDerived } from "@/lib/kai/plaid-vault/projection";
 import type { FinancialDomain, PlaidVaultSnapshot } from "@/lib/kai/plaid-vault/types";
 
 import {
@@ -31,6 +32,7 @@ const PRIVATE_TIERS = [
   "securities_v1",
   "transactions_v1",
   "derived_v1",
+  "linked_accounts",
 ];
 
 function connect(
@@ -91,5 +93,37 @@ describe("the sealed Plaid memory's manifest", () => {
     const declared = manifest.paths.map((path) => path.json_path).join(" ");
     expect(declared).not.toContain("item_fp_a");
     expect(declared).not.toContain("secret");
+  });
+});
+
+describe("adding the readable linked-accounts view", () => {
+  it("adds one private path and changes no shareable path or top-level scope", () => {
+    const current = sixBanks();
+    const before = { ...current };
+    delete before.linked_accounts;
+    const beforeManifest = manifestFor(before);
+    const afterManifest = manifestFor(recomputeDerived(before, NOW));
+
+    // Existing grants and exports name these; they must not move.
+    expect(afterManifest.externalizable_paths).toEqual(beforeManifest.externalizable_paths);
+    // The server keeps a top-level scope only when the sharing policy allows it
+    // and an exposure-eligible path sits under it (pkm service
+    // `_build_scope_registry_entries`); `linked_accounts` has neither, so no new
+    // scope handle can be minted and every existing one is unchanged.
+    expect(afterManifest.top_level_scope_paths.filter((path) => path !== "linked_accounts")).toEqual(
+      beforeManifest.top_level_scope_paths,
+    );
+    expect(afterManifest.paths.filter((path) => path.exposure_eligibility && path.json_path.startsWith("linked_accounts"))).toEqual([]);
+    expect(isPrivatePkmExportScope("attr.financial.linked_accounts.*")).toBe(true);
+
+    const added = afterManifest.paths
+      .map((path) => path.json_path)
+      .filter((path) => !beforeManifest.paths.some((prior) => prior.json_path === path));
+    expect(added).toEqual(["linked_accounts"]);
+    const view = afterManifest.paths.find((path) => path.json_path === "linked_accounts")!;
+    expect(view.exposure_eligibility).toBe(false);
+    // Manifest paths are plaintext on the server: no institution or account name in them.
+    const declared = afterManifest.paths.map((path) => path.json_path).join(" ");
+    expect(declared).not.toMatch(/tartan|platypus|checking|\u2022/i);
   });
 });

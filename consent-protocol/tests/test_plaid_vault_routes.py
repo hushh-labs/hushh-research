@@ -694,18 +694,42 @@ def test_snapshot_transactions_restart_once_on_mutation_during_pagination(
     assert sync_cursors == ["c1", "c2", "c1"]
 
 
-def test_snapshot_invalid_access_token_is_a_safe_400(authed_client, monkeypatch):
+@pytest.mark.parametrize(
+    ("code", "error_type"),
+    [("INVALID_ACCESS_TOKEN", "INVALID_INPUT"), ("ITEM_NOT_FOUND", "ITEM_ERROR")],
+)
+def test_snapshot_refused_sealed_token_is_200_with_item_error(
+    authed_client, monkeypatch, code, error_type
+):
+    # UAT 2026-09-27: eight connections sealed against the Sandbox answered
+    # INVALID_ACCESS_TOKEN as HTTP 400, so the device never recorded them and
+    # re-read all eight on every app load.
+    fake = _use(monkeypatch, _FakePlaid({"/item/get": [_plaid_error(code, error_type)]}))
+
+    response = authed_client.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["item"]["error"]["code"] == code
+    assert body["accounts"] == []
+    assert body["transactions"] == {"unavailable": code}
+    assert body["investments"] == {"unavailable": code}
+    assert fake.paths() == ["/item/get"]
+    assert _ACCESS_TOKEN not in response.text
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_snapshot_malformed_request_is_still_a_safe_400(authed_client, monkeypatch):
     _use(
         monkeypatch,
-        _FakePlaid({"/item/get": [_plaid_error("INVALID_ACCESS_TOKEN", "INVALID_INPUT")]}),
+        _FakePlaid({"/item/get": [_plaid_error("INVALID_FIELD", "INVALID_REQUEST")]}),
     )
 
     response = authed_client.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN})
 
     assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "INVALID_ACCESS_TOKEN"
+    assert response.json()["detail"]["code"] == "INVALID_FIELD"
     assert _ACCESS_TOKEN not in response.text
-    assert response.headers["cache-control"] == "no-store"
 
 
 # ---------------------------------------------------------------------------

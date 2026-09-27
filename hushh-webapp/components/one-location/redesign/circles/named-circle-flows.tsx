@@ -2133,6 +2133,7 @@ export function CircleDetailFlow({
               error={peopleLoadError}
               addingUserId={quickAddingUserId}
               onAdd={(userId) => void quickAddConnection(userId)}
+              onRemove={(userId) => void removeMember(userId)}
               searchQuery={peopleSearch}
               onSearchChange={setPeopleSearch}
               hasMore={peopleHasMore}

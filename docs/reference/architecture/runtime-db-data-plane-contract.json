@@ -18,6 +18,7 @@
     "kai_gmail_sync_runs",
     "google_oauth_attempts",
     "google_calendar_action_proposals",
+    "gmail_mailbox_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
     "one_capability_runs",
@@ -422,12 +423,13 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "gmail_owner_send_actions",
-        "google_email_send_actions"
+        "google_email_send_actions",
+        "gmail_mailbox_action_proposals"
       ],
-      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration.",
-      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement.",
-      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration. Mailbox-change proposals are unusable after ten minutes, deleted after execution, and purged (with failed ones) on the owner's next mailbox change.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement. Mailbox-change proposals cascade-delete with the actor profile and are bound to the Gmail account they were resolved in, so a disconnect or account switch makes them unusable.",
+      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information. Mailbox-change proposals store only Gmail message and label identifiers, the bound Google account subject, the action and lifecycle state; never subject, sender, body or tokens.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
       "expected_row_growth": "low_per_user_action"
     },
@@ -472,13 +474,14 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "kai_analyze_runs"
+        "kai_analyze_runs",
+        "kai_run_state"
       ],
-      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
-      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
-      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
-      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
-      "plaintext_posture": "terminal_result_and_metadata",
+      "primary_access_path": "Cross-process state for Kai's long-running runs. kai_run_state (migration 253) holds one row per debate or portfolio-import run: the owning worker process writes a running row at start, refreshes a heartbeat and metadata-only progress every 5s and reads owner cancel requests in the same round trip, then writes a terminal receipt. Any process serves GET .../run/active, follows a run it does not hold to its end via GET .../run/{id}/stream, and records POST .../run/{id}/cancel. kai_analyze_runs (migration 125) is the earlier terminal-only checkpoint; migration 128 purges it on every replay and the runtime no longer writes it. On by default; KAI_ANALYZE_DURABLE_RUN_STORE=false is an emergency kill switch.",
+      "retention_policy": "Rows carry expires_at (6h after the last heartbeat or the terminal write) and are deleted on every run start and every terminal write; a follower deletes relay ciphertext as soon as it reads it. Writes are coarse (start, one per 5s heartbeat, terminal), never per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are swept on run start and end.",
+      "trust_boundary": "Stores run identifiers, user_id, run kind, debate session id and ticker, status, timestamps, an event count with server-defined event and phase names, and a terminal receipt with a server-defined code. No holdings, statements, file names, decision cards, transcripts, model output, market material or PKM context. To hand the terminal frame to a different process for the same user, the requesting process stores only a one-time X25519 public key and keeps the private key in memory; the owner stores the frame sealed to it (X25519 + HKDF-SHA256 salted from the backend signing secret + AES-256-GCM, bound to run_id, user_id and both public keys) and the requester deletes it on read, or the owner when it stops answering, so it cannot be opened, forged or redirected from the database. All reads and writes are scoped by run_id and user_id.",
+      "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "low_per_user_run"
     },
     {
@@ -1282,6 +1285,22 @@
       "trust_boundary": "No audio, transcripts, coordinates, tokens, or spoken names are stored. Entity context holds canonical ids plus display names the server itself returned; receipts are stored as SHA-256 hashes; tool args are canonical ids only.",
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "medium_per_user_bounded_ttl"
+    },
+    {
+      "id": "drive_owner_search",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_owner_search_jobs",
+        "drive_owner_search_results"
+      ],
+      "primary_access_path": "Owner-confirmed search create/status/results/stop; existing Drive worker claims bounded metadata-only page slices. Owner+client idempotency, one active job per owner, keyed result deduplication and lease CAS. No document indexing or sharing authority.",
+      "retention_policy": "24-hour job/result TTL; bounded 100-job purge on worker discovery and owner reads. At most 10000 encrypted result rows per job.",
+      "deletion_behavior": "Account erasure deletes owner jobs; result rows cascade. Stopping invalidates the lease; expired jobs and ciphertext are deleted.",
+      "trust_boundary": "Explicit job-scoped metadata-search consent plus current verified live grant/generation. Existing DriveSharingCipher uses DRIVE_SHARING_KEY_V1 and owner/resource/purpose-bound AES-GCM. Query, provider cursors, shared-drive IDs and result metadata encrypted; no document content or owner session tokens persisted.",
+      "plaintext_posture": "encrypted_query_checkpoint_and_results_with_opaque_workflow_metadata",
+      "expected_row_growth": "one_job_per_search_up_to_10000_results_24_hour_ttl"
     }
   ]
 }

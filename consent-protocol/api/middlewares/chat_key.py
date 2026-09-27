@@ -9,6 +9,8 @@ read it, so no handler, SDK, tracer or logger downstream ever sees the key.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -22,8 +24,11 @@ from hushh_mcp.services.chat_key import (
     RequestChatKey,
     bind_request_chat_key,
     parse_chat_key_header,
+    request_chat_key_state,
     request_has_chat_key,
 )
+
+logger = logging.getLogger(__name__)
 
 _HEADER_BYTES = CHAT_KEY_HEADER.encode("latin-1")
 CHAT_KEY_REQUIRED_DETAIL = CHAT_KEY_RECOVERY_MESSAGE
@@ -65,9 +70,30 @@ class ChatKeyMiddleware:
             await self.app(scope, receive, send)
 
 
-async def chat_key_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+def log_chat_key_refusal(
+    request: Request | None, code: str, *, owner_id: str | None = None
+) -> None:
+    """Record a chat-key refusal as metadata: which code, where, and what key arrived.
+
+    ``key_state`` separates a request that carried no key (``absent``) from one whose
+    key was released, never bound to an owner, bound to another owner, or bound and
+    still refused (a record that would not open). It never carries the key, the
+    owner id, or the raw path, which can hold a user id.
+    """
+    scope = request.scope if request is not None else {}
+    logger.warning(
+        "chat_key.refused code=%s method=%s route=%s key_state=%s",
+        code,
+        scope.get("method", ""),
+        getattr(scope.get("route"), "path", None) or "unmatched",
+        request_chat_key_state(owner_id),
+    )
+
+
+async def chat_key_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Refuse, never degrade: no route may answer chat history without the key."""
     mismatch = isinstance(exc, ChatKeyMismatchError)
+    log_chat_key_refusal(request, "CHAT_KEY_MISMATCH" if mismatch else "CHAT_KEY_REQUIRED")
     return JSONResponse(
         {
             "detail": CHAT_KEY_MISMATCH_DETAIL if mismatch else CHAT_KEY_REQUIRED_DETAIL,
@@ -79,10 +105,13 @@ async def chat_key_error_handler(_request: Request, exc: Exception) -> JSONRespo
 
 
 async def require_vault_owner_chat_key(
+    request: Request,
     token: dict = Depends(require_vault_owner_token),
 ) -> dict:
     """Vault-owner token plus that owner's chat key, or a 403 before any read."""
-    if not request_has_chat_key(str(token.get("user_id") or "")):
+    owner_id = str(token.get("user_id") or "")
+    if not request_has_chat_key(owner_id):
+        log_chat_key_refusal(request, "CHAT_KEY_REQUIRED", owner_id=owner_id)
         raise HTTPException(
             status_code=403,
             detail={"message": CHAT_KEY_REQUIRED_DETAIL, "code": "CHAT_KEY_REQUIRED"},
@@ -95,5 +124,6 @@ __all__ = [
     "CHAT_KEY_REQUIRED_DETAIL",
     "ChatKeyMiddleware",
     "chat_key_error_handler",
+    "log_chat_key_refusal",
     "require_vault_owner_chat_key",
 ]

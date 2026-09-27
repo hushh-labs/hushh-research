@@ -9,23 +9,29 @@ from google.adk.sessions import Session
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult
 from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
+    STATE_DRIVE_READ_OUTCOME,
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
     STATE_EXTERNAL_READ_CONTINUATION,
+    STATE_SELECTED_DRIVE_SHARE,
 )
 
 _EPHEMERAL = frozenset(
     {
         STATE_EXECUTION_SURFACE,
+        STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
+        STATE_SELECTED_DRIVE_SHARE,
         "temp:hussh:workspace_chat_admission",
+        "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
         "temp:hussh:gmail_information_request_workflow_id",
         "temp:hussh:gmail_information_request_context",
+        "temp:hussh:pending_email_draft",
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
     }
@@ -42,6 +48,10 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     # Source labels are authored constants today. Do not start retaining file
     # names if a future source adds them; keep only opaque refs and kind here.
     safe = structured.model_dump(mode="json")
+    # Search text is private tool input. The UI restores active jobs through
+    # their owner-authenticated API, not by replaying a stored tool receipt.
+    safe["background_search_available"] = False
+    safe["background_search_query"] = None
     for source in safe["sources"]:
         source["label"] = "Mail" if safe["connector"] == "mail" else "Document"
     receipt["structured"] = safe

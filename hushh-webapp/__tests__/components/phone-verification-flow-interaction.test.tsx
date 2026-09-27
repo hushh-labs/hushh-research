@@ -393,7 +393,7 @@ describe("PhoneVerificationFlow country selector", () => {
       screen.getByRole("button", { name: "Send verification code" }),
     );
 
-    expect(await screen.findByText("•••••• 2372")).toBeTruthy();
+    expect(await screen.findByText("••••••2372")).toBeTruthy();
     expect(screen.queryByText(/\+91/)).toBeNull();
     expect(screen.getByRole("textbox", { name: "One-time code" })).toBeTruthy();
   });

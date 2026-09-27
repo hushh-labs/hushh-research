@@ -1,10 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "stream-panel-reviewer", getIdToken: vi.fn(async () => "test-token") },
   getViewer: vi.fn(),
 }));
+
+// Answer links route in-app; the panel test only needs a router to exist.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.user, loading: false }),
@@ -87,6 +90,7 @@ import {
   agentToolEventToVisibleStreamEvent,
   driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
+import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { driveOwnerCompileKey } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
@@ -104,27 +108,38 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
-  it("shows provider thought summaries inside Chat separately from Activity and Response", () => {
-    const { rerender } = render(<AgentTurnStreamPanel
-      streamEvents={[]}
-      thinkingSummary="I checked the connected capability."
-      responseText=""
-      isStreaming
-    />);
-    expect(screen.getByText("I checked the connected capability.")).toBeVisible();
-    rerender(<AgentTurnStreamPanel
-      streamEvents={[]}
-      thinkingSummary="I checked the connected capability."
-      responseText="Here is the answer."
-      isStreaming
-    />);
-    const thinking = screen.getByRole("button", { name: /Thinking summary/i });
-    expect(thinking).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(thinking);
-    expect(thinking).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("I checked the connected capability.")).toBeInTheDocument();
-    expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
-    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+  it("renders a completed turn the same live and reopened, with its markdown and no thinking", () => {
+    // Founder report 2026-09-27: a live answer sat in a tinted card with a
+    // timing line and Activity; reopened, the same answer came back as a bare
+    // paragraph. Both now go through this one panel and must match.
+    const answer = "Here is **tomorrow**:\n\n1. [Standup](https://example.test)\n2. Run `sync`";
+    const step = agentToolEventToVisibleStreamEvent(
+      "result",
+      makeToolEvent({ callId: "call-events", label: "Google Calendar", message: "Reading your calendar events." }),
+      1_700_000,
+    );
+    const turn = (isStreaming: boolean) => (
+      <AgentTurnStreamPanel
+        streamEvents={[{ ...step, status: isStreaming ? "running" : "done" }]}
+        responseText={answer}
+        isStreaming={isStreaming}
+        response={<AgentMarkdown text={answer} />}
+      />
+    );
+    const live = render(turn(true));
+    expect(screen.getByRole("button", { name: /Activity/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("button", { name: /Thinking|Reasoning/ })).not.toBeInTheDocument();
+    live.rerender(turn(false));
+    const reopened = render(turn(false));
+    const markup = (node: HTMLElement) => node.innerHTML.replace(/radix-[^"]+/g, "radix");
+    expect(markup(live.container)).toBe(markup(reopened.container));
+    const region = within(reopened.container).getByRole("region", { name: "One activity" });
+    expect(region.querySelector("strong")).toHaveTextContent("tomorrow");
+    expect(region.querySelectorAll("ol li")).toHaveLength(2);
+    expect(region.querySelector("a")).toHaveTextContent("Standup");
+    expect(region.querySelector("code")).toHaveTextContent("sync");
+    expect(within(region).getByRole("button", { name: /Activity/ })).toHaveAttribute("aria-expanded", "false");
+    expect(region.textContent).not.toMatch(/Response complete|first text|Thinking|Reasoning/);
   });
   it("renders metadata provenance and opens Connectors only on explicit click", () => {
     const onOpenConnections = vi.fn();
@@ -168,24 +183,14 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
   });
 
-  it("shows time to first text and total response time without request content in timing tags", async () => {
+  it("shows elapsed time only while the turn runs", () => {
     let now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
-    now = 1800;
-    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming />);
+    expect(screen.getByText("Working for 0s")).toBeInTheDocument();
     now = 3000;
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming={false} />);
-    expect(await screen.findByText("Response complete in 2.0s · first text in 0.8s")).toBeInTheDocument();
-    expect(screen.queryByText(/A private answer.*time/)).not.toBeInTheDocument();
-    now = 5000;
-    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
-    expect(screen.queryByText("Response complete in 2.0s · first text in 0.8s")).not.toBeInTheDocument();
-    now = 5400;
-    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Another answer" isStreaming />);
-    now = 6000;
-    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Another answer" isStreaming={false} />);
-    expect(await screen.findByText("Response complete in 1.0s · first text in 0.4s")).toBeInTheDocument();
+    expect(screen.queryByText(/Working for|Response complete/)).not.toBeInTheDocument();
     clock.mockRestore();
   });
 
@@ -484,7 +489,8 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /Activity 1/i })).toBeInTheDocument();
+    // A finished turn keeps Activity one tap away.
+    fireEvent.click(screen.getByRole("button", { name: /Activity 1/i }));
     expect(screen.getByText("Finance")).toBeInTheDocument();
     expect(screen.getByText("Finance specialist consulted.")).toBeInTheDocument();
     expect(screen.queryByText("agent_kai")).not.toBeInTheDocument();

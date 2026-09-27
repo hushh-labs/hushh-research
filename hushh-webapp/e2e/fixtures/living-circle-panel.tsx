@@ -88,6 +88,11 @@ export function LivingCirclePanelFixture() {
               { ...owner, ...candidate, role: "member" },
             ]);
         }}
+        onRemove={(userId) => {
+          setMembers((current) =>
+            current.filter((member) => member.userId !== userId),
+          );
+        }}
         searchQuery=""
         onSearchChange={() => {}}
         hasMore={false}

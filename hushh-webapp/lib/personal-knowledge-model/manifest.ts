@@ -6,6 +6,7 @@ import {
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { humanizeMemoryPath } from "@/lib/pkm/humanize-segment";
+import { LINKED_ACCOUNTS_BRANCH, PLAID_VAULT_RECORD_BRANCHES } from "@/lib/kai/plaid-vault/types";
 
 export type PathDescriptor = {
   json_path: string;
@@ -217,14 +218,14 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
  * 1000 `json_paths` a domain may declare. A real account already spent 821 on
  * statements and the older Plaid copy, so the sealed connect write died with a
  * 422 (iPhone proof, run 13). Nothing reads a path below these roots.
+ *
+ * `linked_accounts`, the readable view of the same records, is opaque for a
+ * second reason: manifest paths are plaintext on the server, and walking it
+ * would publish which kinds of account a person holds.
  */
-const VAULT_PRIVATE_BRANCHES = new Set([
-  "connections_v1",
-  "accounts_v1",
-  "holdings_v1",
-  "securities_v1",
-  "transactions_v1",
-  "derived_v1",
+const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
+  ...PLAID_VAULT_RECORD_BRANCHES,
+  LINKED_ACCOUNTS_BRANCH,
 ]);
 
 /** Segments the walk invents; they were never keys the owner wrote. */

@@ -496,7 +496,7 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
  * retryable API response rather than becoming a client-side abort.
  */
 const LONG_DRIVE_SHARING_PATH =
-  /^\/api\/connectors\/google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/(?:allow|share)|owner-shares(?:\/[0-9a-f-]{36}\/share)?)$/;
+  /^\/api\/connectors\/google_drive\/(?:searches|sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/(?:allow|share)|owner-shares(?:\/[0-9a-f-]{36}\/share)?))$/;
 
 /** Above the connector proxy's 170 s budget for synchronous Drive work. */
 function isLongDriveSharingPath(path: string): boolean {
@@ -2580,6 +2580,7 @@ export class ApiService {
     userId: string,
     idToken: string,
     platform?: "web" | "ios" | "android",
+    signal?: AbortSignal,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2605,6 +2606,7 @@ export class ApiService {
     }
     return apiFetch("/api/notifications/unregister", {
       method: "DELETE",
+      signal,
       headers: {
         Authorization: `Bearer ${idToken}`,
       },
@@ -4510,12 +4512,18 @@ export class ApiService {
     userContext?: any;
     vaultOwnerToken: string;
     signal?: AbortSignal;
+    /** Starts the session's resumable run and streams it in this response. */
+    debateSessionId?: string;
+    pickSource?: string;
   }): Promise<Response> {
     const body = {
       user_id: data.userId,
       ticker: data.ticker.toUpperCase(),
       risk_profile: data.riskProfile,
       context: data.userContext,
+      ...(data.debateSessionId
+        ? { debate_session_id: data.debateSessionId, pick_source: data.pickSource }
+        : {}),
     };
 
     // Native: use Kai plugin and expose a ReadableStream of SSE text
@@ -4654,7 +4662,16 @@ export class ApiService {
     });
   }
 
-  static async startKaiDebateRun(data: {
+  /**
+   * Start a resumable debate run and stream it from the same request.
+   *
+   * The live run exists only in the backend worker process that created it. A
+   * start followed by a separate stream request lands on another process and
+   * 404s (every UAT debate, 2026-09-26/27), so the first attach must ride on
+   * the request that creates the run. Web and native both reach
+   * `POST /api/kai/analyze/stream`; native plugins forward this body as-is.
+   */
+  static async startKaiDebateRunStream(data: {
     userId: string;
     debateSessionId: string;
     ticker: string;
@@ -4662,21 +4679,9 @@ export class ApiService {
     userContext?: Record<string, unknown>;
     pickSource?: string;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<Response> {
-    const response = await apiFetch("/api/kai/analyze/run/start", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        debate_session_id: data.debateSessionId,
-        ticker: data.ticker.toUpperCase(),
-        risk_profile: data.riskProfile,
-        context: data.userContext,
-        pick_source: data.pickSource,
-      }),
-    });
+    const response = await ApiService.streamKaiAnalysis(data);
     if (response.ok) {
       trackEvent("analysis_stream_started", {
         result: "success",

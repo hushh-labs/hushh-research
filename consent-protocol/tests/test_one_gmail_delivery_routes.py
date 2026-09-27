@@ -232,3 +232,26 @@ def test_send_rejects_file_reference_instead_of_opaque_token():
         },
     )
     assert response.status_code == 422
+
+
+def test_mailbox_execute_runs_only_the_vault_owners_reviewed_proposal():
+    service = MagicMock()
+    service.execute = AsyncMock(
+        return_value={"status": "executed", "action": "archive", "count": 2}
+    )
+    with patch.object(module, "get_gmail_mailbox_actions", return_value=service):
+        ok = TestClient(_app()).post(
+            "/api/one/email/mailbox/execute", json={"proposal_id": "gmod_reviewed"}
+        )
+        mismatch = TestClient(_app(owner_user_id="other-user")).post(
+            "/api/one/email/mailbox/execute", json={"proposal_id": "gmod_reviewed"}
+        )
+        # The caller names only a proposal; ids, actions and labels come from the server.
+        smuggled = TestClient(_app()).post(
+            "/api/one/email/mailbox/execute",
+            json={"proposal_id": "gmod_reviewed", "action": "trash", "message_ids": ["m"]},
+        )
+    assert ok.status_code == 200
+    assert mismatch.status_code == 403
+    assert smuggled.status_code == 422
+    service.execute.assert_awaited_once_with(user_id="firebase-user", proposal_id="gmod_reviewed")

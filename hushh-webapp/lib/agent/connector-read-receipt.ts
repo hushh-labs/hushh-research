@@ -22,6 +22,8 @@ export type ConnectorReadExperience = {
   truncated: boolean;
   metadataOnly: boolean;
   sourcePages?: (number | null)[];
+  backgroundSearchAvailable?: boolean;
+  backgroundSearchQuery?: string;
   /** The owner may explicitly compile this bounded title/date result in chat. */
   ownerCompileAvailable?: boolean;
   /** Canonical owner query validated by the Drive listing parser. */
@@ -179,7 +181,17 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   if (!input || Object.keys(input).some((key) => ![
     "schema_version", "connector", "status", "sources", "truncated", "metadata_only",
     "owner_compile_available", "owner_compile_query", "owner_compile_window",
+    "background_search_available", "background_search_query",
   ].includes(key))) return null;
+  const backgroundQuery = input.background_search_query;
+  // A malformed optional continuation must not erase otherwise valid search
+  // results. It can only remove the action. Newlines/tabs are literal user text.
+  const validBackgroundSearch = input.background_search_available === true &&
+    typeof backgroundQuery === "string" && backgroundQuery.trim().length > 0 &&
+    new TextEncoder().encode(backgroundQuery).byteLength <= 2048 &&
+    !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(backgroundQuery) &&
+    input.connector === "drive" && input.status === "ok" &&
+    input.metadata_only === true && input.truncated === true;
   const ownerCompileQuery = input.owner_compile_query;
   const ownerCompileWindow = input.owner_compile_window;
   const validOwnerQuery = typeof ownerCompileQuery === "string" &&
@@ -226,6 +238,8 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
+    ...(validBackgroundSearch ? { backgroundSearchAvailable: true,
+      backgroundSearchQuery: backgroundQuery as string } : {}),
     ...(input.owner_compile_available === true && validOwnerQuery && validWindow
       ? { ownerCompileAvailable: true, ownerCompileQuery: ownerCompileQuery as string,
         ownerCompileWindow: validWindow } : {}),

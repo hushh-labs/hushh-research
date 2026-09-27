@@ -45,6 +45,9 @@ def fixture():
     reader = DriveLiveReader(
         user_id="owner", require_access=fence, oauth=oauth, mcp=mcp, adapter=adapter
     )
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(False, {"drives": []}, False)
+    )
     return reader, adapter, mcp, fence
 
 
@@ -132,7 +135,7 @@ async def test_changed_source_fails_before_review_publication():
 async def test_invalid_model_search_terms_never_reach_provider():
     reader, _, mcp, _ = fixture()
     with pytest.raises(DriveReadError, match="narrow_selection_required"):
-        await reader.search(query=["statement' or name contains 'secret"])
+        await reader.search(query=["statement\x00secret"])
     mcp.read_tool.assert_not_awaited()
 
 
@@ -260,10 +263,10 @@ async def test_owner_listing_opt_in_reports_truncation_at_explicit_cap():
         offset = int(arguments.get("pageToken") or 0)
         files = [
             {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
-            for index in range(offset, offset + 25)
+            for index in range(offset, offset + arguments["pageSize"])
         ]
         return ExternalMcpToolResult(
-            False, {"files": files, "nextPageToken": str(offset + 25)}, False
+            False, {"files": files, "nextPageToken": str(offset + arguments["pageSize"])}, False
         )
 
     mcp.read_tool.side_effect = page
@@ -271,6 +274,7 @@ async def test_owner_listing_opt_in_reports_truncation_at_explicit_cap():
     assert len(result["matches"]) == 30
     assert result["truncated"] is True
     assert mcp.read_tool.await_count == 2
+    assert result["continuation"]["arguments"]["pageToken"] == "30"
 
 
 @pytest.mark.asyncio
@@ -535,7 +539,12 @@ async def test_a_search_with_no_matches_is_an_empty_answer_not_a_failure():
     mcp.read_tool.side_effect = None
     mcp.read_tool.return_value = ExternalMcpToolResult(False, _search_metadata({}), False)
     found = await reader.find(query=["statement"])
-    assert found == {"matches": [], "truncated": False}
+    assert found == {
+        "matches": [],
+        "truncated": False,
+        "incomplete_search": False,
+        "continuation": None,
+    }
 
 
 def three_file_reader(read_payloads, metadata_errors=None):
@@ -869,3 +878,50 @@ async def test_an_unreadable_file_leaves_its_share_to_the_others():
     # Five locked files leave their share: the three readable ones keep the
     # full excerpt instead of an eighth of the budget each.
     assert [len(text) for text in texts] == [4000, 4000, 4000]
+
+
+@pytest.mark.asyncio
+async def test_one_transient_retry_budget_is_shared_and_other_files_still_return(monkeypatch):
+    reader, _, matches = three_file_reader({})
+    reader.require_current = AsyncMock()
+    attempts = {}
+
+    async def read(*, arguments, **kwargs):
+        file_id = arguments["fileId"]
+        attempts[file_id] = attempts.get(file_id, 0) + 1
+        if file_id != "file-3":
+            raise DriveReadError("provider_unavailable", retryable=True)
+        return ExternalMcpToolResult(False, {"fileContent": "Still readable"}, False)
+
+    reader.mcp.read_tool.side_effect = read
+    result = await reader.read_matches(matches=matches)
+    assert sum(attempts.values()) == 4  # three files plus one shared retry
+    assert [item["name"] for item in result["untrusted_external_content"]] == [matches[2]["name"]]
+    assert [item["reason"] for item in result["unreadable"]] == ["provider_unavailable"] * 2
+    assert [row["file_id"] for row in reader._rows] == ["file-3"]
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_content_transient_retry_success_still_fences_the_source():
+    reader, adapter, mcp, _ = fixture()
+    mcp.read_tool.side_effect = [
+        DriveReadError("provider_unavailable", retryable=True),
+        ExternalMcpToolResult(False, {"fileContent": "Recovered"}, False),
+    ]
+    result = await reader.read_matches(
+        matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
+    )
+    assert result["untrusted_external_content"][0]["text"] == "Recovered"
+    assert result["unreadable"] == []
+    assert mcp.read_tool.await_count == 2 and adapter.get_metadata.await_count >= 3
+
+
+@pytest.mark.asyncio
+async def test_retry_access_failure_is_fatal_even_with_a_provider_error_code():
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    reader.require_current = AsyncMock(side_effect=DriveReadError("provider_unavailable"))
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await reader.read_matches(matches=[{"file_id": "file-1", "name": "March statement.pdf"}])
+    assert mcp.read_tool.await_count == 1 and reader._rows == []

@@ -35,6 +35,7 @@ vi.mock("@/lib/kai/plaid-vault/pending-seal", () => pendingSeal);
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
 
 import { loadPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { PLAID_VAULT_SOURCE_MANAGED_BRANCHES } from "@/lib/kai/plaid-vault/types";
 import {
   buildVaultPlaidStatus,
   completeVaultOAuthReturn,
@@ -282,15 +283,130 @@ describe("refreshing on unlock", () => {
     expect(outcome).toMatchObject({ refreshed: 0, saved: false });
   });
 
+  it("sends nothing with no sealed connections or a locked vault", async () => {
+    await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: {} });
+    await refreshVaultConnections({ userId: "owner", vaultKey: null, vaultOwnerToken: "vot", financial: linked });
+    await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: null, financial: linked });
+    expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
+    expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("reads a rejected connection once and never retries it within the run", async () => {
+    const two = {
+      connections_v1: {
+        ...linked.connections_v1,
+        item_2: { ...linked.connections_v1.item_1, access_token: "access-sandbox-second" },
+      },
+    };
+    saveRunsBuild(two);
+    client.fetchVaultSnapshot
+      .mockRejectedValueOnce(Object.assign(new Error("Plaid rejected the request."), { status: 400 }))
+      .mockResolvedValueOnce(snapshot({ item: { ...snapshot().item, item_id: "item_2" } }));
+    const outcome = await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: two });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({ refreshed: 1, failed: 1, saved: true });
+  });
+
+  it("records a connection Plaid refuses, then stops reading it on unlock (UAT 2026-09-27)", async () => {
+    saveRunsBuild(linked);
+    const refused = { code: "INVALID_ACCESS_TOKEN", message: "The linked connection needs attention." };
+    client.fetchVaultSnapshot.mockResolvedValue(
+      snapshot({
+        item: { item_id: null, institution_id: null, products: [], consented_products: [], error: refused },
+        accounts: [],
+        investments: { unavailable: refused.code },
+        transactions: { unavailable: refused.code },
+      }),
+    );
+    const params = { userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" };
+    const first = await refreshVaultConnections({ ...params, financial: linked });
+    expect(first).toMatchObject({ needsRelink: ["item_1"], saved: true });
+    const recorded = plans[0]!.domainData as typeof linked;
+    expect(recorded.connections_v1.item_1.status).toBe("needs_relink");
+
+    // Every later app load: no request for a connection only a relink can fix.
+    await refreshVaultConnections({ ...params, financial: recorded });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
+    // The person's own refresh (and relink) still reads it.
+    await refreshVaultConnections({ ...params, financial: recorded, force: true });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a connection refreshed moments ago alone", async () => {
     const fresh = {
       connections_v1: {
         item_1: { ...linked.connections_v1.item_1, last_refreshed_at: new Date().toISOString() },
       },
+      linked_accounts: { schema_version: 1 },
     };
     const outcome = await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: fresh });
     expect(outcome.refreshed).toBe(0);
     expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
+    expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+});
+
+describe("memory saved before the readable linked-accounts view", () => {
+  const unreachable = {
+    connections_v1: {
+      item_1: {
+        access_token: ACCESS_TOKEN,
+        institution_id: "ins_109511",
+        institution_name: "Tartan Bank",
+        products: ["transactions"],
+        linked_at: "2026-09-01T00:00:00Z",
+        transactions_cursor: "cursor-0",
+        last_refreshed_at: "2026-09-01T00:00:00Z",
+        status: "needs_relink",
+      },
+    },
+    accounts_v1: {
+      "item_1:acc_chk": {
+        account_id: "acc_chk", persistent_account_id: null, item_id: "item_1",
+        institution_id: "ins_109511", institution_name: "Tartan Bank", name: "Plaid Checking", mask: "0000",
+        type: "depository", subtype: "checking",
+        balances: { available: 100, current: 110, limit: null, iso_currency_code: "USD" }, duplicate_of: null,
+      },
+    },
+  };
+
+  it("gets the view on unlock with one recompute-only write, even when every bank needs a relink", async () => {
+    saveRunsBuild(unreachable);
+    const params = { userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" };
+    const outcome = await refreshVaultConnections({ ...params, financial: unreachable });
+
+    expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ refreshed: 0, saved: true });
+    const call = coordinator.saveMergedDomain.mock.calls[0]![0];
+    expect(call.confirmation).toMatchObject({
+      authorizationMode: "owner_connected_source_sync",
+      source: "plaid_vault_view_upgrade",
+      connectedSourceProvider: "plaid",
+    });
+    const saved = plans[0]!.domainData as Record<string, unknown> & typeof unreachable;
+    expect(saved.accounts_v1).toEqual(unreachable.accounts_v1);
+    expect(saved.connections_v1).toEqual(unreachable.connections_v1);
+    const view = saved.linked_accounts as { bank_accounts: Array<{ name: string; connection: string; accounts: Array<{ name: string }> }> };
+    expect(view.bank_accounts[0]).toMatchObject({ name: "Tartan Bank", connection: "Needs to be reconnected" });
+    expect(view.bank_accounts[0]!.accounts[0]!.name).toBe("Plaid Checking \u2022\u20220000");
+
+    // Only lane-owned branches are added: no portfolio rebuild, no source copy dropped.
+    const added = Object.keys(saved).filter((key) => !(key in unreachable));
+    expect(added.every((key) => (PLAID_VAULT_SOURCE_MANAGED_BRANCHES as readonly string[]).includes(key))).toBe(true);
+    expect(added).toContain("linked_accounts");
+
+    // Once written, later unlocks write nothing.
+    await refreshVaultConnections({ ...params, financial: saved });
+    expect(coordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a person's own refresh as saved when every read failed", async () => {
+    saveRunsBuild(unreachable);
+    client.fetchVaultSnapshot.mockRejectedValue(Object.assign(new Error("Plaid rejected the request."), { status: 400 }));
+    const outcome = await refreshVaultConnections({
+      userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: unreachable, force: true,
+    });
+    expect(outcome).toMatchObject({ refreshed: 0, failed: 1, saved: false });
     expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 });

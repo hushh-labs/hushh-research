@@ -8,7 +8,9 @@
  *                                securities_v1, transactions_v1
  * Tier B (private derived facts): derived_v1, recomputed from Tier A on every change
  * Tier C (shareable summary):    summary, bands, percentages and counts only
+ * Readable view (private):       linked_accounts, rebuilt from Tier A with B
  *
+
  * Retention (founder decision 2026-09-23): transaction detail is kept for 24
  * months; after 90 days a transaction's merchant detail is reduced to its
  * category.
@@ -16,6 +18,7 @@
 
 import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { buildLinkedAccountsView } from "@/lib/kai/plaid-vault/linked-accounts";
 
 import {
   isUnavailable,
@@ -719,6 +722,7 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   if (tierA.connections.size === 0) {
     delete next.derived_v1;
     delete next.summary;
+    delete next.linked_accounts;
     return next;
   }
   const derived = computeDerived(
@@ -731,6 +735,10 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   );
   next.derived_v1 = derived;
   next.summary = computeSummary(derived, tierA.connections, now);
+  next.linked_accounts = buildLinkedAccountsView(
+    { connections: tierA.connections, accounts, holdings: tierA.holdings, securities, transactions },
+    derived
+  );
   return next;
 }
 

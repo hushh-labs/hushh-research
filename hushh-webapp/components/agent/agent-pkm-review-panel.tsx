@@ -61,7 +61,7 @@ function cardDomain(card: AgentPkmPreviewCard): string {
     String(card.manifest_draft?.domain || "").trim() ||
     String(structureDecision.target_domain || "").trim() ||
     String(card.target_domain || "").trim() ||
-    "PKM"
+    "Memory"
   );
 }
 

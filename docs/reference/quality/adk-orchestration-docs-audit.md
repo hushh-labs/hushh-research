@@ -70,7 +70,9 @@ retained catalog at turn teardown. Curated Google adapters remain separate until
 parity is verified; custom OAuth and live browser/native proof remain open.
 Native calls now establish the existing external-content barrier before dispatch;
 continued calls are limited to actual native tools using exact-call review.
-Tool names/annotations cannot admit an unreviewed downstream action. This does
+Tool names/annotations cannot admit an unreviewed downstream action. Since
+2026-09-27 the person's own connectors run without review (founder decision);
+curated rows and owner-blocked tools keep it. This does
 not yet establish same-turn first-party Memory capture or curated-action parity.
 
 The shared toolset accepts application-owned catalog and result policy ports for

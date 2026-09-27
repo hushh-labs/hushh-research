@@ -348,7 +348,7 @@ export function StockComparisonPreview({
                 onClick={onStartDebate}
                 disabled={loading || starting}
               >
-                {starting ? "Preparing debate..." : "Start debate"}
+                {starting ? "Preparing debate..." : "Start analysis debate"}
               </Button>
             </div>
           ) : null}

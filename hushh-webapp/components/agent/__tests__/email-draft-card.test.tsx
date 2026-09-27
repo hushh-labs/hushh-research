@@ -123,6 +123,76 @@ describe("EmailDraftCard", () => {
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
+  it("replaces a draft revised in chat and still sends only on the Send click", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "action-1",
+      expiresAt: "2026-08-26T00:00:00Z",
+    });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      messageId: "msg-1",
+      threadId: null,
+      outcomeUnknown: false,
+    });
+    const onDraftChange = vi.fn();
+    const onSent = vi.fn();
+    const card = (key: string, initialDraft: { to: string; cc: string; subject: string; body: string }) => (
+      <EmailDraftCard
+        key={key}
+        initialInstruction="Reply to Pat"
+        initialDraft={{ bcc: "", ...initialDraft }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={onSent}
+        onDraftChange={onDraftChange}
+      />
+    );
+    const { rerender } = render(
+      card("assistant-1", {
+        to: "pat@example.com",
+        cc: "",
+        subject: "Account details",
+        body: "My account number is 12345678.",
+      }),
+    );
+
+    // The person's own edit is what the next chat turn sees.
+    fireEvent.change(screen.getByTestId("one-email-draft-subject"), {
+      target: { value: "Account details for Pat" },
+    });
+    expect(onDraftChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ subject: "Account details for Pat" }),
+    );
+
+    // "Add priya@example.com to cc and remove the account number": One's
+    // revision arrives on a new assistant message and replaces the card.
+    rerender(
+      card("assistant-2", {
+        to: "pat@example.com",
+        cc: "priya@example.com",
+        subject: "Account details for Pat",
+        body: "The details are attached.",
+      }),
+    );
+    expect(screen.getByTestId("one-email-draft-cc")).toHaveValue("priya@example.com");
+    expect(screen.queryByText(/12345678/)).not.toBeInTheDocument();
+    expect(onDraftChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cc: "priya@example.com", body: "The details are attached." }),
+    );
+    // Negative control: a replaced draft never reaches delivery by itself.
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.saveGmailDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1));
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draft: expect.objectContaining({ cc: "priya@example.com" }),
+      }),
+    );
+  });
+
   it("saves a reviewed local composition to Gmail drafts without sending", async () => {
     vi.mocked(EmailDeliveryService.saveGmailDraft).mockResolvedValue();
     render(

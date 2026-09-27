@@ -127,95 +127,112 @@ function resolveDomainVisuals(domain?: string | null) {
   };
 }
 
+const RECORD_MAX_DEPTH = 8;
+
+function recordLabel(key: string): string {
+  return mailDisplayLabel(key.replace(/_/g, " "));
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.every(isEmptyValue);
+  if (isPlainRecord(value)) return Object.values(value).every(isEmptyValue);
+  return false;
+}
+
 /**
- * Elegantly presents structured decrypted records without raw JSON dumps or nested boxes.
+ * One level of a shared record, keeping its shape: nested groups stay nested
+ * under their own heading (Health › Allergies › Medication) instead of being
+ * flattened into "health · allergies · medication" pairs. Internal keys
+ * (leading underscore) are bookkeeping, not shared information.
+ */
+function RecordLevel({ data, depth }: { data: Record<string, unknown>; depth: number }) {
+  const entries = Object.entries(data).filter(([key, value]) => !key.startsWith("_") && !isEmptyValue(value));
+  const scalars = entries.filter(([, value]) => !isPlainRecord(value) && !Array.isArray(value));
+  const lists = entries.filter(([, value]) => Array.isArray(value));
+  const groups = entries.filter(([, value]) => isPlainRecord(value));
+  return (
+    <div className="space-y-3">
+      {scalars.length > 0 ? (
+        <dl className="divide-y divide-border/40 rounded-xl bg-muted/40">
+          {scalars.map(([key, value]) => (
+            <div key={key} className="flex items-start justify-between gap-4 px-3 py-2 text-xs">
+              <dt className="font-medium capitalize text-muted-foreground">{recordLabel(key)}</dt>
+              <dd className="text-right font-semibold text-foreground">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {lists.map(([key, value]) => {
+        const items = (value as unknown[]).filter((item) => !isEmptyValue(item));
+        const nested = items.filter(isPlainRecord);
+        return (
+          <div key={key} className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+              {recordLabel(key)}
+            </p>
+            {nested.length === items.length && depth < RECORD_MAX_DEPTH ? (
+              <ol className="space-y-2 border-l border-border/60 pl-3">
+                {nested.map((item, index) => (
+                  <li key={index}>
+                    <RecordLevel data={item} depth={depth + 1} />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {items.map((item, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center rounded-full border border-black/[0.07] bg-black/[0.03] px-3.5 py-1 text-xs font-medium text-foreground dark:border-white/[0.1] dark:bg-white/[0.06]"
+                  >
+                    {isPlainRecord(item) ? Object.values(item).map(String).join(" · ") : String(item)}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {groups.map(([key, value]) => (
+        <section key={key} className="space-y-2" data-record-group={key}>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+            {recordLabel(key)}
+          </p>
+          <div className="border-l border-border/60 pl-3">
+            {depth < RECORD_MAX_DEPTH ? (
+              <RecordLevel data={value as Record<string, unknown>} depth={depth + 1} />
+            ) : null}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Presents a shared record in its own hierarchy, without raw JSON dumps.
  */
 export function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
-  // Extract summary/headline if present
   const summary = typeof data.summary === "string" ? data.summary : null;
   const description = typeof data.description === "string" ? data.description : null;
   const headline = summary || description;
-
-  // Collect array pills or nested values
-  const tagSections: { label: string; tags: string[] }[] = [];
-  const kvPairs: { key: string; val: string }[] = [];
-
-  const inspectLevel = (obj: Record<string, unknown>, prefix = "", isRoot = true) => {
-    for (const [key, val] of Object.entries(obj)) {
-      // Root summaries are rendered as the card headline above. Nested
-      // summaries/descriptions are real approved values and must remain
-      // visible; suppressing them here made valid scoped exports render as a
-      // blank card when the selected field lived below a profile/entity node.
-      if (isRoot && (key === "summary" || key === "description")) continue;
-      const displayKey = prefix ? `${prefix} · ${key}` : key;
-
-      if (Array.isArray(val)) {
-        const stringTags = val.map(String).filter(Boolean);
-        if (stringTags.length > 0) {
-          tagSections.push({
-            label: mailDisplayLabel(displayKey.replace(/_/g, " ")),
-            tags: stringTags,
-          });
-        }
-      } else if (typeof val === "object" && val !== null) {
-        inspectLevel(val as Record<string, unknown>, displayKey, false);
-      } else if (val !== null && val !== undefined) {
-        kvPairs.push({
-          key: mailDisplayLabel(displayKey.replace(/_/g, " ")),
-          val: String(val),
-        });
-      }
-    }
-  };
-
-  inspectLevel(data);
+  // Root summaries are rendered as the card headline. Nested summaries are
+  // real approved values and stay visible where they sit.
+  const rest = Object.fromEntries(
+    Object.entries(data).filter(([key]) => key !== "summary" && key !== "description"),
+  );
 
   return (
     <div className="space-y-4" data-testid="person-profile-grant-value">
-      {/* Headline / Summary */}
       {headline ? (
-        <div className="space-y-1">
-          <p className="text-base sm:text-lg font-semibold tracking-tight text-foreground/95">
-            {headline}
-          </p>
-        </div>
+        <p className="text-base font-semibold tracking-tight text-foreground/95 sm:text-lg">{headline}</p>
       ) : null}
-
-      {/* Tag Collections (e.g. skills, tech stack, interests) */}
-      {tagSections.map((sec, idx) => (
-        <div key={idx} className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-            {sec.label}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {sec.tags.map((tag, tIdx) => (
-              <span
-                key={tIdx}
-                className="inline-flex items-center rounded-full border border-black/[0.07] bg-black/[0.03] px-3.5 py-1 text-xs font-medium text-foreground transition-[background-color,border-color] duration-150 hover:bg-black/[0.06] dark:border-white/[0.1] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      {/* Key-Value Attributes */}
-      {kvPairs.length > 0 ? (
-        <div className="grid gap-2.5 sm:grid-cols-2 pt-1">
-          {kvPairs.map((item, idx) => (
-            <div
-              key={idx}
-              className="flex items-center justify-between rounded-xl bg-muted/40 px-3 py-2 text-xs"
-            >
-              <span className="text-muted-foreground capitalize font-medium">
-                {item.key}
-              </span>
-              <span className="font-semibold text-foreground">{item.val}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <RecordLevel data={rest} depth={0} />
     </div>
   );
 }

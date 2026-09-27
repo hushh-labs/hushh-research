@@ -11,6 +11,7 @@ from sqlalchemy import text
 from db.db_client import get_db, get_db_connection
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
+    _postgres_sqlstate,
 )
 from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
@@ -33,6 +34,14 @@ PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE = (
 # fails on a dropped connection can still be ambiguous, so clients confirm the
 # outcome through the tombstone-aware status route before keeping the session.
 ACCOUNT_DELETION_FAILED_CODE = "ACCOUNT_DELETION_FAILED"
+# A deploy's release fence (deploy/account-deletion/install_release_fence.sql)
+# refused the erasure: nothing was deleted and it succeeds once the release ends.
+ACCOUNT_DELETION_PAUSED_CODE = "ACCOUNT_DELETION_PAUSED"
+_RELEASE_FENCE_MESSAGE = "during a lifecycle release"
+
+
+def _is_release_fence_refusal(exc: BaseException) -> bool:
+    return _postgres_sqlstate(exc) == "55000" and _RELEASE_FENCE_MESSAGE in str(exc)
 
 
 class PersonalAgentDeprovisioningRequiredError(RuntimeError):
@@ -162,6 +171,7 @@ class AccountService:
             ),
             "pwm_documents": text("DELETE FROM pwm_documents WHERE user_id = :user_id"),
             "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
+            "kai_run_state": text("DELETE FROM kai_run_state WHERE user_id = :user_id"),
             "kai_gmail_connections": text(
                 "DELETE FROM kai_gmail_connections WHERE user_id = :user_id"
             ),
@@ -1334,6 +1344,7 @@ class AccountService:
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
                 "kai_analyze_runs",
+                "kai_run_state",
                 "consent_export_refresh_jobs",
                 "consent_exports",
                 "connected_system_audit_events",
@@ -1673,6 +1684,7 @@ class AccountService:
             "pkm_domain_revisions": False,
             "world_model_index_v2": False,
             "kai_analyze_runs": False,
+            "kai_run_state": False,
             "kai_gmail_connections": False,
             "kai_gmail_receipts": False,
             "kai_gmail_sync_runs": False,
@@ -1801,6 +1813,7 @@ class AccountService:
                         "kai_gmail_connections",
                         "kai_receipt_memory_artifacts",
                         "kai_analyze_runs",
+                        "kai_run_state",
                         "consent_export_refresh_jobs",
                         "consent_exports",
                         "connected_system_audit_events",
@@ -2065,6 +2078,9 @@ class AccountService:
             return {
                 "success": False,
                 "error": str(exc),
+                "error_code": (
+                    ACCOUNT_DELETION_PAUSED_CODE if _is_release_fence_refusal(exc) else None
+                ),
                 "requested_target": requested_target,
                 "deleted_target": None,
                 "account_deleted": False,
