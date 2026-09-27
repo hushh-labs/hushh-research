@@ -49,6 +49,14 @@ vi.mock(
 vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
   resolveGeminiRuntimeConnection: async () => ({ mode: "managed" }),
 }));
+vi.mock("@/lib/one-voice/readiness", () => ({
+  useOneVoiceLiveEnabled: () => false,
+  useOneVoiceCommandsEnabled: () => true,
+  useOneVoiceReadiness: () => ({
+    status: "ready",
+    microphoneOwner: "pod_commands",
+  }),
+}));
 vi.mock("next/navigation", () => ({
   usePathname: () => harness.pathname,
   useRouter: () => harness.router,
