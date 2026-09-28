@@ -6,6 +6,7 @@ import { Laptop, Loader2 } from "@/components/icons";
 import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
+import { refreshPuppyLink } from "@/lib/services/puppy-one-service";
 import { ApiService } from "@/lib/services/api-service";
 import { PodMemoryConsentRow } from "@/components/agent/pod-memory-consent-row";
 import {
@@ -116,7 +117,10 @@ export function PrivatePuppyInferencePanel({
         throw new Error("PUPPY_REQUIRES_BYOC_POD");
       if (status.state !== "active" || !status.hushhId)
         throw new Error("PRIVATE_AGENT_UNAVAILABLE");
-      if (!link?.device?.id || (link.state !== "live" && link.state !== "quiet"))
+      // The sidebar poll may still be loading, or may belong to an earlier
+      // signed-in owner. Select only from a fresh owner-scoped read at send time.
+      const currentLink = await refreshPuppyLink();
+      if (!currentLink.device?.id || (currentLink.state !== "live" && currentLink.state !== "quiet"))
         throw new Error("PUPPY_OFFLINE");
       const response = await ApiService.runPodTurn({
         hushhId: status.hushhId,
@@ -124,7 +128,7 @@ export function PrivatePuppyInferencePanel({
         message,
         conversationId: "puppy-private-relay",
         runtimeProvider: "puppy",
-        puppyDeviceId: link.device.id,
+        puppyDeviceId: currentLink.device.id,
         signal: controller.signal,
         history: nextTurns.map(({ role, text }) => ({ role, content: text })),
       });

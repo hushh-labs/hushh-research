@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ownerToken: "owner-capability" as string | null,
+  link: { state: "quiet", device: { id: "device-1" } } as { state: string; device: { id: string } } | null,
   runPodTurn: vi.fn(),
   getPuppyRelayStatus: vi.fn(),
   getPersonalAgentStatus: vi.fn(),
   pendingRevocations: vi.fn(),
+  refreshPuppyLink: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner-1" } }) }));
@@ -14,7 +16,10 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: mocks.ownerToken }),
 }));
 vi.mock("@/lib/hermes/use-puppy-link", () => ({
-  usePuppyLink: () => ({ state: "quiet", device: { id: "device-1" } }),
+  usePuppyLink: () => mocks.link,
+}));
+vi.mock("@/lib/services/puppy-one-service", () => ({
+  refreshPuppyLink: mocks.refreshPuppyLink,
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
@@ -35,7 +40,9 @@ import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inf
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.ownerToken = "owner-capability";
+  mocks.link = { state: "quiet", device: { id: "device-1" } };
   mocks.pendingRevocations.mockResolvedValue([]);
+  mocks.refreshPuppyLink.mockResolvedValue({ state: "quiet", device: { id: "device-1" } });
   mocks.getPersonalAgentStatus.mockResolvedValue({
     hostingMode: "byoc",
     state: "active",
@@ -59,6 +66,7 @@ async function ask() {
 
 describe("private Puppy relay", () => {
   it("lets the approved quiet device wake through the owner pod", async () => {
+    mocks.link = null; // The background device poll has not resolved yet.
     render(<PrivatePuppyInferencePanel />);
     await ask();
 

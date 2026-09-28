@@ -535,7 +535,7 @@ function readRow(value: unknown): TrustedDeviceRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   const id = typeof row.device_id === "string" ? row.device_id.trim() : "";
-  if (!id) return null;
+  if (!id || row.platform !== "macos") return null;
   const name =
     typeof row.device_name === "string" && row.device_name.trim()
       ? row.device_name.trim()

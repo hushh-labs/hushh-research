@@ -106,6 +106,7 @@ describe("the shared Puppy One link store", () => {
         {
           device_id: "dev-1",
           device_name: "Kushal's Mac",
+          platform: "macos",
           status: "active",
           created_at: Date.now(),
           last_heartbeat_at: Date.now(),
