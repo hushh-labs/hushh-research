@@ -82,20 +82,9 @@ The worker is decoupled from the database through dependency-injected async
 callables, the same shape as ``revocation_worker.py``, so it is fully testable
 without a live database or a live cloud backend.
 
-Injectable worker construction (production wiring lives in ``server.py``)::
+Injection contracts live in ``start_personal_agent_reconcile_loop`` below;
+``server.py::startup_personal_agent_reconcile`` owns the production adapters.
 
-    from hushh_mcp.services.personal_agent_reconcile_worker import (
-        start_personal_agent_reconcile_loop,
-    )
-
-    task = start_personal_agent_reconcile_loop(
-        fetch_stalled=registry_adapter.fetch_stalled_agents,
-        retry=provisioning_adapter.retry,
-        fetch_idle=registry_adapter.fetch_idle_pods,
-        reap=backend_adapter.tear_down_host,
-        interval_seconds=900,
-    )
-    # task is None while PERSONAL_AGENT_RECONCILE_ENABLED is off.
 """
 
 from __future__ import annotations
