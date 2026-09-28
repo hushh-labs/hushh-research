@@ -497,3 +497,27 @@ def test_unbound_blocked_receipt_is_not_projected_as_the_current_operation(field
     approval[field] = "other"
     out = describe_pod_update(_row(approval=approval, lease="retained"), target_image=NEW_IMAGE)
     assert out.get("update", {}).get("presentationState") != "blocked"
+
+
+@pytest.mark.parametrize("status", ["approved", "scheduled", "updating"])
+@pytest.mark.parametrize("tamper", [None, "ownerId", "podIncarnation", "releaseId"])
+def test_active_update_follows_its_approved_release_when_hub_offer_moves(status, tamper):
+    from api.routes.one.personal_agent import describe_pod_update
+
+    approval = _approval(_row(), status=status)
+    if tamper:
+        approval[tamper] = "other"
+    row = _row(approval=approval)
+    original = copy.deepcopy(row)
+    out = describe_pod_update(row, target_image=OTHER_IMAGE)
+    if tamper:
+        assert out.get("update", {}).get("operationId") != "op-original"
+    else:
+        assert out["updateInProgress"] is True
+        assert out["updateOfferable"] is False
+        assert out["update"]["releaseId"] == approval["releaseId"]
+        assert out["update"]["operationId"] == "op-original"
+        assert out["update"]["presentationState"] == (
+            "scheduled" if status == "approved" else status
+        )
+    assert row == original

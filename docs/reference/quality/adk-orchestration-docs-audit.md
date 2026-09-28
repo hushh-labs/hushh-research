@@ -2619,3 +2619,22 @@ still pass. Budgets, dependency/import checks and unrelated ceilings are unchang
 This is a reviewed debt record, not a claim that large upstream modules are optimal.
 The private operational Wiki correction persisted and passed readback on September
 27; reauthentication is no longer an observed blocker for that page.
+
+#### Fixed-scope recovery and update presentation follow-up
+
+The completion follow-up to `969a4b273` keeps an approved update visible in
+Settings and Feed even when the worker lease disables further approval. An
+owner/incarnation-validated saved approval remains the displayed operation if the
+hub publishes a newer offer. Scheduled and updating labels reflect existing server
+states; neither implies observed drain, restart or verified completion. The existing
+approval/idempotency path remains authoritative. Three bounded size findings were
+independently reviewed; no architecture thresholds were raised.
+
+On September 27 (local time), an isolated Cloud SQL target restored a fresh dev
+backup, ran parked cleanup 944, replayed it idempotently, and restored the same
+backup again. One-way row fingerprints proved preservation of retained ciphertext,
+command receipts and dependent records across cleanup, then exact restoration of
+all six checked tables. Restricted receipts remain outside the public repository.
+This proves the isolated recovery procedure, not a live cutover or writer drain.
+Cleanup 944 remains absent from the release manifest. The temporary restore target
+and additional backup must be removed under the cutover retention procedure.

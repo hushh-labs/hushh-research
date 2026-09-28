@@ -46,7 +46,11 @@ from hushh_mcp.services.pod_release import (
     upgrade_is_supported,
     validate_release,
 )
-from hushh_mcp.services.pod_update_presentation import _blocked_update, _update_offer
+from hushh_mcp.services.pod_update_presentation import (
+    _active_update,
+    _blocked_update,
+    _update_offer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -430,16 +434,17 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         out["updateInProgress"] = True
     if blocked := _blocked_update(row):
         return {**out, **blocked}
+    active = _active_update(row)
     if not (running and target):
-        return out
+        return {**out, **active}
     if target_digest:
         if not installed_digest or version_drift:
-            return out
+            return {**out, **active}
         out["updateAvailable"] = installed_digest != target_digest
     else:
         if running == target:
             # Mutable tag equality cannot establish installed artifact identity.
-            return out
+            return {**out, **active}
         out["updateAvailable"] = running != target
     release = upgrade_release_id(row, target_reference or target)
     if (
@@ -463,7 +468,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         last_error = str(marker.get("lastError") or "").strip()
         if last_error:
             out["updateError"] = last_error[:200]
-    return out
+    return {**out, **active}
 
 
 async def resolve_personal_agent_status(

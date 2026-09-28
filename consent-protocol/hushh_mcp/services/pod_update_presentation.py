@@ -1,5 +1,6 @@
 """Read-only projections of retained pod upgrade approvals and release offers."""
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,7 +8,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     upgrade_approval_matches,
     upgrade_operation_is_recoverable,
 )
-from hushh_mcp.services.pod_release import upgrade_is_supported
+from hushh_mcp.services.pod_release import public_release, upgrade_is_supported, validate_release
 
 
 def _blocked_update(row: Optional[dict]) -> dict:
@@ -48,6 +49,41 @@ def _blocked_update(row: Optional[dict]) -> dict:
             "operationId": approval["operationId"],
             "presentationState": "blocked",
             "summary": message,
+        },
+    }
+
+
+def _active_update(row: Optional[dict]) -> dict:
+    """Follow the approved operation even when the hub publishes a newer offer."""
+    approval = ((row or {}).get("backend_metadata") or {}).get("upgradeApproval")
+    if not isinstance(approval, dict) or approval.get("status") not in {
+        "approved",
+        "scheduled",
+        "updating",
+    }:
+        return {}
+    if not upgrade_approval_matches(row, approval.get("targetImage")):
+        return {}
+    state = "scheduled" if approval["status"] == "approved" else approval["status"]
+    release = None
+    try:
+        release = public_release(
+            validate_release(
+                approval.get("releaseMetadata"),
+                target_image=approval["targetImage"],
+                environment=os.getenv("HUSHH_DEPLOY_ENV", ""),
+            )
+        )
+    except (ValueError, TypeError):
+        pass
+    return {
+        "updateOfferable": False,
+        "updateInProgress": True,
+        "availableRelease": release,
+        "update": {
+            "releaseId": approval["releaseId"],
+            "operationId": approval["operationId"],
+            "presentationState": state,
         },
     }
 

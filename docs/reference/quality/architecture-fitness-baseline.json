@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 1970,
+  "finding_count": 1971,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3812,7 +3812,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/personal_agent.py",
       "symbol": "describe_pod_update",
-      "value": 158
+      "value": 159
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13145,7 +13145,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/personal_agent.py",
       "symbol": null,
-      "value": 987
+      "value": 991
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17736,6 +17736,15 @@
       "path": "hushh-webapp/lib/legal/legal-documents.ts",
       "symbol": null,
       "value": 723
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_personal_agent_upgrade_authority.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_personal_agent_upgrade_authority.py",
+      "symbol": null,
+      "value": 523
     }
   ],
   "inspected_files": 5211,
@@ -17767,7 +17776,31 @@
     "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",
     "revision": "92e1301be",
     "scope": "Reviewed integrated size-debt baseline; thresholds and dependency/import checks unchanged. See adk-orchestration-docs-audit.md.",
-    "source_revision": "1bd1afdf6"
+    "source_revision": "1bd1afdf6",
+    "update_presentation_20260927": {
+      "accepted_findings": [
+        {
+          "key": "function_size|consent-protocol/api/routes/one/personal_agent.py|describe_pod_update|function exceeds the advisory gene budget",
+          "previous_value": 158,
+          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
+          "value": 159
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/personal_agent.py||module exceeds the advisory operon budget",
+          "previous_value": 987,
+          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
+          "value": 991
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_personal_agent_upgrade_authority.py||module exceeds the advisory operon budget",
+          "previous_value": null,
+          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
+          "value": 523
+        }
+      ],
+      "independent_review": "files_activation_review; read-only correctness and bounded-debt review",
+      "source_revision": "969a4b273ce402bdf89a22812a1bcf1ac6ea460f"
+    }
   },
   "status": "advisory"
 }

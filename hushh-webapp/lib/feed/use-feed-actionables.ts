@@ -72,6 +72,7 @@ import {
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { updateActivityLabel } from "@/lib/feed/agent-update-status";
 
 /** Subset of SettingsRow's icon-well tones (that type is not exported). */
 export type FeedIconTone =
@@ -544,13 +545,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // Software updates are owner-approved mutations. Keep one calm card in the
     // existing Feed queue; the API binds approval to this pod incarnation and
     // exact release, so a stale tab cannot choose an arbitrary image.
-    if (agentUpdate.available === true && agentUpdate.offerable && agentUpdate.releaseId) {
+    const updateActivity = updateActivityLabel(agentUpdate);
+    if (updateActivity || (agentUpdate.available === true && agentUpdate.offerable && agentUpdate.releaseId)) {
       const releaseId = agentUpdate.releaseId;
-      const waiting =
-        agentUpdate.presentationState === "scheduled" ||
-        agentUpdate.presentationState === "updating";
       const approve = async () => {
-        if (updateActionBusyRef.current) return;
+        if (updateActionBusyRef.current || !releaseId || updateActivity || !agentUpdate.offerable) return;
         updateActionBusyRef.current = true;
         try {
           await ApiService.approvePersonalAgentUpdate({
@@ -566,7 +565,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         }
       };
       const defer = async () => {
-        if (updateActionBusyRef.current) return;
+        if (updateActionBusyRef.current || !releaseId || updateActivity || !agentUpdate.offerable) return;
         updateActionBusyRef.current = true;
         try {
           await ApiService.deferPersonalAgentUpdate({ releaseId });
@@ -576,18 +575,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
         }
       };
       items.push({
-        id: `personal-agent-update:${releaseId}`,
+        id: `personal-agent-update:${releaseId ?? "recovery"}`,
         icon: Download,
         iconTone: "blue",
-        title: waiting
-          ? agentUpdate.presentationState === "updating"
-            ? "Updating your private agent"
-            : "Update scheduled"
-          : "An update is ready",
-        description: waiting
-          ? "Your current work is finishing before installation."
+        title: updateActivity ?? "An update is ready",
+        description: updateActivity
+          ? agentUpdate.failed || agentUpdate.presentationState === "blocked"
+            ? agentUpdate.error || "Open Software updates to check recovery."
+            : "Keep using Settings to follow this update. Completion will be verified."
           : agentUpdate.summary || "Keeps your private agent current.",
-        actions: waiting
+        actions: updateActivity
           ? []
           : [
               { key: "approve", label: "Update now", tone: "primary", run: approve },

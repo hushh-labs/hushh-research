@@ -171,6 +171,20 @@ describe("owner hosting and software settings", () => {
     },
   );
 
+  it.each([
+    ["scheduled", "Update scheduled"],
+    ["updating", "Updating your private agent"],
+    ["blocked", "Update needs attention"],
+  ] as const)("retains the %s operation without claiming a drain phase", (presentationState, label) => {
+    status("byoc", { installedRelease: { version: "existing" } }, {
+      ...NO_UPDATE, presentationState, offerable: false, available: true,
+    });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByText("existing")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+  });
+
   it("keeps the concise changelog behind one disclosure", () => {
     status(
       "byoc",

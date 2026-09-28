@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   appTasks: [] as Array<Record<string, unknown>>,
   dismissTask: vi.fn(),
   pendingCount: 0,
+  update: {} as Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -141,6 +142,10 @@ vi.mock("@/lib/navigation/routes", () => ({
   buildKaiMarketRoute: () => "/one/kai",
 }));
 
+vi.mock("@/lib/feed/use-agent-deployment-follow", () => ({
+  useAgentDeploymentFollow: () => ({ update: mocks.update }),
+}));
+
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
 
 /** The Consent Center's projection of an incoming connection request. */
@@ -172,6 +177,15 @@ describe("useFeedActionables — connection request de-duplication", () => {
     mocks.circleMemberInvites = [];
     mocks.appTasks = [];
     mocks.pendingCount = 0;
+    mocks.update = {};
+  });
+
+  it.each(["scheduled", "updating", "blocked"])("keeps %s updates visible without offering another install", (presentationState) => {
+    mocks.update = { available: true, offerable: false, releaseId: "rel_existing", presentationState };
+    const { result } = renderHook(() => useFeedActionables());
+    const card = result.current.actionables.find((item) => item.id === "personal-agent-update:rel_existing");
+    expect(card).toBeDefined();
+    expect(card?.actions).toEqual([]);
   });
 
   it("renders one row when a connection request arrives on both lanes", () => {

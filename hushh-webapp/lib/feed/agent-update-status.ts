@@ -32,6 +32,16 @@ export const NO_UPDATE: AgentUpdateStatus = {
   verified: false,
 };
 
+/** Activity is independent of permission to approve another installation. */
+export function updateActivityLabel(update: AgentUpdateStatus): string | null {
+  if (update.failed || update.presentationState === "blocked")
+    return "Update needs attention";
+  if (update.presentationState === "scheduled") return "Update scheduled";
+  if (update.inProgress || update.presentationState === "updating")
+    return "Updating your private agent";
+  return null;
+}
+
 export function readUpdateStatus(
   res:
     | {
@@ -75,4 +85,3 @@ export function readUpdateStatus(
     verified: res?.updateVerified === true,
   };
 }
-

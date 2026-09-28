@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { readUpdateStatus, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
@@ -37,7 +38,8 @@ function updateCheckMessage(
     return "Updates become available after setup finishes.";
   if (status.updateFailed)
     return "Update needs attention. Its outcome has not been verified.";
-  if (status.updateInProgress) return "Your private agent is updating.";
+  const activity = updateActivityLabel(readUpdateStatus(status));
+  if (activity) return `${activity}.`;
   if (status.updateOfferable && status.availableRelease) {
     return `Version ${status.availableRelease.version} is ready to install.`;
   }
@@ -71,7 +73,8 @@ export function AgentSettingsPanel({
   const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
   const working =
     !update.failed &&
-    (update.inProgress || update.presentationState === "scheduled");
+    update.presentationState !== "blocked" &&
+    (update.inProgress || ["scheduled", "updating"].includes(update.presentationState ?? ""));
 
   async function checkStatus() {
     if (busyRef.current) return;
@@ -320,10 +323,10 @@ export function AgentSettingsPanel({
         ? "Available after setup finishes"
         : mode === "unknown"
           ? "Hosting status unavailable"
-          : working
-            ? "Finishing current work and updating"
-            : update.failed
-              ? "Update needs attention"
+          : updateActivityLabel(update)
+            ? updateActivityLabel(update)
+            : update.presentationState === "deferred" && !update.offerable
+              ? "Update reminder saved"
               : update.available === true && status.updateOfferable
                 ? "Update ready for your approval"
                 : update.available === true
