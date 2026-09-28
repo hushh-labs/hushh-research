@@ -458,6 +458,9 @@ tests/test_plaid_server_custody_retire.py
 # These runtime/script contracts block the shared and BYOC release lanes.
 tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
+tests/test_pod_binding_transactions.py
+tests/test_pod_consent_authority.py
+tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
