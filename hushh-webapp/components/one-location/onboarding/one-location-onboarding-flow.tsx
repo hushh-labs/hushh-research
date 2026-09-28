@@ -745,7 +745,7 @@ function CheckInFeatureCard() {
           Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["Stuck waiting", "in line?"]}
+          lines={["Hanging", "around?"]}
           className="text-[19px]"
         />
         <p
