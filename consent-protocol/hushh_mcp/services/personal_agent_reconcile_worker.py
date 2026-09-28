@@ -54,14 +54,16 @@ Four sweeps, one pass:
     and then runs the SAME full erasure the account route runs. See
     ``_erase_orphans``.
 
-Ship-dark
----------
+Startup and environment gates
+-----------------------------
 Inert unless ``PERSONAL_AGENT_RECONCILE_ENABLED`` is explicitly on, on top of
 ``PERSONAL_AGENT_ENABLED``. Two independent switches, because this sweep DELETES
 compute. The flag is read at start AND on every pass, so flipping it back off
-stops an already-running loop with no redeploy. Nothing starts this worker
-automatically: ``server.py`` has no attach point for it, deliberately, until a
-human decides to turn the sweep on.
+stops subsequent passes. ``server.py::startup_personal_agent_reconcile`` attaches
+the enabled worker at a 300-second interval. Software updates also require the
+upgrade-sweep flag and the existing exact owner approval. The startup adapter
+supplies no idle pods and refuses reaping; enabling reconciliation does not enable
+idle host deletion. Cloud environment changes still require their normal rollout.
 
 Known gap, stated here rather than in a runbook
 -----------------------------------------------
@@ -80,7 +82,7 @@ The worker is decoupled from the database through dependency-injected async
 callables, the same shape as ``revocation_worker.py``, so it is fully testable
 without a live database or a live cloud backend.
 
-Usage (only once a human turns the flag on)::
+Injectable worker construction (production wiring lives in ``server.py``)::
 
     from hushh_mcp.services.personal_agent_reconcile_worker import (
         start_personal_agent_reconcile_loop,

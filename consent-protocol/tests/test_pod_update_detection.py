@@ -395,10 +395,21 @@ def test_legacy_unresolved_lease_requires_recovery_without_fabricating_approval(
 
 
 @pytest.mark.parametrize("lease", [None, "", "2000-01-01T00:00:00+00:00|retained"])
-def test_compatible_offer_requires_no_retained_lease(lease):
+@pytest.mark.parametrize("supported", [True, False])
+def test_deferred_settings_installation_requires_compatibility_and_no_lease(lease, supported):
     from hushh_mcp.services.pod_update_presentation import _update_offer
 
     digest = "sha256:" + "a" * 64
     release = {"descriptor": {"supportedUpgradeDigests": [digest], "summary": "Synthetic release"}}
-    result = _update_offer({"upgradeLease": lease}, "rel_next", release, digest)
-    assert result["updateOfferable"] is (lease is None)
+    metadata = {"upgradeLease": lease}
+    installed = digest if supported else "sha256:" + "c" * 64
+    result = _update_offer(metadata, "rel_next", release, installed)
+    assert result["updateOfferable"] is (lease is None and supported)
+    metadata["upgradeDeferral"] = {
+        "releaseId": "rel_next",
+        "remindAt": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
+    }
+    deferred = _update_offer(metadata, "rel_next", release, installed)
+    assert deferred["updateOfferable"] is False
+    assert deferred["updateInstallable"] is (lease is None and supported)
+    assert deferred["update"]["presentationState"] == "deferred"

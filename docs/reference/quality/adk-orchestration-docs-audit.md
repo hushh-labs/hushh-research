@@ -2693,18 +2693,37 @@ the existing legal and reviewer contracts. Two independently reviewed module-siz
 entries grow by three and sixteen lines; architecture thresholds remain unchanged.
 The local backend run had 7,647 passes and ten failures under load. All ten
 passed a focused serial rerun without code or timeout changes; the initial failed
-log remains evidence. Full hosted CI on the correction is still required.
+log remains evidence. Correction `019181776e7dc46ea02031fd15259d8d1f22dd9a` passed full hosted CI
+`36387880494`, including 10,516 frontend and 7,657 backend tests. Dev run
+`36389431916` deployed frontend `hushh-webapp-00082-tlx`; independent readback
+verified the backend remained at the compatible `d162f236b` revision.
+
+The live reviewer then verified the normal Profile → Software updates path,
+loading/result feedback, the release changelog, deferral and a synthetic encrypted
+upload. Earlier query-entry and ambiguous-heading harness failures are retained.
+The slow-upload drain attempt registered no active work and is not drain proof.
+Deferral exposed a product defect: the Feed reminder flag also hid Settings’
+installation control. The correction adds `updateInstallable` for compatible,
+lease-free Settings approval, retaining `updateOfferable` for the server-timed
+Feed reminder. Blocked and active operations refuse both; exact release approval
+remains server-authoritative. Focused verification passed 74 backend and 25
+frontend tests. The required local core mirror passed in 563 seconds, including
+7,660 backend tests and the 94-case PKM gate. The reconciler source comment now
+reflects its existing startup attachment and disabled idle-reaping adapter; the
+comment correction changes no executable AST. This correction still requires
+hosted CI, deployment and live
+readback before normal update acceptance.
 
 | Agreed journey | Current evidence and remaining acceptance |
 | --- | --- |
 | Admission and private chat | Baseline `889b332e98` completed a real browser turn and pod-side session revocation. Recheck the changed chat flow after the normal update. |
-| Software update | Exact predecessor recovery passed in isolation. New dev offer is published; normal Settings approval, drain, restart and installed-digest continuity are not yet verified. |
+| Software update | Exact predecessor recovery passed in isolation. New dev offer is published; Settings discovery, changelog and deferral passed. Deferral currently hides installation controls; approval, drain, restart and installed-digest continuity remain unverified. |
 | Files transfers and library | Baseline interrupted transfer, integrity and library mutations passed. Verify preservation across the normal update. |
 | Files organization | Exclusion regression fixed and focused tests pass. Live opt-in, authenticated queue execution, cancellation and terminal outcome remain unverified. |
 | Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
 | Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
 | Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
-| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. The serving compatibility release still excludes cleanup 944. The separate dev cutover candidate selects it; positive live writer-drain evidence and governed deployment still precede execution. |
+| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. The separate dev cutover has applied cleanup 944 through the governed workflow. Its ledger checksum matches the reviewed SQL; legacy rows are absent and retained fingerprints match. Deployment health and final serving readback remain pending. |
 
 This matrix does not establish dev completion or main/UAT/production readiness.
 Private identities, credentials and restricted recovery receipts remain outside
@@ -2718,3 +2737,17 @@ clone, including refusal and retained-record cases; the temporary fixture role w
 removed, and all six original table fingerprints still matched after the tests.
 The initial fixture-permission failure remains recorded separately.
 No live cleanup or owner installation is established by these tests.
+
+Cutover candidate `83f307dd993c87f7ecfc821fa786d017f32cad8f` passed the local
+core mirror and hosted backend-scope CI `36390380616`. The independent writer
+review found one serving compatible backend, no tags or reachable old revisions,
+and three configured non-chat jobs with no active executions. The actual job
+images and entrypoints were inspected; older image contents alone are not described
+as compatible chat writers. Immediately before dispatch, all four authored refusal
+predicates were clear and the six live table fingerprints matched the restored
+recovery point with row-security filtering disabled. Governed dev cutover run
+`36392414630` has applied cleanup 944. The ledger checksum matches the reviewed
+SQL, legacy rows are absent, and retained table fingerprints are unchanged. The
+ledger does not populate a deploy SHA; provenance is bound through its checksum
+and the exact workflow candidate. The workflow remains in progress; final health
+and serving readback still precede release acceptance.

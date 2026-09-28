@@ -29,6 +29,13 @@ function isHostingMode(value: unknown): value is HostingMode {
   return typeof value === "string" && value in HOST_LABELS;
 }
 
+// Older hubs expose only offerability; an explicit refusal always wins.
+function canInstallUpdate(
+  status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>> | null,
+) {
+  return (status?.updateInstallable ?? status?.updateOfferable) === true;
+}
+
 function updateCheckMessage(
   status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>,
 ) {
@@ -40,7 +47,7 @@ function updateCheckMessage(
     return "Update needs attention. Its outcome has not been verified.";
   const activity = updateActivityLabel(readUpdateStatus(status));
   if (activity) return `${activity}.`;
-  if (status.updateOfferable && status.availableRelease) {
+  if (canInstallUpdate(status) && status.availableRelease) {
     return `Version ${status.availableRelease.version} is ready to install.`;
   }
   if (status.updateAvailable)
@@ -115,7 +122,7 @@ export function AgentSettingsPanel({
     if (
       busyRef.current ||
       !isPod ||
-      !status?.updateOfferable ||
+      !canInstallUpdate(status) ||
       !update.releaseId ||
       working
     )
@@ -325,9 +332,9 @@ export function AgentSettingsPanel({
           ? "Hosting status unavailable"
           : updateActivityLabel(update)
             ? updateActivityLabel(update)
-            : update.presentationState === "deferred" && !update.offerable
+            : update.presentationState === "deferred" && !canInstallUpdate(status)
               ? "Update reminder saved"
-              : update.available === true && status.updateOfferable
+              : update.available === true && canInstallUpdate(status)
                 ? "Update ready for your approval"
                 : update.available === true
                   ? "New release not ready for this pod"
@@ -388,7 +395,7 @@ export function AgentSettingsPanel({
           </Button>
         ) : null}
         {isPod &&
-        status?.updateOfferable === true &&
+        canInstallUpdate(status) &&
         update.releaseId &&
         !working ? (
           <>

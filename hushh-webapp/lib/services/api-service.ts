@@ -3588,6 +3588,7 @@ export class ApiService {
     targetImage?: string | null;
     updateAvailable?: boolean;
     updateOfferable?: boolean;
+    updateInstallable?: boolean;
     updateInProgress?: boolean;
     updateFailed?: boolean;
     updateError?: string | null;

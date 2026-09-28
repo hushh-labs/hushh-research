@@ -24,6 +24,7 @@ def _blocked_update(row: Optional[dict]) -> dict:
         return {
             "updateFailed": True,
             "updateOfferable": False,
+            "updateInstallable": False,
             "updateError": message,
             "update": {"presentationState": "blocked", "summary": message},
         }
@@ -43,6 +44,7 @@ def _blocked_update(row: Optional[dict]) -> dict:
     return {
         "updateFailed": True,
         "updateOfferable": False,
+        "updateInstallable": False,
         "updateError": message,
         "update": {
             "releaseId": approval["releaseId"],
@@ -78,6 +80,7 @@ def _active_update(row: Optional[dict]) -> dict:
         pass
     return {
         "updateOfferable": False,
+        "updateInstallable": False,
         "updateInProgress": True,
         "availableRelease": release,
         "update": {
@@ -110,14 +113,14 @@ def _update_offer(
                     deferred_due = due <= datetime.now(timezone.utc)
                 except ValueError:
                     deferred_due = False
-    out["updateOfferable"] = (
-        metadata.get("upgradeLease") is None
-        and upgrade_is_supported(release_metadata, installed_digest)
-        and (
-            not isinstance(metadata.get("upgradeDeferral"), dict)
-            or metadata["upgradeDeferral"].get("releaseId") != release
-            or deferred_due
-        )
+    # Deferral silences Feed reminders, never the owner’s explicit Settings choice.
+    out["updateInstallable"] = metadata.get("upgradeLease") is None and upgrade_is_supported(
+        release_metadata, installed_digest
+    )
+    out["updateOfferable"] = out["updateInstallable"] and (
+        not isinstance(metadata.get("upgradeDeferral"), dict)
+        or metadata["upgradeDeferral"].get("releaseId") != release
+        or deferred_due
     )
     approval = metadata.get("upgradeApproval")
     deferral = metadata.get("upgradeDeferral")

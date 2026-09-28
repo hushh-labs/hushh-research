@@ -235,6 +235,36 @@ describe("owner hosting and software settings", () => {
     );
   });
 
+  it.each([true, false])("keeps a deferred Settings update actionable only when installable=%s", async (installable) => {
+    const response = {
+      hostingMode: "byoc",
+      updateAvailable: true,
+      updateOfferable: false,
+      updateInstallable: installable,
+      availableRelease: {
+        version: "2026.09-dev.2", summary: "Synthetic compatible release",
+        notes: { improvements: [], fixes: [], security: [] },
+      },
+    };
+    status("byoc", response, {
+      ...NO_UPDATE, available: true, offerable: false,
+      presentationState: "deferred", releaseId: "rel_exact",
+    });
+    mocks.approve.mockResolvedValue(undefined);
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    const button = screen.queryByRole("button", { name: "Update now" });
+    if (!installable) {
+      expect(button).toBeNull();
+      expect(mocks.approve).not.toHaveBeenCalled();
+      return;
+    }
+    fireEvent.click(button!);
+    await waitFor(() => expect(mocks.approve).toHaveBeenCalledOnce());
+    expect(mocks.approve).toHaveBeenCalledWith({
+      releaseId: "rel_exact", idempotencyKey: expect.any(String),
+    });
+  });
+
   it("does not label an unavailable placement Shared", async () => {
     mocks.getStatus.mockResolvedValue({ hostingMode: "unknown" });
     status("unknown");
