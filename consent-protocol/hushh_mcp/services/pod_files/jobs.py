@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -193,7 +194,6 @@ async def status(library: Any, file_id: str, *, cancel: bool = False) -> dict[st
 
 async def run_job(job_id: str, delivery: str) -> dict[str, str]:
     """The route verifies OIDC first. No task payload can supply a model instruction."""
-    from hushh_mcp.one_adk.files_tools import job_target
     from hushh_mcp.services.pod_session_authority import active_session_authority
 
     identifier(job_id)
@@ -206,84 +206,108 @@ async def run_job(job_id: str, delivery: str) -> dict[str, str]:
         await authority.require_held()
 
     with files_access(owner_check):
-        async with operation(mutation=True) as library:
-            path = f"jobs/{job_id}.bin"
-            job, generation = await library._read(path)
-            if job["delivery"] != delivery:
-                return {"state": "superseded"}
-            if job["state"] in {"completed", "cancelled", "failed", "review_required"}:
-                return {"state": job["state"]}
-            if job["state"] == "running" and job.get("leaseUntil", 0) > time.time():
-                raise FilesRefused("FILES_JOB_BUSY", 503)
-            if job["state"] == "running":
-                # A process may have committed a move before dying. Never replay a
-                # semantic decision automatically when completion is uncertain.
-                job["state"] = "review_required"
-                await library._write(path, job, generation)
-                return {"state": "review_required"}
-            settings = await library.settings()
-            if (
-                job["owner"] != library.owner
-                or job["expiresAt"] <= time.time()
-                or job["consentRevision"] != settings["revision"]
-                or not settings["analysis"]
-            ):
-                job["state"] = "cancelled"
-                await library._write(path, job, generation)
-                return {"state": "cancelled"}
-            entry = await library.stat(job["file"])
-            if entry["revision"] != job["revision"]:
-                job["state"] = "review_required"
-                await library._write(path, job, generation)
-                return {"state": "review_required"}
-            if job["attempts"] >= 3:
-                job["state"] = "failed"
-                await library._write(path, job, generation)
-                return {"state": "failed"}
-            job.update(
-                state="running", attempts=job["attempts"] + 1, leaseUntil=int(time.time()) + 150
-            )
+        # Keep the job admitted through terminal persistence. A new admission
+        # after model completion could be refused once an update starts draining.
+        async with operation() as library:
+            return await _run_admitted_job(library, job_id, delivery, owner_check)
+
+
+async def _run_admitted_job(
+    library: Any, job_id: str, delivery: str, owner_check: Callable[[], Awaitable[None]]
+) -> dict[str, str]:
+    from hushh_mcp.one_adk.files_tools import job_target
+
+    async with operation(mutation=True) as library:
+        path = f"jobs/{job_id}.bin"
+        job, generation = await library._read(path)
+        if job["delivery"] != delivery:
+            return {"state": "superseded"}
+        if job["state"] in {"completed", "cancelled", "failed", "review_required"}:
+            return {"state": job["state"]}
+        if job["state"] == "running" and job.get("leaseUntil", 0) > time.time():
+            raise FilesRefused("FILES_JOB_BUSY", 503)
+        if job["state"] == "running":
+            # A process may have committed a move before dying. Never replay a
+            # semantic decision automatically when completion is uncertain.
+            job["state"] = "review_required"
             await library._write(path, job, generation)
+            return {"state": "review_required"}
+        settings = await library.settings()
+        if (
+            job["owner"] != library.owner
+            or job["expiresAt"] <= time.time()
+            or job["consentRevision"] != settings["revision"]
+            or not settings["analysis"]
+        ):
+            job["state"] = "cancelled"
+            await library._write(path, job, generation)
+            return {"state": "cancelled"}
+        entry = await library.stat(job["file"])
+        if entry["revision"] != job["revision"]:
+            job["state"] = "review_required"
+            await library._write(path, job, generation)
+            return {"state": "review_required"}
+        if job["attempts"] >= 3:
+            job["state"] = "failed"
+            await library._write(path, job, generation)
+            return {"state": "failed"}
+        job.update(state="running", attempts=job["attempts"] + 1, leaseUntil=int(time.time()) + 150)
+        await library._write(path, job, generation)
 
-        async def job_check() -> None:
-            await authority.require_held()
-            # Read directly to avoid recursive authorization through library._read.
-            raw = await library.store.get(path)
-            current = decode_metadata(library._open(path, raw)) if raw else {}
-            settings_raw = await library.store.get("settings.bin")
-            config = (
-                decode_metadata(library._open("settings.bin", settings_raw)) if settings_raw else {}
-            )
-            if (
-                current.get("state") != "running"
-                or current.get("delivery") != job["delivery"]
-                or current.get("leaseUntil", 0) <= time.time()
-                or not config.get("analysis")
-                or config.get("revision") != job["consentRevision"]
-            ):
-                raise FilesRefused("FILES_JOB_AUTHORITY_CHANGED", 403)
+    async def job_check() -> None:
+        await owner_check()
+        # Read directly to avoid recursive authorization through library._read.
+        raw = await library.store.get(path)
+        current = decode_metadata(library._open(path, raw)) if raw else {}
+        settings_raw = await library.store.get("settings.bin")
+        config = (
+            decode_metadata(library._open("settings.bin", settings_raw)) if settings_raw else {}
+        )
+        if (
+            current.get("state") != "running"
+            or current.get("delivery") != job["delivery"]
+            or current.get("leaseUntil", 0) <= time.time()
+            or not config.get("analysis")
+            or config.get("revision") != job["consentRevision"]
+        ):
+            raise FilesRefused("FILES_JOB_AUTHORITY_CHANGED", 403)
 
-        outcome = "completed"
-        result = None
+    outcome = "completed"
+    result = None
+    try:
+        with files_access(job_check), job_target(job["file"]):
+            async with operation():
+                await library.analysis_allowed(job["file"])
+                result = await _organize(job["file"])
+                await job_check()
+                if result.state == "failed":
+                    outcome = "failed"
+    except Exception:
+        # Exceptions can contain file/model content. Persist a state only.
+        outcome = "failed"
+    return await _settle_job(library, path, job["delivery"], outcome, result)
+
+
+async def _settle_job(
+    library: Any, path: str, delivery: str, outcome: str, result: OrganizationResult | None
+) -> dict[str, str]:
+    """Persist under the caller's admission; newer owner decisions win the CAS."""
+    latest, generation = await library._read(path)
+    if latest["state"] == "running" and latest["delivery"] == delivery:
+        latest["state"] = outcome
+        if result is not None:
+            latest["result"] = result.model_dump()
         try:
-            with files_access(job_check), job_target(job["file"]):
-                async with operation():
-                    await library.analysis_allowed(job["file"])
-                    result = await _organize(job["file"])
-                    await job_check()
-                    if result.state == "failed":
-                        outcome = "failed"
-        except Exception:
-            # Exceptions can contain file/model content. Persist a state only.
-            outcome = "failed"
-        async with operation(mutation=True):
-            latest, generation = await library._read(path)
-            if latest["state"] == "running" and latest["delivery"] == job["delivery"]:
-                latest["state"] = outcome
-                if result is not None:
-                    latest["result"] = result.model_dump()
-                await library._write(path, latest, generation)
-            return {"state": latest["state"]}
+            await library._write(path, latest, generation)
+        except FilesRefused as exc:
+            if exc.code != "FILES_REVISION_CONFLICT":
+                raise
+            # Cancellation or a replacement delivery wins the CAS. Never retry
+            # this job's result over the newer authority-bearing record.
+            latest, _ = await library._read(path)
+            if latest["state"] == "running" and latest["delivery"] == delivery:
+                raise
+    return {"state": latest["state"]}
 
 
 async def _organize(file_id: str) -> OrganizationResult:

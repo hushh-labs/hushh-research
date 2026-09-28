@@ -1,7 +1,7 @@
 {
-  "version": "2026.09-dev.4",
+  "version": "2026.09-dev.5",
   "channel": "dev",
-  "summary": "Private connector approvals and reliable chat recovery in your existing pod.",
+  "summary": "Private connector approvals, reliable chat recovery and safer Files update handoff.",
   "notes": {
     "improvements": [
       "Review and approve a private connector call before your pod resumes it.",
@@ -11,7 +11,8 @@
       "Interrupted chat streams report a retryable failure instead of waiting silently.",
       "Hosting and Software updates retain their titles while Settings closes.",
       "Settings and Feed keep an approved update visible until its outcome is verified.",
-      "Uploads excluded from analysis finish normally without starting organization."
+      "Uploads excluded from analysis finish normally without starting organization.",
+      "Files organization saves its final status before an approved update can restart the pod."
     ],
     "security": [
       "Connector approval remains bound to the exact owner, pod, tool and arguments.",

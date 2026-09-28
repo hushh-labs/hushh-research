@@ -2710,9 +2710,28 @@ remains server-authoritative. Focused verification passed 74 backend and 25
 frontend tests. The required local core mirror passed in 563 seconds, including
 7,660 backend tests and the 94-case PKM gate. The reconciler source comment now
 reflects its existing startup attachment and disabled idle-reaping adapter; the
-comment correction changes no executable AST. This correction still requires
-hosted CI, deployment and live
-readback before normal update acceptance.
+comment correction changes no executable AST. Candidate `d0923cc4538cd33163c181f92d448cc005f4fd10`
+passed full hosted CI `36394059780`. Deployment is held to include the Files
+handoff correction below before normal update acceptance.
+
+The final handoff review identified a Files worker defect before installation:
+organization released its work permit before persisting the terminal job state.
+An approved upgrade could then obtain an idle receipt while finalization's new
+admission was refused. The worker now holds one permit through final persistence,
+with separate mutation locking and generation checks that preserve cancellation.
+The original code failed the focused regression; the correction passed 33 Files
+job and upgrade-admission/handoff tests. A cancellation racing the terminal write
+is covered. This proves safe settlement; tools invoked after draining begins can
+still be refused and produce a recorded failure. Successful uninterrupted live
+drain remains a separate acceptance row. Dev release `2026.09-dev.5` includes this
+correction and supersedes the uninstalled `.4` offer
+only after exact-candidate verification and publication.
+The combined local core mirror passed in 933 seconds, including 7,663 backend
+tests, 90 serial database tests, the frontend build and the 94-case PKM gate.
+Its initial attempt stopped at documentation wording before the expensive lanes;
+the wording was corrected and the failed result retained. Architecture fitness
+reports no new or worsened findings. Hosted validation, deployment and live
+acceptance of this corrected release are still required.
 
 | Agreed journey | Current evidence and remaining acceptance |
 | --- | --- |
@@ -2723,7 +2742,7 @@ readback before normal update acceptance.
 | Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
 | Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
 | Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
-| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. The separate dev cutover has applied cleanup 944 through the governed workflow. Its ledger checksum matches the reviewed SQL; legacy rows are absent and retained fingerprints match. Deployment health and final serving readback remain pending. |
+| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. Governed dev cutover 944 and serving readback passed. Legacy rows are absent and retained fingerprints match. The rehearsal clone and two additional temporary backups were removed; existing backup policy is unchanged. |
 
 This matrix does not establish dev completion or main/UAT/production readiness.
 Private identities, credentials and restricted recovery receipts remain outside
@@ -2749,5 +2768,10 @@ recovery point with row-security filtering disabled. Governed dev cutover run
 `36392414630` has applied cleanup 944. The ledger checksum matches the reviewed
 SQL, legacy rows are absent, and retained table fingerprints are unchanged. The
 ledger does not populate a deploy SHA; provenance is bound through its checksum
-and the exact workflow candidate. The workflow remains in progress; final health
-and serving readback still precede release acceptance.
+and the exact workflow candidate. The workflow completed successfully. Independent
+readback verified backend `consent-protocol-00114-bqc` and frontend
+`hushh-webapp-00083-nkx` serving that exact candidate at 100% traffic. Live retained
+BYOK tables were empty; nonempty preservation evidence comes from the isolated
+fixture, not live records. The rehearsal clone and two extra temporary backup
+copies were removed after verification. Existing backup retention and owner
+resources were preserved; this does not establish erasure from retained backups.

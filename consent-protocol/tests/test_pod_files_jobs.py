@@ -129,6 +129,68 @@ async def test_old_delivery_and_uncertain_worker_do_not_replay_model(queued_libr
     assert await jobs.run_job(entry["id"], job["delivery"]) == {"state": "review_required"}
 
 
+@pytest.mark.parametrize("cancel", ["none", "during_model", "terminal_write"])
+async def test_upgrade_drain_waits_for_job_terminal_write(queued_library, monkeypatch, cancel):
+    from hushh_mcp.services import pod_upgrade_admission
+    from hushh_mcp.services.pod_files import runtime
+    from tests.test_pod_upgrade_admission import MemoryLog
+
+    library, entry = queued_library
+    await jobs.enqueue(library, file_id=entry["id"])
+    path = f"jobs/{entry['id']}.bin"
+    job, _ = await library._read(path)
+    # One durable log for both the fence and its final idle receipt.
+    log = MemoryLog()
+    admission = pod_upgrade_admission.PodUpgradeAdmission(log_resolver=lambda: log)
+    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
+    monkeypatch.setenv("HUSSH_POD_INCARNATION", "files-test-revision")
+    monkeypatch.setattr(runtime, "active_library", lambda: library)
+
+    async def held():
+        pass
+
+    async def bucket_verified(_key):
+        return {}
+
+    monkeypatch.setattr(library.store, "verify_bucket", bucket_verified, raising=False)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority",
+        lambda: SimpleNamespace(require_held=held),
+    )
+
+    async def organize(_file_id):
+        draining = await admission.prepare(
+            operation_id="files-update", incarnation="files-test-revision"
+        )
+        assert draining["activeWork"] > 0 and draining["idleReceipt"] is None
+        if cancel == "during_model":
+            await jobs.status(library, entry["id"], cancel=True)
+        return jobs.OrganizationResult(state="unchanged", explanation="Synthetic fixture")
+
+    monkeypatch.setattr(jobs, "_organize", organize)
+    original_write = library._write
+
+    async def write(path, value, generation):
+        if value.get("state") in {"completed", "cancelled"}:
+            observed = await admission.status(incarnation="files-test-revision")
+            assert observed["activeWork"] > 0 and observed["idleReceipt"] is None
+        if value.get("state") == "completed" and cancel == "terminal_write":
+            concurrent, current_generation = await library._read(path)
+            concurrent["state"] = "cancelled"
+            await original_write(path, concurrent, current_generation)
+        await original_write(path, value, generation)
+
+    monkeypatch.setattr(library, "_write", write)
+    expected = "completed" if cancel == "none" else "cancelled"
+    assert await jobs.run_job(entry["id"], job["delivery"]) == {"state": expected}
+    assert (await jobs.status(library, entry["id"]))["state"] == expected
+    idle = await admission.status(incarnation="files-test-revision")
+    assert idle["state"] == "idle" and idle["idleReceipt"]["activeWork"] == 0
+    with pytest.raises(pod_upgrade_admission.PodUpgradeAdmissionRefused):
+        await admission.acquire_turn(incarnation="files-test-revision")
+
+
 @pytest.mark.asyncio
 async def test_metadata_is_not_returned_after_concurrent_analysis_withdrawal(
     queued_library, monkeypatch

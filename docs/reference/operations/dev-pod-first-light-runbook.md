@@ -28,7 +28,9 @@ Keep the tombstone-compatible ancestry check and owner-local encrypted state.
 
 Normal updates use the existing status, Feed approval, registry operation and
 upgrade service. Publishing a release must not install it. Bind each approval to
-the owner, service incarnation and immutable image digest; Later defers 72 hours.
+the owner, service incarnation and immutable image digest. Later snoozes the Feed
+reminder for 72 hours; Settings can still install a compatible release with no
+active upgrade lease. Deferral does not approve or start an installation.
 Wait for the authenticated handoff's durable idle receipt before replacement.
 Verify the running release, readiness and memory/authority continuity before
 reporting success. Keep the automatic sweep disabled until the deployed hub
