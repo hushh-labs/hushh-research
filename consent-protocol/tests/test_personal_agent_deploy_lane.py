@@ -282,20 +282,13 @@ def test_the_expected_audience_matches_what_a_pod_actually_mints(dev):
 # -- G5: the background task that outlives its request ----------------------------
 
 
-def test_dev_allocates_cpu_outside_requests(tmp_path):
-    """Personal-agent provisioning is `loop.create_task` around a `wait_ready` poll
-    that runs up to 150s AFTER the response returned. Cloud Run's default throttles
-    CPU to near zero between requests, so that task does not run slowly -- it barely
-    runs, the row strands at `provisioning`, and nothing reports a fault."""
-    assert "--no-cpu-throttling" in _run(tmp_path, _DEPLOY_ENV="dev")
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_shared_backend_allocates_cpu_outside_requests(tmp_path, environment):
+    """Keep frozen main's warmup/background CPU contract in the extracted deployer.
 
-
-def test_the_other_lanes_keep_request_based_billing(tmp_path):
-    """This flag switches Cloud Run to instance-based billing. On the shared lanes
-    that is a cost decision needing founder sign-off, not a silent default -- even
-    though the same exposure applies there to the consent listener, the Gmail watch
-    renewal loop and the revocation sweep."""
-    assert "--no-cpu-throttling" not in _run(tmp_path, _DEPLOY_ENV="production")
+    This script owns the shared backend; owner pods keep their selected policy.
+    """
+    assert "--no-cpu-throttling" in _run(tmp_path, _DEPLOY_ENV=environment)
 
 
 def test_retired_revisions_still_do_not_pin_database_pools(dev, tmp_path):
