@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from google.adk.sessions import Session
 
@@ -33,6 +35,33 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 
 STATE_MCP_APPROVAL = "temp:hussh:mcp_approval"
+
+
+class McpApprovalPort(Protocol):
+    """Invocation-local authority transport; it cannot confirm for the browser."""
+
+    async def issue(self, approval: McpCallApproval) -> IssuedActionDirective: ...
+    async def consume(
+        self, approval: McpCallApproval, *, directive_id: str, receipt: str
+    ) -> None: ...
+
+
+_APPROVAL_PORT: ContextVar[McpApprovalPort | None] = ContextVar("mcp_approval_port", default=None)
+
+
+@contextmanager
+def bind_mcp_approval_port(port: McpApprovalPort):
+    token = _APPROVAL_PORT.set(port)
+    try:
+        yield
+    finally:
+        _APPROVAL_PORT.reset(token)
+
+
+async def review_private_call(*args, **kwargs):
+    if _APPROVAL_PORT.get() is None:
+        return {"status": "blocked", "error": "POD_MCP_REVIEW_UNAVAILABLE", "retryable": False}
+    return await review_or_resume_call(*args, **kwargs)
 
 
 async def review_or_resume_call(context, binding, tool_name, revision, arguments):
@@ -66,6 +95,11 @@ async def review_or_resume_call(context, binding, tool_name, revision, arguments
             "connectorId": binding.connector_id,
             "catalogRevision": revision,
             "expiresAt": issued.expires_at.isoformat(),
+            **(
+                {"podReview": issued.private_review}
+                if getattr(issued, "private_review", None)
+                else {}
+            ),
         },
     )
     context.request_confirmation(
@@ -176,6 +210,7 @@ class McpCallApproval:
     tool_name: str
     catalog_revision: str
     arguments: dict[str, Any] = field(repr=False)
+    call_id: str = ""
 
     @classmethod
     def from_call(
@@ -205,6 +240,7 @@ class McpCallApproval:
             tool_name,
             catalog_revision,
             deepcopy(arguments),
+            str(getattr(context, "function_call_id", "") or ""),
         )
 
     @property
@@ -243,6 +279,9 @@ class McpCallApproval:
         }
 
     async def issue(self, store: ActionDirectiveStore) -> IssuedActionDirective:
+        port = _APPROVAL_PORT.get()
+        if port is not None:
+            return await port.issue(self)
         terms = self.terms
         return await store.issue(
             **self.identity,
@@ -270,6 +309,10 @@ class McpCallApproval:
     async def consume(
         self, store: ActionDirectiveStore, *, directive_id: str, receipt: str
     ) -> None:
+        port = _APPROVAL_PORT.get()
+        if port is not None:
+            await port.consume(self, directive_id=directive_id, receipt=receipt)
+            return
         await store.consume(
             **self.identity,
             directive_id=directive_id,

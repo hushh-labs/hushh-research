@@ -30,12 +30,14 @@ from hushh_mcp.runtime_settings import (
     pod_hub_expected_audience,
     pod_hub_identity_auth_enabled,
 )
-from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER
+from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER, VerifiedOwnerPod
 
 logger = logging.getLogger(__name__)
 
 
-async def verify_pod_identity(request: Request, authorization: Optional[str]) -> Optional[str]:
+async def verify_pod_identity(
+    request: Request, authorization: Optional[str], *, owner_bound: bool = False
+) -> str | VerifiedOwnerPod | None:
     """The pod's asserted HusshID once its token verifies, else None.
 
     Returns None -- never raises -- for every failure mode, so each caller decides
@@ -82,6 +84,9 @@ async def verify_pod_identity(request: Request, authorization: Optional[str]) ->
         logger.warning("pod_hub_auth.rejected_identity reason=email_unverified")
         return None
 
+    if email == allowed and owner_bound:
+        return None
+
     if email == allowed:
         # MANAGED / SIMULATION TIER. Every pod shares this one account -- which is
         # exactly what lets it hold no project roles -- so a match proves "a hussh pod
@@ -104,7 +109,7 @@ async def verify_pod_identity(request: Request, authorization: Optional[str]) ->
     bound = await _bound_service_account(asserted)
     if bound and email == bound:
         logger.info("pod_hub_auth.accepted tier=byoc asserted_agent_id=%s", asserted)
-        return asserted
+        return VerifiedOwnerPod(asserted, email) if owner_bound else asserted
 
     logger.warning("pod_hub_auth.rejected_identity reason=email_not_bound")
     return None

@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMcpCallReview } from "@/lib/agent/mcp-call-review";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { ApiService } from "@/lib/services/api-service";
+import { usesOwnerPod } from "@/lib/services/pod-app-access";
+vi.mock("@/lib/services/pod-app-access", () => ({ usesOwnerPod: vi.fn() }));
 
 vi.mock("@/lib/config", () => ({ BACKEND_URL: "https://backend.test" }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
-  apiFetch: vi.fn(), getAuthHeaders: () => ({ Authorization: "Bearer synthetic" }),
+  apiFetch: vi.fn(), ownerPodRequest: vi.fn(), getPersonalAgentStatus: vi.fn(), getAuthHeaders: () => ({ Authorization: "Bearer synthetic" }),
 } }));
 
 const reference = {
@@ -26,7 +28,7 @@ const input = () => ({
 const respond = (body: unknown, status = 200) => vi.mocked(ApiService.apiFetch)
   .mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(usesOwnerPod).mockResolvedValue(false); });
 
 describe("ephemeral MCP review", () => {
   const configuration = {
@@ -170,4 +172,26 @@ describe("ephemeral MCP review", () => {
     await expect(ExternalConnectorService.confirmMcpCall({ ...input(), reference: preview }))
       .rejects.toThrow("could not be verified");
   });
+});
+
+
+it("keeps private preview on the pod and sends only its commitment on explicit confirmation", async () => {
+  vi.mocked(usesOwnerPod).mockResolvedValue(true);
+  const podReview = { kind: "pod_mcp_review_v1", ownerId: "owner", hushhId: "pod", podKeyId: "key",
+    environment: "dev", epoch: 2, conversationId: "synthetic-thread", connectorId: reference.connectorId,
+    toolName: reference.toolName, callId: "call-1", catalogRevision: "rev1", commitment: "a".repeat(64), serviceUid: "uid" };
+  vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ ...preview, podReview })));
+  const reviewed = await ExternalConnectorService.reviewMcpCall({ ...input(), chatKey: "private-chat-key" });
+  expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  expect(ApiService.ownerPodRequest).toHaveBeenCalledWith(
+    "agent-chat/connectors/custom_synthetic/mcp/review", expect.anything());
+  respond({ status: "confirmed", directiveId: reference.directiveId, receipt: "r".repeat(43) });
+  await ExternalConnectorService.confirmMcpCall({ ...input(), chatKey: "private-chat-key", reference: reviewed });
+  const request = vi.mocked(ApiService.apiFetch).mock.calls[0][1]!;
+  expect(JSON.parse(request.body as string)).toEqual({ podReview, directiveId: reference.directiveId, confirmed: true });
+  expect(JSON.stringify(request)).not.toContain("private-chat-key");
+  expect(JSON.stringify(request)).not.toContain('"query"');
+  await expect(ExternalConnectorService.confirmMcpCall({ ...input(), chatKey: "private-chat-key", reference: preview }))
+    .rejects.toThrow("Private connector review changed");
+  expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
 });

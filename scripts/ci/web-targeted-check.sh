@@ -38,6 +38,16 @@ run_check() {
   fi
 }
 
+# Only the owning hosted workflow may assert that its required full-suite job
+# covers these invocations. Local focused commands retain their original checks.
+run_full_suite_check() {
+  if [ "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" = "1" ]; then
+    echo "Required Web Full Suite owns: $1"
+    return
+  fi
+  run_check "$@"
+}
+
 ran=0
 
 # This lane already installs Chromium. Render every maintained Mermaid block
@@ -50,8 +60,8 @@ fi
 # Account deletion is an auth/session boundary on every client. Keep the
 # production-code regressions and rendered recovery notice in the PR gate.
 if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-(service|bootstrap-service|method-service))|vault/|capacitor/(session-privacy|plugins/(keychain-web|vault-web)))|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx|api/consent/vault-owner-token/)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/(account|consent)|utils/firebase_auth)|hushh_mcp/(services/(account|consent_db)|consent/token)|db/migrations/201_))'; then
-  run_check "account session recovery" npm run verify:account-session
-  run_check "vault unlock and enrollment" npm run verify:vault-unlock
+  run_full_suite_check "account session recovery" npm run verify:account-session
+  run_full_suite_check "vault unlock and enrollment" npm run verify:vault-unlock
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
   NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://127.0.0.1:9}" \
   NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
@@ -78,25 +88,25 @@ fi
 # checkpoints and routing telemetry -- and no test in the repository could have
 # said so.
 if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|personal-knowledge-model/)|components/connections/person-profile-page\.tsx|__tests__/.*(consent|pkm|person-profile))'; then
-  run_check "consent + memory parity" npm run test:consent-memory-parity
+  run_full_suite_check "consent + memory parity" npm run test:consent-memory-parity
   ran=1
 fi
 
 if has_match '^hushh-webapp/(components/consent/|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|fixtures/document-share-)|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
-  run_check "Drive exact-file review boundary" npm run test:drive-sharing-web
+  run_full_suite_check "Drive exact-file review boundary" npm run test:drive-sharing-web
   run_check "Drive mounted review layout" npm run test:drive-sharing-layout
   ran=1
 fi
 
 if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
-  run_check "Connections web boundary" npm run test:connections-web
+  run_full_suite_check "Connections web boundary" npm run test:connections-web
   run_check "Connections mounted browser layout" npm run test:connections-layout
   ran=1
 fi
 
 if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-panel\.layout\.spec\.ts|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
-  run_check "voice gateway" npm run verify:voice-gateway
-  run_check "One Voice runtime evaluations" npm run verify:one-voice
+  run_full_suite_check "voice gateway" npm run verify:voice-gateway
+  run_full_suite_check "One Voice runtime evaluations" npm run verify:one-voice
   if has_match '^hushh-webapp/(components/one-voice/|e2e/one-voice-panel\.layout\.spec\.ts)'; then
     # This fixture is source-coupled and file:// based: it needs neither a
     # reviewer session nor a dev server, so keep the visual gate proportional.
@@ -114,7 +124,7 @@ fi
 # lane above: that one is the Kai action-gateway generator check, and folding
 # them together would hide which contract failed.
 if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/puppy-one-service\.ts|lib/agent/agent-voice-settings\.ts|lib/morphy-ux/ui/segmented-control\.tsx|app/api/hermes/|app/one/puppy/|__tests__/agent/)'; then
-  run_check "agent surface" npm run verify:agent-surface
+  run_full_suite_check "agent surface" npm run verify:agent-surface
   # And the same question asked of a real browser. JSDOM cannot report that a
   # cloud model picker is SITTING on the on-device screen, or that the mode
   # toggle slides sideways under the thumb that pressed it, which is exactly
@@ -125,7 +135,7 @@ if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/puppy-on
 fi
 
 if has_match '^hushh-webapp/(lib/services/.*(cache|pkm|sync)|__tests__/services/.*(cache|pkm|stale-resource)|scripts/architecture/audit-cache-coherence\.mjs)'; then
-  run_check "cache contract" npm run verify:cache
+  run_full_suite_check "cache contract" npm run verify:cache
   ran=1
 fi
 
@@ -134,12 +144,17 @@ fi
 # and the generated browser fixture. Keep that cross-surface pack together so a
 # focused PR cannot update one half while only exercising an unrelated lane.
 if has_match '^(hushh-webapp/(app/one/feed/|app/providers\.tsx|components/(app-ui/settings-ui\.tsx|consent/notification-provider\.tsx|feed/|navbar\.tsx)|lib/(cache/(cache-sync-service|use-stale-resource)\.ts|feed/|notifications/|services/feed-service\.ts|utils/browser-navigation\.ts)|public/firebase-messaging-sw\.js|capacitor\.config\.ts|ios/App/App/AppDelegate\.swift|scripts/(architecture/audit-cache-coherence\.mjs|testing/(capture-feed-needs-you-fixture|verify-signed-in-routes)\.mjs)|e2e/(feed-needs-you-row\.layout\.spec\.ts|fixtures/feed-needs-you-rows\.html)|__tests__/.*(feed|notification-provider|firebase-messaging|fcm-|browser-navigation-pending|navbar-bottom-nav|cache-sync-mutation-cascade|use-stale-resource-lifecycle))|consent-protocol/(api/(routes/one/feed\.py|utils/fcm_messages\.py)|hushh_mcp/services/(account_service|broker_funding_service|feed_service|one_location_agent_service|one_location_circle_service|push_notifications)\.py|db/.*(feed_notification_projection_coverage|circle_feed_durability)|tests/.*(feed|fcm|push_notifications|broker_funding_transfer_notification_task_ref|one_location_list_state_resilience)))'; then
-  run_check "Feed notifications" npm run verify:feed
+  if [ "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" = "1" ]; then
+    run_check "Feed fixture generation" node ./scripts/testing/capture-feed-needs-you-fixture.mjs
+    run_check "Feed fixture parity" git diff --exit-code -- e2e/fixtures/feed-needs-you-rows.html
+  else
+    run_check "Feed notifications" npm run verify:feed
+  fi
   ran=1
 fi
 
 if has_match '^hushh-webapp/(lib/(analytics|observability)|__tests__/services/observability-|scripts/testing/run-observability|scripts/testing/run-uat-analytics|components/.*/.*analytics)'; then
-  run_check "analytics contract" npm run verify:analytics
+  run_full_suite_check "analytics contract" npm run verify:analytics
   ran=1
 fi
 
@@ -153,27 +168,27 @@ fi
 # defect: chrome that is hidden must not still be fetching, because on a pool of
 # four connections a nav badge nobody can see is a nav badge that delays setup.
 if has_match '^hushh-webapp/(components/onboarding/|components/navbar\.tsx|components/app-ui/top-app-bar\.tsx|lib/(auth/use-session-chrome-suppression|consent/use-consent-pending-summary-count|feed/use-feed-unread-count|persona/persona-context)|hooks/use-effective-avatar-url|app/providers\.tsx|__tests__/components/onboarding-journey-guard)'; then
-  run_check "first-run admission" npm run verify:first-run-admission
+  run_full_suite_check "first-run admission" npm run verify:first-run-admission
   ran=1
 fi
 
 if has_match '^hushh-webapp/(components/.*/.*phone|__tests__/components/phone-verification|lib/services/.*phone|app/.*/.*phone)'; then
-  run_check "phone verification" npm run verify:phone-verification
+  run_full_suite_check "phone verification" npm run verify:phone-verification
   ran=1
 fi
 
 if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surface|screen)|scripts/architecture/generate-surface-map\.mjs|scripts/testing/verify-signed-in-routes\.mjs)'; then
-  run_check "surface map" npm run verify:surface-map
+  run_full_suite_check "surface map" npm run verify:surface-map
   ran=1
 fi
 
 if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|lib/capacitor/one-system-action-invocation\.ts|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
-  run_check "Capacitor static parity" npm run verify:capacitor:static
+  run_full_suite_check "Capacitor static parity" npm run verify:capacitor:static
   # Signature parity across the three flows. Static parity checks the route
   # inventory; this checks that a plugin method declared in TypeScript is
   # actually implemented AND registered on both iOS and Android. A change under
   # ios/ or android/ is exactly when that can drift.
-  run_check "Capacitor plugin contracts" npm run verify:capacitor:plugins
+  run_full_suite_check "Capacitor plugin contracts" npm run verify:capacitor:plugins
   ran=1
 fi
 
@@ -187,9 +202,8 @@ fi
 # it straight back with nothing to notice.
 #
 # These tests already existed and already named the behaviour. They simply
-# never ran on a pull request: ci.yml has no vitest lane, so the full suite
-# only executes in the merge queue -- which every review-bypass user skips.
-# That asymmetry is why a red contract test sat unnoticed on main for a day.
+# originally did not run on pull requests. The required full-suite lane now
+# owns them in hosted CI; this selector preserves focused local verification.
 # Run them wherever the behaviour can be touched, including from the backend
 # half, because the client contract is "render the page you were handed".
 #
@@ -203,7 +217,7 @@ fi
 # both screens, so both packs have to re-run -- and until this was added, a
 # change confined to `lib/contacts/` matched no pack in the repo at all.
 if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/services/api-service-fetch\.test\.ts|lib/services/(connections-service|api-service)\.ts|lib/capacitor/plugins/(contacts-web\.ts|__tests__/contacts-web\.test\.ts)|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
-  run_check "Connect people search" npm run verify:connect-search
+  run_full_suite_check "Connect people search" npm run verify:connect-search
   ran=1
 fi
 
@@ -220,7 +234,7 @@ fi
 # so a change touching BOTH sides re-runs the client contract. A backend-only
 # change is covered by the trust suites in the protocol lane instead.
 if has_match '^(hushh-webapp/(lib/capacitor/(types\.ts|plugins/consent-web\.ts)|__tests__/capacitor/trust-link-scope-round-trip\.test\.ts)|consent-protocol/(hushh_mcp/(trust/link|types)\.py|api/routes/trust\.py))'; then
-  run_check "TrustLink scope round-trip" npm run verify:trust-link
+  run_full_suite_check "TrustLink scope round-trip" npm run verify:trust-link
   ran=1
 fi
 
@@ -243,7 +257,7 @@ fi
 # Both consumers' suites run, not just the new one, because "the extraction did
 # not change Circle behaviour" is the claim that needs holding.
 if has_match '^hushh-webapp/(lib/share/|lib/connect/|__tests__/share/|__tests__/connect/|lib/one-location/(share-circle-code|circle-join-url)\.ts)'; then
-  run_check "Share ladder and link origin" npm run verify:share-ladder
+  run_full_suite_check "Share ladder and link origin" npm run verify:share-ladder
   ran=1
 fi
 
@@ -263,7 +277,7 @@ fi
 # nothing on this side would otherwise run -- which is how "Hotels" shipped
 # listing a lounge.
 if has_match '^(hushh-webapp/(components/one-location/|components/location/|lib/location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
-  run_check "One Location flows" npm run verify:one-location
+  run_full_suite_check "One Location flows" npm run verify:one-location
   ran=1
 fi
 
@@ -281,7 +295,7 @@ fi
 # one_referral_service.py breaks the screen on a pull request where nothing
 # under hushh-webapp/ was touched at all.
 if has_match '^(hushh-webapp/(components/profile/referrals-panel\.tsx|lib/services/referral-service\.ts|__tests__/(components/referrals-panel|services/referral-(service|attribution|stream))|lib/referral/|app/r/|app/api/one/referrals/|app/one/profile/referrals/)|consent-protocol/(hushh_mcp/(services/one_referral_service|operons/referral/)|api/(routes/one/referrals\.py|referral_listener\.py)))'; then
-  run_check "Referral program" npm run verify:referrals
+  run_full_suite_check "Referral program" npm run verify:referrals
   ran=1
 fi
 
@@ -295,7 +309,7 @@ fi
 # unparseable colour reaching @capacitor/google-maps draws Google's own default
 # on web and flat blue on iOS, both of which look deliberate.
 if has_match '^hushh-webapp/(lib/theme/|__tests__/lib/theme-accent)'; then
-  run_check "accent identity" npm run verify:accent
+  run_full_suite_check "accent identity" npm run verify:accent
   ran=1
 fi
 
@@ -311,7 +325,7 @@ fi
 # pack too, but only when a file under components/one-location/ changes. A
 # change confined to the primitive itself reaches it only through here.
 if has_match '^hushh-webapp/(components/ui/sheet\.tsx|__tests__/components/(bottom-sheet-drag-dismiss|shared-sheet-consumers))'; then
-  run_check "bottom sheet" npm run verify:bottom-sheet
+  run_full_suite_check "bottom sheet" npm run verify:bottom-sheet
   ran=1
 fi
 

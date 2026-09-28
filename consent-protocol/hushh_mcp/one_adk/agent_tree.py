@@ -2387,12 +2387,12 @@ def _one_roster_tools(
             ]
         )
     if pod_mode() and allow_private_mcp:
-        from hushh_mcp.one_adk.registered_mcp_toolset import refuse_unavailable_pod_review
+        from hushh_mcp.one_adk.mcp_call_approval import review_private_call
 
         tools.extend(
             [
                 inspect_private_connectors,
-                RegisteredMcpToolset(authorize_call=refuse_unavailable_pod_review),
+                RegisteredMcpToolset(authorize_call=review_private_call),
             ]
         )
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:

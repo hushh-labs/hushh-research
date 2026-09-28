@@ -111,8 +111,13 @@ async def review_tool(
     conversation_id: str,
     tool_name: str,
     configuration: dict[str, Any] | None = None,
+    sessions=None,
+    owner_admission=None,
+    vault_only: bool = False,
 ):
     owner = str(token["user_id"])
+    if vault_only and (sessions is None or owner_admission is None or configuration is None):
+        raise ActionDirectiveAuthorityError("Private connector review unavailable.")
     if configuration is not None:
         records = validate_mcp_turn_configurations([configuration])
         record = records.get(connector_id)
@@ -129,7 +134,7 @@ async def review_tool(
                 "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
             )
         connector_label = definition.display_name
-    sessions = EncryptedAdkSessionService()
+    sessions = sessions if sessions is not None else EncryptedAdkSessionService()
     session = await sessions.get_session(
         app_name="hussh_one", user_id=owner, session_id=conversation_id
     )
@@ -151,7 +156,7 @@ async def review_tool(
                 "hussh:conversation_id": conversation_id,
                 "hussh:consent_token": store_request_secret(token["token"]),
                 "temp:one_execution_surface": "typed_chat",
-                "temp:hussh:workspace_chat_admission": True,
+                "temp:hussh:workspace_chat_admission": not vault_only,
                 "temp:mcp_connector_label": connector_label,
             },
         ),
@@ -161,6 +166,8 @@ async def review_tool(
         conversation_id,
         owner_id=owner,
         configurations=[configuration] if configuration is not None else None,
+        owner_admission=owner_admission,
+        vault_only=vault_only,
     ) as scope:
         toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
         tools = await toolset.get_tools(context)

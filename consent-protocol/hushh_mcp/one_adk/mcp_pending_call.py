@@ -22,6 +22,10 @@ from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityE
 _CURRENT_HANDLE: ContextVar[str | None] = ContextVar("mcp_pending_handle", default=None)
 
 
+def current_pending_handle() -> str:
+    return _CURRENT_HANDLE.get() or ""
+
+
 @asynccontextmanager
 async def pending_resume_scope(approval_reference: Any):
     handle = None

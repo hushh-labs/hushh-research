@@ -331,3 +331,85 @@ async def test_review_ledger_outage_is_reported_as_review_unavailable(monkeypatc
     context.state["temp:one_execution_surface"] = "voice"
     with pytest.raises(ActionDirectiveAuthorityError):
         await approval.review_or_resume_call(context, binding, "write", "revision", {})
+
+
+async def test_pod_port_keeps_arguments_private_and_refuses_changed_or_fenced_resume(monkeypatch):
+    import json
+    from dataclasses import replace
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+    from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call, pending_resume_scope
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+    from hushh_mcp.services import pod_mcp_approval as port_module
+
+    monkeypatch.setenv("APP_SIGNING_KEY", "synthetic-pod-key-not-a-secret-32bytes")
+    runtime_settings.clear_runtime_settings_caches()
+    owner = SimpleNamespace(
+        owner="owner",
+        hushh_id="pod",
+        require_access=AsyncMock(),
+        authority=SimpleNamespace(
+            pod_key_id="key",
+            environment="dev",
+            epoch=1,
+            lease=SimpleNamespace(state=AsyncMock(return_value="held")),
+        ),
+    )
+    requests = []
+
+    def post(path, *, json):
+        requests.append((path, json))
+        if path.endswith("issue"):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "directiveId": payload()["directiveId"],
+                    "expiresAt": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+                    "podReview": {**json["review"], "serviceUid": "uid"},
+                },
+            )
+        return SimpleNamespace(status_code=200, json=lambda: {"status": "consumed"})
+
+    port = port_module.PodMcpApprovalPort(owner, client=SimpleNamespace(post=post))
+    call = approval.McpCallApproval(
+        "owner",
+        "thread",
+        McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp"),
+        "search",
+        "rev1",
+        {"q": "PRIVATE_ARGUMENT"},
+        "call-1",
+    )
+    with approval.bind_mcp_approval_port(port):
+        issued = await call.issue(None)
+    assert "PRIVATE_ARGUMENT" not in json.dumps(requests)
+    handle = capture_pending_call(
+        SimpleNamespace(
+            user_id="owner",
+            function_call_id="call-1",
+            state={"hussh:user_id": "owner", "hussh:conversation_id": "thread"},
+        ),
+        tool_name=payload()["toolName"],
+        arguments=call.arguments,
+        review={"podReview": issued.private_review},
+    )
+    reference = store_request_secret(json.dumps({"pendingHandle": handle}))
+    async with pending_resume_scope(reference):
+        for changed in (
+            replace(call, arguments={"q": "changed"}),
+            replace(call, call_id="other"),
+            replace(call, catalog_revision="rev2"),
+            replace(call, binding=replace(call.binding, authority_revision=("changed",))),
+        ):
+            with pytest.raises(ActionDirectiveAuthorityError):
+                await port.consume(changed, directive_id=issued.directive_id, receipt="r" * 43)
+        assert len(requests) == 1
+        await port.consume(call, directive_id=issued.directive_id, receipt="r" * 43)
+        owner.authority.lease.state.side_effect = ["held", "fenced"]
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await port.consume(call, directive_id=issued.directive_id, receipt="r" * 43)
+    assert "PRIVATE_ARGUMENT" not in json.dumps(requests)
+    # No pod port can turn its assertion into browser confirmation.
+    assert not hasattr(port, "confirm")

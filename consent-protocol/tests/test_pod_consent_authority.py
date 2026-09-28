@@ -324,6 +324,9 @@ async def test_the_audience_is_verified_not_merely_the_signature(monkeypatch):
 
     assert result == "hushh-abc"
     assert seen["audience"] == "https://hub.example"
+    # Action coordination refuses the fleet identity even when it asserts a
+    # real owner. Its existing read-only compatibility path above is preserved.
+    assert await pod_identity_auth.verify_pod_identity(req, "Bearer tok", owner_bound=True) is None
 
 
 async def test_no_configured_audience_refuses_rather_than_guessing(monkeypatch):

@@ -175,6 +175,9 @@ Production requires an explicit production request and an actor in
 ## Stop conditions
 
 Stop rather than improvise when the exact head changes, required checks are not
-terminal green, deploy SHA is not reachable from `main`, post-merge smoke is not
-green, actor authority is absent, environment identity is ambiguous, provenance
-does not match, or a rollback target cannot be proved.
+terminal green, actor authority is absent, environment identity is ambiguous,
+provenance does not match, or a rollback target cannot be proved. UAT and production
+also require reachability from `main` and successful post-merge smoke. Dev follows
+[Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
+CI-green SHA must be reachable from the requested branch, while the workflow
+definition runs from `main`. Dev does not require an application merge to `main`.

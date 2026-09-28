@@ -24,6 +24,32 @@ def _next_endpoint(previous: Any, *, url: str, pod_key_id: str) -> dict | None:
     return {"version": version, "url": url, "podKeyId": pod_key_id}
 
 
+def direct_owner_matches(
+    owner: Any, *, hushh_id: str, pod_key_id: str, pod_public_key: str, service_uid: str, url: str
+) -> bool:
+    """Current direct deployment predicate; callers own the registry row lock."""
+    if owner is None or not all((hushh_id, pod_key_id, pod_public_key, service_uid, url)):
+        return False
+    metadata = owner.get("backend_metadata") or {}
+    readiness = metadata.get("directReadiness") or {}
+    return bool(
+        owner["hushh_id"] == hushh_id
+        and owner["status"] == "provisioned"
+        and owner["deployment_target"] == "user_gcp"
+        and owner["pod_key_id"] == pod_key_id
+        and owner["pod_pubkey"] == pod_public_key
+        and "erasure" not in metadata
+        and metadata.get("serviceUid") == service_uid
+        and str(metadata.get("url") or "").strip().rstrip("/") == url
+        and metadata.get("ingress") == "direct"
+        and isinstance(readiness, dict)
+        and readiness.get("verified") is True
+        and readiness.get("serviceUid") == service_uid
+        and readiness.get("podKeyId") == pod_key_id
+        and readiness.get("url") == url
+    )
+
+
 async def record_endpoint(
     db: Any,
     *,
@@ -59,22 +85,13 @@ async def record_endpoint(
             if owner is None:
                 return None
             metadata = owner["backend_metadata"] or {}
-            readiness = metadata.get("directReadiness") or {}
-            if (
-                owner["hushh_id"] != hushh_id
-                or owner["status"] != "provisioned"
-                or owner["deployment_target"] != "user_gcp"
-                or owner["pod_key_id"] != pod_key_id
-                or owner["pod_pubkey"] != pod_public_key
-                or "erasure" in metadata
-                or metadata.get("serviceUid") != service_uid
-                or str(metadata.get("url") or "").strip().rstrip("/") != url
-                or metadata.get("ingress") != "direct"
-                or not isinstance(readiness, dict)
-                or readiness.get("verified") is not True
-                or readiness.get("serviceUid") != service_uid
-                or readiness.get("podKeyId") != pod_key_id
-                or readiness.get("url") != url
+            if not direct_owner_matches(
+                owner,
+                hushh_id=hushh_id,
+                pod_key_id=pod_key_id,
+                pod_public_key=pod_public_key,
+                service_uid=service_uid,
+                url=url,
             ):
                 return None
             previous = metadata.get("endpoint") or {}

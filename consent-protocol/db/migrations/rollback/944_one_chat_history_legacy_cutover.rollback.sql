@@ -1,4 +1,5 @@
--- Renumbered from the ADK branch's 249: public-profile migration 249 already owns that ID.
+-- Dev-only cleanup 944. Public-profile 249 and Calendar 252 retain their active identities.
+-- This cleanup stays parked until restore and incompatible-writer drain receipts pass.
 -- Rollback for migration 250: intentionally a no-op.
 --
 -- 250 deletes chat history sealed with the platform key. That deletion is the

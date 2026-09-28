@@ -2512,3 +2512,76 @@ runtime authentication was not relaxed. The affected suites passed 246 tests
 (with 73 existing skips). The isolated production build needed a copy-on-write
 local dependency view because Turbopack refuses an external node_modules symlink;
 the build command and gate remain unchanged.
+
+
+### Integrated dev release and browser chat — 2026-09-27
+
+Complete hosted CI `36351390531` passed for
+`889b332e98060c586f4241265c9daa18861d9148`. Governed dev deployment
+`36352597872` then completed successfully with scope `all`. Independent readback
+verified the exact source at 100% traffic on backend
+`consent-protocol-00112-4j4` and frontend `hushh-webapp-00080-f2w`.
+The schema, provenance and semantic gates passed. The release artifact separately
+reports the advisory degraded capability `ria_stage1_query_only`.
+
+A canonical-reviewer browser session admitted to its existing BYOC pod, preserved
+vault continuity, and completed one direct chat request with HTTP 200 and a finished
+assistant response in the UI. Its synthetic conversation was deleted. A late
+cleanup-guard error means the original harness result is not an unqualified pass;
+independent owner-scoped registry readback verified the single synthetic browser
+device was revoked. Pod-side revocation readback was not asserted. This establishes
+that reviewer's browser chat, not every owner's session or real-device inference.
+
+The dev-only pod release is `2026.09-dev.3+889b332e9806.eda34a4a`; source and publisher
+provenance were read back and exact owner approval remains required. Publishing
+this release did not install it on owner pods. Local ADK remained clean at frozen
+`3bd078a8c336c77c05ba74b787e570a08fb47617` after deployment.
+
+Separate-network Puppy acceptance, compatibility admission and owner approval for
+further pod upgrades, and the destructive history cutover remain incomplete.
+The cutover needs current writer-drain and recovery proof; its parked numeric ID
+also conflicts with the active Calendar migration. A read-only evaluation of all
+four authored SQL refusal predicates found none active at the observation time;
+this does not establish writer shutdown or backup restoration. Do not activate the
+cutover by adding the parked file directly to a manifest. The latest private Wiki addition could not be
+persisted because connector refresh credentials were unavailable; earlier verified
+Wiki readbacks remain separate evidence.
+
+Measured CI follow-up: the targeted web job took 17m19s, including about four
+minutes of nonbrowser checks overlapping the required full-suite lane. Review the
+executed inventory before consolidating those invocations. Preserve browser packs
+and generated-fixture checks; no test gate was removed in this release.
+
+### Fixed-scope completion candidate — 2026-09-27
+
+Baseline remains deployed `889b332e98060c586f4241265c9daa18861d9148`.
+The follow-up reviewer browser rehearsal completed a direct chat response and
+synthetic cleanup. The previous session was refused by the pod after revocation;
+both rehearsal-created device records were read back as revoked. The original
+failed harness receipt remains retained: its late failure was a memory-preparation
+request outside that run's read-only allowance, corrected through the existing
+explicit preparation mode. This does not establish separate-network Puppy access.
+
+The private MCP implementation uses the existing hub action ledger's `pod_chat`
+channel, without creating a shared chat-session row. The pod sends bounded identity
+metadata and a keyed commitment; arguments and connector credentials remain on the
+pod/browser. Only the authenticated owner browser confirms. Machine issue/consume
+rechecks the current runtime service account under the same registry transaction
+as the ledger mutation. The pod checks its incarnation before and after coordination.
+A real ADK suspension → private preview → browser confirmation → receipt consumption
+→ native tool-resume test passes against isolated PostgreSQL. Invalid bindings,
+account rotation, duplicate consumption and oversized requests are refused.
+These are source/integration results, not deployed connector acceptance.
+
+Dev ledger inspection found IDs 944 and 945 unused. Legacy-history cleanup is
+renamed to parked **944** with its recovery reference and tests; it is still absent
+from the dev migration manifest. Active Calendar migration 252 remains unchanged.
+Additive migration 945 extends the existing action-ledger constraints for private
+MCP. An application rollback retains this additive schema and existing receipts;
+it must not delete approvals or reinstall incompatible history writers.
+
+The hosted targeted web job delegates measured overlapping checks to the required
+full-suite job. Local focused commands, browser packs, generated fixtures and
+security gates remain. Release compatibility and live acceptance remain open until
+actual predecessor recovery, exact-SHA deployment and normal owner-approved update
+receipts have been recorded.

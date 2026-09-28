@@ -55,6 +55,7 @@
     "940_personal_agent_erasure_guard_composition.sql",
     "941_personal_agent_files_erasure.sql",
     "942_personal_agent_erasure_validation_cost.sql",
-    "943_personal_agent_files_upgrade_evidence.sql"
+    "943_personal_agent_files_upgrade_evidence.sql",
+    "945_pod_mcp_action_authority.sql"
   ]
 }

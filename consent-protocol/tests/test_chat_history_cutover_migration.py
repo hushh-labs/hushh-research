@@ -1,4 +1,4 @@
-"""Migration 252 (chat-history BYOK cutover) deletes only platform-key chat rows.
+"""Migration 944 (chat-history BYOK cutover) deletes only platform-key chat rows.
 
 The compatibility release parks this destructive migration until BYOK-only writers
 serve and older writers are drained. It must never touch a person-key row. Static
@@ -21,8 +21,8 @@ from urllib.parse import urlparse
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db/migrations/parked/252_one_chat_history_legacy_cutover.sql"
-ROLLBACK = ROOT / "db/migrations/rollback/252_one_chat_history_legacy_cutover.rollback.sql"
+MIGRATION = ROOT / "db/migrations/parked/944_one_chat_history_legacy_cutover.sql"
+ROLLBACK = ROOT / "db/migrations/rollback/944_one_chat_history_legacy_cutover.rollback.sql"
 MANIFEST = ROOT / "db/release_migration_manifest.json"
 MARKER = "hussh-chat-v1:"
 

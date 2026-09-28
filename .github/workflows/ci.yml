@@ -444,6 +444,7 @@ jobs:
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
+          WEB_TARGETED_FULL_SUITE_OWNED: "1"
           WEB_CI_DEPS_INSTALLED: "1"
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import requests  # type: ignore[import-untyped]
@@ -44,6 +45,14 @@ POD_SPACE_HEADER = "X-Hushh-Pod-Space"
 # Re-mint slightly before expiry rather than on it, so a call in flight never races
 # the boundary. Cloud Run identity tokens are ~1h.
 _TOKEN_REFRESH_SKEW_SECONDS = 300
+
+
+@dataclass(frozen=True)
+class VerifiedOwnerPod:
+    """Verified Google caller identity, retained for transaction-time fencing."""
+
+    hushh_id: str
+    service_account: str
 
 
 class PodHubUnavailable(RuntimeError):

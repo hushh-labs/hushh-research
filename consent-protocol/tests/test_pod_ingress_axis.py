@@ -205,3 +205,18 @@ def test_the_renderer_reads_the_lane_the_cost_labels_read():
 
     source = Path(gcp_backend.__file__).read_text(encoding="utf-8")
     assert "lane = _deploy_env_label()" in source
+
+
+def test_private_mcp_preview_is_admitted_but_machine_and_confirmation_paths_are_not():
+    from api.middlewares.pod_ingress import is_app_surface
+
+    base = "/api/one/pod/agent-chat/connectors/custom_test/mcp/"
+    assert is_app_surface(base + "review")
+    for path in (
+        base + "confirm",
+        base + "issue",
+        base + "consume",
+        "/api/one/pod/mcp-approval/issue",
+        "/api/one/pod/mcp-approval/consume",
+    ):
+        assert not is_app_surface(path)

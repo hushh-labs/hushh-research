@@ -50,6 +50,7 @@ from hushh_mcp.services.external_connector_registry_service import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
+from hushh_mcp.services.pod_mcp_approval import PodMcpMutation, PodMcpTerms, mutate_review
 
 
 class PrivateConnectorRoute(APIRoute):
@@ -61,6 +62,8 @@ class PrivateConnectorRoute(APIRoute):
                 if self.path.endswith(
                     (
                         "/mcp/review",
+                        "/mcp-approval/issue",
+                        "/mcp-approval/consume",
                         "/mcp/confirm",
                         "/mcp/catalog",
                         "/mcp/oauth/begin",
@@ -183,6 +186,15 @@ class McpReviewRequest(McpConfigurationRequest):
 
 
 class McpConfirmRequest(McpReviewRequest):
+    directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
+    confirmed: StrictBool
+
+
+class PodMcpConfirmRequest(BaseModel):
+    """Browser-only confirmation of the preview fetched directly from its pod."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    podReview: PodMcpTerms
     directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
     confirmed: StrictBool
 
@@ -327,9 +339,9 @@ async def cancel_private_mcp_oauth(
         ) from None
 
 
-async def _mcp_review_response(operation, **kwargs):
+async def _mcp_review_response(handler, **kwargs):
     try:
-        return await operation(**kwargs)
+        return await handler(**kwargs)
     except CHAT_KEY_ERRORS:
         # The review reads the owner's person-key conversation. Without that key
         # it refuses (403 via the app handler); it is never a retryable outage.
@@ -393,10 +405,23 @@ async def prepare_mcp_review(
 
 @router.post("/{connector_id}/mcp/confirm")
 async def confirm_mcp_review(
-    connector_id: str, body: McpConfirmRequest, token: dict = Depends(require_vault_owner_token)
+    connector_id: str,
+    body: McpConfirmRequest | PodMcpConfirmRequest,
+    token: dict = Depends(require_vault_owner_token),
 ):
     if body.confirmed is not True:
         raise HTTPException(status_code=400, detail="Confirm the exact call before continuing.")
+    if isinstance(body, PodMcpConfirmRequest):
+        if (
+            body.podReview.ownerId != str(token["user_id"])
+            or body.podReview.connectorId != connector_id
+        ):
+            raise HTTPException(403, detail="Private connector owner changed.")
+        return await _mcp_review_response(
+            mutate_review,
+            operation="confirm",
+            payload=PodMcpMutation(review=body.podReview, directiveId=body.directiveId),
+        )
     return await _mcp_review_response(
         mcp_review_service.confirm_review,
         token=token,

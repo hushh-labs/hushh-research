@@ -26,7 +26,8 @@ export async function ownerPodRequest(
     "commands/assess",
   ]);
   const chatRoute = route === "agent-chat" || route === "agent-chat/capabilities" ||
-    /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/.test(route);
+    /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/.test(route) ||
+    /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/.test(route);
   if ((!allowed.has(route) && !chatRoute) || path.includes("#"))
     throw new Error("POD_APP_ROUTE_REFUSED");
   const uid = AuthService.getCurrentUser()?.uid;
@@ -151,15 +152,21 @@ export async function agentChatRequest(path: string, init: RequestInit, ports: {
   if (!/^\/api\/one\/agent-chat(?:$|[/?])/.test(path) || path.includes("#")) {
     throw new Error("AGENT_CHAT_ROUTE_REFUSED");
   }
+  const usePod = await usesOwnerPod(ports.hosting);
+  return usePod ? ports.direct(path.slice("/api/one/".length), init) : ports.fetch(path, init);
+}
+
+/** Shared by chat and review; a direct failure must never fall back to the hub. */
+export async function usesOwnerPod(hosting: () => Promise<{ hostingMode?: string }>): Promise<boolean> {
   const uid = AuthService.getCurrentUser()?.uid;
   if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
   const ownerPod = await import("./owner-pod-endpoint");
   let usePod = Boolean(await ownerPod.loadPinnedEndpoint(uid));
   if (!usePod) {
-    const hosting = await ports.hosting();
-    if (hosting.hostingMode === "byoc") usePod = true;
-    else if (hosting.hostingMode !== "shared") throw new Error("AGENT_PRIVATE_RUNTIME_REQUIRED");
+    const status = await hosting();
+    if (status.hostingMode === "byoc") usePod = true;
+    else if (status.hostingMode !== "shared") throw new Error("AGENT_PRIVATE_RUNTIME_REQUIRED");
   }
   if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
-  return usePod ? ports.direct(path.slice("/api/one/".length), init) : ports.fetch(path, init);
+  return usePod;
 }

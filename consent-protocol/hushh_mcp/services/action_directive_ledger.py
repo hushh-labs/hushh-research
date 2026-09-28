@@ -23,7 +23,7 @@ from sqlalchemy import text
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 
-ActionChannel = Literal["typed_chat", "voice", "command", "adk_chat"]
+ActionChannel = Literal["typed_chat", "voice", "command", "adk_chat", "pod_chat"]
 
 
 class ActionDirectiveAuthorityError(RuntimeError):
@@ -48,6 +48,7 @@ class IssuedActionDirective:
     action_id: str
     context_revision: str
     expires_at: datetime
+    private_review: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -646,13 +647,24 @@ class ActionDirectiveStore:
         ttl_seconds: int = 300,
         adk_app_name: str | None = None,
     ) -> IssuedActionDirective:
-        if channel not in {"typed_chat", "voice", "command", "adk_chat"}:
+        if channel not in {"typed_chat", "voice", "command", "adk_chat", "pod_chat"}:
             raise ActionDirectiveAuthorityError("Use the bound document review authority.")
         if channel == "adk_chat":
             if adk_app_name != "hussh_one" or not session_id or conversation_id:
                 raise ActionDirectiveAuthorityError("ADK Chat requires its owner session.")
             if not trusted_activation_required or not resource_binding:
                 raise ActionDirectiveAuthorityError("ADK Chat requires exact reviewed terms.")
+        elif channel == "pod_chat":
+            if (
+                action_id != MCP_ACTION_ID
+                or not session_id
+                or conversation_id
+                or adk_app_name is not None
+                or not trusted_activation_required
+                or not resource_binding
+                or resource_binding.get("kind") != "pod_mcp_review_v1"
+            ):
+                raise ActionDirectiveAuthorityError("Private MCP requires exact pod review terms.")
         elif adk_app_name is not None:
             raise ActionDirectiveAuthorityError("Unexpected ADK session authority.")
         if channel == "typed_chat" and (not conversation_id or session_id):
@@ -707,6 +719,7 @@ class ActionDirectiveStore:
         trusted_activation: bool = False,
         terms: BoundActionTerms | None = None,
         adk_app_name: str | None = None,
+        expected_channel: ActionChannel | None = None,
     ) -> ActionConfirmationReceipt:
         receipt = secrets.token_urlsafe(32)
         receipt_hash = hashlib.sha256(receipt.encode("utf-8")).hexdigest()
@@ -716,6 +729,7 @@ class ActionDirectiveStore:
             SET state = 'confirmed', receipt_hash = :receipt_hash, confirmed_at = NOW()
             WHERE directive_id = :directive_id
               AND channel <> 'document_review'
+              AND (CAST(:expected_channel AS TEXT) IS NULL OR channel=:expected_channel)
               AND user_id = :user_id
               AND action_id = :action_id
               AND context_revision = :context_revision
@@ -739,6 +753,7 @@ class ActionDirectiveStore:
                 "conversation_id": conversation_id,
                 "session_id": session_id,
                 "adk_app_name": adk_app_name,
+                "expected_channel": expected_channel,
                 "trusted_activation": trusted_activation,
                 "receipt_hash": receipt_hash,
                 **self._bound_term_params(action_id, terms),
@@ -767,6 +782,7 @@ class ActionDirectiveStore:
         session_id: str | None = None,
         terms: BoundActionTerms | None = None,
         adk_app_name: str | None = None,
+        expected_channel: ActionChannel | None = None,
     ) -> None:
         result = await self._execute(
             """
@@ -774,6 +790,7 @@ class ActionDirectiveStore:
             SET state = 'consumed', consumed_at = NOW()
             WHERE directive_id = :directive_id
               AND channel <> 'document_review'
+              AND (CAST(:expected_channel AS TEXT) IS NULL OR channel=:expected_channel)
               AND receipt_hash = :receipt_hash
               AND user_id = :user_id
               AND action_id = :action_id
@@ -798,6 +815,7 @@ class ActionDirectiveStore:
                 "conversation_id": conversation_id,
                 "session_id": session_id,
                 "adk_app_name": adk_app_name,
+                "expected_channel": expected_channel,
                 **self._bound_term_params(action_id, terms),
             },
         )

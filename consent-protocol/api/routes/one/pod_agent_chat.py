@@ -10,6 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
 from sse_starlette.sse import EventSourceResponse
 
+from api.routes.external_connectors import (
+    McpReviewRequest,
+    PrivateConnectorRoute,
+    _mcp_review_response,
+)
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
@@ -22,15 +27,19 @@ from hushh_mcp.one_adk.history_descriptors import (
     _submitted_source_id,
 )
 from hushh_mcp.one_adk.history_projection import _call_providers, project_conversation_history
+from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.output_privacy import safe_exception_event
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
-router = APIRouter(prefix="/api/one/pod/agent-chat", tags=["personal-agent"])
+router = APIRouter(
+    prefix="/api/one/pod/agent-chat", tags=["personal-agent"], route_class=PrivateConnectorRoute
+)
 
 
 async def context(request: Request) -> PodChatContext:
@@ -55,7 +64,6 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     if input.context or any(
         forwarded.get(key)
         for key in (
-            "mcpApproval",
             "consentContinuation",
             "driveSearchSelection",
             "pendingEmailDraft",
@@ -93,6 +101,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
     state = {
         STATE_TURN_LOCATION: admit_turn_location(forwarded),
+        STATE_MCP_APPROVAL: admit_resume_receipt(
+            forwarded, owner_id=owner.owner, conversation_id=input.thread_id
+        ),
         STATE_MCP_CONFIGURATION: admit_turn_configurations(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id
         ),
@@ -122,6 +133,8 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         state, options = trusted_state(input, owner)
     except ValidationError:
         raise HTTPException(400, detail={"code": "POD_CHAT_REQUEST_INVALID"}) from None
+    except ActionDirectiveAuthorityError:
+        raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"}) from None
     except ExternalMcpError as exc:
         raise HTTPException(400, detail={"code": exc.code}) from None
     agent = await owner.build_agent(options)
@@ -236,3 +249,14 @@ async def delete(conversation_id: str, owner: PodChatContext = Depends(context))
     if not deleted:
         raise HTTPException(404, detail="Conversation not found.")
     return {"conversation_id": conversation_id, "deleted": True}
+
+
+@router.post("/connectors/{connector_id}/mcp/review")
+async def review_mcp(
+    connector_id: str, body: "McpReviewRequest", owner: PodChatContext = Depends(context)
+):
+    from hushh_mcp.one_adk.pod_mcp_review import prepare_private_review
+
+    return await _mcp_review_response(
+        prepare_private_review, owner=owner, connector_id=connector_id, body=body
+    )

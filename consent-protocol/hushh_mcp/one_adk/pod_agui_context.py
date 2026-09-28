@@ -51,6 +51,9 @@ class PodChatContext:
             )
         )
         self.runtime: Any = None
+        from hushh_mcp.services.pod_mcp_approval import PodMcpApprovalPort
+
+        self.mcp_approval = PodMcpApprovalPort(self)
 
     async def require_access(self) -> None:
         from api.routes.one.pod_session import verified_session
@@ -90,12 +93,14 @@ class PodChatContext:
     @contextmanager
     def runtime_scope(self):
         from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+        from hushh_mcp.one_adk.mcp_call_approval import bind_mcp_approval_port
         from hushh_mcp.services.pod_files.runtime import files_access
 
         if self.runtime is None:
             raise RuntimeError("Pod chat runtime is unavailable.")
         with (
             bind_specialist_runtime(self.runtime),
+            bind_mcp_approval_port(self.mcp_approval),
             files_access(self._files_access, manage=self._files_manage),
         ):
             yield

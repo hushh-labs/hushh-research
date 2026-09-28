@@ -305,26 +305,38 @@ export class ExternalConnectorService {
     if (configuration && (!configuration.enabled || configuration.connectorId !== input.reference.connectorId)) {
       throw new Error("This connector configuration changed. Open the review again.");
     }
-    const response = await ApiService.apiFetch(
-      `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
-      {
-        method: "POST", cache: "no-store", signal: input.signal,
-        isEffectCurrent: current,
-        headers: {
-          ...authHeaders(input.vaultOwnerToken),
-          [ONE_CHAT_KEY_HEADER]: input.chatKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId: input.conversationId,
-          toolName: input.reference.toolName,
-          pendingHandle: input.reference.pendingHandle,
-          arguments: args,
-          ...(configuration ? { connectorConfiguration: configuration } : {}),
-          ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
-        }),
+    const { usesOwnerPod } = await import("./pod-app-access");
+    const privatePod = await usesOwnerPod(() => ApiService.getPersonalAgentStatus());
+    if (!current()) throw new Error("Your vault session changed. Open the review again.");
+    const podReview = (input.reference as McpCallPreview).podReview;
+    if (operation === "confirm" && privatePod && (!podReview ||
+        podReview.conversationId !== input.conversationId)) {
+      throw new Error("Private connector review changed. Open the review again.");
+    }
+    if (!privatePod && podReview) throw new Error("Private agent assignment changed.");
+    const privateConfirmation = privatePod && operation === "confirm";
+    const init = {
+      method: "POST", cache: "no-store" as RequestCache, signal: input.signal,
+      isEffectCurrent: current,
+      headers: {
+        ...authHeaders(input.vaultOwnerToken),
+        ...(!privateConfirmation ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify(privateConfirmation ? {
+        podReview, directiveId: input.reference.directiveId, confirmed: true,
+      } : {
+        conversationId: input.conversationId,
+        toolName: input.reference.toolName, pendingHandle: input.reference.pendingHandle,
+        arguments: args,
+        ...(configuration ? { connectorConfiguration: configuration } : {}),
+        ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
+      }),
+    };
+    const connector = encodeURIComponent(input.reference.connectorId);
+    const response = privatePod && operation === "review"
+      ? await ApiService.ownerPodRequest(`agent-chat/connectors/${connector}/mcp/review`, init)
+      : await ApiService.apiFetch(`/api/connectors/${connector}/mcp/${operation}`, init);
     // Never echo response bodies: they may contain private arguments or provider text.
     if (!response.ok) throw new Error("Connector review is unavailable. No automatic retry was made.");
     const payload: unknown = await response.json().catch(() => null);

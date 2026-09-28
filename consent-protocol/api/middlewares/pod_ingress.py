@@ -135,6 +135,8 @@ def is_app_surface(path: str) -> bool:
         r"/api/one/pod/agent-chat/(?:history|conversations)/[A-Za-z0-9_-]{1,256}", clean
     ):
         return True
+    if re.fullmatch(r"/api/one/pod/agent-chat/connectors/[A-Za-z0-9_-]{1,128}/mcp/review", clean):
+        return True
     if clean.startswith(APP_SURFACE_PREFIXES):
         # The conversation prefix admits only the close verb; anything else under
         # it is a machine route until a lane names it here.
