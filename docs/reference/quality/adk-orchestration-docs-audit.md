@@ -2757,16 +2757,41 @@ active-work drain and live rollback remain unverified.
 The required local core mirror for the harness correction passed in 363 seconds,
 including the 94-case PKM gate. The independently reviewed harness size ceiling grows by ten lines for the two
 live regressions; architecture budgets and all other ceilings are unchanged.
+Harness candidate `74a0fb557d8876bbfafd22c3cc1d1d0b87c028af` passed complete
+hosted CI `36419181513`. It changes test tooling and evidence only; the deployed
+application and reviewer image remain the verified `249b3b600eb0` release.
+
+The post-update ten-minute single-session chat soak completed ten direct pod
+turns, each with HTTP 200, a completed nonempty response in the UI and same-session
+vault continuity. Capturing the complete SSE response body failed; this is UI and
+HTTP evidence, not a terminal SSE transcript. Turn durations were
+34.3–40.4 seconds. Only its synthetic conversation was deleted; both device
+authorities were revoked and the former pod session was refused. Monitoring
+covered the hub and pod over the surrounding twenty-minute window: sampled
+request-concurrency means ranged from zero to one, sampled memory means were 34.0–35.3%,
+and sampled CPU means were 1.4–37.0%. These observations are not peak-memory
+guarantees, a latency target or mixed-load acceptance. Individual zero-valued
+instance-state series do not establish aggregate scale-to-zero.
+
+A local synthetic audio probe isolated the recorded-command capture failure:
+Chromium reported a running context but advanced its audio clock only a few
+milliseconds during five seconds. Both original and capture-only graphs failed.
+Chromium's test output stream restored full-duration capture, while the original
+fixture already transcribed correctly on the pod. No application graph or model
+configuration was changed. The subsequent recorded Location command transcribed
+and settled correctly. The rehearsal also refused unrelated roster
+initialization and auth/identity refresh writes. That failed
+receipt is retained; no reviewer contacts were migrated for voice verification.
 
 | Agreed journey | Current evidence and remaining acceptance |
 | --- | --- |
 | Admission and private chat | Post-update `.5` completed a real browser turn directly on the pod, preserved same-session unlock, deleted only its synthetic conversation, and verified pod refusal after session revocation plus hub device revocation. |
 | Software update | Exact predecessor recovery passed in isolation. The `.5` dev offer and Settings deferral correction are deployed. Discovery, changelog and deferral passed. Normal exact approval, duplicate-operation identity, Feed scheduling, actual new revision, cold unlock, installed digest and encrypted file continuity passed across the original and follow-up receipts. The original browser receipt retains its later navigation failure. Active-work drain and live rollback remain unverified. |
-| Files transfers and library | Baseline interrupted transfer, integrity and library mutations passed. Verify preservation across the normal update. |
-| Files organization | Live synthetic opt-in, exclusion refusal and automatic queue submission passed. Terminal polling timed out; original failure is retained. Existing preferences were restored and synthetic files trashed. One newly observed folder remains preserved pending attribution. Terminal outcome and cancellation acceptance remain open. |
-| Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
+| Files transfers and library | Baseline interrupted transfer, integrity and library mutations passed. The pre-approval synthetic encrypted file retained its exact bytes across the normal update and cold unlock. |
+| Files organization | Live synthetic opt-in, exclusion refusal and automatic queue submission passed. Terminal polling timed out; original failure is retained. Existing preferences were restored and synthetic files trashed. Newly observed organization folders remain preserved pending attribution. A separate readback confirmed one completed/organized attempt, and the follow-up verified original bytes. Cancellation reached an already completed job; it is not cancellation acceptance. |
+| Commands and connectors | Private approval authority tests pass. Typed pod assessment and its settled navigation receipt passed. Recorded Location audio transcribed exactly, was assessed on the pod and settled navigation. The complete rehearsal retained its failure because roster initialization and auth/identity refresh writes were refused. A separate Open Agents recording transcribed exactly but failed the expected semantic plan and was not accepted. The reviewer has no saved MCP connector for live approval/resume. |
 | Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
-| Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
+| Runtime | Six monitoring surfaces were read for hub and reviewer pod. Live pod concurrency is one; Files workers took 44–52 seconds, leaving status/cancellation queued. One instance and one worker are separate constraints. Existing setting changes require explicit selection; concurrent acceptance remains open. The ten-minute one-session chat soak passed ten turns with verified cleanup. Mixed overlap and aggregate idle behavior remain unverified. |
 | History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. Governed dev cutover 944 and serving readback passed. Legacy rows are absent and retained fingerprints match. The rehearsal clone and two additional temporary backups were removed; existing backup policy is unchanged. |
 
 This matrix does not establish dev completion or main/UAT/production readiness.

@@ -59,6 +59,30 @@ service version without pod installation controls. The authored dev release and
 its source tests do not establish a completed live update rehearsal or authorize
 publication through the production stable channel.
 
+### Request concurrency and responsive controls
+
+Verify Cloud Run request concurrency separately from the pod's one-instance,
+one-worker contract. A Cloud Tasks worker or open relay occupies a request slot.
+With maximum instances one and request concurrency one, status and cancellation
+requests can wait behind that work. The September 28 reviewer rehearsal observed
+organization completing before its queued cancellation could execute.
+
+New on-demand Files provisioning configures concurrency eight in
+`pod_files/provisioning.py`. Existing image updates intentionally preserve the
+owner's current concurrency through `pod_upgrade_configuration.py`; installing
+a newer image does not select a new capacity configuration. Record an explicit
+choice before changing an existing owner's setting. Preserve one instance, one
+worker, the selected CPU/memory, encrypted storage and keys. A configuration
+revision still needs the existing authenticated maintenance handoff, incarnation
+checks, recovery readback and renewed direct admission. Do not add workers or
+instances to work around a request-slot limit.
+
+After an authorized change, verify concurrent status/cancellation during bounded
+work before the two- and four-operation stages. Observe memory and idle behavior;
+configuration alone is not capacity acceptance. Cloud Run documents
+[per-instance concurrency](https://docs.cloud.google.com/run/docs/about-concurrency)
+and [WebSocket request behavior](https://docs.cloud.google.com/run/docs/triggering/websockets).
+
 ### Recovering a denied Files queue creation
 
 For a blocked Files activation, retain its existing approval, lease, successful
