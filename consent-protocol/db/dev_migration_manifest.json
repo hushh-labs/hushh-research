@@ -1,9 +1,9 @@
 {
   "manifest_name": "dev_only_parked_migrations",
-  "purpose": "Dev-only lane that applies the parked 900-band migrations so pod provisioning has its tables in hushh-pda-dev. Never applied in UAT or production.",
+  "purpose": "Dev-only lane for approved parked owner-pod migrations and the legacy chat-history cutover in hushh-pda-dev. Never applied in UAT or production.",
   "target_gcp_project_id": "hushh-pda-dev",
   "migrations_subdir": "parked",
-  "contract_note": "These files MUST stay under db/migrations/parked/ and MUST NOT be added to release_migration_manifest.json. Both scripts/ops/verify_release_migration_contract.py and scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with Path.is_file(), so the parked subdirectory is invisible to the repo-head and contract-version checks. Moving or manifesting these files would push the repo head from 131 to 904 and break the UAT and production schema contracts.",
+  "contract_note": "These files MUST stay under db/migrations/parked/ and MUST NOT be added to release_migration_manifest.json. Both scripts/ops/verify_release_migration_contract.py and scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with Path.is_file(), so the parked subdirectory is invisible to the repo-head and contract-version checks. Moving these files into db/migrations/ or adding them to the canonical release manifest would move the release head into the 900-band and break the UAT and production schema contracts.",
   "ordering_note": "Numeric order is load-bearing: 902 creates an index on personal_agent_deletion_tombstones, which 900 creates, and 905, 906 and 907 alter personal_agent_registry, which 900 creates.",
   "tables": [
     "personal_agent_registry",
@@ -56,6 +56,7 @@
     "941_personal_agent_files_erasure.sql",
     "942_personal_agent_erasure_validation_cost.sql",
     "943_personal_agent_files_upgrade_evidence.sql",
+    "944_one_chat_history_legacy_cutover.sql",
     "945_pod_mcp_action_authority.sql"
   ]
 }

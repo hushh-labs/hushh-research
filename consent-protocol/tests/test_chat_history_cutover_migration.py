@@ -1,7 +1,7 @@
 """Migration 944 (chat-history BYOK cutover) deletes only platform-key chat rows.
 
-The compatibility release parks this destructive migration until BYOK-only writers
-serve and older writers are drained. It must never touch a person-key row. Static
+The dev cutover selects this destructive migration after BYOK-only writers serve
+and older writers are drained. It must never touch a person-key row. Static
 checks always run. The executable checks run when
 ``CHAT_CUTOVER_TEST_DATABASE_URL`` points at a THROWAWAY Postgres holding the real
 schema (for example a schema-only dump restored locally) plus synthetic rows.
@@ -31,10 +31,13 @@ def _sql() -> str:
     return MIGRATION.read_text()
 
 
-def test_compatibility_release_defers_cutover_with_a_documented_recovery_boundary() -> None:
+def test_dev_cutover_preserves_canonical_release_and_recovery_boundaries() -> None:
     from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_PREFIX
 
     assert CHAT_CIPHERTEXT_PREFIX == MARKER  # the SQL tests the same marker the code writes
+    dev_manifest = json.loads((ROOT / "db/dev_migration_manifest.json").read_text())
+    assert dev_manifest["target_gcp_project_id"] == "hushh-pda-dev"
+    assert MIGRATION.name in dev_manifest["ordered_migrations"]
     manifest = json.loads(MANIFEST.read_text())
     assert MIGRATION.name not in manifest["ordered_migrations"]
     assert MIGRATION.name not in manifest["rollback_migrations"]

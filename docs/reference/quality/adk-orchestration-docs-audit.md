@@ -2704,9 +2704,17 @@ log remains evidence. Full hosted CI on the correction is still required.
 | Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
 | Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
 | Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
-| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. Cleanup 944 is still excluded; positive writer-drain evidence and a governed cutover deployment precede live activation. |
+| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. The serving compatibility release still excludes cleanup 944. The separate dev cutover candidate selects it; positive live writer-drain evidence and governed deployment still precede execution. |
 
 This matrix does not establish dev completion or main/UAT/production readiness.
 Private identities, credentials and restricted recovery receipts remain outside
 the public repository. The affected private operational Wiki section was updated
 to this checkpoint and its changed text and private visibility passed readback.
+
+The separate cutover change selects the existing 944 SQL only in the dev manifest.
+Its SQL checksum, canonical release manifest, rollback mapping and schema head 256
+are unchanged. All 40 existing cutover tests passed against the restricted restored
+clone, including refusal and retained-record cases; the temporary fixture role was
+removed, and all six original table fingerprints still matched after the tests.
+The initial fixture-permission failure remains recorded separately.
+No live cleanup or owner installation is established by these tests.
