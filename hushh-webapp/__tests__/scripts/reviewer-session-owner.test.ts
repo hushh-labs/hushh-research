@@ -31,6 +31,25 @@ function browser(state = "authenticated") {
   return { newContext: async () => context, page, window, fill, context };
 }
 describe("reviewer session authority", () => {
+  it.each([
+    "/api/one/personal-agent/endpoint",
+    "/api/one/personal-agent/status",
+    "/api/account/trusted-devices",
+  ])("observes Files/Hosting identity without confusing an owner capability: %s", async (path) => {
+    const reviewer = await harness();
+    const b = browser();
+    const session = await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    const request = (pathname, token) => b.page.emit("request", {
+      url: () => `https://synthetic.example${pathname}`,
+      // Playwright's abbreviated headers can omit security headers.
+      headers: () => ({}),
+      allHeaders: async () => ({ authorization: `Bearer ${token}` }),
+    });
+    request("/api/one/models/preference", "baseline-identity");
+    request(path, "pod-identity");
+    request("/api/account/trusted-devices/synthetic/puppy-access", "owner-capability");
+    expect(await session.capture.identityToken()).toBe("pod-identity");
+  });
   it("uses the automation bridge rather than a legal-agreement sign-in click", async () => {
     const reviewer = await harness();
     const b = browser("pending");
@@ -63,6 +82,25 @@ describe("reviewer session authority", () => {
     } : getByRole();
     await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
     expect(defer).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])("only tolerates a lost legal prompt when it disappears (remaining=%s)", async (remainsVisible) => {
+    const reviewer = await harness();
+    const b = browser();
+    const getByRole = b.page.getByRole;
+    let attempted = false;
+    const failure = new Error("synthetic legal control detached");
+    b.page.getByRole = (...[role]: unknown[]) => role === "dialog" ? {
+      isVisible: async () => !attempted || remainsVisible,
+      getByRole: () => ({ click: async (options) => {
+        expect(options).toEqual({ timeout: 2_000 });
+        attempted = true;
+        throw failure;
+      } }),
+    } : getByRole();
+    const session = reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    if (remainsVisible) await expect(session).rejects.toMatchObject({ cause: failure });
+    else await expect(session).resolves.toBeDefined();
+    expect(attempted).toBe(true);
   });
   it("attaches observation before navigation and never injects a first-run passphrase", async () => {
     const reviewer = await harness();

@@ -242,11 +242,12 @@ export async function createReviewerSessionHarness({
     let chatKey = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
-    page.on("request", (request) => {
+    page.on("request", async (request) => {
       const pathname = endpointPath(request.url());
-      const sentChatKey = request.headers()["x-hussh-chat-key"] || "";
+      const headers = await request.allHeaders().catch(() => ({}));
+      const sentChatKey = headers["x-hussh-chat-key"] || "";
       if (sentChatKey) chatKey = sentChatKey;
-      const authorization = request.headers().authorization || "";
+      const authorization = headers.authorization || "";
       if (!authorization.startsWith("Bearer ")) return;
       if (pathname.startsWith("/api/pkm/")) ownerToken = authorization.slice(7);
       // Viewer-relative people/profile reads use the Firebase identity token
@@ -256,6 +257,9 @@ export async function createReviewerSessionHarness({
         pathname.startsWith("/api/one/connections") ||
         pathname.startsWith("/api/one/people/") ||
         pathname === "/api/one/models/preference" ||
+        pathname === "/api/one/personal-agent/endpoint" ||
+        pathname === "/api/one/personal-agent/status" ||
+        pathname === "/api/account/trusted-devices" ||
         pathname === "/api/one/profile-discovery"
       ) {
         identityToken = authorization.slice(7);
@@ -312,7 +316,13 @@ export async function createReviewerSessionHarness({
       name: /^(Terms and Privacy Policy|We updated our Terms and Privacy Policy)$/,
     });
     if (await dialog.isVisible().catch(() => false)) {
-      await dialog.getByRole("button", { name: "Not now", exact: true }).click();
+      try {
+        await dialog.getByRole("button", { name: "Not now", exact: true }).click({ timeout: 2_000 });
+      } catch (error) {
+        // Authentication can unmount this optional prompt during the click.
+        // A prompt that remains visible must still be explicitly deferred.
+        if (await dialog.isVisible()) throw error;
+      }
     }
   }
 

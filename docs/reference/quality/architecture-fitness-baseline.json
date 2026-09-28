@@ -16475,7 +16475,7 @@
       "limit": 500,
       "path": ".codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
       "symbol": null,
-      "value": 573
+      "value": 583
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17805,6 +17805,11 @@
       "source_revision": "d162f236b6e7df88191edef0c74f9cee112eb69a",
       "independent_review": "adk_authority_review; explicit interaction authority and exact-dialog deferral",
       "scope": "Only AuthStep +3 and existing reviewer harness +16 lines: automated authentication never records legal agreement; automation bridge and local Not now preserve blocked mutation policy. No other ceiling or threshold changes."
+    },
+    "reviewer_live_capture_20260928": {
+      "source_revision": "249b3b600eb0eee4fe484ca5b1e2a908346ddef2",
+      "independent_review": "adk_authority_review; complete memory-only header capture, exact identity routes, disappearing legal prompt and persistent-prompt negative control",
+      "scope": "Existing reviewer harness +10 lines, justified by reproduced live rehearsal failures. Nineteen focused tests pass. No threshold, comparator or other finding changed."
     }
   },
   "status": "advisory"

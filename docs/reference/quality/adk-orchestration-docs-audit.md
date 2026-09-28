@@ -2711,8 +2711,8 @@ frontend tests. The required local core mirror passed in 563 seconds, including
 7,660 backend tests and the 94-case PKM gate. The reconciler source comment now
 reflects its existing startup attachment and disabled idle-reaping adapter; the
 comment correction changes no executable AST. Candidate `d0923cc4538cd33163c181f92d448cc005f4fd10`
-passed full hosted CI `36394059780`. Deployment is held to include the Files
-handoff correction below before normal update acceptance.
+passed full hosted CI `36394059780`. The deployed candidate below also includes
+the Files handoff correction.
 
 The final handoff review identified a Files worker defect before installation:
 organization released its work permit before persisting the terminal job state.
@@ -2730,15 +2730,40 @@ The combined local core mirror passed in 933 seconds, including 7,663 backend
 tests, 90 serial database tests, the frontend build and the 94-case PKM gate.
 Its initial attempt stopped at documentation wording before the expensive lanes;
 the wording was corrected and the failed result retained. Architecture fitness
-reports no new or worsened findings. Hosted validation, deployment and live
-acceptance of this corrected release are still required.
+reports no new or worsened findings. Commit `249b3b600eb0eee4fe484ca5b1e2a908346ddef2`
+passed full hosted CI `36397746805` and governed dev deployment `36401072905`.
+Independent readback verified backend `consent-protocol-00115-npd` and frontend
+`hushh-webapp-00084-4rx` serving that revision at 100% traffic. The dev-only offer
+is `2026.09-dev.5+249b3b600eb0.f8464e85`; publication did not install it.
+The reviewer verified discovery, loading/result feedback, changelog and deferral
+against this release. The continuity harness initially missed complete request
+headers; a separate live diagnostic then verified endpoint discovery, binding,
+admission and Files reads, with both pod and hub cleanup succeeding. The shared
+harness now observes complete headers and exact identity-token routes. It also
+bounds legal-prompt deferral and tolerates only a prompt that actually disappears;
+a still-visible prompt remains a failure. All 19 focused reviewer tests pass.
+The normal-update helper also avoids closing and immediately reopening its
+Settings panel during navigation. Original failed receipts are retained.
+The exact `.5` Settings approval subsequently returned one durable operation;
+an identical approval returned that same operation and Feed showed it scheduled.
+A later panel-restoration assertion failed, so the original receipt remains
+failed. A separate follow-up resumed observation without another approval:
+cold unlock, installed digest, Settings version and the pre-approval encrypted
+upload's bytes passed. Cloud readback verified a new serving revision, generation
+12, the same service identity, recovery/resource policy and durable public key,
+and the same succeeded registry operation. Synthetic files were trashed and
+both pod and hub browser-device cleanup passed. This was an idle update;
+active-work drain and live rollback remain unverified.
+The required local core mirror for the harness correction passed in 363 seconds,
+including the 94-case PKM gate. The independently reviewed harness size ceiling grows by ten lines for the two
+live regressions; architecture budgets and all other ceilings are unchanged.
 
 | Agreed journey | Current evidence and remaining acceptance |
 | --- | --- |
-| Admission and private chat | Baseline `889b332e98` completed a real browser turn and pod-side session revocation. Recheck the changed chat flow after the normal update. |
-| Software update | Exact predecessor recovery passed in isolation. New dev offer is published; Settings discovery, changelog and deferral passed. Deferral currently hides installation controls; approval, drain, restart and installed-digest continuity remain unverified. |
+| Admission and private chat | Post-update `.5` completed a real browser turn directly on the pod, preserved same-session unlock, deleted only its synthetic conversation, and verified pod refusal after session revocation plus hub device revocation. |
+| Software update | Exact predecessor recovery passed in isolation. The `.5` dev offer and Settings deferral correction are deployed. Discovery, changelog and deferral passed. Normal exact approval, duplicate-operation identity, Feed scheduling, actual new revision, cold unlock, installed digest and encrypted file continuity passed across the original and follow-up receipts. The original browser receipt retains its later navigation failure. Active-work drain and live rollback remain unverified. |
 | Files transfers and library | Baseline interrupted transfer, integrity and library mutations passed. Verify preservation across the normal update. |
-| Files organization | Exclusion regression fixed and focused tests pass. Live opt-in, authenticated queue execution, cancellation and terminal outcome remain unverified. |
+| Files organization | Live synthetic opt-in, exclusion refusal and automatic queue submission passed. Terminal polling timed out; original failure is retained. Existing preferences were restored and synthetic files trashed. One newly observed folder remains preserved pending attribution. Terminal outcome and cancellation acceptance remain open. |
 | Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
 | Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
 | Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
