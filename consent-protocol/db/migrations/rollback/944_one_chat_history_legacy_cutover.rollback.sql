@@ -1,6 +1,6 @@
 -- Dev-only cleanup 944. Public-profile 249 and Calendar 252 retain their active identities.
 -- This cleanup stays parked until restore and incompatible-writer drain receipts pass.
--- Rollback for migration 250: intentionally a no-op.
+-- Rollback for migration 944: intentionally a no-op.
 --
 -- 250 deletes chat history sealed with the platform key. That deletion is the
 -- founder-approved cutover to person-key chat history and cannot be undone by

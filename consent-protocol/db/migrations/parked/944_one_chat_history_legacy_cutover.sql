@@ -1,6 +1,6 @@
 -- Dev-only cleanup 944. Public-profile 249 and Calendar 252 retain their active identities.
 -- This cleanup stays parked until restore and incompatible-writer drain receipts pass.
--- Migration 250: One chat history BYOK cutover. Delete chat history sealed with
+-- Migration 944: One chat history BYOK cutover. Delete chat history sealed with
 -- the platform key.
 --
 -- Since the chat-history BYOK change, every chat ciphertext is sealed with a key
@@ -54,7 +54,7 @@ BEGIN
   IF to_regclass('public.one_adk_sessions') IS NULL
      OR to_regclass('public.agent_chat_conversations') IS NULL
      OR to_regclass('public.agent_chat_messages') IS NULL THEN
-    RAISE EXCEPTION 'migration 250: required chat tables absent; cutover refused';
+    RAISE EXCEPTION 'migration 944: required chat tables absent; cutover refused';
   END IF;
 
   -- Block writers only within the measured, bounded cutover transaction; before/after
@@ -70,7 +70,7 @@ BEGIN
     WHERE substr(payload_ciphertext, 1, 14) <> 'hussh-chat-v1:'
       AND app_name NOT IN ('hussh_one', 'one.location.commands.v1')
   ) THEN
-    RAISE EXCEPTION 'migration 250: unreviewed legacy session namespace';
+    RAISE EXCEPTION 'migration 944: unreviewed legacy session namespace';
   END IF;
 
   -- These refusals supplement the required serving-revision/worker drain.
@@ -92,7 +92,7 @@ BEGIN
           AND substr(m.content_ciphertext, 1, 14) = 'hussh-chat-v1:'
       )
   ) THEN
-    RAISE EXCEPTION 'migration 250: recent legacy writes; writer drain not established';
+    RAISE EXCEPTION 'migration 944: recent legacy writes; writer drain not established';
   END IF;
 
   IF EXISTS (
@@ -102,7 +102,7 @@ BEGIN
       AND command_status IN ('ready', 'admitted')
       AND created_at > cutover_at - INTERVAL '24 hours'
   ) THEN
-    RAISE EXCEPTION 'migration 250: live legacy command checkpoints remain';
+    RAISE EXCEPTION 'migration 944: live legacy command checkpoints remain';
   END IF;
 
   IF EXISTS (
@@ -138,7 +138,7 @@ BEGIN
       ))
     )
   ) THEN
-    RAISE EXCEPTION 'migration 250: unsettled authority attached to legacy history';
+    RAISE EXCEPTION 'migration 944: unsettled authority attached to legacy history';
   END IF;
 
   SELECT COUNT(*) INTO person_sessions_before
@@ -157,7 +157,7 @@ BEGIN
     AND EXISTS (SELECT 1 FROM public.agent_chat_messages AS m WHERE m.conversation_id = c.id);
   IF kept_conversations > 0 THEN
     RAISE NOTICE
-      'migration 250: kept % platform-key conversation(s) that hold person-key messages',
+      'migration 944: kept % platform-key conversation(s) that hold person-key messages',
       kept_conversations;
   END IF;
 
@@ -180,7 +180,7 @@ BEGIN
      OR person_conversations_after <> person_conversations_before
      OR person_messages_after <> person_messages_before THEN
     RAISE EXCEPTION
-      'migration 250 refused: person-key rows changed (sessions % -> %, conversations % -> %, messages % -> %)',
+      'migration 944 refused: person-key rows changed (sessions % -> %, conversations % -> %, messages % -> %)',
       person_sessions_before, person_sessions_after,
       person_conversations_before, person_conversations_after,
       person_messages_before, person_messages_after;
