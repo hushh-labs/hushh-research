@@ -30,3 +30,6 @@ a158b1561d7e8342f00611c15d6904596405e520:consent-protocol/tests/test_personal_ag
 # Verified HKDF vectors derived from the public synthetic vault key (0f repeated 32 times).
 8585e8b7fa1706adf8a86412fb40eeb037ab6935:hushh-webapp/__tests__/services/location-chat-service.test.ts:generic-api-key:4
 8585e8b7fa1706adf8a86412fb40eeb037ab6935:hushh-webapp/__tests__/services/agent-chat-client.test.ts:generic-api-key:83
+
+# Fixed public synthetic signing key used only by the isolated pod MCP transaction test.
+94f419c6e7c01ef42d1ac168c791d315eaa5c48a:consent-protocol/tests/test_pod_binding_transactions.py:generic-api-key:548
