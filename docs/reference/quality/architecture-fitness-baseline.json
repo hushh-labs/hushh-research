@@ -12074,7 +12074,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1388
+      "value": 1389
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17744,6 +17744,7 @@
     "completion_integration": {
       "adk": "d751afaf71982e9b86ea8cbb12234b9fc1524ab7",
       "evidence_revision": "5feb09a0d",
+      "generated_compatibility": "One extra generated catalog line retains frozen main graph d4b2dd7b65a583c6 after the merge-base advances; generated owners verified. No semantic revision changed.",
       "root": "94f419c6e7c01ef42d1ac168c791d315eaa5c48a",
       "scope": "Read-only ADK authority review admitted 103 byte-identical upstream findings and 42 additive/moved/renamed merged findings. Parent reviewed nine unchanged premerge MCP fixture and existing facade size findings against exact approval/transaction/privacy contracts. Extracted ledger operation helper eliminates two additional function findings. Renamed existing instruction hotspot replaces its old key. Thresholds, comparator and unrelated ceilings unchanged; this records debt, not universal architecture readiness.",
       "size_finding_count": 154,
