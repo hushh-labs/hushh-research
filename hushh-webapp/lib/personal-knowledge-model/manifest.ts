@@ -228,6 +228,31 @@ const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
   LINKED_ACCOUNTS_BRANCH,
 ]);
 
+/**
+ * Financial's per-statement snapshot (`documents.statements[]`, built in
+ * portfolio-review-view.tsx) archives a near-complete second copy of the
+ * portfolio next to the one already manifested at `portfolio.*` and
+ * top-level `analytics` -- `canonical_v2` is the whole reviewed portfolio
+ * again, `analytics_v2` duplicates top-level `analytics` verbatim, and
+ * `raw_extract_v2`/`quality_report_v2` are the parser's own diagnostic
+ * detail -- none of it reachable any other way a person would want to
+ * request. Same failure mode as VAULT_PRIVATE_BRANCHES' Plaid case and the
+ * entities/analysis_history collapse above: walked field by field, one real
+ * statement's `canonical_v2` alone repeats every holding's ~30 fields a
+ * second time, and the other three branches add dozens more, per statement
+ * -- easily past the server's 1000 `json_paths` cap on a realistic import,
+ * while the demo/sample template (which has none of these fields) never
+ * comes close. Unlike VAULT_PRIVATE_BRANCHES this matches at ANY depth, the
+ * same way ENTITY_MAP_KEY/ANALYSIS_HISTORY_MAP_KEY do below -- these are
+ * statement-archive-specific field names, not used elsewhere.
+ */
+const OPAQUE_ARCHIVE_BRANCH_KEYS: ReadonlySet<string> = new Set([
+  "canonical_v2",
+  "raw_extract_v2",
+  "quality_report_v2",
+  "analytics_v2",
+]);
+
 /** Segments the walk invents; they were never keys the owner wrote. */
 const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
 
@@ -390,6 +415,9 @@ function walkValue(
   }
 
   if (path.length === 1 && VAULT_PRIVATE_BRANCHES.has(path[0] ?? "")) {
+    return;
+  }
+  if (OPAQUE_ARCHIVE_BRANCH_KEYS.has(path[path.length - 1] ?? "")) {
     return;
   }
 

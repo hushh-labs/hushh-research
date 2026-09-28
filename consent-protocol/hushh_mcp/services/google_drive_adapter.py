@@ -66,7 +66,8 @@ SHARE_METADATA_FIELDS = (
 FACT_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,trashed"
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
-    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,"
+    "shortcutDetails(targetId,targetMimeType))"
 )
 # Drive sorts each key ascending unless told "desc"; live results are newest
 # first by the file time the owner asked about. modifiedTime is the default and

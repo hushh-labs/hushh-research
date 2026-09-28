@@ -76,6 +76,10 @@ import {
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
 import {
+  computeStatementImportId,
+  upsertStatementSnapshot,
+} from "@/lib/kai/brokerage/statement-import-identity";
+import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
   runKaiStepWithTimeout,
 } from "@/lib/kai/brokerage/kai-operation-timeout";
@@ -1363,6 +1367,10 @@ export function PortfolioReviewView({
     // If vault existence isn't resolved yet, resolve it on-demand so copy/flow is correct.
     let resolvedHasVault = hasVault;
     if (resolvedHasVault === null) {
+      // Hold the in-flight claim across this await: a second tap (or the
+      // vault continuation) arriving now would otherwise pass the guard above
+      // and commit the same statement a second time.
+      saveInFlightRef.current = true;
       try {
         resolvedHasVault = await runKaiStepWithTimeout(
           "Vault availability check",
@@ -1375,6 +1383,8 @@ export function PortfolioReviewView({
           error
         );
         resolvedHasVault = null;
+      } finally {
+        saveInFlightRef.current = false;
       }
     }
 
@@ -1499,10 +1509,7 @@ export function PortfolioReviewView({
           ? (existingDocsValue as Record<string, unknown>)
           : {};
       const existingDocs = { ...existingDocsSource };
-      const existingStatementsValue = existingDocs.statements;
-      const existingStatements = Array.isArray(existingStatementsValue)
-        ? [...existingStatementsValue]
-        : [];
+      const existingStatements = existingDocs.statements;
 
       const statementTotalValue =
         toFiniteNumber(initialData.total_value) ??
@@ -1587,7 +1594,10 @@ export function PortfolioReviewView({
         },
       };
 
-      const snapshotId = `stmt_${Date.now()}`;
+      // Content-derived, so re-saving this statement replaces its snapshot.
+      const snapshotId = await computeStatementImportId(
+        portfolioToSave as unknown as Record<string, unknown>
+      );
       const statementAccountSummary = compactRecord({
         ...parsedAccountSummary,
         ending_value: statementTotalValue ?? parsedAccountSummary.ending_value,
@@ -1638,11 +1648,9 @@ export function PortfolioReviewView({
           fallback_merge_applied: false,
         },
       };
-      existingStatements.unshift(snapshot);
-
       const nextDocsDomain = {
         schema_version: 1,
-        statements: existingStatements.slice(0, 25),
+        statements: upsertStatementSnapshot(existingStatements, snapshot),
         domain_intent: {
           primary: "financial",
           secondary: "documents",
@@ -1837,7 +1845,16 @@ export function PortfolioReviewView({
               "Vault changed on another device. Refresh and save again."
           );
         }
-        throw new Error("Backend returned failure on store");
+        // saveMergedDomain already resolves a specific, user-appropriate
+        // message for every non-conflict failure it can produce (upgrade
+        // required, sharing impact changed, vault not unlocked, or its own
+        // generic "couldn't save" fallback) -- discarding it here and
+        // always throwing the same opaque string is what turned a real,
+        // diagnosable backend failure into an unexplained "Backend returned
+        // failure on store" report.
+        throw new Error(
+          financialResult.message || "Backend returned failure on store"
+        );
       }
 
       const postSaveSyncStartedAt = nowMs();

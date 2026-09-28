@@ -4,14 +4,21 @@ export type ConnectionRelationship =
   "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
 /**
- * Which half of the directory a search is asking about.
+ * Which part of the directory a search is asking about.
  *
- * The two named audiences partition it: every findable person is in exactly
- * one, so separating advisors never makes anyone unreachable. `"all"` is what
- * every caller that predates the split still gets, and is what spoken-name
- * resolution uses -- someone saying a name is not saying which tab it is in.
+ * `"all"` includes regular people and verified RIAs, and is used by Connect
+ * People and spoken-name resolution. `"ria"` narrows the same directory to
+ * verified advisers; `"people"` remains for legacy non-RIA callers.
  */
 export type DirectoryAudience = "all" | "people" | "ria";
+
+/** Why a person reported a connection request. Mirrors the backend enum. */
+export type ConnectionReportReason =
+  | "spam"
+  | "harassment"
+  | "inappropriate"
+  | "impersonation"
+  | "other";
 
 export interface DirectoryPerson {
   userId: string;
@@ -609,10 +616,40 @@ export class ConnectionsService {
   static async reject(opts: {
     idToken: string;
     requestId: string;
+    /** Also stop this person from sending another request. */
+    block?: boolean;
   }): Promise<void> {
     const response = await ApiService.apiFetch(
       `/api/one/connections/requests/${encodeURIComponent(opts.requestId)}/reject`,
-      { method: "POST", headers: authHeaders(opts.idToken) },
+      opts.block
+        ? {
+            method: "POST",
+            headers: { ...authHeaders(opts.idToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ block: true }),
+          }
+        : { method: "POST", headers: authHeaders(opts.idToken) },
+    );
+    await jsonOrThrow<unknown>(response);
+  }
+
+  /**
+   * Report a connection request and its message to the Hussh team (Google
+   * Play user-generated content policy). The report also declines the
+   * request and blocks the sender.
+   */
+  static async report(opts: {
+    idToken: string;
+    requestId: string;
+    reason: ConnectionReportReason;
+  }): Promise<void> {
+    // Rides on the existing reject route: a report always declines and blocks.
+    const response = await ApiService.apiFetch(
+      `/api/one/connections/requests/${encodeURIComponent(opts.requestId)}/reject`,
+      {
+        method: "POST",
+        headers: { ...authHeaders(opts.idToken), "Content-Type": "application/json" },
+        body: JSON.stringify({ block: true, report_reason: opts.reason }),
+      },
     );
     await jsonOrThrow<unknown>(response);
   }

@@ -41,6 +41,33 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).toContain("setInput(prompt)");
   });
 
+  it("renders the post-setup welcome at ordinary assistant-message size", () => {
+    // Founder report: the first card after sign-up was an oversized hero card
+    // (28px radius, 3xl heading, its own max width), not the chat's own size.
+    const card = source.slice(
+      source.indexOf("function PostSetupWelcomeCard("),
+      source.indexOf("function useAnimatedAssistantText("),
+    );
+    const bubble = source.slice(
+      source.indexOf("function AgentBubble("),
+      source.indexOf("function AgentBubble(") + 8000,
+    );
+    const assistantWidth = "max-w-[90%] sm:max-w-[min(82%,48rem)]";
+    expect(bubble).toContain(assistantWidth);
+    expect(card).toContain(assistantWidth);
+    expect(card).toContain("text-sm leading-6");
+    expect(card).not.toMatch(/rounded-\[28px\]|text-(2xl|3xl)|bg-card|shadow-\[/);
+    // A brand-new person has set nothing up: no "What's ready so far" summary.
+    expect(card).not.toMatch(/What.s ready so far/);
+    // First actions instead, launched through the existing connector surface.
+    expect(card).toContain("<AgentFirstRunActions");
+    expect(source).toContain("onOpenConnector={openConnectorSurface}");
+    // The same curated starters as the empty chat, never a hard-coded generic trio.
+    expect(card).toContain("prompts={prompts}");
+    expect(card).not.toContain("What can you help with?");
+    expect(source).toContain("prompts={welcomePrompts}\n                  vaultOwnerToken");
+  });
+
   it("keeps the dedicated-route history sidebar honest while it loads", () => {
     expect(source).toContain("setIsLoadingHistory(true);");
     expect(source).toContain("setIsLoadingHistory(false);");

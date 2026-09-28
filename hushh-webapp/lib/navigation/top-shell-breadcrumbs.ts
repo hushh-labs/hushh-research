@@ -64,6 +64,36 @@ export function visibleTopShellBreadcrumbItems(
   return withoutImplicitRoot.slice(-2);
 }
 
+export type TopShellTitleSlot<TTitle> =
+  | { kind: "trail"; items: TopShellBreadcrumbItem[] }
+  | { kind: "title"; title: TTitle }
+  | { kind: "none" };
+
+/**
+ * Decides what fills the top bar's title slot.
+ *
+ * A route with a visible breadcrumb trail is a nested route: it shows its back
+ * arrow with the trail beside it, and nothing replaces that trail, at rest or
+ * scrolled. The shell's fallback title (the scroll-collapsed chip) only fills a
+ * bar that has no trail of its own.
+ *
+ * It used to be the other way round. Scrolling a nested route's page header out
+ * of view swapped "Memory" beside the back arrow for a centred folder-and-Memory
+ * chip, and on Profile > Memory for a "Profile" chip, while Feed and Connect,
+ * which have no page header to scroll away, never changed. One screen, one
+ * title, and the trail's last crumb is that title
+ * (docs/reference/quality/app-surface-design-system.md).
+ */
+export function resolveTopShellTitleSlot<TTitle>(
+  breadcrumb: Pick<TopShellBreadcrumbConfig, "items"> | null | undefined,
+  fallbackTitle: TTitle | null,
+): TopShellTitleSlot<TTitle> {
+  const items = visibleTopShellBreadcrumbItems(breadcrumb?.items ?? []);
+  if (items.length > 0) return { kind: "trail", items };
+  if (fallbackTitle) return { kind: "title", title: fallbackTitle };
+  return { kind: "none" };
+}
+
 function titleizeSegment(segment: string): string {
   return segment
     .split("-")
@@ -294,17 +324,12 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === ROUTES.ONE_SETUP_CONNECTIONS) {
-    // Choosing an AI is now the direct post-auth landing for an unresolved
-    // user (post-auth-route-service.ts's PRE_VAULT_ROUTE) -- the same "no
-    // confirmed previous step" situation the bare hub below hides its own
-    // back arrow for. A hardcoded retrace to the hub is stale here: most
-    // arrivals never visited it, and finishing this step now goes straight
-    // home regardless of how it was reached.
+    // Keep the shared back control beside Set up, matching other setup steps.
     return {
       backHref: ROUTES.ONE_SETUP,
       width: "content",
       align: "center",
-      hideBack: true,
+      hideBack: false,
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
         // Matches the on-screen title; a crumb that disagrees with the heading
@@ -672,7 +697,7 @@ function resolveTopShellBreadcrumbInner(
       width: "content",
       align: "center",
       hideBack: true,
-      items: [{ label: "One", href: returnHref }, { label: "Setup" }],
+      items: [],
     };
   }
 
@@ -1082,10 +1107,11 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      // Connect is a level-two workspace. Like Location, the top shell names
-      // the parent ("One") while the route owns the single visible page title.
+      // Like Feed, the shared top bar owns the single "Connect" title beside
+      // one back-to-One arrow, so the page carries no in-body header. The
+      // implicit "One" root is dropped by visibleTopShellBreadcrumbItems.
       hideBack: false,
-      items: [{ label: "One" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Connect" }],
     };
   }
 

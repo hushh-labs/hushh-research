@@ -60,6 +60,11 @@ export class EmailDeliveryError extends Error {
       this.code === "GMAIL_SEND_DISABLED"
     );
   }
+
+  /** Gmail was never connected: the fix is a first connection, not a reconnect. */
+  get needsGmailConnect(): boolean {
+    return this.code === "GMAIL_NOT_CONNECTED";
+  }
 }
 
 type EmailDeliveryAuth = {

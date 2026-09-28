@@ -275,6 +275,17 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
+const ROSTER_DISPLAY_ORDER: readonly string[] = [
+  "gmail",
+  "calendar",
+  "location",
+  "finance",
+  "ria",
+  "wallet",
+  "pkm",
+  "consent",
+];
+
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
   cachedMetrics: Record<string, AgentMetric>,
@@ -337,6 +348,12 @@ function buildModes(
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
+  }).sort((a, b) => {
+    const rank = (id: string) => {
+      const index = ROSTER_DISPLAY_ORDER.indexOf(id);
+      return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
+    };
+    return rank(a.id) - rank(b.id);
   });
 }
 

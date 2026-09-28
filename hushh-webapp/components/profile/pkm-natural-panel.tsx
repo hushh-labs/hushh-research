@@ -37,10 +37,18 @@ import {
 import {
   addToPKM,
   clearAgentPkmContext,
+  describeAgentPkmCardDestination,
+  formatAgentPkmCardDestination,
   getIgnoredPkmCards,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
-import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import {
+  isUnresolvedSourceBlock,
+  prepareNaturalLanguagePkm,
+  type PkmNaturalLanguageSourceCoverage,
+} from "@/lib/pkm/pkm-natural-language-ingestion";
+import { describePkmCaptureSection, pkmCaptureSectionKey } from "@/lib/pkm/pkm-capture-sections";
+import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { useReviewerPkmProof } from "@/lib/testing/use-reviewer-pkm-proof";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
@@ -115,6 +123,39 @@ function cardScopePath(card: PkmMemoryCard): string {
 
 function cardImpactKey(card: PkmMemoryCard): string {
   return `${card.domain}::${cardScopePath(card)}`;
+}
+
+/** The reviewed card's destination, then how it is shared. */
+function describeUnresolvedCapture(sectionCount: number, hasReadyDetails: boolean): string {
+  const sections = `${sectionCount} section${sectionCount === 1 ? "" : "s"} of this note still need${sectionCount === 1 ? "s" : ""} another pass`;
+  return hasReadyDetails
+    ? `${sections}. You can save the details that are ready now; nothing from ${sectionCount === 1 ? "that section" : "those sections"} will be saved.`
+    : `${sections}. Nothing has been saved.`;
+}
+
+function CaptureCardDescription({
+  card,
+  domainTitles,
+}: {
+  card: AgentPkmPreviewCard;
+  domainTitles: ReadonlyMap<string, string>;
+}) {
+  const destination = describeAgentPkmCardDestination(card, domainTitles);
+  const sharing = card.sharing_impact?.active_recipient_count
+    ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
+    : "This stays private unless you choose to share it later.";
+  return (
+    <>
+      <span
+        className="block font-medium text-foreground"
+        data-testid="memory-capture-destination"
+        data-destination-kind={destination.kind}
+      >
+        {formatAgentPkmCardDestination(destination)}
+      </span>
+      {destination.kind === "not_saved" ? null : <span className="block">{sharing}</span>}
+    </>
+  );
 }
 
 export function PkmNaturalPanel({
@@ -232,7 +273,19 @@ export function PkmNaturalPanel({
   );
   const [captureSharingImpactAcknowledged, setCaptureSharingImpactAcknowledged] =
     useState(false);
-  const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
+  // Sections of the prepared note that still need another pass. They never
+  // block saving the details that are ready; each one can be retried alone.
+  const [captureUnresolvedSections, setCaptureUnresolvedSections] =
+    useState<PkmNaturalLanguageSourceCoverage[]>([]);
+  // The exact text the unresolved ranges index into. Editing the note retires
+  // the review, so this always equals the trimmed note while sections are shown.
+  const [captureSourceSnapshot, setCaptureSourceSnapshot] = useState("");
+  const [captureRetryingSectionKey, setCaptureRetryingSectionKey] = useState<string | null>(null);
+  const captureHasUnresolvedSource = captureUnresolvedSections.length > 0;
+  // Only details the save path can accept count as ready to save.
+  const captureSaveableCards = captureCards.filter(
+    (card) => card.write_mode !== "do_not_save" && !isDegradedPreviewCard(card),
+  );
   const captureRevision = useRef(0);
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
@@ -256,7 +309,8 @@ export function PkmNaturalPanel({
     captureRevision.current += 1;
     setCaptureText("");
     setCaptureCards([]);
-    setCaptureHasUnresolvedSource(false);
+    setCaptureUnresolvedSections([]);
+    setCaptureRetryingSectionKey(null);
     setCaptureMessage(null);
     setCaptureLoading(false);
     setCaptureSaving(Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)));
@@ -398,6 +452,12 @@ export function PkmNaturalPanel({
 
   const visibleMetadataDomains = useMemo(
     () => (metadata?.domains || []).filter(isConsumerBrowsablePkmDomain),
+    [metadata?.domains]
+  );
+  // Every known domain, not only the browsable ones, so a proposed save into
+  // a domain Memory keeps off its list still names it the way the app does.
+  const domainTitles = useMemo(
+    () => new Map((metadata?.domains || []).map((domain) => [domain.key, domain.displayName] as const)),
     [metadata?.domains]
   );
 
@@ -894,7 +954,8 @@ export function PkmNaturalPanel({
     setCaptureCards([]);
     setCaptureSharingImpactAcknowledged(false);
     setCaptureLoading(true);
-    setCaptureHasUnresolvedSource(false);
+    setCaptureUnresolvedSections([]);
+    setCaptureRetryingSectionKey(null);
     setCaptureMessage(null);
     try {
       const localDuplicate = AgentPkmContextStore.findLocalDuplicate({
@@ -907,9 +968,10 @@ export function PkmNaturalPanel({
         setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
         return;
       }
+      const sourceSnapshot = captureText.trim();
       const prepared = await prepareNaturalLanguagePkm({
         userId: user.uid,
-        message: captureText.trim(),
+        message: sourceSnapshot,
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
@@ -926,11 +988,14 @@ export function PkmNaturalPanel({
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
       setCaptureSharingImpactAcknowledged(false);
+      // `preparation_requires_review` stays on every card when any block is
+      // unresolved: it forbids *automatic* effects. This is the owner's explicit
+      // review, so it gates per section instead of across the whole note.
+      const unresolvedSections = prepared.sourceCoverage.filter(isUnresolvedSourceBlock);
       const hasFailedSource = prepared.sourceCoverage.some((block) =>
-        Boolean(block.preparationIssue) || block.disposition === "failed");
-      const hasUnresolvedSource = hasFailedSource || prepared.sourceCoverage.some((block) =>
-        block.detectedFactCount !== block.accountedFactCount) ||
-        prepared.cards.some((card) => card.preparation_requires_review === true);
+        block.disposition === "failed" ||
+        (Boolean(block.preparationIssue) && block.preparationIssue !== "degraded_preview"));
+      const hasUnresolvedSource = unresolvedSections.length > 0;
       trackMemoryOutcome(
         operationOwnerId,
         "capture_prepared",
@@ -940,10 +1005,11 @@ export function PkmNaturalPanel({
             ? "success"
             : "expected_error",
       );
-      setCaptureHasUnresolvedSource(hasUnresolvedSource);
+      setCaptureSourceSnapshot(sourceSnapshot);
+      setCaptureUnresolvedSections(unresolvedSections);
       setCaptureMessage(
         hasUnresolvedSource
-          ? "Some sections need another review before anything can be saved. Try again to finish preparing this note."
+          ? describeUnresolvedCapture(unresolvedSections.length, prepared.cards.length > 0)
           : localDuplicate?.kind === "possible"
           ? "A related saved detail may already exist. Review this suggestion before saving."
           : prepared.cards.length
@@ -959,10 +1025,67 @@ export function PkmNaturalPanel({
     }
   }
 
+  async function retryCaptureSection(block: PkmNaturalLanguageSourceCoverage) {
+    const sourceSnapshot = captureSourceSnapshot;
+    if (
+      !user || !isVaultUnlocked || !vaultOwnerToken || !block.sourceRange ||
+      captureLoading || captureSaving || captureRetryingSectionKey !== null ||
+      !sourceSnapshot || sourceSnapshot !== captureText.trim()
+    ) return;
+    const operationOwnerId = user.uid;
+    const revision = captureRevision.current;
+    const sectionKey = pkmCaptureSectionKey(block);
+    const guard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
+    });
+    if (!guard.isCurrent()) return;
+    setCaptureRetryingSectionKey(sectionKey);
+    try {
+      const prepared = await prepareNaturalLanguagePkm({
+        userId: user.uid,
+        message: sourceSnapshot,
+        sourceSelection: { range: block.sourceRange, context: block.sourceContext },
+        currentDomains: visibleMetadataDomains.map((domain) => domain.key),
+        vaultOwnerToken,
+        source: "memory_workspace",
+        allowEmpty: true,
+        isEffectCurrent: guard.isCurrent,
+        findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
+        beforeEffect: guard.assertCurrent,
+      });
+      if (!guard.isCurrent()) return;
+      const stillUnresolved = prepared.sourceCoverage.filter(isUnresolvedSourceBlock);
+      const remaining = captureUnresolvedSections.length - 1 + stillUnresolved.length;
+      setCaptureUnresolvedSections((current) => current.flatMap((entry) =>
+        pkmCaptureSectionKey(entry) === sectionKey ? stillUnresolved : [entry]));
+      if (prepared.cards.length > 0) {
+        setCaptureCards((current) => [...current, ...prepared.cards]);
+        if (prepared.cards.some((card) => (card.sharing_impact?.active_recipient_count || 0) > 0)) {
+          setCaptureSharingImpactAcknowledged(false);
+        }
+      }
+      trackMemoryOutcome(operationOwnerId, "capture_prepared", stillUnresolved.length === 0 ? "success" : "expected_error");
+      setCaptureMessage(
+        remaining > 0
+          ? describeUnresolvedCapture(remaining, captureCards.length + prepared.cards.length > 0)
+          : captureCards.length + prepared.cards.length > 0
+            ? "Every section is prepared. Review the proposed details before adding them."
+            : "Nothing new needs to be saved from that note."
+      );
+    } catch {
+      if (!guard.isCurrent()) return;
+      trackMemoryOutcome(operationOwnerId, "capture_prepared", "error");
+      setCaptureMessage("That section couldn’t be prepared. Nothing from it was saved. Please try again.");
+    } finally {
+      if (memoryOwnerIdRef.current === operationOwnerId) setCaptureRetryingSectionKey(null);
+    }
+  }
+
   async function saveMemoryCapture() {
     if (
       !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken ||
-      captureCards.length === 0 || captureHasUnresolvedSource ||
+      captureSaveableCards.length === 0 || captureRetryingSectionKey !== null ||
       (captureHasSharedRecipients && !captureSharingImpactAcknowledged) ||
       pkmCaptureSaveInFlight.has(user.uid)
     ) return;
@@ -988,7 +1111,7 @@ export function PkmNaturalPanel({
     try {
       const operation = addToPKM({
           userId: user.uid,
-          cards: captureCards,
+          cards: captureSaveableCards,
           sourceMessage: captureText.trim(),
           vaultKey,
           vaultOwnerToken,
@@ -1029,6 +1152,7 @@ export function PkmNaturalPanel({
           // Counts only; do not republish cards or refresh private information
           // while verification is unavailable. The draft stays for review.
           setCaptureCards([]);
+          setCaptureUnresolvedSections([]);
           setCaptureMessage(result.saved > 0
             ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved. Check Memory before preparing this note again.`
             : "Saving was interrupted. Check Memory before preparing this note again.");
@@ -1036,9 +1160,14 @@ export function PkmNaturalPanel({
         return;
       }
       clearAgentPkmContext(user.uid);
+      const remainingSections = captureUnresolvedSections.length;
       setCaptureMessage(
         result.saved > 0
-          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.${result.failed > 0 || captureHasUnresolvedSource ? " Some details still need attention; your note is kept below." : ""}`
+          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.${
+            remainingSections > 0
+              ? ` ${remainingSections} section${remainingSections === 1 ? " still needs" : "s still need"} another pass; nothing from ${remainingSections === 1 ? "it" : "them"} was saved. Your note is kept below.`
+              : result.failed > 0 ? " Some details still need attention; your note is kept below." : ""
+          }`
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
@@ -1515,7 +1644,8 @@ export function PkmNaturalPanel({
               captureRevision.current += 1;
               setCaptureText(event.target.value);
               setCaptureCards([]);
-              setCaptureHasUnresolvedSource(false);
+              setCaptureUnresolvedSections([]);
+              setCaptureRetryingSectionKey(null);
               setCaptureMessage(null);
               setCaptureLoading(false);
             }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={50000} />
@@ -1528,13 +1658,42 @@ export function PkmNaturalPanel({
                 {captureCards.map((card) => (
                   <SettingsRow
                     key={card.card_id}
-                    title={card.source_text?.trim() || "Proposed saved detail"}
-                    description={card.sharing_impact?.active_recipient_count
-                      ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
-                      : "This stays private unless you choose to share it later."}
+                    // A multi-line detail (a heading with its list) reads as one row.
+                    title={card.source_text?.trim().replace(/\s*\n+\s*/g, " · ") || "Proposed saved detail"}
+                    description={<CaptureCardDescription card={card} domainTitles={domainTitles} />}
                   />
                 ))}
                 {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}
+              </SettingsGroup>
+            ) : null}
+            {captureHasUnresolvedSource ? (
+              <SettingsGroup separatorInset testId="memory-unresolved-sections">
+                {captureUnresolvedSections.map((block) => {
+                  const section = describePkmCaptureSection(captureSourceSnapshot, block);
+                  return (
+                    <SettingsRow
+                      key={section.key}
+                      testId="memory-unresolved-section"
+                      title={section.label}
+                      description={`${section.reason} Nothing from this section has been saved.`}
+                      stackTrailingOnMobile
+                      trailingInteractive
+                      trailing={section.retryable ? (
+                        <Button
+                          type="button"
+                          variant="muted"
+                          effect="fade"
+                          aria-label={`Retry this section: ${section.label}`}
+                          disabled={captureLoading || captureSaving || captureRetryingSectionKey !== null}
+                          onClick={() => void retryCaptureSection(block)}
+                        >
+                          {captureRetryingSectionKey === section.key ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+                          Retry this section
+                        </Button>
+                      ) : undefined}
+                    />
+                  );
+                })}
               </SettingsGroup>
             ) : null}
             {captureHasSharedRecipients ? (
@@ -1560,7 +1719,7 @@ export function PkmNaturalPanel({
                 </p>
               </div>
             ) : null}
-            {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureHasUnresolvedSource || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
+            {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureSaveableCards.length === 0 || captureRetryingSectionKey !== null || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
           <SettingsGroup separatorInset testId="memory-auto-save-group">

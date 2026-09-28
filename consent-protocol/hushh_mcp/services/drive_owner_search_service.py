@@ -9,8 +9,11 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import re
 import time
-from datetime import UTC, datetime
+from calendar import monthrange
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
@@ -24,6 +27,31 @@ PAGE_SIZE = 25
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
 logger = drive_logger("drive_owner_search")
+_MONTH_WINDOW = re.compile(
+    r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
+    re.I,
+)
+_MONTH_WORDS = {
+    word: index
+    for index, word in enumerate(
+        (
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+            "ten",
+            "eleven",
+            "twelve",
+        ),
+        1,
+    )
+}
+_TITLE_DATE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
 
 
 def compile_queries(plan: dict, timezone: str) -> list[dict]:
@@ -79,6 +107,144 @@ def compile_queries(plan: dict, timezone: str) -> list[dict]:
 
 def compile_plan(plan: dict, timezone: str) -> dict:
     return compile_queries(plan, timezone)[0]["arguments"]
+
+
+def compile_request_queries(
+    plan: dict, purpose: dict, timezone: str
+) -> tuple[list[dict], dict | None]:
+    """Broaden a requested file set before the owner reviews it.
+
+    A Drive modified-time query would omit a meeting note with a matching
+    title date or creation date. Search the subject without that cut, then
+    apply the inclusive period against metadata in each worker page.
+    """
+    from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
+    from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, quote_literal
+
+    parsed = LiveSearchPlan.model_validate(plan)
+    if parsed.mode != "find":
+        raise DriveReadError("invalid_argument")
+    now = datetime.now(UTC)
+    start = purpose.get("periodStart")
+    end = purpose.get("periodEnd")
+    if start is None and end is None:
+        month = _MONTH_WINDOW.search(purpose.get("purpose", ""))
+        if month:
+            months = _MONTH_WORDS.get(month["count"].lower()) or int(month["count"])
+            if not 1 <= months <= 12:
+                raise DriveReadError("invalid_argument")
+            today = now.astimezone(ZoneInfo(timezone)).date()
+            month_index = today.year * 12 + today.month - 1 - months
+            year, month_number = divmod(month_index, 12)
+            month_number += 1
+            start = date(
+                year, month_number, min(today.day, monthrange(year, month_number)[1])
+            ).isoformat()
+            end = today.isoformat()
+        elif parsed.time_intent == "file_activity":
+            bounds = parsed.time_bounds(now_utc=now, timezone=timezone)
+            if bounds:
+                start = (
+                    datetime.fromisoformat(bounds[0].replace("Z", "+00:00"))
+                    .astimezone(ZoneInfo(timezone))
+                    .date()
+                    .isoformat()
+                )
+                end = (
+                    (
+                        datetime.fromisoformat(bounds[1].replace("Z", "+00:00"))
+                        - timedelta(microseconds=1)
+                    )
+                    .astimezone(ZoneInfo(timezone))
+                    .date()
+                    .isoformat()
+                )
+    period = {"start": start, "end": end, "timezone": timezone} if start and end else None
+    base = []
+    if parsed.file_kind != "any":
+        base.append(
+            "("
+            + MIME_CLAUSES[parsed.file_kind]
+            + " or mimeType = 'application/vnd.google-apps.shortcut')"
+        )
+    if parsed.shared_with_me:
+        base.append("sharedWithMe = true")
+    if parsed.exact_title:
+        subject = f"name = {quote_literal(parsed.exact_title)}"
+    elif parsed.terms:
+        # OR preserves files whose title or text uses only one of the planner's
+        # terms; the owner decides the final set from the complete preview.
+        terms = [
+            variant
+            for term in parsed.terms
+            for variant in (
+                ("standup", "stand up", "stand-up")
+                if term.casefold() in {"standup", "stand-up", "stand up"}
+                else (term,)
+            )
+        ]
+        subject = (
+            "(" + " or ".join(compile_search_terms([term]) for term in dict.fromkeys(terms)) + ")"
+        )
+    else:
+        subject = None
+    clauses = [*([subject] if subject else []), *base]
+    if not clauses:
+        # A broad date-only request still has a Drive boundary. The period is
+        # filtered after every provider page, not by one mutable timestamp.
+        if period is None:
+            raise DriveReadError("narrow_selection_required")
+        clauses = ["trashed = false"]
+    query = " and ".join(clauses)
+    if len(query) > 1800:
+        raise DriveReadError("invalid_argument")
+    return [{"arguments": {"query": query, "orderBy": "createdTime desc"}}], period
+
+
+def _in_requested_period(match: dict, period: dict | None) -> bool:
+    if period is None:
+        return True
+    start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
+    zone = ZoneInfo(period["timezone"])
+    title_days = []
+    for match_date in _TITLE_DATE.finditer(match["name"]):
+        try:
+            title_days.append(date(*(int(part) for part in match_date.groups())))
+        except ValueError:
+            continue
+    if title_days:
+        return any(start <= day <= end for day in title_days)
+    for key in ("created_time", "modified_time"):
+        value = match.get(key)
+        if isinstance(value, str):
+            try:
+                day = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone).date()
+            except ValueError:
+                continue
+            if start <= day <= end:
+                return True
+    return False
+
+
+def _matches_requested_kind(kind: str, mime: str) -> bool:
+    if kind == "any":
+        return True
+    if kind == "document":
+        return (
+            mime in {"application/vnd.google-apps.document", "application/msword"}
+            or "wordprocessingml" in mime
+        )
+    if kind == "spreadsheet":
+        return (
+            mime == "application/vnd.google-apps.spreadsheet"
+            or "spreadsheetml" in mime
+            or mime == "text/csv"
+        )
+    if kind == "presentation":
+        return mime == "application/vnd.google-apps.presentation" or "presentationml" in mime
+    if kind == "pdf":
+        return mime == "application/pdf"
+    return mime.startswith(kind + "/")
 
 
 def _token(payload, current, checkpoint):
@@ -191,6 +357,64 @@ class DriveOwnerSearchService:
                 "drive_tokens": [],
             },
         )
+        if created:
+            await self.run_one(
+                user_id=user_id,
+                job_id=state["jobId"],
+                max_pages=1,
+                deadline_seconds=15,
+                require_current=require_current,
+            )
+        await wake_drive_work("suggestions")
+        return await self.status(
+            user_id=user_id, job_id=state["jobId"], require_current=require_current
+        )
+
+    async def create_for_request(
+        self,
+        *,
+        user_id,
+        request_id,
+        request_revision,
+        purpose,
+        plan,
+        require_current,
+        timezone="UTC",
+    ):
+        """Start or resume the owner-approved request's durable metadata search."""
+        await require_current()
+        query = purpose["purpose"]
+        request = self._request(query, timezone)
+        existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
+        if existing is not None:
+            if existing["status"] not in {"failed", "limited", "stopped"}:
+                return existing
+            await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
+        queries, period = compile_request_queries(plan, purpose, timezone)
+        state, created = await self.store.create(
+            user_id=user_id,
+            client_request_id=request_id,
+            request=request,
+            confirmed=True,
+            checkpoint={
+                "request": request,
+                "arguments": queries[0]["arguments"],
+                "queries": queries,
+                "query_index": 0,
+                "request_origin_id": request_id,
+                "request_revision": request_revision,
+                "request_file_kind": plan.get("file_kind", "any"),
+                "requested_period": period,
+                "phase": "user",
+                "page_token": None,
+                "drive_page_token": None,
+                "drives": [],
+                "drive_index": 0,
+                "seen_tokens": [],
+                "drive_tokens": [],
+            },
+        )
+        await self.store.align_request_expiry(user_id=user_id, request_id=request_id)
         if created:
             await self.run_one(
                 user_id=user_id,
@@ -394,13 +618,134 @@ class DriveOwnerSearchService:
         ):
             raise DriveReadError("provider_response_invalid")
         files = []
+        shortcut_targets = {}
+        if checkpoint.get("request_origin_id"):
+            targets = {
+                details["targetId"]
+                for candidate in candidates
+                if isinstance(candidate, dict)
+                if candidate.get("mimeType") == "application/vnd.google-apps.shortcut"
+                for details in [candidate.get("shortcutDetails")]
+                if isinstance(details, dict)
+                and isinstance(details.get("targetId"), str)
+                and FILE_ID.fullmatch(details["targetId"])
+            }
+            semaphore = asyncio.Semaphore(6)
+
+            async def target_metadata(target):
+                async with semaphore:
+                    try:
+                        result = await self.transport.read_tool(
+                            user_id=job["user_id"],
+                            tool_name="get_file_metadata",
+                            arguments={"fileId": target},
+                        )
+                    except DriveReadError as error:
+                        if str(error) != "source_unavailable":
+                            raise
+                        return target, None
+                    return target, result
+
+            shortcut_targets = dict(
+                await asyncio.gather(*(target_metadata(target) for target in targets))
+            )
         for candidate in candidates:
             match = DriveLiveReader._match(candidate)
             if match is None:
                 incomplete = True
                 continue
+            if (
+                checkpoint.get("request_origin_id")
+                and match["mime_type"] == "application/vnd.google-apps.folder"
+            ):
+                continue
+            if (
+                checkpoint.get("request_origin_id")
+                and match["mime_type"] == "application/vnd.google-apps.shortcut"
+            ):
+                alias = match["name"]
+                details = candidate.get("shortcutDetails") if isinstance(candidate, dict) else None
+                target = details.get("targetId") if isinstance(details, dict) else None
+                target_mime = details.get("targetMimeType") if isinstance(details, dict) else None
+                if not isinstance(target, str) or not FILE_ID.fullmatch(target):
+                    if _in_requested_period(match, checkpoint.get("requested_period")):
+                        files.append(
+                            {
+                                "id": match["file_id"],
+                                "name": alias,
+                                "mimeType": match["mime_type"],
+                                "modifiedTime": match["modified_time"],
+                                "createdTime": match.get("created_time"),
+                                "openUrl": match["open_url"],
+                                "shareable": False,
+                                "unavailableReason": "shortcut_target_unavailable",
+                            }
+                        )
+                    continue
+                target_result = shortcut_targets.get(target)
+                if target_result is not None and (
+                    target_result.is_error
+                    or target_result.truncated
+                    or not isinstance(target_result.payload, dict)
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                target_file = (
+                    target_result.payload.get("file")
+                    if target_result and isinstance(target_result.payload, dict)
+                    else None
+                )
+                if target_result is not None and not isinstance(target_file, dict):
+                    raise DriveReadError("provider_response_invalid")
+                if (
+                    target_result is None
+                    or target_file.get("id") != target
+                    or not isinstance(target_file.get("title"), str)
+                    or not target_file["title"]
+                    or target_file.get("mimeType")
+                    in {
+                        "application/vnd.google-apps.shortcut",
+                        "application/vnd.google-apps.folder",
+                    }
+                    or target_mime
+                    and target_file.get("mimeType") != target_mime
+                ):
+                    if _in_requested_period(match, checkpoint.get("requested_period")):
+                        files.append(
+                            {
+                                "id": match["file_id"],
+                                "name": alias,
+                                "mimeType": match["mime_type"],
+                                "modifiedTime": match["modified_time"],
+                                "createdTime": match.get("created_time"),
+                                "openUrl": match["open_url"],
+                                "shareable": False,
+                                "unavailableReason": "shortcut_target_unavailable",
+                            }
+                        )
+                    continue
+                if not _matches_requested_kind(
+                    checkpoint.get("request_file_kind", "any"), target_file["mimeType"]
+                ):
+                    continue
+                match = {
+                    **match,
+                    "file_id": target,
+                    "name": target_file["title"],
+                    "mime_type": target_file["mimeType"],
+                    "modified_time": target_file.get("modifiedTime") or match["modified_time"],
+                    "open_url": _open_url(target, target_file.get("viewUrl")),
+                    "shortcut_name": alias,
+                }
             day = checkpoint.get("title_date")
             if day and day not in match["name"] and day.replace("-", "/") not in match["name"]:
+                continue
+            if not (
+                _in_requested_period(match, checkpoint.get("requested_period"))
+                or match.get("shortcut_name")
+                and _in_requested_period(
+                    {**match, "name": match["shortcut_name"]}, checkpoint.get("requested_period")
+                )
+            ):
                 continue
             files.append(
                 {
@@ -408,6 +753,12 @@ class DriveOwnerSearchService:
                     "name": match["name"],
                     "mimeType": match["mime_type"],
                     "modifiedTime": match["modified_time"],
+                    "createdTime": match.get("created_time"),
+                    **(
+                        {"shortcutName": match["shortcut_name"]}
+                        if match.get("shortcut_name")
+                        else {}
+                    ),
                     "openUrl": match["open_url"],
                 }
             )
@@ -500,6 +851,7 @@ class DriveOwnerSearchService:
             )
         except DriveReadError as error:
             if str(error) == "search_superseded":
+                await self.store.release(job, error="connection_changed")
                 return finish("superseded")
             return finish(
                 await self.store.release(

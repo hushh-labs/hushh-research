@@ -1,6 +1,8 @@
 "use client";
 
-import { ExternalLink, X } from "@/components/icons";
+import Link from "next/link";
+
+import { X } from "@/components/icons";
 
 import {
   Dialog,
@@ -18,64 +20,49 @@ import {
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  KAI_LEGAL_DOCUMENTS,
-  type KaiLegalDocumentType,
-} from "@/lib/legal/kai-legal-content";
+  LegalDocumentBody,
+  LegalDocumentMeta,
+} from "@/components/legal/legal-document-body";
+import {
+  LEGAL_DOCUMENTS,
+  type LegalDocument,
+  type LegalDocumentType,
+} from "@/lib/legal/legal-documents";
 
 type AuthLegalDialogProps = {
-  docType: KaiLegalDocumentType | null;
+  docType: LegalDocumentType | null;
   onOpenChange: (open: boolean) => void;
   closeControlId?: string;
 };
 
-// External canonical sources on hushh.ai. We render the same content inline
-// (formatted from KAI_LEGAL_DOCUMENTS) and offer a lean link to the live site,
-// no embedded browser preview / iframe.
-const LEGAL_SOURCE_URL: Record<KaiLegalDocumentType, string> = {
-  privacy: "https://www.hushh.ai/privacy",
-  terms: "https://www.hushh.ai/terms",
-};
+// The sheet renders the full document inline from LEGAL_DOCUMENTS, the same
+// source the public /privacy and /terms pages serve, and links to that page.
+function FullPageLink({ doc }: { doc: LegalDocument }) {
+  return (
+    <Link
+      href={doc.route}
+      className="type-caption inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
+    >
+      Open full page
+    </Link>
+  );
+}
 
-function LegalDocBody({
-  doc,
-  sourceUrl,
-}: {
-  doc: (typeof KAI_LEGAL_DOCUMENTS)[KaiLegalDocumentType];
-  sourceUrl: string;
-}) {
+function LegalDocBody({ doc }: { doc: LegalDocument }) {
   return (
     <>
       <div className="flex items-center gap-3">
-        <a
-          href={sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="type-caption inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          View on hushh.ai
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        <FullPageLink doc={doc} />
       </div>
       <div className="mt-1">
         <p className="type-footnote text-muted-foreground">
-          Last updated {doc.updatedAt}
+          <LegalDocumentMeta doc={doc} />
         </p>
         <p className="mt-2 text-sm leading-6 text-foreground/90">
           {doc.summary}
         </p>
-        <div className="mt-5 space-y-5">
-          {doc.sections.map((section) => (
-            <section key={section.title} className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">
-                {section.title}
-              </h3>
-              <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
-                {section.points.map((point, index) => (
-                  <li key={index}>{point}</li>
-                ))}
-              </ul>
-            </section>
-          ))}
+        <div className="mt-5">
+          <LegalDocumentBody doc={doc} compact />
         </div>
       </div>
     </>
@@ -89,10 +76,9 @@ export function AuthLegalDialog({
 }: AuthLegalDialogProps) {
   const isMobile = useIsMobile();
   const isOpen = docType !== null;
-  const doc = docType ? KAI_LEGAL_DOCUMENTS[docType] : null;
-  const sourceUrl = docType ? LEGAL_SOURCE_URL[docType] : null;
+  const doc = docType ? LEGAL_DOCUMENTS[docType] : null;
 
-  if (!doc || !sourceUrl) {
+  if (!doc) {
     // Keep both roots mounted-but-closed so open/close transitions never
     // remount the dialog/drawer primitive mid-animation.
     return (
@@ -129,7 +115,7 @@ export function AuthLegalDialog({
             </div>
           </div>
           <div className="overflow-y-auto overscroll-contain px-5 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-5">
-            <LegalDocBody doc={doc} sourceUrl={sourceUrl} />
+            <LegalDocBody doc={doc} />
           </div>
         </SheetContent>
       </Sheet>
@@ -137,7 +123,7 @@ export function AuthLegalDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange} modal={false}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} modal>
       <DialogContent
         showCloseButton={false}
         className="max-w-[min(40rem,calc(100%-1.5rem))] max-h-[calc(100dvh-1.5rem)] gap-0 overflow-hidden p-0"
@@ -145,15 +131,7 @@ export function AuthLegalDialog({
         <DialogHeader className="sticky top-0 z-20 border-b border-border bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-left">
           <div className="flex items-center gap-3 pr-11">
             <DialogTitle>{doc.title}</DialogTitle>
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="type-caption inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              View on hushh.ai
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <FullPageLink doc={doc} />
             <DialogClose asChild>
               <Button
                 type="button"
@@ -170,24 +148,13 @@ export function AuthLegalDialog({
         </DialogHeader>
         <div className="max-h-[min(72dvh,44rem)] overflow-y-auto px-5 pt-5 pb-24">
           <p className="type-footnote text-muted-foreground">
-            Last updated {doc.updatedAt}
+            <LegalDocumentMeta doc={doc} />
           </p>
           <p className="mt-2 text-sm leading-6 text-foreground/90">
             {doc.summary}
           </p>
-          <div className="mt-5 space-y-5">
-            {doc.sections.map((section) => (
-              <section key={section.title} className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {section.title}
-                </h3>
-                <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
-                  {section.points.map((point, index) => (
-                    <li key={index}>{point}</li>
-                  ))}
-                </ul>
-              </section>
-            ))}
+          <div className="mt-5">
+            <LegalDocumentBody doc={doc} compact />
           </div>
         </div>
       </DialogContent>

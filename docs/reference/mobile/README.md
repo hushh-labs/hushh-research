@@ -75,6 +75,10 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   stale authenticated or vault content cannot appear in an app-switcher
   snapshot or the first resumed frame. Android also owns `FLAG_SECURE` while
   the cover is visible.
+- On iOS the cover is visually the launch screen (system background plus the
+  `Splash` asset). Control Center, Notification Center, system prompts,
+  screenshots, and the app switcher therefore never show a loading state. The
+  cover has no status text or progress indicator; release fades it out.
 - Every inactive cycle receives a process-local generation and a cause:
   `inactive`, `background`, or `restart`. The native cover protects snapshots
   and the first resumed frame; it does not trigger account/session validation
@@ -98,8 +102,8 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   terminal account or session result keeps the cover in place through the
   document replacement that returns the person to Login.
 - If a cover remains for eight seconds after activation, native controls expose
-  `Try again` and `Restart session`, stop the progress indicator, and explain
-  that verification could not complete. Retry starts another bounded check
+  `Try again` and `Restart session` and explain that verification could not
+  complete. Retry starts another bounded check
   without removing those escape controls. Restart
   advances the generation and retires the observed JavaScript document IDs
   before reloading the current app document, keeps the cover present, and

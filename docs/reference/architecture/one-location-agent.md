@@ -102,8 +102,11 @@ validation and the resolved invite remain authoritative. Existing bare-token
 URLs continue to work, and accounts without a usable display name retain them.
 
 The public viewer refreshes while visible, removes the map when the server
-reports revocation or expiry, and retries transient failures. A device clock
-cannot expire a link that the server still accepts. Navigating to another link
+reports revocation or expiry, and retries transient failures. Resolve includes
+the remaining lifetime measured by the database; the viewer uses a monotonic
+timer to conceal the pin at that deadline if a later check cannot reach the
+server. A device clock cannot expire a link that the server still accepts.
+Navigating to another link
 clears the previous location and ignores its outstanding responses. Hosted
 builds prerender an inert route probe to establish dynamic rendering; native
 builds retain their static fixture without requiring a server connection.
@@ -430,6 +433,10 @@ request-only links.
    One live link per owner: creating while one is live returns that same link
    with `reused: true`, its window restarted for the duration just asked for
    and its snapshot refreshed, rather than minting a second resolvable URL.
+   If an active link was minted under an earlier signing key or token format,
+   its bearer still resolves by stored hash through expiry. A new create returns
+   `409 LOCATION_PUBLIC_INVITE_UNRECOVERABLE` and leaves that link intact; the
+   owner may explicitly stop it before making another.
 2. The backend returns the raw token once and stores only its hash.
 3. If the owner attached a `publicLocation` snapshot, the public resolve
    response returns safe owner/link metadata plus that snapshot. The public page
@@ -438,6 +445,9 @@ request-only links.
    their position to `POST /api/one/location/public-invites/{invite_id}/location`,
    which writes `publicLocation` and nothing else - never the window - so the
    pin follows them without the link outliving what they agreed to.
+   The database clock determines the public expiry in both recipient reads and
+   the owner's read-only link status. The viewer retries proxy failures and
+   treats only typed invalid/inactive invite errors as a final link verdict.
 4. If no snapshot is attached, the link is request-only and the public resolve
    response exposes only a safe owner label, status, duration, and expiry.
    The safe label is the sharer's display name, resolved with

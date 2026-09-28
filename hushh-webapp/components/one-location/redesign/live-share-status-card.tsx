@@ -447,7 +447,7 @@ export function LiveShareStatusCard({
       ) : null}
 
       {onShareMore || canChangeDuration ? (
-        // One left-aligned action row: the primary CTA first, the quieter
+        // One centered action row: the primary CTA first, the quieter
         // duration control beside it. Below 360px they stack full-width so
         // neither label wraps and both keep a full touch target.
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>

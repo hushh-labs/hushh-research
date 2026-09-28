@@ -200,6 +200,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
         "DELETE FROM contact_sync_lookup_budgets",
+        "DELETE FROM account_legal_acceptances",
         "DELETE FROM kai_gmail_receipts",
         "DELETE FROM kai_gmail_sync_runs",
         "DELETE FROM kai_gmail_connections",
@@ -893,6 +894,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM runtime_persona_state",
         "DELETE FROM vault_key_wrappers",
         "DELETE FROM vault_keys",
+        # The account and the agreement it accepted survive a reset.
+        "DELETE FROM account_legal_acceptances",
     ]
     for fragment in spine_fragments:
         assert fragment not in executed_sql

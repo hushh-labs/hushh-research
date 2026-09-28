@@ -73,6 +73,27 @@
   }
 }
 
+/* The terminal setup action follows the viewport edge on phones and tablets,
+   including landscape, with room to scroll the checklist above it. */
+.hubPage.hubPage {
+  padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
+}
+
+.hubFooter.hubFooter {
+  position: fixed;
+  z-index: var(--z-chrome);
+  inset-inline: var(--page-inline-gutter-standard);
+  bottom: calc(16px + var(--app-safe-area-bottom-effective, 0px));
+  width: auto;
+  max-width: 320px;
+}
+
+@media (max-width: 639px) {
+  .hubFooter.hubFooter {
+    max-width: none;
+  }
+}
+
 .aiSelectionContent {
   display: flex;
   flex-direction: column;

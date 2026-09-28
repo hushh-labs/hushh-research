@@ -300,13 +300,30 @@ test.describe("One Location live share card layout", () => {
           );
         } else {
           expect(Math.abs(change.top - shareMore.top)).toBeLessThanOrEqual(1);
-          expect(shareMore.left).toBeGreaterThanOrEqual(card.left + 15);
-          expect(shareMore.left).toBeLessThanOrEqual(card.left + 21);
+          expect(
+            Math.abs(
+              (shareMore.left + change.right) / 2 - (card.left + card.right) / 2,
+            ),
+          ).toBeLessThanOrEqual(1);
           expect(shareMore.width).toBeLessThan(190);
           expect(change.width).toBeLessThan(190);
           expect(actionGap).toBeGreaterThanOrEqual(8);
           expect(actionGap).toBeLessThanOrEqual(14);
         }
+        // Multiple recipients have no shared end-time action: the lone blue
+        // CTA remains centered just like the paired action group.
+        await page
+          .getByTestId(`change-${item.id}`)
+          .evaluate((button) => button.remove());
+        const singleAction = await page
+          .getByTestId(`share-more-${item.id}`)
+          .evaluate(PROBE);
+        expect(
+          Math.abs(
+            (singleAction.left + singleAction.right) / 2 -
+              (card.left + card.right) / 2,
+          ),
+        ).toBeLessThanOrEqual(1);
       }
     });
   }

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 126,
-  "native_required_routes": 106,
+  "total_routes": 128,
+  "native_required_routes": 108,
   "excluded_routes": 20,
   "routes": [
     {
@@ -1329,6 +1329,11 @@
       ]
     },
     {
+      "route": "/privacy",
+      "classification": "excluded-web-only",
+      "reason": "Public Privacy Policy page for people without the app (Google OAuth consent screen and store listing URL). It is static text with no native bridge; the native build still bundles it, and sign-in and Profile link to it."
+    },
+    {
       "route": "/register-phone",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fregister-phone",
@@ -1464,6 +1469,11 @@
         "empty-valid",
         "unavailable-valid"
       ]
+    },
+    {
+      "route": "/terms",
+      "classification": "excluded-web-only",
+      "reason": "Public Terms of Use page for people without the app (Google OAuth consent screen and store listing URL). It is static text with no native bridge; the native build still bundles it, and sign-in and Profile link to it."
     },
     {
       "route": "/welcome",

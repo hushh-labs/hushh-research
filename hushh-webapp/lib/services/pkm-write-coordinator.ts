@@ -178,7 +178,13 @@ function pkmWriteFailureResult(
       "Memory saving stopped because the session changed.",
     );
   }
-  console.error("[PkmWriteCoordinator] PKM write failed.");
+  // rawMessage here is our own thrown Error's message (a bare status plus,
+  // for a structured backend failure, its code/message -- see
+  // storeDomainData) or a fetch/runtime error's message. Neither echoes the
+  // encrypted request payload, so it's safe in the console and is the only
+  // way a "Backend returned failure on store" report is diagnosable without
+  // pulling server logs.
+  console.error("[PkmWriteCoordinator] PKM write failed:", rawMessage);
   return emptyResult(
     "failed",
     "We couldn't save this to your vault. Try again, or make sure your vault is set up.",

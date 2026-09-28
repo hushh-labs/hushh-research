@@ -203,7 +203,6 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   if (input.schema_version !== "specialist_read.v1" || !["mail", "drive"].includes(input.connector as string) ||
     !STATUSES.includes(input.status as ConnectorReadExperience["status"]) ||
     typeof input.metadata_only !== "boolean" ||
-    (input.connector === "mail" && input.metadata_only !== true) ||
     typeof input.truncated !== "boolean" ||
     !Array.isArray(input.sources) || input.sources.length > 60 ||
     (input.owner_compile_available !== undefined &&
@@ -222,7 +221,10 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     if (!source || Object.keys(source).some((key) => !["source_ref", "kind", "label", "page"].includes(key)) ||
       typeof source.source_ref !== "string") return null;
     if (input.connector === "mail") {
-      if (source.kind !== "metadata" || source.label !== "Mail" ||
+      // Message and thread reads carry readable text, so the backend labels
+      // their sources "message"; listings and searches stay "metadata". The
+      // kind must agree with metadata_only so a receipt cannot mislabel scope.
+      if (source.kind !== (input.metadata_only ? "metadata" : "message") || source.label !== "Mail" ||
         !/^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(source.source_ref) || source.page != null) return null;
     } else {
       if (source.kind !== (input.metadata_only ? "metadata" : "document") || source.label !== "Document" ||

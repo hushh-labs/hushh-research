@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 253,
+  "expected_migration_version": 256,
   "migration_version_policy": "minimum",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -380,6 +380,69 @@
       "content_envelope",
       "created_at"
     ],
+    "drive_bulk_share_effects": [
+      "share_id",
+      "user_id",
+      "position",
+      "recipient_user_id",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "inspected_at",
+      "safe_error_code",
+      "receipt_envelope",
+      "updated_at"
+    ],
+    "drive_bulk_share_files": [
+      "share_id",
+      "user_id",
+      "position",
+      "source_job_id",
+      "source_position",
+      "file_digest",
+      "metadata_envelope"
+    ],
+    "drive_bulk_share_notifications": [
+      "share_id",
+      "user_id",
+      "recipient_user_id",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "updated_at"
+    ],
+    "drive_bulk_share_recipients": [
+      "share_id",
+      "user_id",
+      "recipient_user_id",
+      "identity_envelope"
+    ],
+    "drive_bulk_shares": [
+      "share_id",
+      "user_id",
+      "search_job_id",
+      "client_request_id",
+      "request_digest",
+      "connection_generation",
+      "search_revision",
+      "review_digest",
+      "status",
+      "revision",
+      "file_count",
+      "recipient_count",
+      "excluded_envelope",
+      "origin_request_id",
+      "origin_request_revision",
+      "approved_at",
+      "stopped_at",
+      "created_at",
+      "updated_at",
+      "expires_at"
+    ],
     "drive_document_rules": [
       "rule_id",
       "origin_request_id",
@@ -450,6 +513,7 @@
       "status",
       "revision",
       "matched",
+      "unshareable_count",
       "pages_scanned",
       "incomplete_search",
       "checkpoint_envelope",
@@ -572,6 +636,7 @@
       "preparation_next_at",
       "preparation_inspected_at",
       "preparation_error_code",
+      "bulk_search_started_at",
       "created_at",
       "updated_at",
       "expires_at"

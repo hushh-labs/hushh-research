@@ -8855,6 +8855,16 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
 
       const changeTime = circleGrantChangeTimeButton();
+      const shareRow = changeTime.closest('[data-testid="settings-row"]');
+      expect(shareRow).not.toBeNull();
+      const stop = within(shareRow as HTMLElement).getByRole("button", {
+        name: "Stop",
+      });
+      expect(changeTime.parentElement).toContainElement(stop);
+      expect(changeTime.parentElement).toHaveClass("w-full", "sm:justify-end");
+      expect(
+        shareRow?.querySelector('[data-slot="settings-row-description"]'),
+      ).not.toContainElement(changeTime);
       fireEvent.click(changeTime);
 
       const dialog = await screen.findByRole("dialog", {
@@ -9448,7 +9458,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it.each([404, 410])("self-heals a stale public-link heartbeat after HTTP %s", async (status) => {
+  it.each([404, 410])("self-heals a server-confirmed stale public-link heartbeat after HTTP %s", async (status) => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -9456,7 +9466,9 @@ describe("OneLocationAgentPage", () => {
     });
     mockRefreshPublicInviteLocation.mockImplementation(async () => {
       mockGetState.mockResolvedValue({ ...locationState(), publicInvites: [] });
-      throw new ApiError("Link is no longer active", status);
+      throw new ApiError("Link is no longer active", status, {
+        detail: { code: "LOCATION_PUBLIC_INVITE_NOT_ACTIVE" },
+      });
     });
 
     render(<OneLocationAgentPage />);
@@ -9492,6 +9504,43 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(mockRefreshPublicInviteLocation.mock.calls.length).toBeGreaterThan(1),
     );
+    expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
+  });
+
+  it.each([404, 410])("keeps publishing after an untyped HTTP %s", async (status) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite()],
+    });
+    mockRefreshPublicInviteLocation.mockRejectedValue(
+      new ApiError("Temporary routing failure", status),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockRefreshPublicInviteLocation).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    await act(async () => { vi.advanceTimersByTime(25_000); });
+    await waitFor(() =>
+      expect(mockRefreshPublicInviteLocation.mock.calls.length).toBeGreaterThan(1),
+    );
+    expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
+  });
+
+  it("keeps a server-active link and its controls when the device clock is fast", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite({
+        expiresAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      })],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockRefreshPublicInviteLocation).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
   });
 
@@ -9663,19 +9712,15 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("brings the create form back when the link runs out", async () => {
-    // The tab hides its create control whenever a link is live, and expiry is
-    // written server-side only when a row is READ -- nothing here refetches on
-    // a timer. Without a clock check the state this session already holds says
-    // "active" forever, so a link that ran out five minutes ago left the person
-    // looking at a dead card with no way past it until they reloaded.
-    mockGetState.mockResolvedValue({
+    const expiresAt = new Date(Date.now() + 250).toISOString();
+    let serverExpired = false;
+    mockGetState.mockImplementation(async () => ({
       ...locationState(),
-      publicInvites: [
-        activePublicInvite({
-          expiresAt: new Date(Date.now() + 250).toISOString(),
-        }),
-      ],
-    });
+      publicInvites: [activePublicInvite({
+        expiresAt,
+        status: serverExpired ? "expired" : "active",
+      })],
+    }));
 
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -9694,12 +9739,46 @@ describe("OneLocationAgentPage", () => {
     // background, and the page listens for it precisely so a screen that has
     // been away does not wait out the next 30s tick.
     await new Promise((resolve) => setTimeout(resolve, 400));
+    serverExpired = true;
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
 
-    expect(screen.getByText("Duration")).toBeTruthy();
+    expect(await screen.findByText("Duration")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
+  });
+
+  it("clears a just-created URL after the server confirms its expiry", async () => {
+    const expiresAt = new Date(Date.now() + 250).toISOString();
+    let phase: "before" | "active" | "expired" = "before";
+    mockGetState.mockImplementation(async () => ({
+      ...locationState(),
+      publicInvites: phase === "before" ? [] : [activePublicInvite({
+        expiresAt,
+        status: phase === "expired" ? "expired" : "active",
+      })],
+    }));
+    mockCreatePublicInvite.mockResolvedValue({
+      invite: activePublicInvite({ expiresAt }),
+      publicUrl: "/one/location/view/derived-token-abc",
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await openTemporaryLinkFlow();
+    phase = "active";
+    fireEvent.click(screen.getByRole("button", { name: /^Create link$/i }));
+    expect(await screen.findByRole("button", { name: /Copy link/i })).toBeTruthy();
+    await waitFor(() => expect(mockGetState.mock.calls.length).toBeGreaterThan(1));
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    phase = "expired";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(await screen.findByRole("button", { name: /^Create link$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Copy link/i })).toBeNull();
   });
 
   it("does not expire a link the server sent without an expiry", async () => {
@@ -9724,7 +9803,7 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       publicInvites: [
         activePublicInvite({
-          // Still "active" server-side: the row has not been read since.
+          status: "expired",
           expiresAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
         }),
       ],

@@ -160,6 +160,38 @@ def test_sensitive_log_filter_preserves_format_args_after_template_redaction() -
     assert "models=['gpt-4o-mini-transcribe'] enabled=True timeout=20.0" == record.getMessage()
 
 
+def test_sdk_failure_keeps_provider_status_but_never_its_message() -> None:
+    """A 400 and a 429 must be distinguishable in hosted logs, content-free."""
+    from google.genai.errors import ClientError
+
+    error = ClientError(
+        400,
+        {"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "PRIVATE_PROMPT"}},
+    )
+    try:
+        raise error
+    except ClientError:
+        import sys
+
+        exc_info = sys.exc_info()
+    record = logging.LogRecord(
+        name="google_adk.google.adk.runners",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="failed: %s",
+        args=(str(error),),
+        exc_info=exc_info,
+    )
+
+    assert SensitiveLogFilter().filter(record)
+
+    assert record.getMessage() == (
+        "SDK failure type=ClientError status_code=400 status=INVALID_ARGUMENT"
+    )
+    assert record.exc_info is None
+
+
 def test_sensitive_log_record_factory_redacts_third_party_logs() -> None:
     install_sensitive_log_filter()
     record = logging.getLogRecordFactory()(

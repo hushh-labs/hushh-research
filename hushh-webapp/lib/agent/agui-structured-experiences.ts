@@ -26,6 +26,7 @@ export type PersonSelectionExperience = {
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
 export const DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.document_request_review.v1" as const;
 export const DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE = "one.drive_share_review.v1" as const;
+export const DRIVE_BULK_SHARE_REVIEW_EXPERIENCE_TYPE = "one.drive_bulk_share_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
@@ -132,6 +133,14 @@ export type DriveShareReviewExperience = {
   filesRequest: string;
 };
 
+/** Explicit user request to review a complete saved-search result set. */
+export type DriveBulkShareReviewExperience = {
+  type: typeof DRIVE_BULK_SHARE_REVIEW_EXPERIENCE_TYPE;
+  audience: "trusted_circle";
+  searchJobId: string;
+  clientRequestId: string;
+};
+
 export type KycReadinessExperience = {
   type: typeof KYC_READINESS_EXPERIENCE_TYPE;
   subjectName: string;
@@ -176,6 +185,7 @@ export type AgentStructuredExperience =
   | InformationRequestReviewExperience
   | DocumentRequestReviewExperience
   | DriveShareReviewExperience
+  | DriveBulkShareReviewExperience
   | KycReadinessExperience
   | MemoryImportReviewExperience
   | EvidenceBriefExperience;
@@ -406,6 +416,16 @@ function parseDriveShareReview(content: unknown): DriveShareReviewExperience | n
     clientRequestId, filesRequest };
 }
 
+function parseDriveBulkShareReview(content: unknown): DriveBulkShareReviewExperience | null {
+  const record = unwrapToolResult(content);
+  if (!record || record.audience !== "trusted_circle") return null;
+  const searchJobId = boundedString(record.searchJobId, 36);
+  const clientRequestId = boundedString(record.clientRequestId, 36);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!searchJobId || !uuid.test(searchJobId) || !clientRequestId || !uuid.test(clientRequestId)) return null;
+  return { type: DRIVE_BULK_SHARE_REVIEW_EXPERIENCE_TYPE, audience: "trusted_circle", searchJobId, clientRequestId };
+}
+
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {
   const record = unwrapToolResult(content);
   if (!record) return null;
@@ -580,6 +600,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
   [DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseDocumentRequestReview,
   [DRIVE_SHARE_REVIEW_EXPERIENCE_TYPE]: parseDriveShareReview,
+  [DRIVE_BULK_SHARE_REVIEW_EXPERIENCE_TYPE]: parseDriveBulkShareReview,
   [KYC_READINESS_EXPERIENCE_TYPE]: parseKycReadiness,
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
@@ -620,6 +641,10 @@ export function parseAgentToolResultExperience(
       (resultProvider !== undefined && argumentProvider !== undefined && resultProvider !== argumentProvider)) return null;
     const receipt = parseConnectorReadReceipt(result?.structured);
     return receipt?.connector === "drive" && result?.status === receipt.status ? receipt : null;
+  }
+  if (toolName === "propose_drive_bulk_share") {
+    const result = unwrapToolResult(content);
+    return result?.status === "proposal_ready" ? parseDriveBulkShareReview(content) : null;
   }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||

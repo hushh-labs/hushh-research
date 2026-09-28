@@ -5,11 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -199,30 +195,19 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   );
 }
 
-function initials(value: string): string {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 function FeedActionableIdentity({
   person,
 }: {
   person: NonNullable<FeedActionable["person"]>;
 }) {
   return (
-    <Avatar
-      className="h-10 w-10 bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
-      aria-hidden
-      data-testid="feed-actionable-avatar"
-      data-photo-url={person.photoUrl ?? ""}
-    >
-      {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
-      <AvatarFallback className="bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
-        {initials(person.displayName)}
-      </AvatarFallback>
-    </Avatar>
+    <ConnectionPersonAvatar
+      label={person.displayName}
+      photoUrl={person.photoUrl}
+      size="list"
+      className="bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+      testId="feed-actionable-avatar"
+    />
   );
 }
 

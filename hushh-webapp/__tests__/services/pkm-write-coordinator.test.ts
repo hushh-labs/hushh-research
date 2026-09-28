@@ -614,11 +614,17 @@ describe("PkmWriteCoordinator", () => {
     it("converts a thrown storeDomainData 500 into a graceful failed result instead of propagating", async () => {
       stubNoUpgradeNeeded();
       stubWriteContext();
-      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(
-        new Error(
-          'Failed to store domain data: 500 - {"detail":"Failed to store domain data"}',
-        ),
+      const backendError = new Error(
+        'Failed to store domain data: 500 - PKM_STORE_DOMAIN_FAILED: Failed to store domain data',
       );
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(backendError);
+      // Regression: this generic catch used to log only a static string
+      // ("PKM write failed."), with no way to tell one real report of
+      // "Backend returned failure on store" apart from another without
+      // pulling server logs. It must now log the actual backend detail.
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
 
       const result = await PkmWriteCoordinator.saveMergedDomain({
         ...BASE_PARAMS,
@@ -630,6 +636,12 @@ describe("PkmWriteCoordinator", () => {
       // The raw backend error text must never reach the caller/UI verbatim.
       expect(result.message).not.toContain("Failed to store domain data: 500");
       expect(result.message).toMatch(/vault/i);
+      // ...but it must reach the console, for anyone triaging the report.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("PKM write failed"),
+        expect.stringContaining("PKM_STORE_DOMAIN_FAILED"),
+      );
+      consoleErrorSpy.mockRestore();
     });
 
     it("requires recipient re-review when sharing changes during the write", async () => {

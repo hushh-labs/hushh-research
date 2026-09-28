@@ -7,8 +7,8 @@ import hmac
 import json
 import logging
 import os
-import re
 import secrets
+import threading
 import uuid
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,6 +36,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
@@ -1079,6 +1080,37 @@ class OneLocationAgentService:
     # succeeded. This is a local DDL-idempotency cache, not shared runtime
     # state, so it needs no Postgres/Redis coordination.
     _recipient_encrypted_private_column_ensured: bool = False
+
+    # A writer transaction binds its connection to the service so every
+    # statement in the mutation joins it. That binding belongs to the thread
+    # that opened the transaction, never to the instance: one instance is
+    # shared across worker threads (the consent center gathers three
+    # ``list_state`` calls on the same contributor). An instance attribute let
+    # a sibling thread run on another thread's connection -- after it had been
+    # returned to the pool mid-transaction -- and made the second ``del``
+    # raise. Production logged both on 2026-09-27 as
+    # ``set_session cannot be used inside a transaction`` and
+    # ``object has no attribute '_key_writer_connection'``. The attribute
+    # contract (getattr default, assign, del, hasattr) is unchanged.
+    @property
+    def _key_writer_connection(self) -> Any:
+        state = self.__dict__.get("_key_writer_thread_state")
+        connection = getattr(state, "connection", None) if state is not None else None
+        if connection is None:
+            raise AttributeError("_key_writer_connection")
+        return connection
+
+    @_key_writer_connection.setter
+    def _key_writer_connection(self, connection: Any) -> None:
+        state = self.__dict__.setdefault("_key_writer_thread_state", threading.local())
+        state.connection = connection
+
+    @_key_writer_connection.deleter
+    def _key_writer_connection(self) -> None:
+        state = self.__dict__.get("_key_writer_thread_state")
+        if state is None or getattr(state, "connection", None) is None:
+            raise AttributeError("_key_writer_connection")
+        state.connection = None
 
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         bound_connection = getattr(self, "_key_writer_connection", None)
@@ -4522,16 +4554,10 @@ class OneLocationAgentService:
         # list_verified_recipients, which is intentionally scoped to the
         # connections graph for LOCATION sharing.
         #
-        # A user is discoverable when ANY of the following holds:
-        #   1. The owner has an active trusted_connections edge (owner -> person).
-        #   2. They are phone-verified (the broad verified-actor directory).
-        #   3. They are connected to the owner through the marketplace via an
-        #      approved advisor<->investor relationship, AND are currently
-        #      marketplace-discoverable.
-        #
-        # Privacy gate: a user who turned marketplace visibility OFF
-        # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
-        # the directory too, UNLESS the owner has an explicit trusted edge.
+        # Every existing actor profile is searchable, whether its phone is
+        # verified or its identity cache has been hydrated. Explicit directory
+        # visibility opt-outs still hide strangers; a trusted connection stays
+        # visible to the person who already knows them.
         return cast(
             "list[dict[str, Any]]",
             self.search_directory_candidates(
@@ -4551,17 +4577,16 @@ class OneLocationAgentService:
         candidate_user_id: str | None = None,
         audience: str = "all",
     ) -> dict[str, Any]:
-        """Search the eligible Connect directory before pagination.
+        """Search existing Connect profiles before pagination.
 
-        ``audience`` splits the same eligible directory in two: ``"ria"`` keeps
+        ``audience`` splits the same directory in two: ``"ria"`` keeps
         only people holding a capability-bearing RIA profile, ``"people"`` keeps
         only those who do not, and ``"all"`` (the default, and what every
         pre-existing caller gets) keeps both. It is applied HERE, in the same
         statement, for the same reason the matching is -- see below.
 
-        This preserves the existing discovery policy while preventing callers
-        from being limited by an in-memory first page.  The result remains a
-        safe profile projection; it is not an all-account directory.
+        Every actor profile is eligible unless its owner explicitly hid it
+        from strangers. The result remains a masked profile projection.
 
         Matching, ranking and ordering all happen HERE, in one statement, ahead
         of ``LIMIT``.  That placement is the contract, not an implementation
@@ -4640,11 +4665,6 @@ class OneLocationAgentService:
         # punctuation someone typed into a profile field.
         name_prefix_pattern = f"{escaped_needle}%"
         word_prefix_pattern = f"% {escaped_needle}%"
-        compact_needle = re.sub(r"[^a-z0-9]", "", needle)
-        escaped_compact_needle = (
-            compact_needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        )
-        email_prefix_pattern = f"{escaped_compact_needle}%"
         token_prefix_patterns = [
             f"% {token.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
             for token in needle.split()
@@ -4657,11 +4677,56 @@ class OneLocationAgentService:
             f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
-              profile.public_person_ref,
-              COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
+              a.public_person_ref, a.photo_url,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
-            FROM actor_identity_cache a
-            LEFT JOIN actor_profiles profile ON profile.user_id = a.user_id
+            FROM (
+              SELECT
+                profile.user_id, profile.public_person_ref,
+                COALESCE(
+                  NULLIF(NULLIF(BTRIM(identity.display_name), ''), profile.user_id),
+                  NULLIF(BTRIM(marketplace.display_name), ''),
+                  NULLIF(BTRIM(ria.display_name), ''),
+                  ''
+                ) AS display_name,
+                identity.email,
+                CASE WHEN identity.phone_verified = TRUE
+                  THEN identity.phone_number ELSE NULL END AS phone_number,
+                COALESCE(identity.phone_verified, FALSE) AS phone_verified,
+                COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url
+              FROM actor_profiles profile
+              LEFT JOIN actor_identity_cache identity
+                ON identity.user_id = profile.user_id
+              LEFT JOIN marketplace_public_profiles marketplace
+                ON marketplace.user_id = profile.user_id
+              LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
+              WHERE profile.user_id <> :owner_user_id
+                AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
+                AND (
+                  EXISTS (
+                    SELECT 1
+                    FROM trusted_connections tc
+                    WHERE tc.status = 'active'
+                      AND tc.owner_user_id = :owner_user_id
+                      AND tc.trusted_user_id = profile.user_id
+                  )
+                  OR (
+                    marketplace.is_discoverable IS DISTINCT FROM FALSE
+                    AND (
+                      (
+                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
+                        AND profile.contact_sync_consent_enabled_at IS NULL
+                        AND profile.contact_sync_consent_contract_version IS NULL
+                      )
+                      OR (
+                        profile.contact_discoverable = TRUE
+                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
+                        AND profile.contact_sync_consent_rule_version > 0
+                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
+                      )
+                    )
+                  )
+                )
+            ) a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -4670,58 +4735,12 @@ class OneLocationAgentService:
               ORDER BY created_at DESC
               LIMIT 1
             ) k ON TRUE
-            WHERE a.user_id <> :owner_user_id
-              AND (:candidate_user_id IS NULL OR a.user_id = :candidate_user_id)
-              AND (
-                EXISTS (
-                  SELECT 1
-                  FROM trusted_connections tc
-                  WHERE tc.status = 'active'
-                    AND tc.owner_user_id = :owner_user_id
-                    AND tc.trusted_user_id = a.user_id
-                )
-                OR (
-                  (
-                    a.phone_verified = TRUE
-                    OR EXISTS (
-                      SELECT 1
-                      FROM advisor_investor_relationships air
-                      JOIN ria_profiles rp ON rp.id = air.ria_profile_id
-                      JOIN relationship_share_grants share
-                        ON share.relationship_id = air.id
-                       AND share.grant_key = 'ria_active_picks_feed_v1'
-                       AND share.status = 'active'
-                       AND share.connection_scope_proposal_id IS NOT NULL
-                      JOIN connection_scope_proposals proposal
-                        ON proposal.id = share.connection_scope_proposal_id
-                       AND proposal.status = 'active'
-                       AND proposal.capability_key = 'ria_active_picks_feed_v1'
-                      WHERE air.status = 'approved'
-                        AND (
-                          (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
-                          OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
-                        )
-                    )
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM marketplace_public_profiles mp
-                    WHERE mp.user_id = a.user_id
-                      AND mp.is_discoverable = FALSE
-                  )
-                )
-              )
-              AND (
+            WHERE (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
                 OR (:query <> '' AND {all_tokens_match_sql})
-                OR (
-                  :query <> '' AND :email_query <> ''
-                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
-                       LIKE :email_prefix ESCAPE '!'
-                )
               )
               AND (
                 :audience = 'all'
@@ -4742,9 +4761,6 @@ class OneLocationAgentService:
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!' THEN 2
                 WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
-                WHEN :query <> '' AND :email_query <> ''
-                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
-                       LIKE :email_prefix ESCAPE '!' THEN 3
                 ELSE 4
               END,
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
@@ -4754,13 +4770,12 @@ class OneLocationAgentService:
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,
+                "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
                 "query": needle,
                 "exact_name": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
                 "token_prefixes": token_prefix_patterns,
-                "email_prefix": email_prefix_pattern,
-                "email_query": compact_needle,
                 "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,
@@ -7592,8 +7607,9 @@ class OneLocationAgentService:
         Now the comparison lives in the statement, beside the write it guards.
         `updated` is the row only when the database agreed it was past, so
         there is no branch left that can report an expiry the storage layer
-        does not hold. The cost is one extra statement per read of a live
-        link, which matches at most one row and writes none.
+        does not hold. When the conditional update makes no change, a final
+        indexed read observes a concurrent revoke or extension instead of
+        trusting the row selected before it.
         """
 
         if not row or str(row.get("status") or "") != "active":
@@ -7609,7 +7625,17 @@ class OneLocationAgentService:
             """,
             {"invite_id": str(row.get("id") or "")},
         )
-        return updated or row
+        if updated:
+            return updated
+        # A concurrent revoke or renewal may have changed this row after the
+        # caller selected it. Never authorize a bearer using that stale copy.
+        current = self._execute_one(
+            """SELECT *, (expires_at <= clock_timestamp()) AS expired_by_db_clock,
+                      EXTRACT(EPOCH FROM (expires_at - clock_timestamp())) AS remaining_seconds
+            FROM one_location_public_invites WHERE id = CAST(:invite_id AS UUID)""",
+            {"invite_id": str(row.get("id") or "")},
+        )
+        return self._project_public_invite_expired(current) if current else None
 
     @staticmethod
     def _project_expired(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -7617,6 +7643,13 @@ class OneLocationAgentService:
         if not row or str(row.get("status") or "") != "active":
             return row
         return {**row, "status": "expired"} if _grant_expires_at_is_past(row) else row
+
+    @staticmethod
+    def _project_public_invite_expired(row: dict[str, Any]) -> dict[str, Any]:
+        """Keep the owner's read-only link status on the same DB clock as resolve."""
+        if row.get("expired_by_db_clock") and row.get("status") == "active":
+            return {**row, "status": "expired"}
+        return row
 
     def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row or str(row.get("status") or "") != "active":
@@ -7676,6 +7709,15 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LINK_REVIEW_REQUIRED", str(exc), status_code=409
             ) from None
+        except OneLocationAgentError as exc:
+            if command_operation_id and exc.code == "LOCATION_PUBLIC_INVITE_UNRECOVERABLE":
+                # A command reviewed extending this exact live link. Its
+                # bearer cannot be recovered, so require a new review instead
+                # of reporting a general manual-create failure.
+                raise OneLocationAgentError(
+                    "LOCATION_PUBLIC_LINK_REVIEW_REQUIRED", str(exc), status_code=409
+                ) from None
+            raise
 
     def _create_public_invite(
         self,
@@ -7840,19 +7882,16 @@ class OneLocationAgentService:
                         # comparing timestamps.
                         "reused": True,
                     }
-            # A row minted before tokens were derivable, or one whose digest no
-            # longer verifies. Its token is genuinely unrecoverable, so leaving
-            # it active would strand the owner behind a link nothing can show.
-            # Retire it and mint a replacement rather than refuse.
-            self._execute_one(
-                """
-                UPDATE one_location_public_invites
-                SET status = 'revoked', revoked_at = clock_timestamp(), updated_at = clock_timestamp()
-                WHERE id = CAST(:invite_id AS UUID)
-                  AND status = 'active'
-                """,
-                {"invite_id": str(existing.get("id") or "")},
-            )
+            else:
+                # A legacy token or a signing-key rotation can make this
+                # process unable to recover the owner's URL. The stored
+                # bearer hash still resolves for people who already have it.
+                # Do not revoke their access before the promised expiry.
+                raise OneLocationAgentError(
+                    "LOCATION_PUBLIC_INVITE_UNRECOVERABLE",
+                    "An existing public location link is still live. Stop it before creating a new link.",
+                    status_code=409,
+                )
 
         # The id is chosen here rather than by the default, because the token is
         # derived FROM it and has to be known before the row exists.
@@ -8068,7 +8107,12 @@ class OneLocationAgentService:
                 self._public_invite_owner_label(str(row.get("owner_user_id") or ""))
                 or PUBLIC_INVITE_DEFAULT_OWNER_LABEL
             )
-        result = {"invite": invite}
+        result: dict[str, Any] = {"invite": invite}
+        # A browser's wall clock may be fast or slow. Give the viewer a
+        # database-relative lifetime so it can conceal the pin at the agreed
+        # deadline even if the next confirmation request cannot reach us.
+        if row.get("remaining_seconds") is not None:
+            result["expiresInSeconds"] = max(0.0, float(row["remaining_seconds"]))
         metadata = _loads_json(row.get("metadata")) or {}
         public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None
         if isinstance(public_location, dict):
@@ -8849,7 +8893,7 @@ class OneLocationAgentService:
                 (
                     "public_invites",
                     """
-                    SELECT *
+                    SELECT *, (expires_at <= clock_timestamp()) AS expired_by_db_clock
                     FROM one_location_public_invites
                     WHERE owner_user_id = :user_id
                     ORDER BY created_at DESC
@@ -9052,7 +9096,7 @@ class OneLocationAgentService:
                 for row in public_invites
                 if (
                     payload := self._public_invite_payload(
-                        self._project_expired(row)
+                        self._project_public_invite_expired(row)
                         if read_only_state
                         else self._expire_public_invite(row)
                     )

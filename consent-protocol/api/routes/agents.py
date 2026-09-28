@@ -90,7 +90,8 @@ async def kai_chat(
     if not consent_token:
         raise HTTPException(status_code=401, detail="A valid owner token is required")
 
-    logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
+    # Never log message content; the Privacy Policy promises it is not recorded.
+    logger.info("agents.kai_chat user=%s msg_len=%d", request.userId, len(request.message or ""))
 
     try:
         result = await get_kai_agent().handle_message(

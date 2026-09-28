@@ -74,6 +74,26 @@ describe("connector read receipts", () => {
     expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, structured: receipt })).toBeNull();
   });
 
+  it("keeps the source receipt for Mail message and thread body reads", () => {
+    // The backend labels body-read sources "message" (read_message and
+    // read_thread alike) with metadata_only false. Dropping them lost the receipt.
+    const body = { ...receipt, metadata_only: false,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" },
+        { source_ref: "mail:2", label: "Mail", kind: "message" }] };
+    const value = parseAgentToolResultExperience("ask_email_agent", {
+      text: "PRIVATE BODY TEXT", status: "ok", structured: body,
+    });
+    expect(value).toEqual({ type: "one.connector_read.v1", connector: "mail", status: "ok",
+      sourceRefs: ["mail:1", "mail:2"], truncated: true, metadataOnly: false });
+    expect(JSON.stringify(value)).not.toContain("PRIVATE");
+    // The kind must agree with the declared scope in both directions.
+    expect(parseConnectorReadReceipt({ ...body, metadata_only: true })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...body,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "thread" }] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...body,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "document" }] })).toBeNull();
+  });
+
   it.each([
     { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
     { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },

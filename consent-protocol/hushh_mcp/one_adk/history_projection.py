@@ -11,6 +11,7 @@ from hushh_mcp.one_adk.consent_continuation import CONSENT_OUTCOME_LABELS, conti
 from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connector_result
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
+from hushh_mcp.one_adk.text_attachments import history_text_attachments
 
 
 def _record(value: Any) -> dict[str, Any] | None:
@@ -158,6 +159,7 @@ def _safe_workspace_connector_setup_descriptor(
 # step the owner saw by name, so it is not restored.
 _ACTIVITY_TOOLS = frozenset(
     {
+        "propose_drive_bulk_share",
         "discover_person_information",
         "list_pending_information_requests",
         "propose_information_request",
@@ -358,6 +360,9 @@ def project_conversation_history(
     held_cards: dict[str, list[dict[str, Any]]] = {}
     for index, event in enumerate(events):
         text, metadata = projected[index]
+        attachments = history_text_attachments(event)
+        if attachments:
+            metadata = {**(metadata or {}), "attachments": attachments}
         if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
             continue
         if event.author not in {"user", "one"}:

@@ -9,7 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Siren } from "@/components/icons";
+import { AlertCircle } from "@/components/icons";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleMember,
@@ -268,12 +268,12 @@ describe("circle discovery actions", () => {
     expect(mocks.sms).not.toHaveBeenCalled();
   });
 
-  it("uses a recognizable emergency siren for SMS", () => {
+  it("uses a recognizable alert icon for SMS", () => {
     render(ui());
     const icon = screen.getByTestId("circle-starter-sms").querySelector("[data-circle-icon-style='duotone']");
     expect(icon).toBeTruthy();
     const expected = document.createElement("div");
-    expected.innerHTML = renderToStaticMarkup(<Siren weight="duotone" />);
+    expected.innerHTML = renderToStaticMarkup(<AlertCircle weight="duotone" />);
     expect(icon?.querySelector("path:last-child")?.getAttribute("d")).toBe(
       expected.querySelector("path:last-child")?.getAttribute("d"),
     );
@@ -369,7 +369,7 @@ describe("circle discovery actions", () => {
     ).toBeTruthy();
   });
 
-  it("shows only actual circle members around the owner and keeps missing slots as placeholders", async () => {
+  it("shows only actual circle members around the owner without placeholder slots", async () => {
     mocks.listMembers.mockResolvedValueOnce({
       items: [
         member("owner", "Test Owner"),
@@ -381,7 +381,7 @@ describe("circle discovery actions", () => {
       totalCount: 3,
     });
     const view = render(ui({ ...ready, circles: [circle({ memberCount: 3 })] }));
-    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+    expect(screen.queryAllByTestId("circle-discovery-empty-slot")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
     await waitFor(() => expect(screen.getAllByTestId("circle-discovery-member-avatar")).toHaveLength(2));
     const avatars = screen.getAllByTestId("circle-discovery-member-avatar");
@@ -394,13 +394,13 @@ describe("circle discovery actions", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Explore Family Circle" }));
     expect(screen.queryAllByTestId("circle-discovery-member-avatar")).toHaveLength(0);
-    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+    expect(screen.queryAllByTestId("circle-discovery-empty-slot")).toHaveLength(0);
     view.rerender(ui({ ...ready, circles: [circle({ memberCount: 1 })] }));
     fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
-    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(2);
+    expect(screen.queryAllByTestId("circle-discovery-empty-slot")).toHaveLength(0);
   });
 
-  it("uses one real member and one placeholder when a circle has two people", async () => {
+  it("shows only real members when a circle has two people", async () => {
     mocks.listMembers.mockResolvedValueOnce({
       items: [member("owner", "Test Owner"), member("alex", "Alex Chen")],
       page: 1,
@@ -410,7 +410,7 @@ describe("circle discovery actions", () => {
     render(ui({ ...ready, circles: [circle({ memberCount: 2 })] }));
     fireEvent.click(screen.getByRole("button", { name: "Explore Finance Circle, already created" }));
     await waitFor(() => expect(screen.getAllByTestId("circle-discovery-member-avatar")).toHaveLength(1));
-    expect(screen.getAllByTestId("circle-discovery-empty-slot")).toHaveLength(1);
+    expect(screen.queryAllByTestId("circle-discovery-empty-slot")).toHaveLength(0);
   });
 
   it("refreshes the member preview with the circle list and ignores an older roster response", async () => {

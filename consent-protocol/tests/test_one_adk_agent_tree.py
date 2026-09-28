@@ -167,6 +167,14 @@ class TestAgentTreeShape:
             for t in finance_tool.agent.tools
         }
         assert {"ria", "investor"} <= finance_sub_names
+        # Finance and Investor read public market information through the
+        # ticker-only tools instead of answering prices from memory.
+        market_tools = {"get_market_quotes", "get_ticker_news"}
+        assert market_tools <= finance_sub_names
+        investor_tool = next(
+            t for t in finance_tool.agent.tools if getattr(t, "name", "") == "investor"
+        )
+        assert market_tools <= {getattr(t, "__name__", "") for t in investor_tool.agent.tools}
         expected_tools = {
             "ask_email_agent",
             "ask_location_agent",
@@ -396,6 +404,9 @@ class TestAgentTreeShape:
         assert "Example University" in instruction
         assert "answer directly from the packet" in instruction
         assert "Do not call read_my_pkm_domain_summary when this packet is present" in instruction
+        # Spending totals come from the device-computed summaries, never a sum
+        # over the clipped transaction sample.
+        assert "Never add up individual transactions from the packet" in instruction
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
@@ -554,6 +565,16 @@ class TestAgentTreeShape:
         )
 
         assert "unlocking is required for protected information" in instruction
+
+    def test_finance_and_investor_must_quote_live_prices_and_ground_spending(self):
+        context = SimpleNamespace(
+            state={STATE_PKM_CONTEXT: "- Financial > Derived V1 > Monthly Cash Flow > Value: x"}
+        )
+        for provider in (_tree._finance_runtime_instruction, _tree._investor_runtime_instruction):
+            instruction = provider(context)
+            assert "call get_market_quotes" in instruction
+            assert "Never invent, estimate, or recall a price" in instruction
+            assert "Never add up individual transactions from the packet" in instruction
 
     def test_onboarding_tool_accepts_typed_assessment_not_raw_request(self):
         signature = inspect.signature(_tree.resolve_onboarding_goal)

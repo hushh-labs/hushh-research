@@ -151,7 +151,21 @@ vi.mock("@/components/kai/views/portfolio-review-view", () => ({
 }));
 
 vi.mock("@/components/kai/views/portfolio-import-view", () => ({
-  PortfolioImportView: () => <div data-testid="portfolio-import-chooser" />,
+  PortfolioImportView: ({
+    onPreloadSchema,
+  }: {
+    onPreloadSchema?: () => void;
+  }) => (
+    <div data-testid="portfolio-import-chooser">
+      <button type="button" onClick={() => onPreloadSchema?.()}>
+        Load sample brokerage
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@/lib/services/demo-mode-template-service", () => ({
+  fetchDemoPortfolioTemplateAsset: vi.fn(async () => syntheticParsedPortfolio()),
 }));
 
 vi.mock("@/components/kai/views/dashboard-master-view", () => ({
@@ -306,6 +320,97 @@ describe.each<Platform>(["web", "native"])(
       await waitFor(() =>
         expect(nav.getSearch()).toBe("stage=import_required"),
       );
+    });
+
+    it("Load sample brokerage opens the sample review despite a stale FAILED background snapshot", async () => {
+      // Regression: an earlier real statement import that errored (and was
+      // never dismissed) leaves a "failed" snapshot in storage. Choosing
+      // "Load sample brokerage" afterward set state to "reviewing", which
+      // re-ran the restore effect via the ?stage= navigation and bounced
+      // straight back to the picker with the old error toast -- from the
+      // user's side, tapping the row did nothing.
+      const { storage, key } = snapshotStore(platform);
+      storage.setItem(
+        key,
+        JSON.stringify({
+          version: 1,
+          userId: USER_ID,
+          taskId: "task-stale",
+          runId: null,
+          latestCursor: 0,
+          status: "failed",
+          startedAt: "2026-09-27T09:00:00.000Z",
+          updatedAt: "2026-09-27T09:00:05.000Z",
+          errorMessage: "Could not read that statement. Please try again.",
+          streaming: {
+            stage: "error",
+            stageTrail: [],
+            rawStreamLines: [],
+            holdingsExtracted: 0,
+            holdingsTotal: 0,
+          },
+          parsedPortfolio: null,
+        }),
+      );
+      renderSetupImportFlow();
+
+      fireEvent.click(await screen.findByText("Load sample brokerage"));
+
+      expect(await screen.findByTestId("portfolio-review")).toBeTruthy();
+      // Outlast the 700 ms snapshot poll: the stale "failed" entry must not
+      // resurface and bounce the sample review back to the picker.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+      });
+      expect(screen.getByTestId("portfolio-review")).toBeTruthy();
+      expect(screen.queryByTestId("portfolio-import-chooser")).toBeNull();
+      expect(nav.getSearch()).toBe("stage=reviewing");
+      // The deliberate switch to sample data discards the stale attempt
+      // rather than merely tolerating it.
+      expect(storage.getItem(key)).toBeNull();
+    });
+
+    it("the sample review survives the 700ms poll finding a RUNNING snapshot from a separate import", async () => {
+      // Not a stale-at-mount snapshot (that legitimately routes to the
+      // importing-progress view, which is correct when a real import really
+      // is running) -- this is the poll effect discovering a "running"
+      // snapshot AFTER the person is already looking at the sample review,
+      // e.g. a real background import elsewhere on the same account ticks
+      // its snapshot while the sample review is open. That must not yank
+      // the open review away either.
+      const { storage, key } = snapshotStore(platform);
+      renderSetupImportFlow();
+
+      fireEvent.click(await screen.findByText("Load sample brokerage"));
+      expect(await screen.findByTestId("portfolio-review")).toBeTruthy();
+
+      storage.setItem(
+        key,
+        JSON.stringify({
+          version: 1,
+          userId: USER_ID,
+          taskId: "task-concurrent-running",
+          runId: "import_run_concurrent",
+          latestCursor: 3,
+          status: "running",
+          startedAt: "2026-09-27T09:00:00.000Z",
+          updatedAt: "2026-09-27T09:00:05.000Z",
+          errorMessage: null,
+          streaming: {
+            stage: "extracting",
+            stageTrail: [],
+            rawStreamLines: [],
+            holdingsExtracted: 1,
+            holdingsTotal: 5,
+          },
+          parsedPortfolio: null,
+        }),
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+      });
+      expect(screen.getByTestId("portfolio-review")).toBeTruthy();
+      expect(nav.getSearch()).toBe("stage=reviewing");
     });
   },
 );

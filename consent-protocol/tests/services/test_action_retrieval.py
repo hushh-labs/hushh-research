@@ -254,3 +254,85 @@ def test_the_reachability_filter_does_not_shrink_the_result_window():
 
     assert retrieval.call_args.kwargs["limit"] > at._MAX_LIST_RESULTS
     assert len(result["results"]) == at._MAX_LIST_RESULTS
+
+
+# ── Startup model load ───────────────────────────────────────────────────────
+
+
+def test_a_turn_during_the_warmup_ranks_lexically_instead_of_loading(monkeypatch):
+    """On a baked image the warmup owns the one model load (45-92s on Cloud Run).
+
+    A turn that searches before it finishes must not start a second load or
+    wait on it; it ranks lexically and still returns results.
+    """
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.is_loaded = False
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+    monkeypatch.setattr(ar, "_warmup_owns_model_load", lambda: True)
+
+    results = ar.search_actions("share my location", load_action_gateway())
+
+    assert results
+    client.embed_query.assert_not_called()
+    client.embed_passages.assert_not_called()
+
+
+def test_once_the_model_is_loaded_the_turn_ranks_semantically(monkeypatch):
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.is_loaded = True
+    client.embed_query.side_effect = RuntimeError("reached the semantic branch")
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+    monkeypatch.setattr(ar, "_warmup_owns_model_load", lambda: True)
+
+    ar.search_actions("share my location", load_action_gateway())
+
+    client.embed_query.assert_called_once()
+
+
+def test_without_a_baked_model_the_first_search_still_loads_lazily(monkeypatch):
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.is_loaded = False
+    client.embed_query.side_effect = RuntimeError("lazy load attempted")
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+    monkeypatch.setattr(ar, "_warmup_owns_model_load", lambda: False)
+
+    ar.search_actions("share my location", load_action_gateway())
+
+    client.embed_query.assert_called_once()
+
+
+def test_concurrent_loads_build_the_model_once(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    from hushh_mcp.services import embedding_client_leaf as leaf
+
+    constructed: list[str] = []
+    gate = threading.Event()
+
+    class SlowModel:
+        def __init__(self, *_args, **_kwargs):
+            constructed.append("model")
+            gate.wait(timeout=2)
+
+    monkeypatch.setitem(
+        sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=SlowModel)
+    )
+    monkeypatch.delenv(leaf.BAKED_MODEL_DIR_ENV, raising=False)
+    client = leaf.EmbeddingClient()
+    threads = [threading.Thread(target=client._load) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    gate.set()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert constructed == ["model"]
+    assert client.is_loaded

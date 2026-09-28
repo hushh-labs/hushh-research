@@ -17,7 +17,7 @@ export function TrustedDocumentRules({ token }: { token: string }) {
     };
     void DriveSharingService.listRules(token, guard)
       .then((items) => { guard(); setRules(items); })
-      .catch(() => { if (active) setMessage("Could not load document trust rules."); });
+      .catch(() => { if (active) setMessage("Trusted documents unavailable."); });
     return () => { active = false; };
   }, [token]);
   const revoke = async (rule: TrustedDocumentRule) => {
@@ -39,10 +39,10 @@ export function TrustedDocumentRules({ token }: { token: string }) {
       setBusy(false);
     }
   };
-  return <section aria-label="Trusted for documents" className="space-y-3">
-    <h4 className="text-sm font-semibold">Trusted for documents</h4>
-    <p className="text-sm text-muted-foreground">Rules work only while their original live Drive connection remains active. You can revoke a rule here after disconnecting.</p>
-    {rules.length === 0 ? <p className="text-sm text-muted-foreground">No active document trust rules.</p> : null}
+  return <section aria-label="Trusted documents" className="space-y-2 rounded-2xl bg-foreground/5 px-4 py-3">
+    <h4 className="text-sm font-medium">Trusted documents</h4>
+    {rules.length === 0 && !message ? <p className="text-sm text-muted-foreground">None yet</p> : rules.length > 0 ?
+      <p className="text-sm text-muted-foreground">Matching files may be shared without asking again while their original Drive connection is active.</p> : null}
     <ul className="space-y-3">{rules.map((rule) => <li key={rule.ruleId} className="rounded-lg border border-border p-3 text-sm">
       <p className="break-all font-medium">{rule.recipientEmail}</p>
       {rule.scope === "any_requested_drive_file" ? <p>Any requested Drive file, including future files.</p> : <>

@@ -241,6 +241,46 @@ def test_debate_active_reattach_and_cancel_from_another_process() -> None:
     asyncio.run(_scenario())
 
 
+def test_start_in_another_process_reattaches_instead_of_a_second_debate() -> None:
+    """A reload or reopened app whose start lands on another process began a
+    second debate beside the one still running, instead of reattaching to it."""
+    owner = KaiAnalyzeRunManager(retention_seconds=300, store=KaiRunStore())
+    other = KaiAnalyzeRunManager(retention_seconds=300, store=KaiRunStore())
+    user_id = f"user_{uuid.uuid4().hex}"
+
+    async def _start_in(manager: KaiAnalyzeRunManager, session: str, release: asyncio.Event):
+        return await manager.start_or_get_active(
+            user_id=user_id,
+            debate_session_id=session,
+            ticker="NVDA",
+            risk_profile="balanced",
+            context={},
+            consent_token="ct",  # noqa: S106
+            generator_factory=_debate_generator(release),
+        )
+
+    async def _scenario() -> None:
+        release = asyncio.Event()
+        run = await _start_debate(owner, user_id, release)
+        await asyncio.sleep(0.2)
+
+        state, attached = await _start_in(other, run.debate_session_id, asyncio.Event())
+        assert state == "active"
+        assert attached.run_id == run.run_id
+        assert other._runs_by_id == {}
+
+        # Negative control: another session of the same person is not blocked.
+        state, fresh = await _start_in(other, f"sess_{uuid.uuid4().hex}", release)
+        assert state == "started" and fresh.run_id != run.run_id
+
+        release.set()
+        await asyncio.wait_for(run.worker_task, timeout=5)
+        await asyncio.wait_for(fresh.worker_task, timeout=5)
+        await _quiesce(owner, other)
+
+    asyncio.run(_scenario())
+
+
 def test_import_active_reattach_and_cancel_from_another_process(monkeypatch) -> None:
     import api.routes.kai.portfolio as portfolio_mod
 

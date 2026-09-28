@@ -12,7 +12,12 @@ import { Skeleton } from "@/components/ui/skeleton";
  * workspace mount; this only gives an authenticated person immediate shell
  * geometry while the memory-only vault owner token is established.
  */
-export function GmailWorkspaceSkeleton() {
+export function GmailWorkspaceSkeleton({
+  titleVisuallyHidden = false,
+}: {
+  /** Match the workspace it stands in for; see GmailReceiptsPage. */
+  titleVisuallyHidden?: boolean;
+} = {}) {
   return (
     <AppPageShell
       as="div"
@@ -24,6 +29,7 @@ export function GmailWorkspaceSkeleton() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Gmail"
+          titleVisuallyHidden={titleVisuallyHidden}
           description="Checking your Gmail status"
           actions={<Skeleton className="h-10 w-36" />}
         />

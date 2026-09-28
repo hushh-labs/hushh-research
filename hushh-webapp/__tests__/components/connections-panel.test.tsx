@@ -253,7 +253,8 @@ describe("Connectors owner and mutation fences", () => {
     render(<ConnectorsPanel {...props()} />);
     await openDriveDetail();
     await screen.findByText("Synthetic file");
-    fireEvent.click(screen.getByRole("button", { name: "Retry Drive" }));
+    fireEvent.click(screen.getByText("Previously added files"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh files" }));
     await waitFor(() => expect(stale).toBeTypeOf("function"));
     fireEvent.click(
       screen.getByRole("button", { name: "Remove Synthetic file" }),
@@ -488,7 +489,7 @@ describe("Connectors owner and mutation fences", () => {
 
       fireEvent.click(
         screen.getByRole("checkbox", {
-          name: /allow hushh to process these files/i,
+          name: /prepare these files while the app is closed/i,
         }),
       );
       const pendingCalls = state.nativePickerPending.mock.calls.length;
@@ -509,7 +510,7 @@ describe("Connectors owner and mutation fences", () => {
       );
       expect(
         screen.getByRole("checkbox", {
-          name: /allow hushh to process these files/i,
+          name: /prepare these files while the app is closed/i,
         }),
       ).toBeChecked();
       await waitFor(() =>

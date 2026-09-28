@@ -36,7 +36,10 @@ import {
   type SharingReview,
   type SharingDelivery,
   type SharingRevocationReview,
+  type DriveBulkShareFilePage,
+  type SharingDeliveryFilePage,
 } from "@/lib/services/drive-sharing-service";
+import type { DriveSearchResults } from "@/lib/services/drive-search-service";
 
 type Snapshot = {
   status: SharingStatus;
@@ -54,6 +57,7 @@ type Activity =
   | "declining"
   | "cancelling"
   | "restarting"
+  | "preparing_share"
   | "preparing_removal"
   | "removing";
 type Kind = "load" | "decide";
@@ -72,8 +76,9 @@ type Action = (
 ) => Promise<Snapshot>;
 
 const POLL_MS = 5000;
-const POLL_BUDGET = 24;
+const POLL_SLOW_MS = 15_000;
 const SLOW_AFTER_MS = 15_000;
+const STILL_WORKING_AFTER_MS = 120_000;
 const UNDECIDED = new Set(["pending", "preparing", "review_ready"]);
 const IN_FLIGHT = new Set(["queued", "dispatching", "unknown"]);
 const OUTCOME_LABELS: Record<string, string> = {
@@ -107,6 +112,7 @@ const ACTIVITY_LABELS: Record<Exclude<Activity, "idle" | "finding_files">, strin
   declining: "Declining…",
   cancelling: "Cancelling…",
   restarting: "Starting a new search…",
+  preparing_share: "Preparing review…",
   preparing_removal: "Preparing removal…",
   removing: "Removing access…",
 };
@@ -147,9 +153,16 @@ function errorCopy(cause: unknown): string {
   return "Refresh to try again.";
 }
 
+function isDurableReview(review: SharingReview | undefined): boolean {
+  return review?.durableAvailable === true;
+}
+
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
+  if (isDurableReview(review))
+    return !!review && !review.bulkShare &&
+      (!review.search || ["queued", "running"].includes(review.search.status));
   return (
     !!review &&
     snapshot?.status.direction === "incoming" &&
@@ -224,7 +237,6 @@ function UnlockedDocumentReview({
   const [activity, setActivity] = useState<Activity>("loading");
   const [stage, setStage] = useState<PrepareStage | null>(null);
   const [findingSince, setFindingSince] = useState<number | null>(null);
-  const [stalled, setStalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   // Files A left unticked for this review revision; every file starts selected.
@@ -232,6 +244,31 @@ function UnlockedDocumentReview({
     key: "",
     ids: [],
   });
+  const [excluded, setExcluded] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
+  const [unshareableSeen, setUnshareableSeen] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
+  const [searchCursor, setSearchCursor] = useState<string | null>(null);
+  const [searchPrevious, setSearchPrevious] = useState<(string | null)[]>([]);
+  const [searchPage, setSearchPage] = useState<DriveSearchResults | null>(null);
+  const [searchPageLoading, setSearchPageLoading] = useState(false);
+  const [searchPageError, setSearchPageError] = useState(false);
+  const [searchPageRetry, setSearchPageRetry] = useState(0);
+  const [bulkCursor, setBulkCursor] = useState<string | null>(null);
+  const [bulkPrevious, setBulkPrevious] = useState<(string | null)[]>([]);
+  const [bulkPage, setBulkPage] = useState<DriveBulkShareFilePage | null>(null);
+  const [bulkPageLoading, setBulkPageLoading] = useState(false);
+  const [bulkPageError, setBulkPageError] = useState(false);
+  const [bulkPageRetry, setBulkPageRetry] = useState(0);
+  const [deliveryCursor, setDeliveryCursor] = useState<string | null>(null);
+  const [deliveryPrevious, setDeliveryPrevious] = useState<(string | null)[]>([]);
+  const [deliveryPage, setDeliveryPage] = useState<SharingDeliveryFilePage | null>(null);
+  const [deliveryPageLoading, setDeliveryPageLoading] = useState(false);
+  const [deliveryPageError, setDeliveryPageError] = useState(false);
+  const [deliveryPageRetry, setDeliveryPageRetry] = useState(0);
+  const searchPageSerial = useRef(0);
+  const searchPageKey = useRef("");
+  const bulkPageSerial = useRef(0);
+  const deliveryPageSerial = useRef(0);
+  const deliveryPageKey = useRef("");
   const serial = useRef(0);
   const alive = useRef(false);
   // A decision is never overlapped; it may supersede a load, a search included.
@@ -239,9 +276,8 @@ function UnlockedDocumentReview({
   // The in-flight run is a background poll the person never asked for.
   const quiet = useRef(false);
   const controller = useRef<AbortController | null>(null);
-  const polls = useRef(0);
-  const lastStatusKey = useRef("");
   const preparedRevision = useRef<number | null>(null);
+  const searchStartFailed = useRef(false);
   const statusTarget = useRef<HTMLDivElement>(null);
   const trustTitleId = useId();
   const trustDescriptionId = useId();
@@ -253,13 +289,6 @@ function UnlockedDocumentReview({
     setFindingSince((previous) =>
       isFinding(next) ? (previous ?? Date.now()) : null,
     );
-    // Real progress refills the poll budget.
-    const key = next ? `${next.status.status}:${next.status.revision}` : "";
-    if (key !== lastStatusKey.current) {
-      lastStatusKey.current = key;
-      polls.current = 0;
-      setStalled(false);
-    }
   }, []);
 
   const load = useCallback<Action>(
@@ -267,13 +296,39 @@ function UnlockedDocumentReview({
       guard();
       let status = await DriveSharingService.status(token, requestId, guard);
       guard();
-      if (status.direction !== "incoming" || !UNDECIDED.has(status.status))
-        return {
-          status,
-          delivery: await DriveSharingService.delivery(token, requestId, guard),
-        };
-      const review = await DriveSharingService.review(token, requestId, guard);
+      if (status.direction !== "incoming")
+        return { status, delivery: await DriveSharingService.delivery(token, requestId, guard) };
+      if (!UNDECIDED.has(status.status)) {
+        const delivery = await DriveSharingService.delivery(token, requestId, guard);
+        guard();
+        return delivery.bulkShareId
+          ? { status, delivery, review: await DriveSharingService.review(token, requestId, guard) }
+          : { status, delivery };
+      }
+      let review = await DriveSharingService.review(token, requestId, guard);
       guard();
+      if (isDurableReview(review)) {
+        if ((status.status === "pending" || status.status === "review_ready") &&
+          !review.search && !review.bulkShare && !searchStartFailed.current) {
+          report.publish({ status, review });
+          report.enter();
+          try {
+            await DriveSharingService.startRequestSearch(token, requestId, guard);
+            searchStartFailed.current = false;
+          } catch (_cause) {
+            guard();
+            searchStartFailed.current = true;
+            setError("Couldn't start the full search. Try again.");
+            return { status, review };
+          }
+          guard();
+          status = await DriveSharingService.status(token, requestId, guard);
+          guard();
+          review = await DriveSharingService.review(token, requestId, guard);
+          guard();
+        }
+        return { status, review };
+      }
       // Worker-held, ready, or already tried for this revision: no search.
       if (
         status.status !== "pending" ||
@@ -444,8 +499,6 @@ function UnlockedDocumentReview({
         // Acknowledged work is reconciled even when the next GET fails.
         onChanged();
         report.acknowledged();
-        polls.current = 0;
-        setStalled(false);
         return load(token, guard, report);
       },
       "decide",
@@ -468,14 +521,114 @@ function UnlockedDocumentReview({
       pending.current = null;
       // A remount may ask again; the server lease keeps it to one claim.
       prepared.current = null;
+      searchPageSerial.current += 1;
+      bulkPageSerial.current += 1;
+      deliveryPageSerial.current += 1;
     };
   }, [load, run]);
 
   const review = snapshot?.review;
   const removal = snapshot?.revocation;
+  const search = review?.search;
+  const bulkShare = review?.bulkShare;
+  const durableReview = isDurableReview(review);
+  const searchReady = search?.status === "completed" && !search.incompleteSearch;
+  const searchJobId = search && !bulkShare ? search.jobId : null;
+  const bulkPreviewId = bulkShare?.status === "review_ready" ? bulkShare.shareId : null;
+  const deliveryBulkId = snapshot?.status.direction === "outgoing"
+    ? snapshot.delivery?.bulkShareId ?? null : null;
+  const deliveredCount = snapshot?.delivery?.sharedCount ?? 0;
+
+  useEffect(() => { setSearchCursor(null); setSearchPrevious([]); }, [search?.jobId]);
+  useEffect(() => { setBulkCursor(null); setBulkPrevious([]); }, [bulkShare?.shareId]);
+  useEffect(() => { setDeliveryCursor(null); setDeliveryPrevious([]); }, [deliveryBulkId]);
+
+  useEffect(() => {
+    const ticket = ++searchPageSerial.current;
+    if (!searchJobId) { searchPageKey.current = ""; setSearchPage(null); setSearchPageError(false); return; }
+    const token = getToken();
+    if (!token) { setSearchPage(null); setSearchPageError(true); return; }
+    const epoch = snapshotVaultSessionEpoch();
+    const guard = () => {
+      if (!alive.current || ticket !== searchPageSerial.current ||
+        !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
+        throw new DriveSharingError("session_changed");
+    };
+    const pageKey = `${searchJobId}:${searchCursor ?? "first"}`;
+    if (searchPageKey.current !== pageKey) {
+      searchPageKey.current = pageKey;
+      setSearchPage(null);
+    }
+    setSearchPageLoading(true); setSearchPageError(false);
+    void DriveSharingService.requestSearchFiles(token, requestId, searchJobId, guard, searchCursor)
+      .then(page => {
+        guard();
+        setSearchPage(page);
+        const blocked = page.files.filter(file => file.shareable === false).map(file => file.position);
+        if (blocked.length) {
+          setUnshareableSeen(current => ({ jobId: searchJobId,
+            positions: [...new Set([...(current.jobId === searchJobId ? current.positions : []), ...blocked])] }));
+          setExcluded(current => ({ jobId: searchJobId,
+            positions: [...new Set([...(current.jobId === searchJobId ? current.positions : []), ...blocked])] }));
+        }
+      })
+      .catch(() => { try { guard(); } catch { return; } setSearchPage(null); setSearchPageError(true); })
+      .finally(() => { if (ticket === searchPageSerial.current) setSearchPageLoading(false); });
+    return () => { searchPageSerial.current += 1; };
+  }, [getToken, requestId, searchJobId, search?.matched, searchCursor, searchPageRetry]);
+
+  useEffect(() => {
+    const ticket = ++bulkPageSerial.current;
+    if (!bulkPreviewId) { setBulkPage(null); setBulkPageError(false); return; }
+    const token = getToken();
+    if (!token) { setBulkPage(null); setBulkPageError(true); return; }
+    const epoch = snapshotVaultSessionEpoch();
+    const guard = () => {
+      if (!alive.current || ticket !== bulkPageSerial.current ||
+        !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
+        throw new DriveSharingError("session_changed");
+    };
+    setBulkPage(null); setBulkPageLoading(true); setBulkPageError(false);
+    void DriveSharingService.bulkShareFiles(token, bulkPreviewId, guard, bulkCursor)
+      .then(page => { guard(); setBulkPage(page); })
+      .catch(() => { try { guard(); } catch { return; } setBulkPage(null); setBulkPageError(true); })
+      .finally(() => { if (ticket === bulkPageSerial.current) setBulkPageLoading(false); });
+    return () => { bulkPageSerial.current += 1; };
+  }, [getToken, bulkPreviewId, bulkCursor, bulkPageRetry]);
+
+  useEffect(() => {
+    const ticket = ++deliveryPageSerial.current;
+    if (!deliveryBulkId || deliveredCount === 0) {
+      deliveryPageKey.current = "";
+      setDeliveryPage(null); setDeliveryPageError(false); return;
+    }
+    const token = getToken();
+    if (!token) { setDeliveryPage(null); setDeliveryPageError(true); return; }
+    const epoch = snapshotVaultSessionEpoch();
+    const guard = () => {
+      if (!alive.current || ticket !== deliveryPageSerial.current ||
+        !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
+        throw new DriveSharingError("session_changed");
+    };
+    const pageKey = `${deliveryBulkId}:${deliveryCursor ?? "first"}`;
+    if (deliveryPageKey.current !== pageKey) {
+      deliveryPageKey.current = pageKey;
+      setDeliveryPage(null);
+    }
+    setDeliveryPageLoading(true); setDeliveryPageError(false);
+    void DriveSharingService.deliveryFiles(token, requestId, guard, deliveryCursor)
+      .then(page => { guard(); setDeliveryPage(page); })
+      .catch(() => { try { guard(); } catch { return; } setDeliveryPage(null); setDeliveryPageError(true); })
+      .finally(() => { if (ticket === deliveryPageSerial.current) setDeliveryPageLoading(false); });
+    return () => { deliveryPageSerial.current += 1; };
+  }, [getToken, requestId, deliveryBulkId, deliveredCount, deliveryCursor, deliveryPageRetry]);
   // Stays true while a decision or refresh runs, so the layout never jumps.
-  const finding = activity === "finding_files" || isFinding(snapshot);
-  const stillWorking = finding && activity === "idle" && stalled;
+  const finding = activity === "finding_files" || (isFinding(snapshot) && !searchStartFailed.current);
+  const stillWorking =
+    finding &&
+    activity === "idle" &&
+    findingSince !== null &&
+    now - findingSince >= STILL_WORKING_AFTER_MS;
   // A retryable failure: the worker tries again in minutes, so polling can't see it.
   const retryLater =
     !!review &&
@@ -490,22 +643,22 @@ function UnlockedDocumentReview({
     !!snapshot &&
     !removal &&
     !retryLater &&
-    (["pending", "preparing", "approved"].includes(snapshot.status.status) ||
-      !!snapshot.delivery?.files.some((file) =>
-        IN_FLIGHT.has(file.revocationStatus ?? ""),
-      ));
+    (durableReview && snapshot.status.direction === "incoming"
+      ? ((!search && !searchStartFailed.current) || ["queued", "running"].includes(search?.status ?? "") ||
+          !!bulkShare && ["queued", "running"].includes(bulkShare.status))
+      : ["pending", "preparing", "approved"].includes(snapshot.status.status) ||
+        !!snapshot.delivery?.files.some((file) =>
+          IN_FLIGHT.has(file.revocationStatus ?? ""),
+        ));
 
   usePeriodicTask(
     `document-share-review:${requestId}`,
-    POLL_MS,
+    stillWorking ? POLL_SLOW_MS : POLL_MS,
     () => {
-      // A tick that cannot run never spends the budget.
       if (busy.current !== "none") return undefined;
-      if (polls.current++ < POLL_BUDGET) return run(load, "load", null);
-      setStalled(true);
-      return undefined;
+      return run(load, "load", null);
     },
-    { enabled: pollable && !stalled && activity === "idle" },
+    { enabled: pollable && activity === "idle" },
   );
 
   useEffect(() => setTrustFuture(false), [review?.reviewDigest]);
@@ -523,6 +676,10 @@ function UnlockedDocumentReview({
     .map((file) => file.documentId)
     .filter((id) => !unselectedIds.includes(id));
   const allSelected = !!review && selectedIds.length === review.files.length;
+  const excludedPositions = search && excluded.jobId === search.jobId ? excluded.positions : [];
+  const blockedPositions = search && unshareableSeen.jobId === search.jobId ? unshareableSeen.positions : [];
+  const manualExcludedCount = excludedPositions.filter(position => !blockedPositions.includes(position)).length;
+  const selectedCount = search ? Math.max(0, search.matched - (search.unshareableCount ?? 0) - manualExcludedCount) : 0;
   const groupSurface =
     surface === "sheet"
       ? {}
@@ -531,8 +688,6 @@ function UnlockedDocumentReview({
   const refresh = () => {
     void run(
       async (token, guard, report) => {
-        polls.current = 0;
-        setStalled(false);
         // An explicit refresh may retry a search once.
         preparedRevision.current = null;
         return load(token, guard, report);
@@ -554,6 +709,28 @@ function UnlockedDocumentReview({
           : "restarting",
     );
   };
+  const retryDurableSearch = () => {
+    if (!snapshot) return;
+    const shown = snapshot;
+    searchStartFailed.current = false;
+    void run(
+      async (token, guard, report) => {
+        try {
+          await DriveSharingService.startRequestSearch(token, requestId, guard);
+          guard();
+        } catch (cause) {
+          guard();
+          searchStartFailed.current = true;
+          setError(errorCopy(cause));
+          return shown;
+        }
+        onChanged();
+        return load(token, guard, report);
+      },
+      "load",
+      "restarting",
+    );
+  };
   const prepareRemoval = () => {
     if (!snapshot) return;
     const shown = snapshot;
@@ -571,18 +748,41 @@ function UnlockedDocumentReview({
     );
   };
 
+  const durableStatus = bulkShare
+    ? bulkShare.status === "review_ready"
+      ? `Ready to share ${bulkShare.fileCount.toLocaleString()} files`
+      : bulkShare.status === "queued" || bulkShare.status === "running"
+        ? `Sharing ${bulkShare.counts.processed.toLocaleString()} of ${bulkShare.counts.total.toLocaleString()}`
+        : bulkShare.status === "completed"
+          ? "Sharing complete"
+          : "Some files were not shared"
+    : !search && searchStartFailed.current
+      ? "Search unavailable"
+      : search?.status === "completed" && !search.incompleteSearch
+      ? `${search.matched.toLocaleString()} files found`
+        : search?.status === "failed"
+          ? "Search failed"
+          : search?.status === "limited" || search?.incompleteSearch
+            ? "Search incomplete"
+          : search?.status === "stopped"
+            ? "Search stopped"
+          : search
+            ? `Searching Drive · ${search.matched.toLocaleString()} found`
+            : null;
   const statusLine =
     activity === "loading"
       ? ACTIVITY_LABELS.loading
       : activity === "finding_files"
-        ? STAGE_LABELS[stage ?? "starting"]
+        ? durableStatus ?? STAGE_LABELS[stage ?? "starting"]
         : activity !== "idle"
           ? ACTIVITY_LABELS[activity]
           : !snapshot
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
-            : stillWorking
+            : durableReview && durableStatus
+              ? durableStatus
+              : stillWorking
               ? "Still finding files"
               : finding
                 ? STAGE_LABELS.starting
@@ -593,7 +793,7 @@ function UnlockedDocumentReview({
   const spinning =
     activity !== "idle" || (finding && !stillWorking) || (!snapshot && !error);
   const statusHint = stillWorking
-    ? "Check again in a minute."
+    ? "You can come back later."
     : finding &&
         (activity === "idle" || activity === "finding_files") &&
         findingSince !== null &&
@@ -606,7 +806,7 @@ function UnlockedDocumentReview({
     (UNDECIDED.has(snapshot.status.status) ||
       snapshot.status.status === "approved");
   const showRefreshStatus =
-    !removal && (!snapshot || stalled || pendingOutcomes || outgoingOpen);
+    !removal && (!snapshot || pendingOutcomes || outgoingOpen);
   const delivery = snapshot?.delivery;
   const outgoing = snapshot?.status.direction === "outgoing";
 
@@ -658,7 +858,154 @@ function UnlockedDocumentReview({
         </div>
       ) : null}
 
-      {review && !removal ? (
+      {review && durableReview && !removal ? (
+        <>
+          <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+            “{review.purpose.purpose}”
+          </BodyText>
+          <dl className={HAIRLINES}>
+            <Fact label="Share with" value={review.recipientEmail} />
+            {review.purpose.periodStart ? (
+              <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} />
+            ) : null}
+            <Fact label="Access" value="Viewer, until removed" />
+          </dl>
+
+          {!bulkShare && search ? (
+            <>
+              <HelperText>{searchReady
+                ? `${search.matched.toLocaleString()} matching files. Select the files to share.`
+                : ["limited", "failed", "stopped"].includes(search.status) || search.incompleteSearch
+                  ? `${search.matched.toLocaleString()} found. Some files may be missing.`
+                  : `${search.matched.toLocaleString()} found so far. Search continues after you leave.`}</HelperText>
+              {(search.unshareableCount ?? 0) > 0 ? <HelperText>
+                {search.unshareableCount?.toLocaleString()} files can&apos;t be shared and won&apos;t be included.
+              </HelperText> : null}
+              <div aria-label="Matching Drive files" aria-busy={searchPageLoading}>
+                <SettingsGroup embedded title="Files" {...groupSurface}>
+                  {searchPage?.files.map(file => (
+                    <SettingsRow
+                      key={file.position}
+                      asChild
+                      title={file.name}
+                      description={file.shareable === false ? "Can't share this shortcut" : undefined}
+                      disabled={locked || file.shareable === false}
+                      trailing={
+                        <Checkbox
+                          aria-label={file.name}
+                          className={CHECKBOX_CLASS}
+                          checked={file.shareable !== false && !excludedPositions.includes(file.position)}
+                          disabled={locked || file.shareable === false}
+                          onCheckedChange={checked => setExcluded({
+                            jobId: search.jobId,
+                            positions: checked === true
+                              ? excludedPositions.filter(position => position !== file.position)
+                              : [...excludedPositions, file.position],
+                          })}
+                        />
+                      }
+                    >
+                      <label className="cursor-pointer" />
+                    </SettingsRow>
+                  ))}
+                </SettingsGroup>
+              </div>
+              {searchPageLoading ? <HelperText>Loading files…</HelperText> : null}
+              {searchPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
+                <Button size="standard" variant="none" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
+              {searchPrevious.length || searchPage?.nextCursor ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPrevious.length}
+                    onClick={() => { setSearchCursor(searchPrevious.at(-1) ?? null); setSearchPrevious(items => items.slice(0, -1)); }}>
+                    Previous
+                  </Button>
+                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPage?.nextCursor}
+                    onClick={() => { setSearchPrevious(items => [...items, searchCursor]); setSearchCursor(searchPage?.nextCursor ?? null); }}>
+                    Next 25
+                  </Button>
+                </div>
+              ) : null}
+              <FlowActionGroup
+                primary={
+                  <Button size="prominent" disabled={locked || !searchReady || !searchPage || searchPageError || selectedCount === 0}
+                    onClick={() => mutate(
+                      (token, guard) => DriveSharingService.prepareRequestBulk(token, requestId, search, excludedPositions, guard),
+                      "preparing_share",
+                    )}>
+                    {searchReady ? `Review ${selectedCount.toLocaleString()} files` :
+                      ["limited", "failed", "stopped"].includes(search.status) ? "Search incomplete" : "Search in progress"}
+                  </Button>
+                }
+                secondary={<Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
+                tertiary={["limited", "failed", "stopped"].includes(search.status) ?
+                  <Button size="standard" variant="none" disabled={locked}
+                    onClick={retryDurableSearch}>
+                    Search again
+                  </Button> : undefined}
+              />
+            </>
+          ) : null}
+
+          {!bulkShare && !search ? (
+            <>
+              {review.files.length > 0 ? (
+                <SettingsGroup embedded title="Earlier suggestions" {...groupSurface}>
+                  {review.files.map(file => <SettingsRow key={file.documentId} title={file.name} />)}
+                </SettingsGroup>
+              ) : null}
+              <HelperText>{searchStartFailed.current
+                ? "Full search needed before sharing."
+                : "Search continues after you leave."}</HelperText>
+              <FlowActionGroup
+                primary={<Button size="prominent" disabled>Share files</Button>}
+                secondary={<Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
+                tertiary={searchStartFailed.current ? <Button size="standard" variant="none" disabled={locked}
+                  onClick={retryDurableSearch}>
+                  Search again
+                </Button> : undefined}
+              />
+            </>
+          ) : null}
+
+          {bulkShare?.status === "review_ready" ? (
+            <>
+              <HelperText>{bulkShare.fileCount.toLocaleString()} files selected. This selection is locked.</HelperText>
+              <div aria-label="Files ready to share" aria-busy={bulkPageLoading}>
+                <SettingsGroup embedded title="Files" {...groupSurface}>
+                  {bulkPage?.files.map(file => <SettingsRow key={file.position} title={file.name} />)}
+                </SettingsGroup>
+              </div>
+              {bulkPageLoading ? <HelperText>Loading files…</HelperText> : null}
+              {bulkPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
+                <Button size="standard" variant="none" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
+              {bulkPrevious.length || bulkPage?.nextCursor ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPrevious.length}
+                    onClick={() => { setBulkCursor(bulkPrevious.at(-1) ?? null); setBulkPrevious(items => items.slice(0, -1)); }}>Previous</Button>
+                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPage?.nextCursor}
+                    onClick={() => { setBulkPrevious(items => [...items, bulkCursor]); setBulkCursor(bulkPage?.nextCursor ?? null); }}>Next 25</Button>
+                </div>
+              ) : null}
+              <FlowActionGroup
+                primary={<Button size="prominent" disabled={locked || !bulkPage || bulkPageError || bulkPageLoading}
+                  onClick={() => mutate((token, guard) => DriveSharingService.approveBulkShare(token, bulkShare, guard), "sharing")}>
+                  Share {bulkShare.fileCount.toLocaleString()} files
+                </Button>}
+                secondary={<Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
+              />
+            </>
+          ) : null}
+
+          {bulkShare && bulkShare.status !== "review_ready" ? (
+            <>
+              <HelperText>{bulkShare.counts.shared.toLocaleString()} shared · {bulkShare.counts.alreadyShared.toLocaleString()} already had access · {bulkShare.counts.failed.toLocaleString()} failed</HelperText>
+              {["queued", "running"].includes(bulkShare.status) ? <HelperText>Sharing continues after you leave.</HelperText> : null}
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {review && !durableReview && !removal ? (
         <>
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”
@@ -967,7 +1314,7 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
-      {delivery && !removal ? (
+      {delivery && !delivery.bulkShareId && !removal ? (
         <>
           {delivery.files.length > 0 ? (
             <SettingsGroup embedded title="Files" {...groupSurface}>
@@ -1079,6 +1426,46 @@ function UnlockedDocumentReview({
               </HelperText>
             </>
           )}
+        </>
+      ) : null}
+
+      {delivery?.bulkShareId && outgoing && !removal ? (
+        <>
+          <HelperText>{(delivery.sharedCount ?? 0).toLocaleString()} of {(delivery.fileCount ?? 0).toLocaleString()} files shared</HelperText>
+          {deliveryPage?.files.length ? (
+            <SettingsGroup embedded title="Shared files" {...groupSurface}>
+              {deliveryPage.files.map((file, index) => (
+                <SettingsRow
+                  key={file.grantId ?? index}
+                  title={file.name}
+                  trailing={file.openUrl ? (
+                    <Button asChild size="sm" variant="none" effect="fade" className="min-h-11">
+                      <a href={googleEmail ? `${file.openUrl}?authuser=${encodeURIComponent(googleEmail)}` : file.openUrl}
+                        target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label="Open in Google Drive">
+                        Open <ExternalLink aria-hidden="true" className="ml-1.5 h-4 w-4" />
+                      </a>
+                    </Button>
+                  ) : undefined}
+                />
+              ))}
+            </SettingsGroup>
+          ) : delivery.sharedCount === 0 && snapshot?.status.status === "approved" ? (
+            <HelperText>Files appear as sharing finishes.</HelperText>
+          ) : null}
+          {deliveryPageLoading ? <HelperText>Loading files…</HelperText> : null}
+          {deliveryPageError ? <div><HelperText role="alert">Couldn&apos;t load shared files.</HelperText>
+            <Button size="standard" variant="none" onClick={() => setDeliveryPageRetry(value => value + 1)}>Try again</Button></div> : null}
+          {deliveryPrevious.length || deliveryPage?.nextCursor ? (
+            <div className="flex flex-wrap gap-2">
+              <Button size="standard" variant="none" disabled={deliveryPageLoading || !deliveryPrevious.length}
+                onClick={() => { setDeliveryCursor(deliveryPrevious.at(-1) ?? null); setDeliveryPrevious(items => items.slice(0, -1)); }}>Previous</Button>
+              <Button size="standard" variant="none" disabled={deliveryPageLoading || !deliveryPage?.nextCursor}
+                onClick={() => { setDeliveryPrevious(items => [...items, deliveryCursor]); setDeliveryCursor(deliveryPage?.nextCursor ?? null); }}>Next 25</Button>
+            </div>
+          ) : null}
+          {deliveryPage?.files.length ? <HelperText>{googleEmail
+            ? `Shared with ${googleEmail}. Open while signed in to that Google account.`
+            : "Open while signed in to your linked Google account."}</HelperText> : null}
         </>
       ) : null}
 

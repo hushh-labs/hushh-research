@@ -370,6 +370,7 @@ describe("supported connector catalog", () => {
           authStyle: "oauth",
           profile,
           status: "connected",
+          available: true,
         },
       ],
       features: {
@@ -389,22 +390,27 @@ describe("supported connector catalog", () => {
     it("lets a live Drive owner turn on preparing requests while away", async () => {
       state.overview.mockResolvedValue(liveDrive());
       await openDrive();
-      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
       await waitFor(() => expect(toggle).toBeEnabled());
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(screen.queryByRole("button", { name: "Retry Drive" })).not.toBeInTheDocument();
+      expect(screen.getByText("Sharing and approval")).toBeInTheDocument();
+      expect(screen.getByText(/Sharing a file needs your approval or a document trust rule/)).toBeInTheDocument();
       expect(state.liveBackground).toHaveBeenCalledWith("synthetic-owner-token");
-      fireEvent.click(toggle);
-      expect(
-        await screen.findByRole("button", { name: "Stop background preparation" }),
-      ).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Background preparation"));
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
       expect(state.setLiveBackground).toHaveBeenCalledExactlyOnceWith("synthetic-owner-token", true);
       expect(await screen.findByText("Background preparation enabled.")).toBeInTheDocument();
+      fireEvent.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+      expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", false);
     });
 
     it("keeps the toggle off and says so when the change fails", async () => {
       state.overview.mockResolvedValue(liveDrive());
       state.setLiveBackground.mockRejectedValue(new Error("synthetic failure"));
       await openDrive();
-      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
       await waitFor(() => expect(toggle).toBeEnabled());
       fireEvent.click(toggle);
       expect(
@@ -412,15 +418,14 @@ describe("supported connector catalog", () => {
           "Drive could not finish this action. Check the connection and try again.",
         ),
       ).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Prepare requests while away" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Stop background preparation" })).not.toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-checked", "false");
     });
 
     it("disables the toggle when the current setting cannot be read", async () => {
       state.overview.mockResolvedValue(liveDrive());
       state.liveBackground.mockRejectedValue(new Error("synthetic failure"));
       await openDrive();
-      const toggle = await screen.findByRole("button", { name: "Prepare requests while away" });
+      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
       await waitFor(() => expect(state.liveBackground).toHaveBeenCalled());
       await act(async () => undefined);
       expect(toggle).toBeDisabled();
@@ -428,12 +433,24 @@ describe("supported connector catalog", () => {
       expect(state.setLiveBackground).not.toHaveBeenCalled();
     });
 
+    it("does not show a stale connected status after a failed refresh", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      const view = render(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+      const drive = await screen.findByRole("region", { name: "Google Drive" });
+      await within(drive).findByText("Connected");
+      state.overview.mockRejectedValue(new Error("synthetic unavailable"));
+      state.token = "renewed-owner-token";
+      view.rerender(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+      expect(await within(drive).findByText("Connection status unavailable")).toBeInTheDocument();
+      expect(within(drive).queryByText("Connected")).not.toBeInTheDocument();
+    });
+
     it("offers no background toggle for selected-file access", async () => {
       state.overview.mockResolvedValue(liveDrive("selected"));
       await openDrive();
       await waitFor(() => expect(state.overview).toHaveBeenCalled());
-      expect(await screen.findByText("Retry Drive")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Prepare requests while away" })).not.toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Enable full Drive access" })).toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: "Background preparation" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
     });
   });

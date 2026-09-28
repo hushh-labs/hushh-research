@@ -41,7 +41,7 @@ def test_compatibility_release_defers_cutover_with_a_documented_recovery_boundar
     assert ROLLBACK.exists() and "DELETE FROM" not in ROLLBACK.read_text().upper()
     for contract in ("prod_core_schema", "uat_integrated_schema", "dev_minimum_schema"):
         data = json.loads((ROOT / f"db/contracts/{contract}.json").read_text())
-        assert data["expected_migration_version"] == 253
+        assert data["expected_migration_version"] == 256
 
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:

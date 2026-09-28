@@ -1,16 +1,19 @@
 "use client";
 
-import { memo } from "react";
+import { memo, startTransition, useEffect, useState } from "react";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   canGoBackProfilePane,
   popProfilePaneLocation,
+  profilePaneLocationKey,
   resolveProfilePaneUrlState,
+  type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
 import {
   Sheet,
@@ -34,6 +37,98 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
   "gmail-actions": "Actions",
 };
 
+/** Rows in the Profile home's "Your settings" group, for the shell. */
+const PROFILE_PANE_SHELL_ROW_COUNT = 7;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function markProfilePane(name: string): void {
+  if (typeof performance === "undefined" || typeof performance.mark !== "function") {
+    return;
+  }
+  performance.mark(name);
+}
+
+/**
+ * False until the pane's first slide frame has been painted.
+ *
+ * Opening the pane used to mount the whole Profile page (thousands of lines,
+ * dozens of hooks and effects) in the same commit that inserts the sheet, so
+ * the slide could not paint its first frame until all of it had rendered,
+ * styled and laid out. The pane now commits its header and a static shell,
+ * waits for that frame (two animation frames: the first runs just before it
+ * paints, the second just after), then builds the page in a transition React
+ * may interrupt. The slide itself is transform and opacity only, so it keeps
+ * moving on the compositor while the page renders underneath it.
+ *
+ * Reduced motion has no slide to protect, so the page mounts at once.
+ */
+function useProfilePaneFirstFramePainted(): boolean {
+  const [painted, setPainted] = useState(prefersReducedMotion);
+  useEffect(() => {
+    if (painted) return;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      markProfilePane("hushh:profile-pane-first-frame");
+      second = window.requestAnimationFrame(() => {
+        startTransition(() => setPainted(true));
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      window.cancelAnimationFrame(second);
+    };
+  }, [painted]);
+  return painted;
+}
+
+/** Static placeholder in the Profile home's shape: no data, no measuring. */
+function ProfilePaneShell() {
+  return (
+    <div
+      data-testid="profile-pane-shell"
+      aria-hidden="true"
+      className="flex flex-col gap-6 px-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pt-5"
+    >
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-14 shrink-0 rounded-full motion-safe:animate-none" />
+        <div className="flex flex-1 flex-col gap-2">
+          <Skeleton className="h-5 w-40 motion-safe:animate-none" />
+          <Skeleton className="h-3 w-52 motion-safe:animate-none" />
+        </div>
+      </div>
+      <div className="flex flex-col">
+        {Array.from({ length: PROFILE_PANE_SHELL_ROW_COUNT }, (_, index) => (
+          <div key={index} className="flex h-12 items-center gap-3">
+            <Skeleton className="size-7 shrink-0 rounded-full motion-safe:animate-none" />
+            <Skeleton className="h-4 w-36 motion-safe:animate-none" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Lives inside the sheet's content, so it mounts with each open and unmounts
+ * after each close: every open starts from the shell, and a close (or a move
+ * between panels while open) never shows it again.
+ */
+function ProfilePaneBody({ location }: { location: ProfilePaneLocation }) {
+  const firstFramePainted = useProfilePaneFirstFramePainted();
+  useEffect(() => {
+    if (firstFramePainted) markProfilePane("hushh:profile-pane-content");
+  }, [firstFramePainted]);
+  if (!firstFramePainted) return <ProfilePaneShell />;
+  return <ProfilePage presentation="pane" paneLocation={location} />;
+}
+
 type ProfilePaneProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -52,32 +147,46 @@ export const ProfilePane = memo(function ProfilePane({
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
-  const canGoBack = canGoBackProfilePane(paneState.location);
-  const panelTitle = paneState.location.panel
-    ? paneState.location.panel === "my-data"
+  // Closing removes the pane query, which also resets the URL location to the
+  // root in the same commit that starts the exit slide. Showing that reset
+  // meant closing from a sub-panel retitled the header to "Profile" and slid
+  // the inner stack back while the sheet slid out: two motions and a flicker.
+  // Hold the last open location until the pane is open again.
+  const [heldLocation, setHeldLocation] = useState(paneState.location);
+  if (
+    paneState.open &&
+    profilePaneLocationKey(paneState.location) !==
+      profilePaneLocationKey(heldLocation)
+  ) {
+    setHeldLocation(paneState.location);
+  }
+  const location = paneState.open ? paneState.location : heldLocation;
+  const canGoBack = canGoBackProfilePane(location);
+  const panelTitle = location.panel
+    ? location.panel === "my-data"
       ? "Memory"
-      : paneState.location.panel === "connected-systems"
+      : location.panel === "connected-systems"
         ? "Connected Systems"
-        : paneState.location.panel === "gmail"
+        : location.panel === "gmail"
           ? "Mail receipts"
-          : paneState.location.panel === "account"
+          : location.panel === "account"
             ? "Your account"
-            : paneState.location.panel === "hosting"
+            : location.panel === "hosting"
               ? "Hosting"
-              : paneState.location.panel === "software-updates"
+              : location.panel === "software-updates"
                 ? "Software updates"
-                : paneState.location.panel === "preferences"
+                : location.panel === "preferences"
                   ? "Appearance & preferences"
-                  : paneState.location.panel === "security"
+                  : location.panel === "security"
                     ? "Security & privacy"
-                    : paneState.location.panel === "referrals"
+                    : location.panel === "referrals"
                       ? "Invite friends"
                       : "Help & feedback"
     : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.
   // Details without a fixed name (a domain, a connection) keep the panel's.
-  const detail = paneState.location.detail;
+  const detail = location.detail;
   const title = detail
     ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle)
     : panelTitle;
@@ -146,7 +255,7 @@ export const ProfilePane = memo(function ProfilePane({
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePage presentation="pane" />
+          <ProfilePaneBody location={location} />
         </div>
       </SheetContent>
     </Sheet>

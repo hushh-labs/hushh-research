@@ -54,6 +54,10 @@ tests/test_documents_agent_a2a.py
 tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
+tests/services/test_drive_bulk_share_postgres.py
+tests/services/test_drive_bulk_share_service.py
+tests/services/test_drive_bulk_share_worker.py
+tests/test_drive_bulk_share_routes.py
 tests/test_drive_saved_search_handoff.py
 tests/services/test_drive_telemetry.py
 tests/test_drive_live_query_routes.py
@@ -226,6 +230,8 @@ tests/test_pool_acquire_is_bounded.py
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+tests/test_account_legal_acceptance.py
+tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
@@ -288,6 +294,8 @@ tests/test_one_location_nearby_check_in_preferences_migration.py
 
 # Existing retrieval adapter: deterministic tests do not download a model.
 tests/services/test_action_retrieval.py
+# Image-baked catalog vectors: used on an exact match, live embedding otherwise.
+tests/services/test_action_catalog_vectors.py
 
 # Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
@@ -344,6 +352,10 @@ tests/services/test_location_nearby_visit_command_postgres.py
 # Agent Chat measurement instruments: AG-UI turn timing, the first-tool harness
 # and latency driver (offline math only), ADK EvalSet shape, conformance replay.
 tests/test_agui_turn_timing.py
+# Startup warmup: a worker's first chat turn imports nothing before its model call.
+tests/test_one_turn_warmup.py
+# Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
+tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
 tests/scripts/test_eval_one_first_tool.py
 tests/scripts/test_eval_pkm_structure_agent.py
@@ -399,6 +411,8 @@ tests/test_agent_runtime_declarations.py
 tests/test_one_manifest_subagent_prompts.py
 tests/test_nav_a2a_agent.py
 tests/test_one_adk_agent_tree.py
+# Finance market tools: providers receive the ticker only, never owner identity.
+tests/test_one_finance_market_tools.py
 tests/test_a2a_delegation_scopes.py
 tests/test_connections_a2a.py
 tests/test_specialist_availability.py
@@ -491,6 +505,9 @@ tests/test_pod_release.py
 # connector calls pause for exact-call review without leaking arguments or results.
 tests/services/test_consent_db_request_statuses.py
 tests/test_one_output_privacy.py
+# A long paste travels as its own text/plain document part: the model reads it as a
+# named, delimited document and history restores it as a chip, not message text.
+tests/test_one_text_attachments.py
 tests/test_one_turn_location.py
 
 tests/test_mcp_review_wire_contract.py
@@ -526,3 +543,4 @@ tests/test_pod_server.py
 
 # Execute the real deploy shell with immutable-artifact fixtures.
 tests/test_personal_agent_deploy_lane.py
+tests/test_structure_agent_prompt_is_unambiguous.py

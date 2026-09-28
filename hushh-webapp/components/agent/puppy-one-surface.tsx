@@ -48,7 +48,14 @@ export function PuppyOneSurface({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-3 pt-5 sm:px-6",
+        // The bottom padding is One's composer clearance, not a fixed gap. On
+        // root Chat the bottom navigation is `position: fixed` over this
+        // column and `--agent-chat-composer-bottom` carries its height (and
+        // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
+        // underneath the navigation. The fallback covers a mount outside the
+        // workspace, where the variable is not defined.
+        "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-5 sm:px-6",
+        "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
       data-agent-surface="puppy"
@@ -71,7 +78,10 @@ export function PuppyOneSurface({
           </p>
         ) : null}
         <PuppyMachineSheet className="shrink-0" active={active} />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
+        {/* No card frame: One's transcript sits directly on the workspace
+            surface, and a bordered box here read as a widget inside the page
+            rather than the conversation itself. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {conversations === undefined ? <HermesChatPanel active={active} /> : (
             <>
               {conversations.length === 0 ? (

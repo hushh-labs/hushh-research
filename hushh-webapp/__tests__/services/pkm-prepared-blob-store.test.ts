@@ -161,6 +161,94 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     expect(transport.nativeStore).not.toHaveBeenCalled();
   });
 
+  it("surfaces the backend's structured error code/message on a non-409, non-2xx store failure", async () => {
+    // Regression: a real portfolio save failed with a 422 the backend
+    // explains precisely (code + message in the response body), but
+    // storeDomainData threw only "Failed to store domain data: 422" --
+    // every caller up the chain (pkm-write-coordinator's generic catch,
+    // then the UI) had nothing left to work with, and it surfaced to the
+    // person as an unexplained "Backend returned failure on store".
+    transport.native = false;
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "PKM_MUTATION_PLAN_INVALID",
+            message: "The PKM mutation plan does not match this write.",
+          },
+        }),
+        { status: 422 },
+      ),
+    );
+
+    await expect(
+      PersonalKnowledgeModelService.storeDomainData({
+        userId: "owner-fixture",
+        domain: "financial",
+        summary: {},
+        encryptedBlob: { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" },
+        vaultOwnerToken: "owner-token-fixture",
+      }),
+    ).rejects.toThrow(
+      /422.*PKM_MUTATION_PLAN_INVALID.*The PKM mutation plan does not match this write\./,
+    );
+  });
+
+  it("falls back to the bare status when a non-409 failure has no parseable JSON body", async () => {
+    transport.native = false;
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response("not json", { status: 500 }),
+    );
+
+    await expect(
+      PersonalKnowledgeModelService.storeDomainData({
+        userId: "owner-fixture",
+        domain: "financial",
+        summary: {},
+        encryptedBlob: { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" },
+        vaultOwnerToken: "owner-token-fixture",
+      }),
+    ).rejects.toThrow("Failed to store domain data: 500");
+  });
+
+  it("surfaces FastAPI's own request-validation shape (detail: [{loc, msg, type}]), not just our route's {code, message}", async () => {
+    // Regression: StoreDomainRequest's structure_decision.json_paths has a
+    // server-side max_length=1000. That cap rejects the request before our
+    // route code ever runs, so FastAPI's own pydantic validation error
+    // shape reaches the client -- `detail` is a LIST, not an object with
+    // {code, message} -- and the object-only extraction above silently
+    // matched neither, falling back to a bare "422" exactly like the
+    // no-body case. A manifest that outgrew the path cap is precisely the
+    // failure this needs to be diagnosable for.
+    transport.native = false;
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: [
+            {
+              type: "too_long",
+              loc: ["body", "structure_decision", "json_paths"],
+              msg: "List should have at most 1000 items after validation, not 1132",
+            },
+          ],
+        }),
+        { status: 422 },
+      ),
+    );
+
+    await expect(
+      PersonalKnowledgeModelService.storeDomainData({
+        userId: "owner-fixture",
+        domain: "financial",
+        summary: {},
+        encryptedBlob: { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" },
+        vaultOwnerToken: "owner-token-fixture",
+      }),
+    ).rejects.toThrow(
+      /422.*too_long.*structure_decision\.json_paths.*List should have at most 1000 items/,
+    );
+  });
+
   it("stores merged domain from prepared blob without loading blob again", async () => {
     const loadSpy = vi
       .spyOn(PersonalKnowledgeModelService, "loadFullBlob")

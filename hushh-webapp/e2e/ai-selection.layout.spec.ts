@@ -87,7 +87,7 @@ for (const width of [320, 393, 768, 1440]) {
         const filename = path.basename(new URL(route.request().url()).pathname);
         await route.fulfill({contentType:"image/svg+xml", body:fs.readFileSync(path.join(process.cwd(),"public/brand/providers",filename))});
       });
-      await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://fixture.local/"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><base href="http://fixture.local/"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addStyleTag({ content: ":root { --app-safe-area-bottom-effective: 34px; }" });
       await page.addScriptTag({content:script});
       await expect(page.getByRole("heading", { name: "Choose your AI" })).toBeVisible();

@@ -299,7 +299,6 @@ import { useLocationOnboardingProgress } from "@/lib/one-location/use-onboarding
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
-import { ApiError } from "@/lib/services/api-client";
 import { useShareRecipientSelectionState } from "@/lib/one-location/use-share-recipient-selection-state";
 import { AvatarBubble, SegmentedModeControl, type ShareMode } from "@/components/one-location/location-controls";
 import { matchCircleByName } from "@/lib/one-location/resolve-spoken-names";
@@ -1261,19 +1260,6 @@ const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
  * thing enforcing this, and it was not enforcing it.
  */
 const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
-
-/**
- * An ISO expiry as epoch ms, or null when there is nothing usable to compare.
- *
- * Null means "do not expire this locally" rather than "expired": a missing or
- * unparseable timestamp is not evidence the link has run out, and treating it
- * as such would hide a working link.
- */
-function parseExpiryMs(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function publicInviteDurationHours(value: string): number {
   return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
@@ -2740,16 +2726,13 @@ export function OneLocationAgentPageContent({
    * exists is this variable. `publicInviteUrl` below prefers the server's copy
    * and falls back to this one.
    *
-   * It carries its own expiry, and that is not decoration. A bare string
-   * outlived the link it named: once the invite ran out, the server stopped
-   * reporting it as active but this variable still held a URL, so the Links tab
-   * -- which hides its create control whenever a link is live -- kept showing a
-   * dead link with no way past it. The expiry here is the one the SERVER
-   * stamped, not the duration that was asked for, so the two agree.
+   * Keep the invite id so a later authoritative state read can clear this
+   * temporary fallback when the server reports expiry or revocation.
    */
   const [createdPublicInvite, setCreatedPublicInvite] = useState<{
     url: string;
-    expiresAtMs: number | null;
+    inviteId: string | null;
+    seenOnServer?: boolean;
   } | null>(null);
   /**
    * The public link's own duration, deliberately not the shared `durationHours`.
@@ -3817,33 +3800,13 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
-  /**
-   * Links that are live right now, by the clock as well as by the server.
-   *
-   * `status` alone is not enough. Expiry is written server-side only when a row
-   * is READ, and nothing on this screen refetches on a timer -- so a link that
-   * ran out five minutes ago is still `status: "active"` in the state this
-   * session already holds. That was harmless while the Links tab merely listed
-   * it. It is not harmless now: the tab hides its create control whenever a
-   * link is live, so a stale row left the person looking at a dead link with no
-   * way to make another until they reloaded the page.
-   *
-   * `nowMs` ticks every 30s and on return from background, so the create form
-   * comes back on its own, which is exactly the promise the tab makes.
-   *
-   * A row with no `expiresAt` is treated as live: the server sent it as active
-   * and we have nothing to contradict that with.
-   */
+  // The server owns link expiry. A fast device clock must not hide a live URL
+  // or its revoke control while recipients can still use the link.
   const activePublicInvites = useMemo(
-    () =>
-      (state?.publicInvites ?? []).filter((invite) => {
-        if (invite.status !== "active") return false;
-        if (!invite.expiresAt) return true;
-        const expiresAtMs = Date.parse(invite.expiresAt);
-        return !Number.isFinite(expiresAtMs) || expiresAtMs > nowMs;
-      }),
-    [nowMs, state?.publicInvites],
+    () => (state?.publicInvites ?? []).filter((invite) => invite.status === "active"),
+    [state?.publicInvites],
   );
+  const publicHeartbeatInviteId = activePublicInvites[0]?.id;
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
       Date.parse(
@@ -3875,16 +3838,8 @@ export function OneLocationAgentPageContent({
       return publicInviteUrlLabel(String(fromServer).trim());
     }
     if (!createdPublicInvite) return "";
-    // The fallback has to expire with the link it names, or it keeps a dead
-    // link on screen after `latestActivePublicInvite` has correctly let go.
-    if (
-      createdPublicInvite.expiresAtMs !== null &&
-      createdPublicInvite.expiresAtMs <= nowMs
-    ) {
-      return "";
-    }
     return createdPublicInvite.url;
-  }, [createdPublicInvite, latestActivePublicInvite, nowMs]);
+  }, [createdPublicInvite, latestActivePublicInvite]);
 
   const activeCircleInvites = useMemo(
     () =>
@@ -4109,6 +4064,19 @@ export function OneLocationAgentPageContent({
             ),
           ]);
           setPermission(nextPermission);
+          setCreatedPublicInvite((current) => {
+            if (!current?.inviteId) return current;
+            const matching = (nextState.publicInvites ?? []).find(
+              (invite) => invite.id === current.inviteId,
+            );
+            if (matching?.status === "active") {
+              return current.seenOnServer ? current : { ...current, seenOnServer: true };
+            }
+            // A cached read immediately after creation may predate the insert.
+            // Once the row has been seen, its absence or inactive state ends
+            // the fallback URL along with the server's link.
+            return matching || current.seenOnServer ? null : current;
+          });
           const rankedNextRecipients = rankRecipientsForRecommendation(
             enrichRecipientsWithContactSignal(
               nextState.recipients,
@@ -4327,6 +4295,20 @@ export function OneLocationAgentPageContent({
     OneLocationStateResource.invalidate(userId);
     void refresh({ background: true });
   }, [auth.userId, commitLiveShareEntries, refresh]);
+
+  const publicExpiryProbeAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!activePublicInvites.some((invite) => {
+      const expiry = Date.parse(invite.expiresAt ?? "");
+      return Number.isFinite(expiry) && expiry <= nowMs;
+    })) return;
+    // The local clock is a hint to refresh, never authority to end a link.
+    // Probe once per 30-second tick; if the device is fast, the server keeps
+    // reporting active and the owner retains Copy, Share, and Stop controls.
+    if (publicExpiryProbeAtRef.current === nowMs) return;
+    publicExpiryProbeAtRef.current = nowMs;
+    void refresh({ background: true }).catch(() => undefined);
+  }, [activePublicInvites, nowMs, refresh]);
 
   const refreshLocationPermission = useCallback(async () => {
     // A failed read means we do not know, which is a reason to ask the device
@@ -6521,7 +6503,7 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!vaultOwnerToken) return;
-    const inviteId = activePublicInvites[0]?.id;
+    const inviteId = publicHeartbeatInviteId;
     if (!inviteId) return;
     if (locationControl.paused) return;
     if (
@@ -6555,10 +6537,7 @@ export function OneLocationAgentPageContent({
           locationSnapshot: point,
         });
       } catch (error) {
-        if (
-          error instanceof ApiError &&
-          (error.status === 404 || error.status === 410)
-        ) {
+        if (apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
           cancelled = true;
           setCreatedPublicInvite(null);
           setStateEntry((current) =>
@@ -6594,10 +6573,10 @@ export function OneLocationAgentPageContent({
       window.clearInterval(interval);
     };
   }, [
-    activePublicInvites,
     auth.userId,
     locationControl.paused,
     permission?.state,
+    publicHeartbeatInviteId,
     scheduleOneLocationStateRefresh,
     vaultOwnerToken,
   ]);
@@ -8166,7 +8145,7 @@ export function OneLocationAgentPageContent({
       const url = publicInviteUrlLabel(response.publicUrl);
       setCreatedPublicInvite({
         url,
-        expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+        inviteId: response.invite?.id ?? null,
       });
       const copiedToClipboard = !context && url ? await copyToClipboard(url) : false;
       trackEvent("one_location_public_link_created", {
@@ -8288,7 +8267,7 @@ export function OneLocationAgentPageContent({
         url = publicInviteUrlLabel(response.publicUrl);
         setCreatedPublicInvite({
           url,
-          expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+          inviteId: response.invite?.id ?? null,
         });
         trackEvent("one_location_public_link_created", {
           route_id: "one_location",
@@ -11187,7 +11166,7 @@ export function OneLocationAgentPageContent({
     needsShareGesture: isWeb(),
     showReviewedLink: (link) => {
       if (link.ownerUserId === shareAudienceOwnerUserIdRef.current)
-        setCreatedPublicInvite({url: link.publicUrl || "", expiresAtMs: parseExpiryMs(link.expiresAt)});
+        setCreatedPublicInvite({url: link.publicUrl || "", inviteId: link.id});
     },
   });
   useLocalOnboardingActionHandler("location.create_public_link", (_slots,context)=>handleCreatePublicInvite(context), {

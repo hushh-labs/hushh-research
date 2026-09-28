@@ -272,6 +272,11 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                     text("DELETE FROM drive_share_live_sources WHERE request_id=:request"),
                     identifiers,
                 )
+            if _exists(connection, "drive_bulk_shares"):
+                connection.execute(
+                    text("DELETE FROM drive_bulk_shares WHERE origin_request_id=:request"),
+                    identifiers,
+                )
             connection.execute(
                 text("DELETE FROM drive_share_requests WHERE request_id=:request"), identifiers
             )
@@ -296,6 +301,24 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
         )
     if _exists(connection, "drive_live_preferences"):
         connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id=:user"), params)
+    if _exists(connection, "drive_bulk_shares"):
+        # Owner erasure removes the frozen manifest and all queued effects.
+        # Recipient erasure removes only their identity/effects, preserving
+        # other recipients' already approved work without exposing the erased
+        # participant in a later status or notification.
+        connection.execute(text("DELETE FROM drive_bulk_shares WHERE user_id=:user"), params)
+        connection.execute(
+            text("DELETE FROM drive_bulk_share_recipients WHERE recipient_user_id=:user"), params
+        )
+        connection.execute(
+            text("""UPDATE drive_bulk_shares b
+              SET recipient_count=(SELECT count(*) FROM drive_bulk_share_recipients r
+                WHERE r.share_id=b.share_id),
+                  status=CASE WHEN b.status='review_ready' THEN 'failed' ELSE b.status END,
+                  revision=b.revision+1,updated_at=clock_timestamp()
+              WHERE b.recipient_count<>(SELECT count(*) FROM drive_bulk_share_recipients r
+                WHERE r.share_id=b.share_id)""")
+        )
     if _exists(connection, "drive_owner_search_jobs"):
         # Result pages cascade; queued/running searches lose their job authority
         # in the same transaction as account/connector erasure.

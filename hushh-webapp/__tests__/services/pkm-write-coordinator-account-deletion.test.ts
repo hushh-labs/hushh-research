@@ -55,6 +55,9 @@ describe("PkmWriteCoordinator during account deletion", () => {
     const result = await save("uid-other");
 
     expect(result.saveState).toBe("failed");
-    expect(error).toHaveBeenCalledWith("[PkmWriteCoordinator] PKM write failed.");
+    expect(error).toHaveBeenCalledWith(
+      "[PkmWriteCoordinator] PKM write failed:",
+      "Failed to store domain data: 500",
+    );
   });
 });

@@ -35,7 +35,7 @@ export default function OneGmailPageClient() {
     <CapabilityVaultPrerequisite
       capabilityLabel="Mail"
       routeKey={ROUTES.GMAIL}
-      checkingFallback={<GmailWorkspaceSkeleton />}
+      checkingFallback={<GmailWorkspaceSkeleton titleVisuallyHidden />}
     >
       <GmailReceiptsPage forceWorkspace={feedWorkspace} />
     </CapabilityVaultPrerequisite>

@@ -57,6 +57,30 @@ describe("recursive Profile pane contracts", () => {
     expect(providers).toContain("clearProfilePaneQuery");
   });
 
+  it("slides the pane's sheet on transform and opacity only", () => {
+    // tw-animate's shared enter/exit keyframes also animate `filter`; the
+    // sheet surface uses its own keyframes so the slide stays off that path.
+    const css = read("app/globals.css");
+    const keyframes = ["sheet-surface-enter", "sheet-surface-exit"].map(
+      (name) => {
+        const start = css.indexOf(`@keyframes ${name} {`);
+        expect(start, name).toBeGreaterThan(-1);
+        return css.slice(start, css.indexOf("\n}\n", start));
+      },
+    );
+    for (const block of keyframes) {
+      expect(block).toContain("transform: translate3d(");
+      expect(block).toContain("opacity:");
+      expect(block).not.toContain("filter");
+    }
+    expect(css).toMatch(
+      /\[data-slot="sheet-content"\]\[data-state="open"\] \{\s+animation-name: sheet-surface-enter;/,
+    );
+    expect(css).toMatch(
+      /\[data-slot="sheet-content"\]\[data-state="closed"\] \{\s+animation-name: sheet-surface-exit;/,
+    );
+  });
+
   it("never registers a non-passive touch or pointer listener on window", () => {
     // A single non-passive touchmove on `window` makes WebKit treat the whole
     // document as a synchronous touch region: every scroll in the app then

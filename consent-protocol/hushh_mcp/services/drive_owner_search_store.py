@@ -40,6 +40,7 @@ def view(row: dict) -> dict:
         "status": row["status"],
         "revision": row["revision"],
         "matched": row["matched"],
+        "unshareableCount": row.get("unshareable_count", 0),
         "pagesScanned": row["pages_scanned"],
         "incompleteSearch": row["incomplete_search"],
         "canStop": row["status"] in ACTIVE,
@@ -55,12 +56,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         super().__init__(db)
         self.search_cipher = cipher or DriveSharingCipher()
 
-    def _access(self, connection, user_id, generation=None):
+    def _access(self, connection, user_id, generation=None, *, read_only=False):
         if not connector_feature_enabled("google_drive_chat_reads", user_id):
             raise DriveReadError("connector_unavailable")
         # This job's explicit consent authorizes metadata collection only.
         # Never toggle or borrow the broader background-preparation preference.
-        return self.live_active(connection, user_id=user_id, generation=generation)
+        return self.live_active(
+            connection, user_id=user_id, generation=generation, read_only=read_only
+        )
 
     def _seal(self, value, user_id, resource_id, purpose):
         return json.dumps(
@@ -184,21 +187,88 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    # status() and list() back GET routes and must never write. They used to
+    # take the connection lock, and _lock() upserts a placeholder connection
+    # row: in an environment without a google_drive catalog row (production)
+    # that insert violated user_external_connector_connections_connector_id_fkey
+    # and every GET returned 500. A single-statement read needs no row lock,
+    # and expired rows are already excluded by the query, so neither the lock
+    # nor the opportunistic purge belongs on this path. Retention stays on the
+    # worker (due) and the write paths (create, existing, stop). results()
+    # is a GET too and reads the connection row FOR SHARE instead of _lock().
     async def status(self, *, user_id, job_id):
         identity = _identity(job_id)
 
         def operation(connection):
-            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             return view(self._owned(connection, user_id, identity))
 
-        await self.purge()
         return await self._transaction(operation)
 
-    async def list(self, *, user_id):
-        await self.purge()
+    async def by_client(self, *, user_id, client_request_id):
+        client = _identity(client_request_id)
+
+        def operation(connection):
+            row = self._row(
+                connection,
+                "SELECT * FROM drive_owner_search_jobs WHERE user_id=:user AND client_request_id=:client AND expires_at>clock_timestamp()",
+                {"user": user_id, "client": client},
+            )
+            if row is None:
+                return None
+            current = self._access(connection, user_id, read_only=True)
+            if row["connection_generation"] != current["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            return view(row)
+
+        return await self._transaction(operation)
+
+    async def clear_terminal_request(self, *, user_id, request_id):
+        client = _identity(request_id)
 
         def operation(connection):
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs
+                WHERE user_id=:user AND client_request_id=:client FOR UPDATE""",
+                {"user": user_id, "client": client},
+            )
+            if row is None:
+                return
+            if row["status"] not in {"failed", "limited", "stopped"}:
+                raise DriveReadError("search_in_progress")
+            if self._row(
+                connection,
+                "SELECT share_id FROM drive_bulk_shares WHERE search_job_id=:job",
+                {"job": row["job_id"]},
+            ):
+                raise DriveReadError("search_in_progress")
+            connection.execute(
+                text("DELETE FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": row["job_id"]},
+            )
+
+        await self._transaction(operation)
+
+    async def align_request_expiry(self, *, user_id, request_id):
+        client = _identity(request_id)
+
+        def operation(connection):
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs j
+                SET expires_at=r.expires_at
+                FROM drive_share_requests r
+                WHERE j.user_id=:user AND j.client_request_id=:client
+                  AND r.request_id=:client AND r.user_id=:user
+                  AND r.bulk_search_started_at IS NOT NULL
+                  AND j.expires_at<r.expires_at"""),
+                {"user": user_id, "client": client},
+            )
+
+        await self._transaction(operation)
+
+    async def list(self, *, user_id):
+        def operation(connection):
             rows = connection.execute(
                 text(
                     "SELECT * FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at>clock_timestamp() ORDER BY created_at DESC,job_id DESC LIMIT 20"
@@ -237,10 +307,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if type(limit) is not int or not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
         after = self._after(user_id, identity, cursor)
-        await self.purge()
 
         def operation(connection):
-            current = self._access(connection, user_id)
+            current = self._access(connection, user_id, read_only=True)
             row = self._owned(connection, user_id, identity)
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
@@ -418,6 +487,23 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     def _current(self, connection, job):
         self._access(connection, job["user_id"], job["generation"])
         row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
+        origin = job["checkpoint"].get("request_origin_id")
+        if origin is not None:
+            request = self._row(
+                connection,
+                """SELECT status,revision,expires_at,bulk_search_started_at
+                FROM drive_share_requests WHERE request_id=:request AND user_id=:user""",
+                {"request": origin, "user": job["user_id"]},
+            )
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["revision"] != job["checkpoint"].get("request_revision")
+                or request["bulk_search_started_at"] is None
+                or request["expires_at"]
+                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            ):
+                raise DriveReadError("search_superseded")
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
             row["status"] != "running"
@@ -440,6 +526,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         def operation(connection):
             row = self._current(connection, job)
             count = row["matched"]
+            unshareable = row.get("unshareable_count", 0)
             limited = False
             for item in files:
                 digest = self.search_cipher.digest("owner-search-file", [job["job_id"], item["id"]])
@@ -453,6 +540,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     limited = True
                     break
                 count += 1
+                unshareable += int(item.get("shareable") is False)
                 connection.execute(
                     text(
                         "INSERT INTO drive_owner_search_results(job_id,user_id,position,file_digest,metadata_envelope) VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"
@@ -479,7 +567,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             updated = self._row(
                 connection,
                 """UPDATE drive_owner_search_jobs SET matched=:count,
-                pages_scanned=pages_scanned+1,incomplete_search=:incomplete,status=:state,
+                pages_scanned=pages_scanned+1,unshareable_count=:unshareable,
+                incomplete_search=:incomplete,status=:state,
                 checkpoint_envelope=CAST(:envelope AS jsonb),retry_count=0,error_code=:code,
                 lease_id=CASE WHEN :terminal THEN NULL ELSE lease_id END,
                 lease_expires_at=CASE WHEN :terminal THEN NULL ELSE lease_expires_at END,
@@ -487,6 +576,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 {
                     "job": job["job_id"],
                     "count": count,
+                    "unshareable": unshareable,
                     "incomplete": is_incomplete,
                     "state": state,
                     "terminal": state != "running",

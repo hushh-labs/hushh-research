@@ -589,9 +589,9 @@ not the product owner for live location.
 | GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose independently selected places are at most 500 m apart; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
 | DELETE | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Idempotently check the caller out, clear encrypted anchor/index material immediately, and remove them from discovery; available even when discovery is disabled |
 | POST | `/api/one/location/nearby-presence/connection-request` | VAULT_OWNER Bearer | Non-production simulation only: resolve a rotating alias supplied in the JSON body, revalidate both active presence versions and exact radius, then create only the canonical pending Connect request if the target still opts in |
-| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public live-location link at `/one/location/view/<first-name>.<token>` (bare token if no safe name exists). Only the token hash is stored; the owner can recover the signed token and URL on subsequent reads. Calling this while a link is live reuses it with `reused: true`, its window restarted for the requested duration and its snapshot refreshed |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public live-location link at `/one/location/view/<first-name>.<token>` (bare token if no safe name exists). Only the token hash is stored; the owner can recover the signed token and URL on subsequent reads while the signing key matches. Calling this while a link is live reuses it with `reused: true`, its window restarted for the requested duration and its snapshot refreshed. If a live legacy or rotated-key token cannot be recovered, return `409 LOCATION_PUBLIC_INVITE_UNRECOVERABLE` without revoking the existing link; the owner can explicitly stop it before creating another |
 | POST | `/api/one/location/public-invites/{invite_id}/location` | VAULT_OWNER Bearer | Owner heartbeat that moves the pin on their own live public link. Writes `publicLocation` only - never the window, the label or the status, so a heartbeat can never extend a link past what the owner agreed to |
-| GET | `/api/one/location/public-invites/{public_token}` | Public | Accept named or legacy bare tokens. The first-name prefix is decorative; only the bearer token authorizes access and the stored invite supplies the owner's identity. Resolve the sharer's display-name label (`allow_email_handle=False`, never a phone number or email handle), status, duration, expiry, and attached `publicLocation`. Missing links return 404; expired or revoked links return 410 |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Accept named or legacy bare tokens. The first-name prefix is decorative; only the bearer token authorizes access and the stored invite supplies the owner's identity. Resolve the sharer's display-name label (`allow_email_handle=False`, never a phone number or email handle), status, duration, expiry, attached `publicLocation`, and database-relative `expiresInSeconds`. The database clock decides expiry. Invalid/missing bearers return `404 LOCATION_PUBLIC_INVITE_INVALID` or `404 LOCATION_PUBLIC_INVITE_NOT_ACTIVE`; expired or revoked rows return `410 LOCATION_PUBLIC_INVITE_NOT_ACTIVE`. The viewer treats only these typed service errors as terminal and retries untyped transport errors, but conceals the pin at the database-relative deadline while confirmation is unavailable |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
 | POST | `/api/one/location/circle-invites` | VAULT_OWNER Bearer | Create a hash-only Invite to One link; claiming never grants live location access directly |
@@ -686,7 +686,7 @@ auth-required response.
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
 | POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
-| GET    | `/api/one/connections/directory`                           | Paginated, privacy-filtered Connect directory; display-name search only, with masked email/phone labels when available so same-name candidates remain distinguishable without exposing raw identifiers |
+| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over profiles, including people without a verified phone and verified RIAs in the `all` audience. Explicit discoverability opt-outs are respected for strangers; email and phone labels stay masked. The `ria` audience narrows to verified advisers. |
 | GET    | `/api/one/connections/{counterpart_user_id}/context`       | Firebase-authenticated, directory-bounded person lookup with current connection state and the latest participant-pair request. An accepted historical request does not establish current Location eligibility. This read grants no action or information-sharing authority. |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
 | POST   | `/api/one/connections/requests`                            | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]`                                                                                                             |
@@ -856,6 +856,7 @@ stay as retirement responders.
 | GET/PATCH | `/api/one/location/account-settings` | Vault-owner token. Owner-level sharing posture: `sharingState on|off`, `precision`, `includeSos`, `consentVersion`, `osPermissionReported` (`api/routes/one/location_settings.py`) |
 | GET/PATCH | `/api/one/location/setup-progress` | Vault-owner token. Voice-first Location setup step machine (`action: start|accept_consent|record_os_permission|set_precision|confirm_recipient_key|complete`) |
 | PATCH  | `/api/account/identity/display-name` | Firebase auth. Changes the display name at Firebase Auth and re-syncs the identity shadow |
+| GET/POST | `/api/account/legal-acceptance` | Firebase auth, not vault-gated. GET returns the latest accepted Terms of Use and Privacy Policy version per document; POST `{documents:[{document_id, document_version, effective_date}], surface: web|native}` records both, idempotent per version (`account_legal_acceptances`, migration 254; deleted with the account) |
 
 Location commands (the bounded runtime) keep the canonical proposal namespace.
 The semantic model there has no effect tools; admission, confirmation and
@@ -1566,6 +1567,69 @@ distinct. Empty pages with cursors continue; `incompleteSearch` and any bounded 
 visible incomplete results, never proof of absence. Existence queries return metadata without
 exports. Optional content-read failure preserves successful siblings. Sharing remains the existing
 reviewed exact-ID permission flow below.
+
+### Reviewed sharing of a complete Drive search
+
+`/api/connectors/google_drive/sharing/bulk` is a separate owner-approved lane for
+sharing *all matches of one saved search* with the owner's eligible Trusted circle.
+The search job is only metadata collection authority. A running, stopped, failed,
+limited, expired, or `incompleteSearch` result cannot be represented as “all.”
+Every route is Vault Owner authenticated and private/no-store; the browser sends
+only opaque job/share IDs, never a list of Drive IDs or recipient emails.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `POST /` | `{searchJobId,clientRequestId,audience:"trusted_circle"}`. Idempotently freezes the completed result IDs and currently eligible, verified recipient identities under an exact review digest. No Google permission or recipient message is created. |
+| `GET /` and `GET /{id}` | Owner's recent review and durable share status: file/recipient counts, exclusions, review revision/digest, and separate queued, confirmed, already-present, skipped, failed, and uncertain effect counts. An uncertain provider write requires review; a queued approval is never called delivered. |
+| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest for inspection before approval. No content downloads. |
+| `POST /{id}/approve` | `{revision,reviewDigest,confirmed:true}` from the current exact-set review. HTTP 202 queues file-by-recipient Viewer grants; it does not mean Google access or notification has succeeded. |
+| `POST /{id}/stop` | Empty body; fences remaining grants. Already confirmed Google permissions remain and are reported honestly. |
+| `GET /received` and `GET /received/{id}/files?cursor=…` | Current recipient's collection and 25-file pages of *confirmed* original-file links only. The recipient needs a current verified email, not a Drive connector. A changed identity cannot read the old collection. |
+
+Approval creates a durable per-file, per-recipient ledger. Bounded workers recheck
+the owner's Drive generation and live file access, current Trusted membership,
+and the recipient's verified email before each grant. Ambiguous provider outcomes
+are reconciled by read before any retry; successful grants are not repeated.
+Google's per-file notification email is disabled for this bulk lane so thousands
+of files do not produce thousands of emails. A recipient gets one in-app summary
+with a collection of links after confirmed grants; a failed or pending grant never
+appears as delivered. Search results are not a transactionally consistent Google
+Drive snapshot: the reviewed set is frozen, and files changed or removed before
+execution are skipped and counted. The encrypted operational manifest is separate
+from PKM and is not a strict client-key zero-knowledge store.
+Only one bulk share can be prepared for a saved search, including across chats or
+repeated requests with different client IDs; reopening recovers the same review
+or progress rather than queueing duplicate grants.
+
+#### Complete search for a document request
+
+An incoming document request can use the same checkpointed Drive REST search and
+bulk grant worker, bound to that request's single verified recipient. This path
+starts only under the owner's current authority. It searches metadata in bounded
+pages across the owner's files and shared drives, retains encrypted result rows,
+and lets the owner leave the review screen while collection continues. A request
+search is separate from generic Trusted circle bulk sharing: it never broadens
+the recipient list. Ordinary live requests with earlier small reviews switch to
+the complete search when the owner opens them; explicit owner-selected exact
+file reviews retain their original selection.
+
+| Method / suffix under `/sharing/requests/{id}` | Contract |
+| --- | --- |
+| `POST /search` | Start or resume the request-bound metadata search. The request ID is the idempotency key; no content or permission is read or written. |
+| `GET /search` | Owner-only checkpoint status, including matched count, pages scanned, incomplete flag, and terminal error. A running or incomplete search cannot be approved as the full set. |
+| `GET /search/files?cursor=…` | Owner-only pages of matching file metadata with stable positions for review. The list may grow until the search completes. |
+| `POST /bulk` | Freeze the completed search for this request's verified recipient, omitting owner-deselected and unavailable shortcut positions. Returns the exact review digest and selected count; no permission is created. |
+
+The owner approves the frozen review through `/sharing/bulk/{shareId}/approve`
+with `confirmed: true`.
+That HTTP 202 response means queued, while the bulk worker confirms or reports
+each Google Viewer grant. The original request and recipient delivery status
+follow those effects; pending or failed files never appear as delivered. Request
+cancellation, expiry, connection changes, and a changed recipient fence further
+search and sharing. Search results are Drive metadata matches for owner review,
+not proof that every document's contents cover a requested period. The existing
+owner search operational cache uses server-held encryption and is not strict
+client-key zero knowledge, as described above.
 
 ### Exact-file Drive sharing (default-off)
 

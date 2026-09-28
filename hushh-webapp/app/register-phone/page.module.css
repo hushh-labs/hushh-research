@@ -444,7 +444,11 @@
   border-radius: 18px;
   font-weight: 500;
 }
-.codeScreen [data-figma-otp-actions] { padding-top: 0; }
+.codeScreen [data-figma-otp-actions] {
+  /* Keep the other field gaps at 24px; these two actions sit 12px apart. */
+  margin-top: -12px;
+  padding-top: 0;
+}
 .codeScreen [data-figma-otp-actions] button {
   color: var(--app-accent-deep);
   font-size: 17px;

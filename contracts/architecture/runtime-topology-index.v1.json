@@ -697,6 +697,16 @@
       "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
     },
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "account_legal_acceptances"
+      ],
+      "id": "account_legal_acceptance",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance at sign-in and after the Terms of Use or Privacy Policy version changes; reads return the latest acceptance of each document."
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "actor_profiles",
@@ -827,6 +837,20 @@
       "lifecycle_status": "transitional",
       "owner": "vault-pkm-governance",
       "primary_access_path": "legacy/domain reference compatibility during PKM scope migration"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "drive_bulk_shares",
+        "drive_bulk_share_files",
+        "drive_bulk_share_recipients",
+        "drive_bulk_share_effects",
+        "drive_bulk_share_notifications"
+      ],
+      "id": "drive_bulk_share",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle."
     },
     {
       "data_class": "personal_encrypted",
@@ -2681,10 +2705,10 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "memory-only+sse-background",
+        "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
         "resource_classes": [
-          "unknown"
+          "realtime_stream"
         ]
       },
       "implementation_override": null,
@@ -5441,6 +5465,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/privacy/page.tsx",
+      "pathname": "/privacy",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.privacy.policy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/products/hushh-tech/launch/page.tsx",
       "pathname": "/products/hushh-tech/launch",
       "route_mode": "hidden",
@@ -5907,6 +5954,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/terms/page.tsx",
+      "pathname": "/terms",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.terms.of.use"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/welcome/page.tsx",
       "pathname": "/welcome",
       "route_mode": "standard",
@@ -5953,14 +6023,14 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "6bdd1868b2422e4935394b43af8f4b652aade187bf431668fdd2bac842ab98ef",
-    "agent_registry": "185e8b421c8a10b0359cd46096e114a1a98323f86efd35ef048245b634a0a064",
-    "cache_manifest": "9e299de1d2fe0b01c06daa7cc8610b769b4bb9b321e0611e58c258329f2ab715",
-    "data_plane": "0a766be818d180369139fc434805a9aa3439b45dd09137ed8e1e6d2b75a4fa31",
+    "agent_registry": "9f3cd73f3fed5400eef16bc5bb1fd1446dfeb2cb28bd3b7eb8dcaa881d1a112d",
+    "cache_manifest": "46b3ec1151b475071939229eba73640c58fa7ab8a4dc0118b3caa98b66929cf2",
+    "data_plane": "1250c0966d14e599fefe6fb20be6a4def10d82586bcfe5dbb5171b4f9c63bbac",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "c6f25e8542e503520292ac3af49990110ff560dd63aa5bfa3d4db4366e309630",
-    "route_index": "7e5627296d02ca538ac5abac003a79feeff77ee4f18466d7c1ab60efe27f95a1",
-    "route_layout": "4b762a8d4c9817a322810c5477147e8293b34b9079a4bb38e0fde8161752fad5",
-    "surface_map": "fa1482384adea17b180ab0f42867cd02c71f53fc0edc811bd40d6c6882aa58ac",
+    "one_specialist_tools": "b45ead2e5bd8c7c60a1564e6bc91e37adeb18b2d102e95861026f728ec41e1db",
+    "route_index": "7e54efc7e04b69501246d95d1debc4b26632a88c354f4812e5751846c11e94d9",
+    "route_layout": "0d023460867def981243b27af09ba4abee8bd35e9a423601985fc97d10dd6cee",
+    "surface_map": "2e538d2fc0190276ef2d88d39d1cf3c23ee3abc1a38c6052d1efc12ad091f132",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5972,8 +6042,8 @@
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 145,
+    "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 83
+    "table_families": 85
   }
 }

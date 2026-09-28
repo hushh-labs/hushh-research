@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from typing import Any, cast
+from uuid import UUID
 
 from starlette.concurrency import run_in_threadpool
 
@@ -478,15 +479,60 @@ class ConsentCenterService:
             return {}
         return {"user_ids": normalized_identifiers}
 
+    @staticmethod
+    def _person_user_ids(public_refs: list[str]) -> dict[str, str]:
+        """Resolve public profile references without exposing account IDs in entries."""
+        normalized_refs: set[str] = set()
+        for value in public_refs:
+            try:
+                normalized_refs.add(str(UUID(value)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        if not normalized_refs:
+            return {}
+        rows = (
+            get_db()
+            .execute_raw(
+                """
+            SELECT public_person_ref, user_id
+            FROM actor_profiles
+            WHERE public_person_ref = ANY(CAST(:person_refs AS UUID[]))
+              AND public_profile_status = 'active'
+            """,
+                {"person_refs": sorted(normalized_refs)},
+            )
+            .data
+            or []
+        )
+        return {
+            str(row["public_person_ref"]): str(row["user_id"])
+            for row in rows
+            if row.get("public_person_ref") and row.get("user_id")
+        }
+
     async def _hydrate_entry_identities(
         self, entries: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
+        person_refs = [
+            str(entry.get("counterpart_id") or "").strip()
+            for entry in entries
+            if entry.get("counterpart_type") == "person" and entry.get("counterpart_id")
+        ]
+        person_user_ids: dict[str, str] = {}
+        if person_refs:
+            try:
+                person_user_ids = await run_in_threadpool(self._person_user_ids, person_refs)
+            except Exception as exc:
+                logger.warning(
+                    "consent_center.person_identity_lookup_failed error=%s", type(exc).__name__
+                )
         identity_ids = [
             str(entry.get("counterpart_id") or "").strip()
             for entry in entries
             if str(entry.get("counterpart_type") or "").strip() in {"investor", "ria", "self"}
             and str(entry.get("counterpart_id") or "").strip()
         ]
+        identity_ids.extend(person_user_ids.values())
         identities = (
             await self._identity.get_many(identity_ids)
             if self._read_only
@@ -499,7 +545,17 @@ class ConsentCenterService:
             counterpart_id = str(item.get("counterpart_id") or "").strip() or None
             counterpart_type = str(item.get("counterpart_type") or "").strip() or "developer"
             metadata = self._metadata(item.get("metadata"))
-            identity = identities.get(counterpart_id or "")
+            if counterpart_type == "person":
+                try:
+                    person_ref = str(UUID(counterpart_id)) if counterpart_id else ""
+                except (ValueError, AttributeError, TypeError):
+                    person_ref = ""
+                identity = identities.get(person_user_ids.get(person_ref, ""))
+                # A removed photo, inactive profile, or failed lookup must not
+                # keep serving the request-time image snapshot.
+                item["counterpart_image_url"] = None
+            else:
+                identity = identities.get(counterpart_id or "")
 
             counterpart_label = str(item.get("counterpart_label") or "").strip() or None
             counterpart_secondary_label = (
@@ -507,9 +563,13 @@ class ConsentCenterService:
             )
             counterpart_email = str(item.get("counterpart_email") or "").strip().lower() or None
 
-            if counterpart_type in {"investor", "ria", "self"} and identity:
+            if counterpart_type in {"investor", "ria", "person", "self"} and identity:
                 identity_label = str(identity.get("display_name") or "").strip() or None
                 identity_email = str(identity.get("email") or "").strip().lower() or None
+                # Connect and Location read the current identity photo. A
+                # request-time image can be absent or stale after a profile
+                # change, so person entries use that same current value.
+                item["counterpart_image_url"] = str(identity.get("photo_url") or "").strip() or None
                 if identity_label and (
                     not counterpart_label or counterpart_label == counterpart_id
                 ):

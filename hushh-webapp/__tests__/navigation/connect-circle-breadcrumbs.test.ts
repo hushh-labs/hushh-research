@@ -48,16 +48,20 @@ describe("Connect circle flows get their own crumb", () => {
 
   it("leaves the plain Connect crumb alone", () => {
     // The list itself is still level two, and its back still leaves for home.
+    // Both tabs keep the one top-bar "Connect" title.
     const list = crumbFor("tab=circles");
-    expect(list?.items?.map((item) => item.label)).toEqual(["One"]);
+    expect(list?.items?.map((item) => item.label)).toEqual(["One", "Connect"]);
     expect(list?.backHref).toBe(ROUTES.ONE_HOME);
 
     const connections = crumbFor("tab=all");
-    expect(connections?.items?.map((item) => item.label)).toEqual(["One"]);
+    expect(connections?.items?.map((item) => item.label)).toEqual([
+      "One",
+      "Connect",
+    ]);
   });
 
   it("ignores an action it does not recognise", () => {
     const crumb = crumbFor("tab=circles&action=nonsense");
-    expect(crumb?.items?.map((item) => item.label)).toEqual(["One"]);
+    expect(crumb?.items?.map((item) => item.label)).toEqual(["One", "Connect"]);
   });
 });

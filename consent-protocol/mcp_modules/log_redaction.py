@@ -234,13 +234,37 @@ def redact_mcp_arguments(value: Any) -> Any:
     return redact_log_value(value)
 
 
+_PROVIDER_STATUS_NAME = re.compile(r"^[A-Z][A-Z_]{1,39}$")
+
+
+def _sdk_failure_status(error: BaseException | None) -> str:
+    """Return a provider error's HTTP status fields, never its message.
+
+    ``google.genai`` errors carry an integer HTTP ``code`` and a fixed status
+    enum (``INVALID_ARGUMENT``, ``NOT_FOUND``, ``RESOURCE_EXHAUSTED``). Both are
+    content-free and are the only way to tell a 400 from a 429 in hosted logs.
+    """
+    code = getattr(error, "code", None)
+    if isinstance(code, bool) or not isinstance(code, int) or not 100 <= code <= 599:
+        return ""
+    suffix = f" status_code={code}"
+    status = getattr(error, "status", None)
+    if isinstance(status, str) and _PROVIDER_STATUS_NAME.fullmatch(status):
+        suffix += f" status={status}"
+    return suffix
+
+
 class SensitiveLogFilter(logging.Filter):
     """Redact secrets from runtime log records before handler formatting."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         sdk_record = record.name.startswith(("google_adk.", "google.adk.", "ag_ui_adk."))
         if sdk_record and record.exc_info:
-            record.msg = "SDK failure type=" + getattr(record.exc_info[0], "__name__", "Exception")
+            record.msg = (
+                "SDK failure type="
+                + getattr(record.exc_info[0], "__name__", "Exception")
+                + _sdk_failure_status(record.exc_info[1])
+            )
             record.args = ()
             record.exc_info = None
             record.exc_text = None

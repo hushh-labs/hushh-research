@@ -180,6 +180,13 @@ export function stripProfilePaneTransientParams(
 
 type ProfilePaneHistoryState = {
   depth?: number;
+  /**
+   * The pane was opened straight onto this location from a screen elsewhere
+   * in the app (Puppy One's "Trusted devices" link, say). Back from that first
+   * entry returns to the screen the person came from, not to the location's
+   * static parent: they never saw the parent, so landing on it is a detour.
+   */
+  returnsToOrigin?: boolean;
 };
 
 function currentPaneHistoryState(): ProfilePaneHistoryState {
@@ -189,9 +196,12 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
   const paneState = (state as Record<string, unknown>)[PROFILE_PANE_HISTORY_KEY];
   if (!paneState || typeof paneState !== "object") return {};
   const depth = (paneState as Record<string, unknown>).depth;
-  return typeof depth === "number" && Number.isFinite(depth) && depth > 0
-    ? { depth }
-    : {};
+  if (!(typeof depth === "number" && Number.isFinite(depth) && depth > 0)) {
+    return {};
+  }
+  return (paneState as Record<string, unknown>).returnsToOrigin === true
+    ? { depth, returnsToOrigin: true }
+    : { depth };
 }
 
 function emitHistoryUpdate(): void {
@@ -216,6 +226,7 @@ export function pushProfilePaneLocation(
     | null
     | undefined,
   location: ProfilePaneLocation,
+  options: { returnsToOrigin?: boolean } = {},
 ): void {
   if (typeof window === "undefined") return;
   const depth = getProfilePaneHistoryDepth() + 1;
@@ -223,7 +234,11 @@ export function pushProfilePaneLocation(
     window.history.state && typeof window.history.state === "object"
       ? { ...(window.history.state as Record<string, unknown>) }
       : {};
-  state[PROFILE_PANE_HISTORY_KEY] = { depth } satisfies ProfilePaneHistoryState;
+  // Only the first pane entry can return to an origin; deeper entries are
+  // ordinary steps inside the pane and pop with plain history.
+  state[PROFILE_PANE_HISTORY_KEY] = (
+    options.returnsToOrigin && depth === 1 ? { depth, returnsToOrigin: true } : { depth }
+  ) satisfies ProfilePaneHistoryState;
   window.history.pushState(
     state,
     "",
@@ -241,8 +256,17 @@ export function openProfilePane(
     | null
     | undefined,
   location: ProfilePaneLocation = PROFILE_PANE_ROOT_LOCATION,
+  options: {
+    /**
+     * Set by an in-app entry point that opens the pane directly on a panel or
+     * detail. Back from that entry then returns to the calling screen instead
+     * of the location's parent. Left unset by the shell's own resume, where a
+     * restored child still steps back through its parent.
+     */
+    returnsToOrigin?: boolean;
+  } = {},
 ): void {
-  pushProfilePaneLocation(pathname, searchParams, location);
+  pushProfilePaneLocation(pathname, searchParams, location, options);
 }
 
 export function replaceProfilePaneLocation(
@@ -260,9 +284,11 @@ export function replaceProfilePaneLocation(
     window.history.state && typeof window.history.state === "object"
       ? { ...(window.history.state as Record<string, unknown>) }
       : {};
-  const depth = getProfilePaneHistoryDepth();
-  if (depth > 0) {
-    state[PROFILE_PANE_HISTORY_KEY] = { depth } satisfies ProfilePaneHistoryState;
+  // Replacing in place keeps the entry's origin: it is still the entry the
+  // person arrived on.
+  const paneState = currentPaneHistoryState();
+  if (paneState.depth) {
+    state[PROFILE_PANE_HISTORY_KEY] = paneState satisfies ProfilePaneHistoryState;
   }
   window.history.replaceState(
     state,
@@ -283,6 +309,14 @@ export function popProfilePaneLocation(
 ): void {
   if (typeof window === "undefined") return;
   const current = resolveProfilePaneUrlState(searchParams);
+  const paneState = currentPaneHistoryState();
+  // Opened straight onto this location from another screen: Back returns
+  // there. The previous history entry is that screen, so this closes the pane
+  // on the same route it was opened over.
+  if (paneState.returnsToOrigin && paneState.depth === 1) {
+    window.history.back();
+    return;
+  }
   // A resumed or directly linked child may be the first pane entry. Browser
   // Back would leave the sheet, whereas its own Back must visit the parent.
   if (canGoBackProfilePane(current.location) && getProfilePaneHistoryDepth() <= 1) {

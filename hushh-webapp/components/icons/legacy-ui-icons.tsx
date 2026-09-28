@@ -124,6 +124,7 @@ export const FilePenLine = createCanonicalIcon(Phosphor.NotePencil);
 export const FileText = createCanonicalIcon(Phosphor.FileText);
 export const FileUp = createCanonicalIcon(Phosphor.FileArrowUp);
 export const Fingerprint = createCanonicalIcon(Phosphor.Fingerprint);
+export const Flag = createCanonicalIcon(Phosphor.Flag);
 export const FolderLock = createCanonicalIcon(Phosphor.FolderSimpleLock);
 export const FolderSearch = createCanonicalIcon(Phosphor.FolderSimple);
 export const GitCompareArrows = createCanonicalIcon(Phosphor.GitBranch);

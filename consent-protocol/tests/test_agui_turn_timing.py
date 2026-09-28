@@ -298,6 +298,95 @@ async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(m
     assert "runner exploded" not in events[-1].model_dump_json()
 
 
+def _provider_error_text(status_code: int, status: str) -> str:
+    from google.adk.models.google_llm import _ResourceExhaustedError
+    from google.genai.errors import APIError
+
+    body = {"error": {"code": status_code, "status": status, "message": "PRIVATE_PROVIDER_TEXT"}}
+    error = APIError(status_code, body)
+    return str(_ResourceExhaustedError(error) if status_code == 429 else error)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "status", "code", "retryable"),
+    [
+        (429, "RESOURCE_EXHAUSTED", "RESOURCE_EXHAUSTED", True),
+        (503, "UNAVAILABLE", "MODEL_UNAVAILABLE", True),
+        # Negative control: a request the provider rejected is not retryable.
+        (400, "INVALID_ARGUMENT", "AGENT_ERROR", None),
+    ],
+)
+async def test_provider_failure_after_first_chunk_ends_with_retryable_terminal_error(
+    monkeypatch, caplog, status_code, status, code, retryable
+):
+    """Failover moves a request only while it opens; a later 429/5xx must still end the turn."""
+    script = [
+        (0.0, RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)),
+        (0.0, TextMessageContentEvent(message_id="a-1", delta="Partial answer")),
+        (
+            0.0,
+            RunErrorEvent(
+                message=_provider_error_text(status_code, status),
+                code="BACKGROUND_EXECUTION_ERROR",
+            ),
+        ),
+    ]
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(script))
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+
+    events = await _drain(_agent())
+
+    terminal = events[-1]
+    assert terminal.type == "RUN_ERROR"
+    assert terminal.code == code
+    assert (terminal.metadata or {}).get("retryable") is retryable
+    wire = terminal.model_dump_json()
+    assert "PRIVATE_PROVIDER_TEXT" not in wire and str(status_code) not in wire
+    fields = _fields(_timing_lines(caplog)[0])
+    assert fields["outcome"] == OUTCOME_ERROR
+    assert fields["error_class"] == ("model" if retryable else "other")
+
+
+async def test_escaped_provider_capacity_error_is_retryable(monkeypatch):
+    from google.genai.errors import ClientError
+
+    async def failing_run(self: ADKAgent, input: RunAgentInput):
+        yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        raise ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "PRIVATE"}})
+
+    monkeypatch.setattr(ADKAgent, "run", failing_run)
+
+    terminal = (await _drain(_agent()))[-1]
+
+    assert terminal.code == "RESOURCE_EXHAUSTED"
+    assert terminal.metadata == {"retryable": True}
+    assert "PRIVATE" not in terminal.model_dump_json()
+
+
+async def test_shutdown_cancellation_is_not_counted_as_the_person_leaving(monkeypatch, caplog):
+    from sse_starlette.sse import AppStatus
+
+    started = asyncio.Event()
+
+    async def slow_run(self: ADKAgent, input: RunAgentInput):
+        yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+        started.set()
+        await asyncio.sleep(10)
+        yield RunFinishedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+
+    monkeypatch.setattr(ADKAgent, "run", slow_run)
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+
+    task = asyncio.create_task(_drain(_agent()))
+    await started.wait()
+    monkeypatch.setattr(AppStatus, "should_exit", True)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert _fields(_timing_lines(caplog)[0])["outcome"] == "server_restarting"
+
+
 @pytest.mark.parametrize(
     ("code", "expected"),
     [
@@ -305,6 +394,9 @@ async def test_escaped_exception_marks_outcome_error_without_reaching_endpoint(m
         ("DATABASE_UNAVAILABLE", "database"),
         ("AGENT_RUNTIME_MODEL_UNAVAILABLE", "runtime"),
         ("MODEL_ERROR", "model"),
+        ("RESOURCE_EXHAUSTED", "model"),
+        ("MODEL_UNAVAILABLE", "model"),
+        ("SERVER_RESTARTING", "shutdown"),
         ("PRIVATE_OWNER_VALUE", "other"),
         (None, "untyped"),
     ],
@@ -936,3 +1028,60 @@ def test_failed_drive_guard_does_not_count_a_model_call():
         assert timing.model_call_total_ms == 0
     finally:
         agui_turn_timing._CURRENT_TURN.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_first_model_call_is_split_into_session_and_request_build(monkeypatch, caplog):
+    """Production could not say where 22 s before the first model call went.
+
+    The line now splits it at ADK's agent start and says whether this was the
+    process's first turn and whether the startup warmup had run. A run with no
+    agent start (the negative control) reports no split rather than a guess.
+    """
+    import threading
+
+    monkeypatch.setattr(agui_turn_timing, "_TURN_PATH_WARMED", threading.Event())
+    request = SimpleNamespace(model="gemini-3.6-flash", config=None, contents=[])
+    monkeypatch.setattr(agui_turn_timing, "before_external_read_model", lambda *_: None)
+
+    def bridge(*, start_agent: bool):
+        async def run(self, input):
+            yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+            await asyncio.sleep(0.02)
+            if start_agent:
+                agui_turn_timing.timed_one_before_agent(object())
+            agui_turn_timing.record_instruction_build(7.4)
+            await asyncio.sleep(0.02)
+            agui_turn_timing.timed_one_before_model(object(), request)
+            agui_turn_timing.timed_one_after_model(object(), object())
+            yield RunFinishedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+
+        return run
+
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    monkeypatch.setattr(ADKAgent, "run", bridge(start_agent=True))
+    await _drain(_agent())
+    agui_turn_timing.mark_turn_path_warmed()
+    monkeypatch.setattr(ADKAgent, "run", bridge(start_agent=False))
+    await _drain(_agent())
+
+    split, unsplit = (_fields(line) for line in _timing_lines(caplog))
+    assert int(split["session_ms"]) >= 15
+    assert int(split["request_build_ms"]) >= 15
+    assert (
+        abs(
+            int(split["session_ms"])
+            + int(split["request_build_ms"])
+            - int(split["first_model_call_ms"])
+        )
+        <= 1
+    )
+    assert split["instruction_ms"] == "7"
+    assert split["path_warmed"] == "false"
+    assert unsplit["session_ms"] == "None" and unsplit["request_build_ms"] == "None"
+    assert unsplit["path_warmed"] == "true"
+    assert int(unsplit["process_turn"]) == int(split["process_turn"]) + 1
+
+    # Outside a turn the recorders are inert rather than failing a build.
+    agui_turn_timing.record_instruction_build(5.0)
+    agui_turn_timing.timed_one_before_agent(object())

@@ -81,7 +81,7 @@ for (const width of [320, 393, 1440]) {
   for (const dark of [false, true]) {
     test(`Country picker ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 844 });
-      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addScriptTag({ content: script });
       const trigger = page.getByRole("button", { name: /^Country code:/ });
       await trigger.click();
@@ -105,7 +105,9 @@ for (const width of [320, 393, 1440]) {
         await row.click();
         await expect(dialog).toBeHidden();
         await expect(trigger).toHaveAccessibleName(`Country code: ${name} (${code})`);
-        await expect(trigger).toContainText(iso);
+        await expect(trigger.locator(`[data-country-code="${iso}"]`)).toHaveText(
+          String.fromCodePoint(...Array.from(iso, (letter) => 127397 + letter.charCodeAt(0))),
+        );
         await trigger.click();
       }
       await page.getByRole("searchbox").fill("no country matches");

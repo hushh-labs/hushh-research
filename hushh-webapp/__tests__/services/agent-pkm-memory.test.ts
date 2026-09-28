@@ -33,6 +33,7 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 import {
   addToPKM,
   clearAgentPkmContext,
+  describeAgentPkmCardDestination,
   formatAgentPkmSaveSummary,
   getPkmAutoSaveCards,
   getPkmConfirmationCards,
@@ -43,6 +44,7 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -438,6 +440,67 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).toContain("400 dollars");
   });
 
+  it("puts the device-computed spending totals ahead of a clipped transaction sample", async () => {
+    // Regression (2026-09-27): with thousands of imported transactions the
+    // round-robin never reached a monthly_cash_flow row, so a spending answer
+    // could only sum whichever raw rows happened to fit the budget. The raw rows
+    // come first here, as Plaid's first assemble writes them, and outnumber the
+    // inventory cap on their own.
+    const itemIds = Array.from({ length: 400 }, (_, index) => `plaid-item-${index}`);
+    const fact = <T,>(value: T) => ({ value, computed_at: "2026-09-27T00:00:00Z", source_item_ids: itemIds });
+    const months = Array.from({ length: 12 }, (_, index) => ({
+      month: `2025-${String(index + 1).padStart(2, "0")}`,
+      income: 5000,
+      spend: 3000 + index,
+      net: 2000 - index,
+    }));
+    pkmBlob = {
+      financial: {
+        transactions_v1: Object.fromEntries(
+          Array.from({ length: 3000 }, (_, index) => [
+            `txn${index}`,
+            { amount: 12.5 + index, date: "2026-09-01", merchant_name: `Merchant ${index}`, category_primary: "FOOD_AND_DRINK" },
+          ]),
+        ),
+        derived_v1: {
+          schema: "plaid-derived-v1",
+          computed_at: "2026-09-27T00:00:00Z",
+          net_worth: fact(84000),
+          cash_flow_trend: fact("positive"),
+          monthly_cash_flow: fact(months),
+          recurring_bills: fact([
+            { label: "Streaming", category: "ENTERTAINMENT", cadence: "monthly", typical_amount: 15.49, occurrences: 6, last_date: "2026-09-01" },
+          ]),
+        },
+      },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [{ ...METADATA.domains[0], key: "financial", displayName: "Financial" }],
+    });
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+    });
+
+    expect(context.coverage.clipped).toBe(true);
+    expect(context.text.length).toBeLessThanOrEqual(12_000);
+    // Every month is one line, so its income and spend read together.
+    for (const row of months) {
+      expect(context.text).toContain(
+        `- Financial > Derived V1 > Monthly Cash Flow > Value: Month: ${row.month}; Income: 5000; Spend: ${row.spend}; Net: ${row.net}`,
+      );
+    }
+    expect(context.text).toContain("Recurring Bills > Value: Label: Streaming; Category: ENTERTAINMENT");
+    expect(context.text).toContain("Financial > Derived V1 > Net Worth > Value: 84000");
+    // Provenance ids are budget noise, not facts.
+    expect(context.text).not.toContain("plaid-item-");
+    // The raw sample still fills the rest of the budget.
+    expect(context.text).toContain("Transactions V1");
+  });
+
   it("warms the full agent-safe packet into browser RAM after unlock", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
@@ -625,6 +688,47 @@ describe("agent PKM memory helpers", () => {
 
     expect(context.text).toContain("Food > Drinks > Favorite: tea");
     expect(context.coverage?.safetyOmittedNodeCount).toBeGreaterThan(0);
+  });
+
+  it("removes pasted Markdown from the review title and the value that will be encrypted", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "agent", agent_name: "One", model: "test", used_fallback: false,
+        preview_cards: [{
+          card_id: "card_1",
+          source_text: "## Synthetic diet\n- **Allergy:** peanuts\n- *Prefers* oat milk\n__Home city:__ Example Town",
+          write_mode: "confirm_first",
+          target_domain: "health",
+          candidate_payload: {
+            diet: { allergy: "**peanuts**", notes: "- oat milk\n- **no** dairy", language: "C#", rank: "#1 choice" },
+            dates: ["**2026-01-01**"],
+            count: 3,
+          },
+          structure_decision: { target_domain: "health" },
+        }],
+      }),
+    });
+    const preview = await previewAgentPkmMemory({
+      userId: "user_1", vaultOwnerToken: "vault_token", message: "synthetic", currentDomains: [],
+    });
+    expect(preview.cards[0]!.source_text).toBe("Synthetic diet\nAllergy: peanuts\nPrefers oat milk\nHome city: Example Town");
+    expect(preview.cards[0]!.candidate_payload).toEqual({
+      diet: { allergy: "peanuts", notes: "oat milk\nno dairy", language: "C#", rank: "#1 choice" },
+      dates: ["2026-01-01"],
+      count: 3,
+    });
+  });
+
+  it.each([
+    ["C# and F# developer", "C# and F# developer"],
+    ["#1 priority", "#1 priority"],
+    ["5 * 3 = 15", "5 * 3 = 15"],
+    ["snake_case_name and __init__", "snake_case_name and __init__"],
+    ["well-known - fact", "well-known - fact"],
+    ["**", "**"],
+  ])("leaves text that is not Markdown markup unchanged: %s", (input, expected) => {
+    expect(toPlainMemoryText(input)).toBe(expected);
   });
 
   it("previews PKM memory through the agent-lab structure route", async () => {
@@ -1020,5 +1124,35 @@ describe("agent PKM memory helpers", () => {
     expect(result.saved).toBe(0);
     expect(result.failed).toBe(1);
     expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("names the destination the save path would write to, and never guesses one", () => {
+    const card: AgentPkmPreviewCard = {
+      card_id: "c1",
+      source_text: "I hold 10 shares of ACME.",
+      write_mode: "confirm_first",
+      target_domain: "shopping",
+      structure_decision: { target_domain: "financial" },
+      primary_json_path: "investments.holdings",
+    };
+    // structure_decision outranks the flat target_domain, exactly as addToPKM resolves it.
+    expect(
+      describeAgentPkmCardDestination(card, new Map([["financial", "Finance"]])),
+    ).toEqual({ kind: "location", label: "Finance › Investments › Holdings" });
+    expect(describeAgentPkmCardDestination({ ...card, structure_decision: {} })).toEqual({
+      kind: "location",
+      label: "Shopping › Investments › Holdings",
+    });
+    // Negative controls: a location the structure agent did not settle, or a
+    // preview the save path refuses, is reported honestly rather than faked.
+    expect(
+      describeAgentPkmCardDestination({ ...card, structure_decision: {}, target_domain: "unresolved" }),
+    ).toEqual({ kind: "undetermined" });
+    expect(describeAgentPkmCardDestination({ ...card, preview_degraded: true })).toEqual({
+      kind: "undetermined",
+    });
+    expect(describeAgentPkmCardDestination({ ...card, write_mode: "do_not_save" })).toEqual({
+      kind: "not_saved",
+    });
   });
 });

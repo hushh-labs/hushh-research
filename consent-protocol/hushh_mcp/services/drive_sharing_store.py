@@ -37,7 +37,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     SharingApproval,
     VerifiedGoogleRecipient,
 )
-from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
+from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, DriveReadError
 
 
 class DriveSharingStore(DriveDocumentStore):
@@ -163,6 +163,40 @@ class DriveSharingStore(DriveDocumentStore):
             resource_id=str(row["request_id"]),
             purpose="request",
         )
+
+    async def request_bulk_context(self, *, user_id: str, request_id: str, start=False) -> dict:
+        """Freeze B's request as the sole audience for a durable metadata search."""
+        identity = str(UUID(request_id))
+
+        def operation(connection):
+            row = self._related_request(connection, user_id, identity)
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if row["expires_at"] <= now or row["status"] in {"cancelled", "declined", "expired"}:
+                raise DriveSharingError("request_unavailable")
+            if start and row["status"] in {"approved", "completed", "partial"}:
+                raise DriveSharingError("request_changed")
+            if start and row["bulk_search_started_at"] is None:
+                row = self._row(
+                    connection,
+                    """UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp(),
+                      status='pending',preparation_lease_id=NULL,preparation_lease_expires_at=NULL,
+                      preparation_error_code=NULL,updated_at=clock_timestamp()
+                      WHERE request_id=:request RETURNING *""",
+                    {"request": identity},
+                )
+            private = self._open_request(row)
+            return {
+                "requestId": identity,
+                "revision": row["revision"],
+                "status": row["status"],
+                "purpose": private["purpose"],
+                "recipient": private["recipient"],
+                "recipientUserId": row["recipient_user_id"],
+                "recipientBinding": row["recipient_binding"],
+                "searchStarted": row["bulk_search_started_at"] is not None,
+            }
+
+        return cast(dict, await self._transaction(operation))
 
     async def create_request(
         self,
@@ -1150,8 +1184,14 @@ class DriveSharingStore(DriveDocumentStore):
                 "coverage": None,
                 "canApprove": False,
                 "preparationError": row.get("preparation_error_code"),
+                "durableAvailable": bool(
+                    current_connection["verified_policy_hash"] == LIVE_POLICY_HASH
+                    and row["preparation_next_at"] < row["expires_at"]
+                    and row["status"]
+                    in {"pending", "preparing", "review_ready", "approved", "completed", "partial"}
+                ),
             }
-            if review:
+            if review and row["bulk_search_started_at"] is None:
                 payload = self.sharing_cipher.open(
                     review["review_envelope"],
                     user_id=user_id,

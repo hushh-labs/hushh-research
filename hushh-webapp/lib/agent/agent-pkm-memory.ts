@@ -21,6 +21,9 @@ import {
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
+import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
+import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
+import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -171,7 +174,26 @@ function titleize(value: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * Pasted notes carry Markdown layout (headings, bullets, bold labels). Remove
+ * that markup here, the one client step every preview passes through, so the
+ * review title and the value that is encrypted into Memory are both plain.
+ */
+function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
+  return {
+    ...card,
+    source_text: toPlainMemoryText(String(card.source_text || "")),
+    ...(card.candidate_payload
+      ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
+      : {}),
+  };
+}
+
 function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(withPlainMemoryText);
+}
+
+function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
   if (Array.isArray(response.preview_cards)) {
     return response.preview_cards.map((card) => ({
       ...card,
@@ -338,7 +360,7 @@ export async function previewAgentPkmMemory(params: {
     cards: normalizePreviewCards(payload).map((card, index) => ({
       ...card,
       card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
-      source_text: card.source_text || params.message,
+      source_text: card.source_text || toPlainMemoryText(params.message),
     })),
   };
 }
@@ -358,6 +380,38 @@ export function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
 function resolveCardScope(card: AgentPkmPreviewCard): string | null {
   const value = readString(card.primary_json_path) || readString(card.target_entity_scope);
   return value || null;
+}
+
+/**
+ * Where a reviewed card would be saved, in the person's own words.
+ *
+ * Reads the same domain and scope `addToPKM` writes to, so the preview and the
+ * save can never name different places. A card the save path would refuse (a
+ * degraded preview) or one whose domain the structure agent left unresolved is
+ * reported as `undetermined` rather than given a guessed location.
+ */
+export type AgentPkmCardDestination =
+  | { kind: "location"; label: string }
+  | { kind: "not_saved" }
+  | { kind: "undetermined" };
+
+export function describeAgentPkmCardDestination(
+  card: AgentPkmPreviewCard,
+  domainTitles: ReadonlyMap<string, string> = new Map(),
+): AgentPkmCardDestination {
+  if (card.write_mode === "do_not_save") return { kind: "not_saved" };
+  if (isDegradedPreviewCard(card)) return { kind: "undetermined" };
+  const domain = resolveCardTargetDomain(card);
+  if (!domain || domain.toLowerCase() === "unresolved") return { kind: "undetermined" };
+  const domainTitle = domainTitles.get(domain)?.trim() || humanizeMemorySegment(domain);
+  return { kind: "location", label: pkmScopeBreadcrumb(domainTitle, resolveCardScope(card)) };
+}
+
+/** The one sentence every review surface (chat and Profile) shows for a destination. */
+export function formatAgentPkmCardDestination(destination: AgentPkmCardDestination): string {
+  if (destination.kind === "location") return `Saves to ${destination.label}`;
+  if (destination.kind === "not_saved") return "This part won’t be saved.";
+  return "Where this would be saved couldn’t be worked out yet.";
 }
 
 function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {

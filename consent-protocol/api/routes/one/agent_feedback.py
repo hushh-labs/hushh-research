@@ -25,11 +25,16 @@ router = APIRouter(prefix="/api/one/agent-chat/feedback", tags=["one-agent-feedb
 
 
 class MessageFeedbackRequest(BaseModel):
-    """A null rating clears the person's existing rating for that turn."""
+    """A null rating clears the person's existing rating for that turn.
+
+    ``report_reason`` is the in-app "Report response" control: it flags the
+    answer for team review and always records a ``down`` rating.
+    """
 
     conversation_id: str = Field(max_length=200)
     message_id: str = Field(max_length=200)
     rating: Literal["up", "down"] | None = None
+    report_reason: Literal["offensive", "harmful", "inaccurate", "other"] | None = None
 
 
 @router.get("")
@@ -54,6 +59,7 @@ async def write_feedback(
             conversation_ref=payload.conversation_id,
             message_ref=payload.message_id,
             rating=payload.rating,
+            report_reason=payload.report_reason,
         )
     except MessageFeedbackError as exc:
         raise HTTPException(

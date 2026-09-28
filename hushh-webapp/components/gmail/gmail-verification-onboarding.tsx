@@ -229,9 +229,9 @@ export function GmailVerificationOnboarding({
               effect="fade"
               onClick={() => void copyPrompt()}
               aria-label="Copy prompt to clipboard"
-              className="min-h-11 px-0 text-[13px] font-medium !text-[color:var(--app-accent)]"
+              className="min-h-11 px-0 [--type-button-label-size:14.45px] [--type-button-label-line:18.7px] font-medium !text-[color:var(--app-accent)]"
             >
-              <Copy aria-hidden="true" className="mr-2 size-5 shrink-0" />
+              <Copy aria-hidden="true" className="mr-2 size-[17px] shrink-0" />
               {copied ? "Copied" : "Copy AI prompt"}
             </Button>
             <span className="text-xs text-muted-foreground">· Optional</span>
@@ -241,7 +241,7 @@ export function GmailVerificationOnboarding({
           </p>
         </div>
       </div>
-      <div className="flex flex-col items-center gap-1">
+      <div className="mx-auto flex w-full max-w-xs flex-col items-center gap-1">
         <Button
           type="button"
           size="prominent"

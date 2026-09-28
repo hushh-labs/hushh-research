@@ -18,11 +18,9 @@ import {
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
@@ -90,6 +88,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
@@ -245,19 +244,14 @@ const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(
 );
 
 /**
- * Which half of the directory each tab pages through.
+ * Which directory audience each tab pages through.
  *
- * The split is a server-side audience rather than a filter over the rendered
- * page, because a filter applied after the page is cut can only ever subtract
- * from a page that was already chosen wrongly: pages of uneven size, and every
- * advisor past the first one unreachable.
- *
- * People and Advisors partition the directory, so putting advisors in their own
- * tab hides nobody -- everyone findable before is still findable, in exactly
- * one of the two.
+ * People searches the full directory, including verified RIAs. RIAs narrows
+ * that directory on the server before pagination; filtering a rendered page
+ * could leave later advisers unreachable.
  */
 const CONNECT_TAB_AUDIENCE: Record<ConnectTab, DirectoryAudience> = {
-  people: "people",
+  people: "all",
   advisors: "ria",
   // Around you runs its own directories; the value is never used for it.
   nearby: "all",
@@ -1051,6 +1045,35 @@ export default function ConnectPageClient() {
     };
   }, [reconcileConnectionSurfaces, user?.uid]);
 
+  // Push is the primary "your request was accepted" signal, but native has no
+  // SSE fallback. While a sent request is pending and this screen is visible,
+  // confirm it every few seconds so an acceptance lands without a refresh.
+  const pendingOutgoingRequestIds = useMemo(
+    () => Object.values(outgoingRequestIds),
+    [outgoingRequestIds],
+  );
+  const readPendingOutgoingRequestIds = useMemo(
+    () =>
+      user
+        ? async () => {
+            const idToken = await user.getIdToken();
+            const requests = await ConnectionsService.listRequests({
+              idToken,
+              direction: "outgoing",
+            });
+            return requests.map((request) => request.id);
+          }
+        : null,
+    [user],
+  );
+  useOutgoingRequestResolutionWatch({
+    pendingRequestIds: pendingOutgoingRequestIds,
+    readPendingRequestIds: readPendingOutgoingRequestIds,
+    onChanged: () => {
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    },
+  });
+
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
   const trimmedQuery = debouncedQuery.trim();
@@ -1085,13 +1108,10 @@ export default function ConnectPageClient() {
     connectionsRefreshingFirstPage,
     refreshConnectionsFirstPage,
   ]);
-  // Searching a name and finding nobody has one likely explanation the
-  // directory cannot act on: that person has not joined yet. Offered on People
-  // only -- People searches the whole of One, so "not here" really does mean
-  // "not on One". A name missing from RIAs means their adviser profile is not
-  // verified, and one missing from Around you means they are not nearby;
-  // neither is fixed by an app link, and offering one there would send someone
-  // to invite a person who is already a member.
+  // An unmatched name can be a typo or someone who has not joined. Offer a
+  // shareable invite on People, without claiming the person lacks an account.
+  // An unmatched RIA or nearby search says nothing about membership, so an
+  // invite would be especially misleading there.
   //
   // Resolved once, not inside the handler: an invite the build cannot produce
   // a working link for is not offered at all, rather than rendered as a button
@@ -2023,7 +2043,7 @@ export default function ConnectPageClient() {
           id: "people",
           title: "People",
           purpose:
-            "Search everyone you could connect with, and manage existing connections.",
+            "Search One profiles by name, and manage existing connections.",
         },
         {
           id: "advisors",
@@ -2857,10 +2877,8 @@ export default function ConnectPageClient() {
           </AppPageContentRegion>
         ) : (
           <>
-            <AppPageHeaderRegion>
-              <PageHeader title="Connect" titleRole="agent" />
-            </AppPageHeaderRegion>
-
+            {/* No in-body header: the shared top bar owns the single Connect
+                title, the same way Feed does (top-shell-breadcrumbs.ts). */}
             <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
               <SurfaceStack compact>
                 <div
@@ -3434,7 +3452,7 @@ export default function ConnectPageClient() {
                                         icon={Share2}
                                         iconTone="blue"
                                         title="Invite them to One"
-                                        description="Send them the app. You can connect once they join."
+                                        description="Share an invite link with them."
                                         density="compact"
                                         onClick={() => {
                                           void handleInviteToOne();

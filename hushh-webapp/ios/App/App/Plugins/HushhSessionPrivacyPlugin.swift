@@ -98,6 +98,12 @@ struct HushhSessionPrivacyDocumentState {
 final class HushhSessionPrivacyShield: NSObject {
     static let shared = HushhSessionPrivacyShield()
     static let accessibilityIdentifier = "session-privacy-shield"
+    /// The cover is always the silent launch-screen surface (app switcher,
+    /// Control Center, system alerts, resume). It never shows a loading state;
+    /// only a release that is still refused after `recoveryDelay` exposes the
+    /// recovery controls.
+    static let recoveryDelay: TimeInterval = 8
+    static let releaseFadeDuration: TimeInterval = 0.12
 
     struct Snapshot {
         let shielded: Bool
@@ -117,10 +123,8 @@ final class HushhSessionPrivacyShield: NSObject {
     private var documents = HushhSessionPrivacyDocumentState()
     private var lifecycleIsActive = false
     private var recoveryWorkItem: DispatchWorkItem?
-    private weak var recoveryActions: UIStackView?
-    private weak var recoveryProgress: UIActivityIndicatorView?
+    private weak var recoveryPanel: UIStackView?
     private weak var recoveryTitle: UILabel?
-    private weak var recoveryDetail: UILabel?
     var onStateChanged: ((Snapshot, String) -> Void)?
     var reloadDocument: (() -> Void)?
 
@@ -146,8 +150,9 @@ final class HushhSessionPrivacyShield: NSObject {
 
         lifecycleIsActive = false
         state.protectForAppInactive()
-        recoveryWorkItem?.cancel()
+        cancelRecovery()
         installOverlayIfNeeded()
+        hideRecoveryPanel()
         publishState()
     }
 
@@ -199,10 +204,21 @@ final class HushhSessionPrivacyShield: NSObject {
             return false
         }
 
-        overlayView?.removeFromSuperview()
-        overlayView = nil
-        recoveryWorkItem?.cancel()
-        recoveryWorkItem = nil
+        cancelRecovery()
+        if let overlay = overlayView {
+            overlayView = nil
+            // State is already released; the fade is presentation only. A new
+            // inactive cycle installs a fresh opaque cover above this one.
+            overlay.isUserInteractionEnabled = false
+            overlay.accessibilityElementsHidden = true
+            UIView.animate(
+                withDuration: Self.releaseFadeDuration,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseOut],
+                animations: { overlay.alpha = 0 },
+                completion: { _ in overlay.removeFromSuperview() }
+            )
+        }
         return true
     }
 
@@ -210,29 +226,35 @@ final class HushhSessionPrivacyShield: NSObject {
         onStateChanged?(snapshot(), action)
     }
 
-    private func scheduleRecovery() {
+    private func cancelRecovery() {
         recoveryWorkItem?.cancel()
-        recoveryTitle?.text = "Protecting private information\u{2026}"
-        recoveryDetail?.text = "Your private information stays hidden while the app resumes."
-        recoveryProgress?.isHidden = false
-        recoveryProgress?.startAnimating()
+        recoveryWorkItem = nil
+    }
+
+    private func hideRecoveryPanel() {
+        recoveryPanel?.isHidden = true
+    }
+
+    /// Keep the neutral launch-screen cover while the resumed document
+    /// acknowledges. Only a release still missing after `recoveryDelay`
+    /// exposes the explanation and the Try again / Restart session controls;
+    /// once exposed, Retry and Restart keep those escape controls visible.
+    private func scheduleRecovery(keepRecoveryPanel: Bool = false) {
+        cancelRecovery()
+        if !keepRecoveryPanel { hideRecoveryPanel() }
         let generation = state.generation
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.state.shielded, self.state.generation == generation else { return }
-            self.recoveryProgress?.stopAnimating()
-            self.recoveryProgress?.isHidden = true
-            self.recoveryTitle?.text = "Unable to restore the private view"
-            self.recoveryDetail?.text = "Your private information is still hidden. Try again, or restart this session."
-            self.recoveryActions?.isHidden = false
-            UIAccessibility.post(notification: .layoutChanged, argument: self.recoveryActions)
+            self.recoveryPanel?.isHidden = false
+            UIAccessibility.post(notification: .screenChanged, argument: self.recoveryTitle)
         }
         recoveryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.recoveryDelay, execute: work)
     }
 
     @objc private func retryValidation() {
         guard state.shielded else { return }
-        scheduleRecovery()
+        scheduleRecovery(keepRecoveryPanel: true)
         publishState(action: "retry")
     }
 
@@ -242,9 +264,9 @@ final class HushhSessionPrivacyShield: NSObject {
         // Firebase identity persists; the new JS runtime has no decrypted vault.
         state.restartSession()
         documents.restart()
-        recoveryWorkItem?.cancel()
+        cancelRecovery()
         reloadDocument?()
-        scheduleRecovery()
+        scheduleRecovery(keepRecoveryPanel: true)
     }
 
     private func installOverlayIfNeeded() {
@@ -261,54 +283,40 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let overlay = UIView(frame: .zero)
         overlay.translatesAutoresizingMaskIntoConstraints = false
-        overlay.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.035, green: 0.035, blue: 0.045, alpha: 1)
-                : UIColor(red: 0.965, green: 0.965, blue: 0.98, alpha: 1)
-        }
+        // Match LaunchScreen.storyboard exactly so the cover reads as the app
+        // itself rather than a loading state.
+        overlay.backgroundColor = .systemBackground
         overlay.isOpaque = true
         overlay.isUserInteractionEnabled = true
         overlay.accessibilityViewIsModal = true
         overlay.accessibilityIdentifier = Self.accessibilityIdentifier
 
-        let icon = UIImageView(image: UIImage(systemName: "lock.shield.fill"))
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.tintColor = .secondaryLabel
-        icon.contentMode = .scaleAspectFit
-        icon.isAccessibilityElement = false
+        let splash = UIImageView(image: UIImage(named: "Splash"))
+        splash.translatesAutoresizingMaskIntoConstraints = false
+        splash.contentMode = .scaleAspectFill
+        splash.clipsToBounds = true
+        splash.isAccessibilityElement = true
+        splash.accessibilityLabel = "Hussh"
+        overlay.addSubview(splash)
 
         let title = UILabel(frame: .zero)
         title.translatesAutoresizingMaskIntoConstraints = false
-        title.text = "Protecting private information\u{2026}"
+        title.text = "Unable to restore the private view"
         title.textColor = .label
         title.font = .preferredFont(forTextStyle: .headline)
         title.adjustsFontForContentSizeCategory = true
         title.numberOfLines = 0
         title.textAlignment = .center
+        recoveryTitle = title
 
         let detail = UILabel(frame: .zero)
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.text = "Your private information stays hidden while the app resumes."
+        detail.text = "Your private information is still hidden. Try again, or restart this session."
         detail.textColor = .secondaryLabel
         detail.font = .preferredFont(forTextStyle: .subheadline)
         detail.adjustsFontForContentSizeCategory = true
         detail.numberOfLines = 0
         detail.textAlignment = .center
-
-        let progress = UIActivityIndicatorView(style: .medium)
-        progress.translatesAutoresizingMaskIntoConstraints = false
-        progress.color = .secondaryLabel
-        progress.startAnimating()
-        recoveryTitle = title
-        recoveryDetail = detail
-        recoveryProgress = progress
-
-        let stack = UIStackView(arrangedSubviews: [icon, title, detail, progress])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 12
-        stack.setCustomSpacing(16, after: icon)
 
         let retry = UIButton(type: .system)
         retry.setTitle("Try again", for: .normal)
@@ -325,9 +333,16 @@ final class HushhSessionPrivacyShield: NSObject {
         let actions = UIStackView(arrangedSubviews: [retry, restart])
         actions.axis = .vertical
         actions.spacing = 8
-        actions.isHidden = true
-        stack.addArrangedSubview(actions)
-        recoveryActions = actions
+
+        let stack = UIStackView(arrangedSubviews: [title, detail, actions])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        stack.setCustomSpacing(20, after: detail)
+        stack.backgroundColor = .systemBackground
+        stack.isHidden = true
+        recoveryPanel = stack
 
         overlay.addSubview(stack)
         hostView.addSubview(overlay)
@@ -338,18 +353,19 @@ final class HushhSessionPrivacyShield: NSObject {
             overlay.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
             overlay.topAnchor.constraint(equalTo: hostView.topAnchor),
             overlay.bottomAnchor.constraint(equalTo: hostView.bottomAnchor),
+            splash.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+            splash.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+            splash.topAnchor.constraint(equalTo: overlay.topAnchor),
+            splash.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
             stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.leadingAnchor, constant: 32),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -32),
-            icon.widthAnchor.constraint(equalToConstant: 34),
-            icon.heightAnchor.constraint(equalToConstant: 34),
         ])
 
         overlayView = overlay
         hostView.bringSubviewToFront(overlay)
         hostView.layoutIfNeeded()
-        UIAccessibility.post(notification: .screenChanged, argument: title)
     }
 }
 

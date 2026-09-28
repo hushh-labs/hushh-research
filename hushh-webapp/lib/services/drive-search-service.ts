@@ -15,6 +15,7 @@ export type DriveSearchStatus = {
   expiresAt: string;
   updatedAt: string;
   errorCode: string | null;
+  unshareableCount?: number;
 };
 export type DriveSearchFile = {
   position: number;
@@ -23,6 +24,8 @@ export type DriveSearchFile = {
   mimeType: string;
   modifiedTime: string | null;
   openUrl: string | null;
+  shareable?: boolean;
+  unavailableReason?: "shortcut_target_unavailable" | null;
 };
 /** A single saved result, resolved and rechecked by the owner-authenticated chat route. */
 export type DriveSearchSelection = { jobId: string; position: number };
@@ -67,10 +70,12 @@ function date(value: unknown): string {
   if (!Number.isFinite(Date.parse(result))) throw new DriveSearchError("invalid_response");
   return result;
 }
-function status(value: unknown): DriveSearchStatus {
+export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
   const item = record(value);
   if (!STATES.includes(item.status as DriveSearchStatus["status"]) ||
     typeof item.incompleteSearch !== "boolean" || typeof item.canStop !== "boolean")
+    throw new DriveSearchError("invalid_response");
+  if (item.unshareableCount !== undefined && count(item.unshareableCount) > count(item.matched))
     throw new DriveSearchError("invalid_response");
   return {
     jobId: id(item.jobId), status: item.status as DriveSearchStatus["status"],
@@ -79,10 +84,15 @@ function status(value: unknown): DriveSearchStatus {
     incompleteSearch: item.incompleteSearch, canStop: item.canStop,
     createdAt: date(item.createdAt), expiresAt: date(item.expiresAt), updatedAt: date(item.updatedAt),
     errorCode: item.errorCode == null ? null : text(item.errorCode, 80),
+    ...(item.unshareableCount === undefined ? {} : { unshareableCount: count(item.unshareableCount) }),
   };
 }
 function file(value: unknown): DriveSearchFile {
   const item = record(value);
+  if (item.shareable !== undefined && typeof item.shareable !== "boolean")
+    throw new DriveSearchError("invalid_response");
+  if (item.unavailableReason != null && item.unavailableReason !== "shortcut_target_unavailable")
+    throw new DriveSearchError("invalid_response");
   // Accept Google file links only. Provider response strings never become HTML.
   let openUrl: string | null = null;
   if (item.openUrl != null) {
@@ -93,7 +103,21 @@ function file(value: unknown): DriveSearchFile {
     openUrl = url.href;
   }
   return { position: position(item.position), id: text(item.id, 256), name: text(item.name, 1000), mimeType: text(item.mimeType, 256),
-    modifiedTime: item.modifiedTime == null ? null : date(item.modifiedTime), openUrl };
+    modifiedTime: item.modifiedTime == null ? null : date(item.modifiedTime), openUrl,
+    ...(item.shareable === undefined ? {} : { shareable: item.shareable as boolean }),
+    ...(item.unavailableReason == null ? {} : { unavailableReason: "shortcut_target_unavailable" as const }) };
+}
+
+export function parseDriveSearchResults(value: unknown, jobId: string): DriveSearchResults {
+  const result = record(value);
+  if (id(result.jobId) !== jobId || !Array.isArray(result.files) || result.files.length > 25)
+    throw new DriveSearchError("invalid_response");
+  const files = result.files.map(file);
+  if (new Set(files.map(item => item.id)).size !== files.length ||
+    new Set(files.map(item => item.position)).size !== files.length)
+    throw new DriveSearchError("invalid_response");
+  return { jobId, revision: count(result.revision, Number.MAX_SAFE_INTEGER), files,
+    matched: count(result.matched), nextCursor: result.nextCursor == null ? null : text(result.nextCursor, 1024) };
 }
 
 /** Owner-scoped responses remain in mounted component memory; never browser storage. */
@@ -122,34 +146,27 @@ export class DriveSearchService {
   static async create(token: string, query: string, clientRequestId: string, guard: Guard) {
     id(clientRequestId);
     if (!query.trim() || new TextEncoder().encode(query).byteLength > 2048) throw new DriveSearchError("invalid_argument");
-    return status(await this.send(token, guard, "", { clientRequestId, query, backgroundConsent: true,
+    return parseDriveSearchStatus(await this.send(token, guard, "", { clientRequestId, query, backgroundConsent: true,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
   }
   static async recent(token: string, guard: Guard): Promise<DriveSearchStatus[]> {
     const value = await this.send(token, guard);
     if (!Array.isArray(value.jobs) || value.jobs.length > 25) throw new DriveSearchError("invalid_response");
-    const jobs = value.jobs.map(status);
+    const jobs = value.jobs.map(parseDriveSearchStatus);
     if (new Set(jobs.map(job => job.jobId)).size !== jobs.length) throw new DriveSearchError("invalid_response");
     return jobs;
   }
   static async get(token: string, jobId: string, guard: Guard) {
-    const value = status(await this.send(token, guard, `/${id(jobId)}`));
+    const value = parseDriveSearchStatus(await this.send(token, guard, `/${id(jobId)}`));
     if (value.jobId !== jobId) throw new DriveSearchError("invalid_response");
     return value;
   }
   static async results(token: string, jobId: string, guard: Guard, cursor: string | null = null): Promise<DriveSearchResults> {
     const query = cursor == null ? "" : `?cursor=${encodeURIComponent(text(cursor, 1024))}`;
-    const value = await this.send(token, guard, `/${id(jobId)}/results${query}`);
-    if (id(value.jobId) !== jobId || !Array.isArray(value.files) || value.files.length > 25)
-      throw new DriveSearchError("invalid_response");
-    const files = value.files.map(file);
-    if (new Set(files.map(item => item.id)).size !== files.length ||
-      new Set(files.map(item => item.position)).size !== files.length) throw new DriveSearchError("invalid_response");
-    return { jobId, revision: count(value.revision, Number.MAX_SAFE_INTEGER), files,
-      matched: count(value.matched), nextCursor: value.nextCursor == null ? null : text(value.nextCursor, 1024) };
+    return parseDriveSearchResults(await this.send(token, guard, `/${id(jobId)}/results${query}`), jobId);
   }
   static async stop(token: string, jobId: string, guard: Guard) {
-    const value = status(await this.send(token, guard, `/${id(jobId)}/stop`, {}));
+    const value = parseDriveSearchStatus(await this.send(token, guard, `/${id(jobId)}/stop`, {}));
     if (value.jobId !== jobId || value.canStop) throw new DriveSearchError("invalid_response");
     return value;
   }

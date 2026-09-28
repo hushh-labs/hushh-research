@@ -186,9 +186,14 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain("retainUntilConsumed: true");
     expect(controller).toContain('retry.setTitle("Try again"');
     expect(controller).toContain('restart.setTitle("Restart session"');
-    expect(controller).toContain(".now() + 8");
-    expect(controller).toContain("self.recoveryProgress?.stopAnimating()");
-    expect(controller).toContain('self.recoveryTitle?.text = "Unable to restore the private view"');
+    expect(controller).toContain("static let recoveryDelay: TimeInterval = 8");
+    expect(controller).toContain(".now() + Self.recoveryDelay");
+    expect(controller).toContain('title.text = "Unable to restore the private view"');
+    expect(controller).toContain("stack.isHidden = true");
+    // The iOS cover is the launch screen; it never renders a loading state.
+    expect(controller).toContain('UIImage(named: "Splash")');
+    expect(controller).not.toContain("Protecting private information");
+    expect(controller).not.toContain("UIActivityIndicatorView");
     expect(controller).toContain("retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)");
     expect(controller).toContain("title.numberOfLines = 0");
     expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));

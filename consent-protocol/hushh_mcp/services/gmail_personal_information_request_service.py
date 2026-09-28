@@ -21,7 +21,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import getaddresses
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
 import asyncpg
@@ -34,6 +33,7 @@ from hushh_mcp.agents.email.runtime import (
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.generated_contracts import shared_config_path
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryService,
     GmailReplyContext,
@@ -66,9 +66,7 @@ _CLASSIFIER_TIMEOUT_SECONDS = 30.0
 # begin a new monitored generation.
 _CLASSIFIER_POLICY_VERSION = 2
 _MONITOR_LEASE_SECONDS = 4 * 60
-_KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
-    Path(__file__).resolve().parents[3] / "config" / "pkm" / "kyc-identity-profile.v1.json"
-)
+_KYC_IDENTITY_PROFILE_CONTRACT_PATH = shared_config_path("pkm", "kyc-identity-profile.v1.json")
 _KYC_IDENTITY_FIELDS: dict[str, dict[str, Any]] | None = None
 _DOMAIN_NAMES = frozenset(
     {

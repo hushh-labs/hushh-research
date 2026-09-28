@@ -138,6 +138,12 @@ describe("layer ladder", () => {
       // (the chat list sat under the bar in narrow layouts).
       expect(drawer.match(/bottom-\[var\(--app-bottom-shell-height,0px\)\]/g)).toHaveLength(2);
       expect(drawer).not.toMatch(/absolute (inset-x-0 )?bottom-0/);
+      // The tap-to-close layer is untinted: a dim clipped between the header and
+      // the bottom bar left both bright, a white strip above and a patch below.
+      const scrim = drawer.slice(drawer.indexOf("data-agent-history-scrim"));
+      const scrimClasses = scrim.slice(0, scrim.indexOf("onClick"));
+      expect(scrimClasses).toContain("bg-transparent");
+      expect(scrimClasses).not.toMatch(/bg-black\/|backdrop-blur/);
       expect(read("components/agent/agent-chat-workspace.tsx")).toContain(
         "h-[var(--agent-chat-header-height)]",
       );

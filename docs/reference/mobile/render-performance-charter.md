@@ -377,6 +377,10 @@ table lives in the baseline report and re-ranks the remaining work.
 - `hushh-webapp/__tests__/morphy-ux/blur-promotion.contract.test.ts`,
   `hushh-webapp/__tests__/components/kai-charts-animation.contract.test.ts`,
   `hushh-webapp/__tests__/components/profile-pane-contract.test.ts` (passive gestures),
+  `hushh-webapp/__tests__/components/profile-pane-admission.test.tsx` (the pane
+  commits only its header and a static shell for the first slide frame and
+  builds the Profile page after it; `hushh:profile-pane-first-frame` and
+  `hushh:profile-pane-content` performance marks time the two on a device),
   `hushh-webapp/__tests__/lib/ambient-chrome.test.ts` (no `<html>` writes, no body
   observer), `hushh-webapp/__tests__/components/agent-voice-edge-glow.test.tsx` (idle
   glow does nothing) each hold one fix in place.

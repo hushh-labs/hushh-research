@@ -221,6 +221,7 @@ import ConnectPageClient from "@/app/connect/page-client";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ShareUnavailableError } from "@/lib/share/share-link";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { OUTGOING_REQUEST_WATCH_INTERVAL_MS } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import {
   resolveLocalOnboardingHandler,
   prepareLocalOnboardingAction,
@@ -528,6 +529,39 @@ describe("P0 connection reconciliation", () => {
       expect(mocks.listRequests).toHaveBeenCalledOnce();
     } finally {
       visibility.mockRestore();
+    }
+  });
+
+  it("shows an accepted sent request without a push or manual refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    mocks.listRequests.mockResolvedValue([
+      { id: "req-accepted", counterpartUserId: "u9" },
+    ]);
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+
+      // Negative control: a request that is still pending changes nothing.
+      await act(() =>
+        vi.advanceTimersByTimeAsync(OUTGOING_REQUEST_WATCH_INTERVAL_MS),
+      );
+      expect(mocks.listConnectionsPage).not.toHaveBeenCalled();
+
+      mocks.listRequests.mockResolvedValue([]);
+      await act(() =>
+        vi.advanceTimersByTimeAsync(OUTGOING_REQUEST_WATCH_INTERVAL_MS),
+      );
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledOnce(),
+      );
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
     }
   });
 
@@ -1251,7 +1285,7 @@ describe("Connect — People", () => {
       expect(mocks.searchDirectory).toHaveBeenCalledTimes(before + 1);
       expect(mocks.searchDirectory.mock.calls.at(-1)?.[0]).toMatchObject({
         page: 2,
-        audience: directory === "RIAs" ? "ria" : "people",
+        audience: directory === "RIAs" ? "ria" : "all",
       });
       expect(
         screen.queryByRole("button", { name: /previous page/i }),
@@ -2114,15 +2148,15 @@ describe("Connect — People", () => {
     expect(mocks.getScopeCatalog).not.toHaveBeenCalled();
   });
 
-  it("pages advisors as their own audience, not as a filter over everyone", async () => {
+  it("searches all profiles in People and narrows RIAs at the server", async () => {
     // A filter applied after the page is cut can only subtract from a page that
     // was already chosen wrongly: uneven pages, and every advisor past the
-    // first one unreachable. The tab therefore asks the server for its own
-    // half of the directory.
+    // first one unreachable. People asks for the full directory; RIAs narrows
+    // it on the server.
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
     expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
-      expect.objectContaining({ audience: "people" }),
+      expect.objectContaining({ audience: "all" }),
     );
 
     chooseDirectory("RIAs");
@@ -2132,6 +2166,43 @@ describe("Connect — People", () => {
         expect.objectContaining({ audience: "ria", page: 1 }),
       ),
     );
+  });
+
+  it("shows a verified RIA and a regular profile in the same People search", async () => {
+    const matches = [
+      { ...person("divya-ria", "Divya Advisor"), isRia: true },
+      { ...person("divya-person", "Divya Person"), isRia: false },
+    ];
+    mocks.searchDirectory.mockImplementation(async ({ query, audience }) => {
+      const queried = query === "Divya" ? matches : [];
+      const items =
+        audience === "ria"
+          ? queried.filter((entry) => entry.isRia)
+          : audience === "people"
+            ? queried.filter((entry) => !entry.isRia)
+            : queried;
+      return { items, page: 1, hasMore: false, totalCount: items.length };
+    });
+
+    render(<ConnectPageClient />);
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Divya" },
+    });
+
+    expect(await screen.findByText("Divya Advisor")).toBeTruthy();
+    expect(screen.getByText("Divya Person")).toBeTruthy();
+    expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "Divya", audience: "all", page: 1 }),
+    );
+
+    chooseDirectory("RIAs");
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "Divya", audience: "ria", page: 1 }),
+      ),
+    );
+    expect(await screen.findByText("Divya Advisor")).toBeTruthy();
+    expect(screen.queryByText("Divya Person")).toBeNull();
   });
 
   it("lists only verified advisers under My connections on the RIAs tab", async () => {
@@ -2602,14 +2673,13 @@ describe("Connect — inviting someone who is not on One yet", () => {
   }
 
   it("offers an invite instead of stopping at the dead end", async () => {
-    // The whole point of the issue: "No one matches" is a true statement and
-    // an unhelpful one, because the likeliest reason a name is missing is that
-    // the person has not joined.
+    // No matches does not prove the person lacks an account. The optional
+    // invite must not make that claim.
     await searchForNobody();
 
     expect(await screen.findByText("Invite them to One")).toBeTruthy();
     expect(
-      screen.getByText("Send them the app. You can connect once they join."),
+      screen.getByText("Share an invite link with them."),
     ).toBeTruthy();
   });
 

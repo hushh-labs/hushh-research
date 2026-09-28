@@ -186,6 +186,7 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
         "modifiedTime": item.get("modifiedTime"),
         "createdTime": item.get("createdTime"),
         "viewUrl": item.get("webViewLink"),
+        "shortcutDetails": item.get("shortcutDetails"),
     }
 
 

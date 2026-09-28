@@ -64,6 +64,31 @@ class DriveSharingService:
             snapshot = current
         return snapshot["result"]
 
+    async def delivery_files(self, *, user_id, request_id, cursor=None):
+        """B's confirmed original-file links, one bounded page at a time."""
+        snapshot = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
+        recipient = snapshot["recipient"]
+        if recipient is None:
+            raise DriveSharingError("request_unavailable")
+        await self.verify_recipient(recipient)
+        current = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
+        if current["recipient"] != recipient:
+            raise DriveSharingError("recipient_changed")
+        share_id = current["result"].get("bulkShareId")
+        if share_id is None:
+            raise DriveSharingError("bulk_not_found")
+        from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+
+        page = await DriveBulkShareStore(db=self.store.db).recipient_files(
+            recipient_user_id=user_id,
+            recipient_subject=recipient["subject"],
+            recipient_email=recipient["email"],
+            share_id=share_id,
+            cursor=cursor,
+            limit=25,
+        )
+        return {"requestId": request_id, **page}
+
     async def approve(self, *, user_id, **kwargs):
         generation = await self._generation(user_id)
         await self._require_owner()

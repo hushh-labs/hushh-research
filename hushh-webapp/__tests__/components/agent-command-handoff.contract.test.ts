@@ -60,7 +60,9 @@ describe("Agent command handoff contract", () => {
     );
 
     expect(loadContext).toContain("peekAgentPkmContext({");
-    expect(loadContext).toContain("message: text");
+    // The whole current turn: typed text plus any pasted attachment, which
+    // now travels to One as its own part instead of inside `text`.
+    expect(loadContext).toContain("message: turnSourceText");
     expect(loadContext).toContain("loadAgentPkmContext({");
   });
 });

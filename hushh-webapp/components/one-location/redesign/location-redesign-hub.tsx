@@ -141,7 +141,11 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import { ACTIVE_SHARE_STOP_CLASSNAME } from "./active-share-row-layout";
+import {
+  ACTIVE_SHARE_ACTIONS_CLASSNAME,
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
+} from "./active-share-row-layout";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -2296,10 +2300,10 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         data-testid="one-location-share-row"
         className={cn(
           LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
+          "flex w-full flex-col gap-4 rounded-[18px] px-4 py-4 text-left sm:flex-row sm:items-center",
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
           <LocationSharePulseIcon />
           <span className="min-w-0">
             <CardTitle
@@ -2308,7 +2312,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
             >
               You&apos;re not sharing
             </CardTitle>
-            <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+            <span className="mt-0.5 block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
@@ -2321,7 +2325,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] min-[420px]:w-auto"
+          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] max-sm:min-h-[50px] sm:w-auto"
         >
           Share location
         </Button>
@@ -2791,25 +2795,7 @@ function LocationDetailFlow({
                   title={name}
                   description={
                     single ? (
-                      <div className="space-y-1">
-                        <ActiveShareMetadata grant={single} />
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                      </div>
+                      <ActiveShareMetadata grant={single} />
                     ) : (
                       <>
                         <span>{`${group.grants.length} active shares`}</span>
@@ -2827,11 +2813,29 @@ function LocationDetailFlow({
                   }
                   trailing={
                     single ? (
-                      <StopGrantTextButton
-                        grantId={single.id}
-                        revokingGrantId={vm.revokingGrantId}
-                        onStopGrant={vm.onStopGrant}
-                      />
+                      <div className={ACTIVE_SHARE_ACTIONS_CLASSNAME}>
+                        {!isSmsTriggeredGrant(single) ? (
+                          <button
+                            type="button"
+                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
+                            }
+                          >
+                            {single.durationMode === "until_stopped"
+                              ? "Set end time"
+                              : "Change time"}
+                          </button>
+                        ) : null}
+                        <StopGrantTextButton
+                          grantId={single.id}
+                          revokingGrantId={vm.revokingGrantId}
+                          onStopGrant={vm.onStopGrant}
+                        />
+                      </div>
                     ) : null
                   }
                   stackTrailingOnMobile={Boolean(single)}
@@ -4902,7 +4906,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 density="compact"
                 leading={<LinkIdentityMark />}
                 title="Link is live"
-                description="Active, but unavailable on this device."
+                description="People who have this link can still see your location until it expires. Stop it to create a new link."
               />
               <div className="px-4 pb-4 pt-2">
                 <button

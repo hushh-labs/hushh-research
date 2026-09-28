@@ -13,10 +13,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import itertools
 import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
@@ -51,6 +53,13 @@ from hushh_mcp.one_adk.output_privacy import (
     public_event,
     safe_exception_event,
 )
+from hushh_mcp.one_adk.run_errors import (
+    MODEL_CAPACITY_CODE,
+    MODEL_UNAVAILABLE_CODE,
+    SERVER_RESTARTING_CODE,
+    server_is_draining,
+)
+from hushh_mcp.one_adk.text_attachments import render_text_attachments_for_model
 from hushh_mcp.services.chat_key import (
     current_chat_key_markers,
     retain_request_chat_key,
@@ -149,6 +158,7 @@ HEAD_UNLABELED = "unlabeled"
 OUTCOME_FINISHED = "finished"
 OUTCOME_ERROR = "error"
 OUTCOME_CLIENT_DISCONNECT = "client_disconnect"
+OUTCOME_SERVER_RESTARTING = "server_restarting"
 
 _FIRST_VISIBLE_EVENT_TYPES = frozenset(
     {EventType.TEXT_MESSAGE_CONTENT, EventType.TOOL_CALL_START, EventType.CUSTOM}
@@ -161,6 +171,11 @@ _CURRENT_TURN: contextvars.ContextVar[TurnTiming | None] = contextvars.ContextVa
     "one_chat_turn_timing", default=None
 )
 _ANONYMOUS_OWNER_PREFIX = "anonymous:"
+# Process-local turn counter and warmup flag. A worker's first turn pays one-time
+# setup that later turns do not (measured 2026-09-27: 3.6-41 s before the first
+# model call against 94 ms warm), so the timing line says which kind it was.
+_PROCESS_TURNS = itertools.count(1)
+_TURN_PATH_WARMED = threading.Event()
 # The detached-turn hook reads the sealed session and sends one bare push. It is
 # bounded so a slow store or provider can never hold the retained chat key long.
 DETACHED_TURN_HOOK_TIMEOUT_SECONDS = 20.0
@@ -217,8 +232,10 @@ def _error_class(code: Any) -> str:
         return "database"
     if code.startswith("AGENT_RUNTIME_"):
         return "runtime"
-    if code in {"MODEL_ERROR", "RESOURCE_EXHAUSTED"}:
+    if code in {"MODEL_ERROR", MODEL_CAPACITY_CODE, MODEL_UNAVAILABLE_CODE}:
         return "model"
+    if code == SERVER_RESTARTING_CODE:
+        return "shutdown"
     return "other"
 
 
@@ -239,7 +256,14 @@ class TurnTiming:
     model_calls: int = 0
     model_call_total_ms: float = 0.0
     first_model_call_ms: float | None = None
+    first_model_call_at: float | None = None
+    # Set when ADK starts the root agent: the session is loaded, the bridge has
+    # synced state and the person's message is appended.
+    agent_started_at: float | None = None
+    instruction_ms: float = 0.0
     connector_discovery_ms: float = 0.0
+    process_turn: int = 0
+    path_warmed: bool = False
     model_id: str = "unavailable"
     thinking_level: str = "unavailable"
     pending_model_call_starts: list[float] | None = None
@@ -250,10 +274,15 @@ class TurnTiming:
     error_class: str = "none"
     terminal_observed: bool = False
 
+    def begin_agent(self) -> None:
+        if self.agent_started_at is None:
+            self.agent_started_at = time.perf_counter()
+
     def begin_model_call(self, request: Any) -> None:
         now = time.perf_counter()
         if self.first_model_call_ms is None:
             self.first_model_call_ms = _ms_since(self.started_at, now)
+            self.first_model_call_at = now
         self.model_calls += 1
         if self.model_id == "unavailable":
             candidate_model_id = str(getattr(request, "model", "") or "").strip()
@@ -322,11 +351,19 @@ class TurnTiming:
         if tool_name.startswith(_SPECIALIST_TOOL_PREFIX):
             self.specialist_calls += 1
 
+    def request_build_ms(self) -> int | None:
+        """Agent start to first model call: instruction, history, tools, discovery."""
+        if self.agent_started_at is None or self.first_model_call_at is None:
+            return None
+        return _ms_since(self.agent_started_at, self.first_model_call_at)
+
     def log(self) -> None:
         logger.info(
             "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
             "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
-            "first_model_call_ms=%s connector_discovery_ms=%s model_calls=%s model_call_total_ms=%s "
+            "first_model_call_ms=%s session_ms=%s request_build_ms=%s instruction_ms=%s "
+            "connector_discovery_ms=%s process_turn=%s path_warmed=%s "
+            "model_calls=%s model_call_total_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s",
@@ -338,7 +375,12 @@ class TurnTiming:
             _ms_since(self.started_at, self.first_tool_call_at),
             _ms_since(self.started_at, time.perf_counter()),
             self.first_model_call_ms,
+            _ms_since(self.started_at, self.agent_started_at),
+            self.request_build_ms(),
+            round(self.instruction_ms),
             round(self.connector_discovery_ms),
+            self.process_turn,
+            str(self.path_warmed).lower(),
             self.model_calls,
             round(self.model_call_total_ms),
             self.model_id,
@@ -455,7 +497,13 @@ class TimedADKAgent(ADKAgent):
         return mcp_turn_scope(conversation_id, owner_id=owner_id, configurations=configurations)
 
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
-        timing = TurnTiming(head=self.head, run=run_label(input), started_at=time.perf_counter())
+        timing = TurnTiming(
+            head=self.head,
+            run=run_label(input),
+            started_at=time.perf_counter(),
+            process_turn=next(_PROCESS_TURNS),
+            path_warmed=_TURN_PATH_WARMED.is_set(),
+        )
         timing_context = _CURRENT_TURN.set(timing)
         # Set before the bridge starts its background task, which copies this
         # context and so shares the same watch object.
@@ -517,7 +565,11 @@ class TimedADKAgent(ADKAgent):
             # Consumers commonly close immediately after the terminal event.
             # observe() runs before yield so that normal closure cannot replace
             # an emitted finish or error with a disconnect diagnosis.
-            if not timing.terminal_observed:
+            if not timing.terminal_observed and server_is_draining():
+                # The stream guard sends the terminal event; this is not a
+                # person leaving, so no detached-turn notice is due.
+                timing.outcome = OUTCOME_SERVER_RESTARTING
+            elif not timing.terminal_observed:
                 timing.outcome = OUTCOME_CLIENT_DISCONNECT
                 if detach_watch is not None:
                     detach_watch.consumer_detached = True
@@ -628,6 +680,26 @@ def _request_text(value: Any) -> str:
     )
 
 
+def mark_turn_path_warmed() -> None:
+    """Record that this process already ran the One turn path once at startup."""
+    _TURN_PATH_WARMED.set()
+
+
+def record_instruction_build(elapsed_ms: float) -> None:
+    """Add one runtime-instruction build to the current turn's timing line."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.instruction_ms += max(0.0, elapsed_ms)
+
+
+def timed_one_before_agent(callback_context: Any) -> None:
+    """Mark when ADK starts One: session loaded and the new message appended."""
+    del callback_context
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.begin_agent()
+
+
 def record_connector_discovery(elapsed_ms: float) -> None:
     """Add one connector-catalog discovery to the current turn's timing line."""
     timing = _CURRENT_TURN.get()
@@ -638,6 +710,7 @@ def record_connector_discovery(elapsed_ms: float) -> None:
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
+    render_text_attachments_for_model(llm_request)
     guarded_response = before_external_read_model(callback_context, llm_request)
     if guarded_response is not None:
         return guarded_response

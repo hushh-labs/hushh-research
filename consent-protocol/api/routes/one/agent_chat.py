@@ -71,6 +71,9 @@ from hushh_mcp.one_adk.history_descriptors import (
     _safe_document_request_descriptor as _safe_document_request_descriptor,
 )
 from hushh_mcp.one_adk.history_descriptors import (
+    _safe_drive_bulk_share_descriptor as _safe_drive_bulk_share_descriptor,
+)
+from hushh_mcp.one_adk.history_descriptors import (
     _safe_drive_share_descriptor as _safe_drive_share_descriptor,
 )
 from hushh_mcp.one_adk.history_descriptors import (
@@ -221,6 +224,15 @@ def _current_user_text(input_data: RunAgentInput) -> str:
     if getattr(last, "role", None) != "user":
         return ""
     text = getattr(last, "content", None)
+    if isinstance(text, list):
+        # A turn with a pasted attachment: only the typed text parts are the
+        # person's request. The attachment is content, never an instruction.
+        text = "\n".join(
+            value
+            for item in text
+            if getattr(item, "type", None) == "text"
+            and isinstance((value := getattr(item, "text", None)), str)
+        )
     if not isinstance(text, str) or len(text) > 2048:
         return ""
     return text

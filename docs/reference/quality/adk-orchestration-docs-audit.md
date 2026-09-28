@@ -2585,3 +2585,26 @@ full-suite job. Local focused commands, browser packs, generated fixtures and
 security gates remain. Release compatibility and live acceptance remain open until
 actual predecessor recovery, exact-SHA deployment and normal owner-approved update
 receipts have been recorded.
+
+
+#### Frozen integration and predecessor recovery evidence
+
+The completion candidate freezes local ADK at
+`d751afaf71982e9b86ea8cbb12234b9fc1524ab7`; later ADK edits belong to the next
+cycle. It retains private pod transport while adding the upstream stream-liveness
+watchdog, text attachments and activity restoration. The imported active migrations
+254–256 add Drive bulk-share and legal-acceptance storage; parked cleanup 944
+remains excluded. Their application rollback retains additive schema.
+
+Synthetic encrypted recovery passed in Cloud Build
+`bfebe057-5185-4f80-9e2b-d1a79de1d0ef` for the actual reviewer predecessor
+`sha256:22cadabee713a200d2dd0b5297d7d87344ca0a7885919abae45bb5a1708c2f79`
+and repaired-owner predecessor
+`sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809`.
+Each immutable predecessor wrote synthetic fixtures, candidate recovery restored
+and extended them, and the predecessor read them back. Assertions covered encrypted
+Files, ordered chat/checkpoint recovery, deleted-session markers, identity and
+revocation markers, memory, PKM and incarnation fencing. Recovery-format owners
+and dependency locks are unchanged by the frozen ADK import. These exact digests
+are eligible for the dev release descriptor; this is not live installation,
+active-work drain, real-owner continuity or fault-injected rollback evidence.

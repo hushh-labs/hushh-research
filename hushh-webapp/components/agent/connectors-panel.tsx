@@ -18,6 +18,7 @@ import {
   XIcon,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -248,6 +249,7 @@ function OwnerConnectorsPanel({
   const [confirm, setConfirm] = useState<string | null>(null);
   const [activeConnector, setActiveConnector] = useState<string | null>(initialConnector);
   const [search, setSearch] = useState("");
+  const driveBackgroundId = useId();
   const previousActiveConnector = useRef<string | null>(null);
   const appliedInitialConnector = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -1403,6 +1405,7 @@ function OwnerConnectorsPanel({
     <div
       className="flex h-full min-h-0 flex-col bg-background text-foreground"
       data-connections-panel
+      data-connection-compact={activeConnector === "google_drive" && statusChecked && !loading && drive?.status === "connected" && !pending ? "" : undefined}
       data-surface={surface}
     >
       <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
@@ -1574,18 +1577,27 @@ function OwnerConnectorsPanel({
               <h3 id="connection-drive-title" className="sr-only">
                 Google Drive
               </h3>
-              <p className="break-all text-sm text-muted-foreground">
-                {drive?.accountLabel || "Search and read files"}
-              </p>
-              <p role="status" className="text-sm">
-                {loading
-                  ? "Checking Drive…"
-                  : !statusChecked
-                    ? "Connection status unavailable"
-                    : drive
-                    ? (labels[drive.status] ?? "Status unavailable")
-                    : "Not connected"}
-              </p>
+              {statusChecked && !loading && drive?.status === "connected" ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-foreground/5 px-4 py-3 text-sm">
+                  <span className="min-w-0 break-all text-muted-foreground">{drive.accountLabel || "Google Drive"}</span>
+                  <span role="status" className="font-medium">Connected</span>
+                </div>
+              ) : (
+                <>
+                  <p className="break-all text-sm text-muted-foreground">
+                    {drive?.accountLabel || "Search and read files"}
+                  </p>
+                  <p role="status" className="text-sm">
+                    {loading
+                      ? "Checking Drive…"
+                      : !statusChecked
+                        ? "Connection status unavailable"
+                        : drive
+                          ? (labels[drive.status] ?? "Status unavailable")
+                          : "Not connected"}
+                  </p>
+                </>
+              )}
               <div className="flex flex-wrap gap-2">
                 {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
@@ -1609,7 +1621,7 @@ function OwnerConnectorsPanel({
                       Enable full Drive access
                     </Button>
                   )}
-                {hasDriveGrant && (
+                {hasDriveGrant && drive?.status !== "connected" && (
                   <Button
                     className={touch}
                     variant="outline"
@@ -1619,7 +1631,7 @@ function OwnerConnectorsPanel({
                     Disconnect Drive
                   </Button>
                 )}
-                <Button
+                {(!statusChecked || (!canConnectDrive && drive?.status !== "connected") || drive?.status === "error") && <Button
                   size="compact"
                   className={touch}
                   variant="ghost"
@@ -1633,13 +1645,12 @@ function OwnerConnectorsPanel({
                   }}
                 >
                   Retry Drive
-                </Button>
+                </Button>}
               </div>
               {drivePopupPending && <Button size="compact" variant="outline" onClick={() => drivePopupCancel.current?.abort()}>Cancel sign-in</Button>}
               {overview?.features.google_drive_live === true && drive?.profile !== "live" && (
                 <p className="text-sm text-muted-foreground">
-                  Live access lets One search your Drive when needed. Connecting never shares files;
-                  each request still needs your approval or a separate permission you set.
+                  Full access lets One search Drive when needed. Sharing still needs your approval or a permission you set.
                 </p>
               )}
               {canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant && (
@@ -1648,21 +1659,40 @@ function OwnerConnectorsPanel({
                 </p>
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
-                <div className="space-y-3 rounded-lg border border-border p-3">
-                  <p className="text-sm">Prepare document requests while you’re away. One reads relevant files on Hushh servers and sends excerpts to Gemini. Files are shared only after your approval or under document trust.</p>
-                  <Button className={touch} disabled={driveBusy || liveBackground === null}
-                    onClick={() => void runDrive(async (token) => {
-                      const next = !liveBackground;
-                      await ExternalConnectorService.setLiveBackground(token, next);
-                      setLiveBackground(next);
-                      setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
-                    })}>
-                    {liveBackground ? "Stop background preparation" : "Prepare requests while away"}
-                  </Button>
+                <div className="rounded-2xl bg-foreground/5 px-4 py-3">
+                  <label htmlFor={driveBackgroundId} className="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">Background preparation</span>
+                      <span className="block text-xs text-muted-foreground">One may read relevant files and send excerpts to Gemini while you’re away.</span>
+                    </span>
+                    <Switch id={driveBackgroundId} size="ios" aria-label="Background preparation" checked={liveBackground ?? false}
+                      disabled={driveBusy || liveBackground === null}
+                      onCheckedChange={(next) => void runDrive(async (token) => {
+                        await ExternalConnectorService.setLiveBackground(token, next);
+                        setLiveBackground(next);
+                        setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
+                      })}
+                    />
+                  </label>
                 </div>
               )}
+              {drive?.profile === "live" && drive.status === "connected" && (
+                <details className="group rounded-2xl bg-foreground/5 text-sm">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium [&::-webkit-details-marker]:hidden">
+                    Sharing and approval
+                    <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+                  </summary>
+                  <p className="px-4 pb-4 text-muted-foreground">
+                    Sharing a file needs your approval or a document trust rule.
+                  </p>
+                </details>
+              )}
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
-              {statusChecked && !canConnectDrive && (
+              {hasDriveGrant && drive?.status === "connected" && (
+                <Button className={`${touch} self-start px-0 text-destructive`} variant="ghost" disabled={driveBusy}
+                  onClick={() => setConfirm("drive")}>Disconnect Drive</Button>
+              )}
+              {statusChecked && !canConnectDrive && !hasDriveGrant && (
                 <p className="text-sm text-muted-foreground">
                   Drive sign-in is not configured here. Try again later.
                 </p>
@@ -1702,13 +1732,7 @@ function OwnerConnectorsPanel({
                           setAllowBackground(event.target.checked)
                         }
                       />
-                      <span>
-                        Allow Hushh to process these files on its servers, even
-                        when the app is closed. Relevant excerpts may be sent
-                        to Gemini to prepare suggestions. The encrypted file
-                        index is held by Hushh, not your vault. Sharing still
-                        needs your approval.
-                      </span>
+                      <span>Prepare these files while the app is closed. Relevant excerpts may be sent to Gemini. Prepared file information is stored outside your vault. Sharing still needs your approval.</span>
                     </label>
                   )}
                   <div className="flex flex-wrap gap-2">
@@ -1780,6 +1804,7 @@ function OwnerConnectorsPanel({
               {(documents.length > 0 || canPick) && (
                 <details>
                 <summary className="cursor-pointer py-3 text-sm">Previously added files</summary>
+                <div className="flex flex-wrap gap-2">
                 {canPick && (
                   <Button
                     ref={chooseRef}
@@ -1790,6 +1815,16 @@ function OwnerConnectorsPanel({
                     Choose files
                   </Button>
                 )}
+                {documents.length > 0 && (
+                  <Button className={touch} variant="ghost" disabled={driveBusy}
+                    onClick={() => {
+                      const signal = controller.current?.signal;
+                      if (signal) void refreshDocuments(signal).catch(() => {
+                        if (!signal.aborted) setDriveMessage("Could not refresh files. Try again.");
+                      });
+                    }}>Refresh files</Button>
+                )}
+                </div>
                 {documents.length > 0 && <ul className="space-y-3" aria-label="Selected Drive files">
                   {documents.map((item) => (
                     <li
@@ -1823,14 +1858,7 @@ function OwnerConnectorsPanel({
                               });
                             }}
                           />
-                          <span>
-                            Allow Hushh to process this file on its servers,
-                            even when the app is closed. Relevant excerpts may
-                            be sent to Gemini. The encrypted index is held by
-                            Hushh, not your vault. Turning this off stops new
-                            processing but keeps the index until you remove
-                            the file. Sharing still needs your approval.
-                          </span>
+                          <span>Prepare this file while the app is closed. Excerpts may be sent to Gemini. Prepared information is stored outside your vault. Turning this off stops new preparation; remove the file to clear what was prepared. Sharing still needs your approval.</span>
                         </label>
                       )}
                       {item.backgroundProcessing &&

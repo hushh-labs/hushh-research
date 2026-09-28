@@ -719,7 +719,7 @@ export function OneSetupHub() {
       as="main"
       width="reading"
       fitContent
-      className="relative isolate max-w-[600px] pb-[calc(20px+env(safe-area-inset-bottom))]"
+      className={`relative isolate max-w-[600px] ${styles.hubPage}`}
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -945,7 +945,7 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
             </div>
-            <div className="mx-auto w-full sm:w-80">
+            <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
               <Button
                 type="button"
                 variant="blue"

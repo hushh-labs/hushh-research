@@ -195,7 +195,7 @@ describe("PhoneVerificationFlow country selector", () => {
     ["India", "IN", "+91", "🇮🇳"],
     ["Angola", "AO", "+244", "🇦🇴"],
     ["Brazil", "BR", "+55", "🇧🇷"],
-  ])("keeps compact country selection synchronized for %s", async (name, iso, code) => {
+  ])("keeps compact country selection synchronized for %s", async (name, iso, code, flag) => {
     renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const phone = screen.getByRole("textbox", { name: "Phone number" });
     fireEvent.change(phone, { target: { value: "12345" } });
@@ -205,7 +205,7 @@ describe("PhoneVerificationFlow country selector", () => {
     fireEvent.click(screen.getByRole("button", { name: `${name} (${code})`, exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: `Country code: ${name} (${code})` })).toBeTruthy();
-    expect(document.querySelector(`[data-country-code="${iso}"]`)?.textContent).toBe(iso);
+    expect(document.querySelector(`[data-country-code="${iso}"]`)?.textContent).toBe(flag);
     expect((phone as HTMLInputElement).value).toBe("12345");
   });
 

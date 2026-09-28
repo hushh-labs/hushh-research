@@ -72,6 +72,12 @@ final class AppUITests: XCTestCase {
                 && Date() <= resumeDeadline,
             "Login must become usable after the native privacy cover releases"
         )
+        let privacyCover = app.descendants(matching: .any)["session-privacy-shield"]
+        let coverDeadline = Date().addingTimeInterval(5)
+        while Date() < coverDeadline, privacyCover.exists {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertFalse(privacyCover.exists, "Privacy cover must release after login becomes usable")
     }
 
     func testPublicAndAuthRoutes() throws {

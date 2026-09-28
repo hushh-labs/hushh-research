@@ -2283,10 +2283,64 @@ export class PersonalKnowledgeModelService {
               : undefined,
         };
       }
-      // The payload contains encrypted material plus sensitive manifest and
-      // summary metadata. Never copy it (or an upstream validation body that
-      // may echo it) into browser logs, error overlays, Feed, or telemetry.
-      throw new Error(`Failed to store domain data: ${response.status}`);
+      // The REQUEST payload contains encrypted material plus sensitive
+      // manifest and summary metadata -- never copy that (or anything that
+      // might echo it) into browser logs, error overlays, Feed, or
+      // telemetry. The RESPONSE body on a non-409 failure is our own route's
+      // structured error (a fixed code + message, e.g. PKM_STORE_DOMAIN_FAILED
+      // / PKM_MUTATION_PLAN_INVALID / PKM_CONFIRMATION_REQUIRED), not an echo
+      // of the request, so it's safe to read and surface -- and the only way
+      // a bare "500"/"422" reaching the console (as it did before this) is
+      // ever diagnosable without pulling server logs.
+      let errorDetailPayload: unknown = null;
+      try {
+        errorDetailPayload = await response.json();
+      } catch {
+        // Ignore JSON parse errors and fall back to the bare status below.
+      }
+      const errorDetail =
+        errorDetailPayload &&
+        typeof errorDetailPayload === "object" &&
+        "detail" in errorDetailPayload
+          ? (errorDetailPayload as { detail?: unknown }).detail
+          : errorDetailPayload;
+      const errorDetailRecord =
+        errorDetail && typeof errorDetail === "object" && !Array.isArray(errorDetail)
+          ? (errorDetail as Record<string, unknown>)
+          : null;
+      let errorCode =
+        errorDetailRecord && typeof errorDetailRecord.code === "string"
+          ? errorDetailRecord.code
+          : undefined;
+      let errorMessage =
+        errorDetailRecord && typeof errorDetailRecord.message === "string"
+          ? errorDetailRecord.message
+          : undefined;
+      // FastAPI's OWN request-validation failures (a pydantic model on
+      // StoreDomainRequest rejecting the body, e.g. structure_decision's
+      // json_paths max_length cap) never reach our route code, so they carry
+      // none of the {code, message} shape above -- `detail` is instead a
+      // list of {loc, msg, type}. Read the first entry rather than falling
+      // back to a bare status: this is exactly the shape a manifest that's
+      // grown past the path cap fails with.
+      if (!errorCode && !errorMessage && Array.isArray(errorDetail) && errorDetail.length > 0) {
+        const firstError = errorDetail[0];
+        if (firstError && typeof firstError === "object") {
+          const record = firstError as Record<string, unknown>;
+          errorCode = typeof record.type === "string" ? record.type : undefined;
+          const loc = Array.isArray(record.loc)
+            ? record.loc.filter((part) => typeof part === "string" || typeof part === "number").join(".")
+            : undefined;
+          const msg = typeof record.msg === "string" ? record.msg : undefined;
+          errorMessage = [loc, msg].filter(Boolean).join(": ") || undefined;
+        }
+      }
+      throw new Error(
+        `Failed to store domain data: ${response.status}` +
+          (errorCode || errorMessage
+            ? ` - ${[errorCode, errorMessage].filter(Boolean).join(": ")}`
+            : ""),
+      );
     }
 
     const data = (await response.json()) as Record<string, unknown>;

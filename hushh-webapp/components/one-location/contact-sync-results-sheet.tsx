@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
@@ -206,7 +207,8 @@ export function ContactSyncResultsSheet({
         onFocusOutside={(event) => event.preventDefault()}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
-          "mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          "mx-auto flex w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          CONTACT_SHEET_MAX_HEIGHT_CLASSNAME,
           takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
         )}
       >

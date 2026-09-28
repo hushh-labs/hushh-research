@@ -785,7 +785,7 @@ async def test_runner_keeps_reviewed_composition_but_blocks_parallel_unreviewed_
 
 @pytest.mark.parametrize("parallel_retry", [False, True])
 @pytest.mark.parametrize("tool_name", ["ask_documents_agent", "read_workspace_tool"])
-@pytest.mark.parametrize("failure_status", ["scope_required", "unavailable", "reconnect_required"])
+@pytest.mark.parametrize("failure_status", ["scope_required", "unavailable"])
 async def test_failed_current_drive_read_cannot_answer_from_previous_success(
     monkeypatch, tool_name, failure_status, parallel_retry
 ):
@@ -886,6 +886,151 @@ async def test_failed_current_drive_read_cannot_answer_from_previous_success(
     )
     assert executed == ["drive", "drive"]
     assert len(model._advertised) == 3
+
+
+@pytest.mark.parametrize(
+    ("status", "expected", "absent"),
+    [
+        ("connect_required", "Google Drive isn’t connected yet", "reconnected"),
+        ("reconnect_required", "Google Drive needs to be reconnected", "isn’t connected yet"),
+    ],
+)
+async def test_drive_connection_state_is_relayed_not_reported_as_failed_read(
+    monkeypatch, status, expected, absent
+):
+    """Connect/reconnect is the truth to tell the person, never "try again".
+
+    The authored answer still ends the turn before the model runs, so an
+    earlier filename in history is never re-presented as a current result.
+    """
+    from google.adk.events import Event
+
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+
+    async def ask_documents_agent(tool_context: ToolContext) -> dict:
+        return {
+            "status": status,
+            "text": "PRIVATE_SPECIALIST_TEXT",
+            "structured": {"connector": "drive", "status": status, "sources": []},
+        }
+
+    model = _Model(
+        [[_call("ask_documents_agent")], [types.Part(text="WRONG: the old file is present now.")]]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [ask_documents_agent]
+    sessions = InMemorySessionService()
+    session = await sessions.create_session(app_name="one", user_id="owner", session_id="connect")
+    await sessions.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="earlier-turn",
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="Found: https://drive.google.com/file/d/old/view")],
+            ),
+        ),
+    )
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="connect",
+            new_message=types.Content(
+                role="user", parts=[types.Part(text="Find my latest statement in Drive.")]
+            ),
+            state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+        )
+    ]
+    visible = " ".join(
+        part.text
+        for event in events
+        if event.content
+        for part in event.content.parts or []
+        if part.text and not part.thought
+    )
+    assert expected in visible and absent not in visible
+    assert "try again" not in visible.lower()
+    assert "couldn’t complete a fresh Drive check" not in visible
+    assert "WRONG" not in visible and "drive.google.com" not in visible
+    assert "PRIVATE_SPECIALIST_TEXT" not in visible
+    assert len(model._advertised) == 1  # The model never reinterprets old evidence.
+
+
+async def test_workspace_drive_missing_grant_asks_for_permission_not_retry(monkeypatch):
+    """``read_workspace_tool`` reports a missing Drive grant as permission_required.
+
+    Retrying cannot grant access, so the answer names the remedy instead of
+    "try again", and it still ends before the model can re-present old links.
+    """
+    from google.adk.events import Event
+
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+
+    async def read_workspace_tool(provider: str, tool_context: ToolContext) -> dict:
+        return {
+            "status": "permission_required",
+            "provider": provider,
+            "message": "Check this connection and its reading permission, then try again.",
+        }
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="read_workspace_tool", args={"provider": "drive"}
+                    )
+                )
+            ],
+            [types.Part(text="WRONG: the old file is present now.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [read_workspace_tool]
+    sessions = InMemorySessionService()
+    session = await sessions.create_session(app_name="one", user_id="owner", session_id="grant")
+    await sessions.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="earlier-turn",
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="Found: https://drive.google.com/file/d/old/view")],
+            ),
+        ),
+    )
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="grant",
+            new_message=types.Content(role="user", parts=[types.Part(text="Search my Drive.")]),
+            state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+        )
+    ]
+    visible = " ".join(
+        part.text
+        for event in events
+        if event.content
+        for part in event.content.parts or []
+        if part.text and not part.thought
+    )
+    assert "Google Drive needs your permission" in visible
+    assert "try again" not in visible.lower()
+    assert "couldn’t complete a fresh Drive check" not in visible
+    assert "WRONG" not in visible and "drive.google.com" not in visible
+    assert len(model._advertised) == 1  # The model never reinterprets old evidence.
 
 
 @pytest.mark.parametrize("status", ["ok", "input_required"])

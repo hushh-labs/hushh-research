@@ -120,6 +120,21 @@ def test_stop_remains_available_when_search_feature_disabled(setup, monkeypatch)
     assert client.post(BASE, json=BODY).status_code == 503
 
 
+def test_connector_storage_failure_is_an_authored_503_not_a_raw_500(setup):
+    # Production 2026-09-27: the store raised ConnectorLifecycleError (FK on a
+    # missing google_drive catalog row) straight through _call as a 500.
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+
+    app, client, service, _, _ = setup
+    unlock(app)
+    service.list.side_effect = ConnectorLifecycleError("connector_storage_unavailable")
+    response = client.get(BASE)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "search_unavailable"
+    assert "connector_storage_unavailable" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+
+
 @pytest.mark.parametrize("timezone", ["UTC", "Asia/Calcutta", "Asia/Kolkata", "America/New_York"])
 def test_create_supports_browser_timezones_without_os_timezone_database(setup, timezone):
     import zoneinfo

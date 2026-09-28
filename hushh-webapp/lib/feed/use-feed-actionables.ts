@@ -57,6 +57,8 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { isAndroid } from "@/lib/capacitor/platform";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleMemberInvite,
@@ -609,16 +611,25 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // Confirm/Decline and the scoped Review route.
         if (entry.kind === "connection_request") continue;
         if (entry.kind === "outgoing_request" || (isDriveSharingEntry(entry) && entry.metadata?.direction !== "incoming")) continue;
+        const requesterLabel = resolveConsentRequesterLabel({
+          counterpartLabel: entry.counterpart_label,
+          counterpartEmail: entry.counterpart_email,
+          counterpartSecondaryLabel: entry.counterpart_secondary_label,
+          counterpartId: entry.counterpart_id,
+        });
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
           iconTone: "accent",
-          title: resolveConsentRequesterLabel({
-            counterpartLabel: entry.counterpart_label,
-            counterpartEmail: entry.counterpart_email,
-            counterpartSecondaryLabel: entry.counterpart_secondary_label,
-            counterpartId: entry.counterpart_id,
-          }),
+          person:
+            ["ria", "investor", "person"].includes(entry.counterpart_type) &&
+            (entry.counterpart_id || entry.counterpart_image_url)
+              ? {
+                  displayName: requesterLabel,
+                  photoUrl: entry.counterpart_image_url ?? null,
+                }
+              : null,
+          title: requesterLabel,
           description: consentSummary(entry),
           href: buildConsentCenterHref("pending", {
             requestId: driveSharingSelectionId(entry),
@@ -813,7 +824,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: null,
+                photoUrl: invite.inviterPhotoUrl ?? null,
               }
             : null,
         title: label,
@@ -897,6 +908,34 @@ export function useFeedActionables(): UseFeedActionablesResult {
               },
             ]
           : [
+              // Google Play user-generated content policy: report the request
+              // (and its message) to the Hussh team. The server also declines
+              // it and blocks the sender. Android only, so iOS and web Feed
+              // rows stay exactly as they are.
+              ...(isAndroid()
+                ? [
+                    {
+                      key: "report",
+                      label: "Report",
+                      tone: "danger" as const,
+                      disabled: !userId,
+                      confirm: true,
+                      run: async () => {
+                        const idToken = await user?.getIdToken();
+                        if (!idToken) return;
+                        await ConnectionsService.report({
+                          idToken,
+                          requestId: request.id,
+                          reason: "inappropriate",
+                        });
+                        toast.success("Reported. This person can't send you another request.");
+                        CacheSyncService.onConnectionCapabilityMutated(userId);
+                        notifyFeedActionResolved();
+                        await connectionsRefresh({ force: true });
+                      },
+                    },
+                  ]
+                : []),
               {
                 key: "decline",
                 label: "Decline",

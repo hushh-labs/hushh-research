@@ -39,12 +39,12 @@ describe("app shell bottom-clearance contract", () => {
     ).toHaveLength(2);
   });
 
-  it("gives AI setup and focused Location actions the bottom edge without stale shell clearance", () => {
+  it("gives setup and focused Location actions the bottom edge without stale shell clearance", () => {
     expect(source).toContain(
       "const focusedLocationBottomTask = isFocusedLocationBottomTask(",
     );
     expect(source).toContain(
-      "hidesPersistentChrome ||\n    routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||\n    focusedLocationBottomTask ||",
+      "hidesPersistentChrome ||\n    routeLayout.route === ROUTES.ONE_SETUP ||\n    routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||\n    focusedLocationBottomTask ||",
     );
     expect(source).toContain(
       '"--bottom-chrome-stack-height": bottomChromeHidden',

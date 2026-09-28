@@ -70,6 +70,7 @@ import {
   useRouteTransition,
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { LegalAcceptanceGate } from "@/components/onboarding/LegalAcceptanceGate";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -229,9 +230,10 @@ function AppShellFrame({ children }: ProvidersProps) {
       searchParams?.get("circleId") ?? null,
     );
   // Focused tasks clear the bottom command/navigation stack while keeping the
-  // top shell route context. AI selection owns its mobile Continue action.
+  // top shell route context. Setup pages own their bottom completion actions.
   const bottomChromeHidden =
     hidesPersistentChrome ||
+    routeLayout.route === ROUTES.ONE_SETUP ||
     routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
     focusedConnectCircleChromeFlow;
@@ -655,6 +657,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                   <PostAuthOnboardingSyncBridge />
+                  {/* Terms and Privacy Policy acceptance, recorded per version. */}
+                  <LegalAcceptanceGate />
                   <LocationBusAccountBridge />
                   <ContactInvitationSessionProvider>
                     {/* Keep persistent top chrome outside the route Suspense

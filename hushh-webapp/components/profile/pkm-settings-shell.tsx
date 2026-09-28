@@ -24,11 +24,17 @@ export function PkmSettingsShell({
   eyebrow,
   actions,
   innerClassName,
+  titleVisuallyHidden = false,
   children,
 }: {
   title: string;
   description?: string;
   eyebrow?: string;
+  /**
+   * For a route whose top-bar trail already names it (Memory, Recently
+   * learned). The heading stays for assistive tech but is not drawn twice.
+   */
+  titleVisuallyHidden?: boolean;
   actions?: ReactNode;
   innerClassName?: string;
   children: ReactNode;
@@ -109,6 +115,7 @@ export function PkmSettingsShell({
           <PageHeader
             eyebrow={eyebrow}
             title={title}
+            titleVisuallyHidden={titleVisuallyHidden}
             description={description}
             actions={actions}
           />

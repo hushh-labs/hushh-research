@@ -53,12 +53,12 @@ export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
 export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
 
 /**
- * The live-share actions stay compact and left aligned once both labels fit.
+ * The live-share actions stay compact and centered once both labels fit.
  * At the narrowest supported phone width they stack so neither label wraps and
  * both controls retain a comfortable touch target.
  */
 export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
-  "mt-4 flex flex-col items-stretch gap-2.5 min-[360px]:flex-row min-[360px]:items-center sm:gap-3";
+  "mt-4 flex flex-col items-stretch justify-center gap-2.5 min-[360px]:flex-row min-[360px]:items-center sm:gap-3";
 
 /** Primary CTA: full width only when the 320px layout needs to stack. */
 export const LIVE_SHARE_PRIMARY_ACTION_CLASSNAME =

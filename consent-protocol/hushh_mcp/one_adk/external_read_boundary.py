@@ -23,6 +23,27 @@ _DRIVE_READ_FAILED_ANSWER = (
     "I couldn’t complete a fresh Drive check. Earlier filenames and links in this chat "
     "have not been verified again, so I can’t confirm the current result. Please try again."
 )
+# Truthful connection states, not failures: retrying cannot help, so never say
+# "try again". Authored here so no earlier filename is re-presented as current.
+_DRIVE_CONNECTION_ANSWERS = {
+    "failed": _DRIVE_READ_FAILED_ANSWER,
+    "connect_required": (
+        "Google Drive isn’t connected yet, so I haven’t checked any files. "
+        "Connect Google Drive in Connectors, then ask me again."
+    ),
+    "reconnect_required": (
+        "Google Drive needs to be reconnected before I can check it. Earlier filenames "
+        "and links in this chat have not been verified again. Reconnect Google Drive "
+        "in Connectors, then ask me again."
+    ),
+    # read_workspace_tool reports a missing or narrowed Drive grant this way.
+    # Approving access is the only remedy, so retrying the same read cannot help.
+    "permission_required": (
+        "Google Drive needs your permission before I can check it. Earlier filenames "
+        "and links in this chat have not been verified again. Connect Google Drive in "
+        "Connectors and approve access, then ask me again."
+    ),
+}
 MAIL_TOOL = "ask_email_agent"
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
@@ -188,10 +209,17 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     previous = tool_context.state.get(STATE_DRIVE_READ_OUTCOME)
     if isinstance(previous, dict) and previous.get("invocation") == invocation:
         return
-    # Both statuses are authored by the read wrapper. A successful partial
-    # metadata result is still usable; input_required must retain its question.
+    # These statuses are authored by the read wrapper. A successful partial
+    # metadata result is still usable; input_required must retain its question;
+    # a connection state is the truth to relay, not a failure to retry.
     status = tool_response.get("status")
-    outcome = status if isinstance(status, str) and status in {"ok", "input_required"} else "failed"
+    outcome = (
+        status
+        if isinstance(status, str)
+        and status
+        in {"ok", "input_required", "connect_required", "reconnect_required", "permission_required"}
+        else "failed"
+    )
     tool_context.state[STATE_DRIVE_READ_OUTCOME] = {
         "invocation": invocation,
         "outcome": outcome,
@@ -205,12 +233,13 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
         invocation
         and isinstance(outcome, dict)
         and outcome.get("invocation") == invocation
-        and outcome.get("outcome") == "failed"
+        and outcome.get("outcome") in _DRIVE_CONNECTION_ANSWERS
     ):
         # End this answer without asking the model to reinterpret old history
         # as new evidence. No generated text has been streamed for this step.
+        answer = _DRIVE_CONNECTION_ANSWERS[outcome["outcome"]]
         return LlmResponse(
-            content=types.Content(role="model", parts=[types.Part(text=_DRIVE_READ_FAILED_ANSWER)]),
+            content=types.Content(role="model", parts=[types.Part(text=answer)]),
             turn_complete=True,
         )
     if external_read_active(callback_context):

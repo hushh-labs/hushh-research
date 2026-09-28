@@ -2065,22 +2065,25 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: #ffffff !important;
 }
 
-/* Preserve a clean, unboxed treatment for any genuinely branded capability
- * icon added to Profile later. The primary Profile menu intentionally uses
- * semantic coloured tiles, matching its Account and Vault detail screens. */
+/* The primary Profile menu uses the /one launcher treatment (founder
+ * direction, 2026-09-27): the authored duotone glyph in its own vivid colour,
+ * with no tile behind it. The glyph is the /one list-row size (28px, the
+ * AgentSectionIcon "roster" glyph); the well keeps the 32px footprint the
+ * tiles had, so titles and separators stay where they were. The coloured
+ * tiles above remain for Account and Vault detail rows. */
 .profile-home-content [data-icon-tone="capability"],
 .profile-home-content [data-icon-tone="transparent"] {
   background: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-  height: 28px !important;
-  width: 28px !important;
+  height: 32px !important;
+  width: 32px !important;
 }
 
 .profile-home-content [data-icon-tone="capability"] svg,
 .profile-home-content [data-icon-tone="transparent"] svg {
-  height: 22px !important;
-  width: 22px !important;
+  height: 28px !important;
+  width: 28px !important;
 }
 
 .profile-home-content [data-slot="settings-row-title"] {
@@ -4203,11 +4206,10 @@ body:has([data-testid="one-location-onboarding"])
   --app-bg-start: oklch(0.146 0.004 285.9);
   --app-bg-mid: oklch(0.146 0.004 285.9);
   --app-bg-end: oklch(0.146 0.004 285.9);
-  --app-layout-surface: color-mix(
-    in oklab,
-    var(--background) 92%,
-    var(--app-accent) 8%
-  );
+  /* Same base as the page body, exactly as in light. An 8% accent mix here
+     painted the top chrome as a lighter band (#1c1a18 over a #0e0e10 page
+     with the gold accent); chrome must recede into the page, not tint it. */
+  --app-layout-surface: var(--app-grouped-background);
 
   --glass1: #ffffff40 !important;
   --glass2: #6464643b !important;
@@ -6361,6 +6363,42 @@ html[data-accent="gold"].dark {
   animation-timing-function: var(--motion-sheet-exit-ease);
 }
 
+/* The sheet surface slides on transform and opacity only. tw-animate's shared
+ * `enter`/`exit` keyframes also animate `filter: blur(...)` (0 for every
+ * sheet), which takes the whole sheet, and everything drawn inside it, off
+ * the transform-only path for the full slide. These keyframes read the same
+ * slide/fade variables the side utilities set, so each side's direction and
+ * the shared timing above are unchanged. */
+[data-slot="sheet-content"][data-state="open"] {
+  animation-name: sheet-surface-enter;
+}
+
+[data-slot="sheet-content"][data-state="closed"] {
+  animation-name: sheet-surface-exit;
+}
+
+@keyframes sheet-surface-enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(
+      var(--tw-enter-translate-x, 0),
+      var(--tw-enter-translate-y, 0),
+      0
+    );
+  }
+}
+
+@keyframes sheet-surface-exit {
+  to {
+    opacity: var(--tw-exit-opacity, 1);
+    transform: translate3d(
+      var(--tw-exit-translate-x, 0),
+      var(--tw-exit-translate-y, 0),
+      0
+    );
+  }
+}
+
 @media (pointer: coarse) {
   :root {
     --app-scrim-color: rgb(0 0 0 / 0.4);
@@ -7269,4 +7307,16 @@ body[data-persona-surface="ria"] {
   .one-voice-level-fill {
     transition: none !important;
   }
+}
+.agent-connections-dialog:has([data-connection-compact]) {
+  height: auto;
+}
+
+.agent-connections-dialog:has([data-connection-compact]) [data-connector-host],
+.agent-connections-dialog:has([data-connection-compact]) [data-connections-panel] {
+  height: auto;
+}
+
+.agent-connections-dialog:has([data-connection-compact]) [data-connections-panel] {
+  max-height: min(42rem, calc(100dvh - 2rem));
 }

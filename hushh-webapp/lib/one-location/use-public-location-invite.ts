@@ -7,7 +7,7 @@ import type {
   OneLocationPublicInvite,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { ApiError } from "@/lib/services/api-client";
+import { apiErrorCode } from "@/lib/services/api-client";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -18,6 +18,7 @@ type PublicInviteState = {
   loading: boolean;
   error: string | null;
   confirmedExpired: boolean;
+  trustedUntilMonoMs: number | null;
 };
 
 function initialState(token: string): PublicInviteState {
@@ -28,6 +29,7 @@ function initialState(token: string): PublicInviteState {
     loading: true,
     error: null,
     confirmedExpired: false,
+    trustedUntilMonoMs: null,
   };
 }
 
@@ -49,12 +51,16 @@ export function usePublicLocationInvite(
       if (cancelled || terminal || inFlight) return;
       if (hasResolved && document.visibilityState === "hidden") return;
       inFlight = true;
+      // The server measures TTL before the response crosses the network.
+      // Anchor at request start so transit cannot extend local visibility.
+      const requestStartedMonoMs = performance.now();
       try {
         const response =
           await OneLocationService.resolvePublicInvite(publicToken);
         if (cancelled) return;
         hasResolved = true;
         terminal = response.invite.status !== "active";
+        const ttl = response.expiresInSeconds;
         setState({
           token: publicToken,
           invite: response.invite,
@@ -62,6 +68,10 @@ export function usePublicLocationInvite(
           loading: false,
           error: null,
           confirmedExpired: terminal,
+          trustedUntilMonoMs:
+            !terminal && typeof ttl === "number" && Number.isFinite(ttl)
+              ? requestStartedMonoMs + Math.max(0, ttl) * 1000
+              : null,
         });
         clearTimeout(expiryCheck);
         // Ask again at the displayed deadline, but never expire a successful
@@ -73,19 +83,24 @@ export function usePublicLocationInvite(
         }
       } catch (error) {
         if (cancelled) return;
-        terminal =
-          error instanceof ApiError &&
-          (error.status === 404 || error.status === 410);
+        // A 404/410 can come from a deployment edge or proxy as well as the
+        // invite service. Only its typed verdict proves this bearer ended.
+        // Otherwise keep polling, including after a successful first read.
+        terminal = [
+          "LOCATION_PUBLIC_INVITE_INVALID",
+          "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+        ].includes(apiErrorCode(error) ?? "");
         setState((current) => ({
           ...current,
           loading: false,
           publicLocation: terminal ? null : current.publicLocation,
           confirmedExpired: terminal,
+          trustedUntilMonoMs: terminal ? null : current.trustedUntilMonoMs,
           error: hasResolved
             ? null
-            : error instanceof Error
+            : terminal && error instanceof Error
               ? error.message
-              : "This live location link is unavailable.",
+              : "We couldn't check this link. Retrying automatically.",
         }));
       } finally {
         inFlight = false;

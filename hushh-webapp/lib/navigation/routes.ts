@@ -93,6 +93,8 @@ export const ROUTES = {
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   DELETE_ACCOUNT: "/delete-account",
+  PRIVACY: "/privacy",
+  TERMS: "/terms",
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
   PROFILE: "/one/profile",
@@ -505,6 +507,8 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.DELETE_ACCOUNT ||
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     // Local-only visual fixture; it must not be blocked by the signed-in
     // setup admission gate when reviewing UI without mail authentication.
@@ -756,6 +760,8 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGIN ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.DELETE_ACCOUNT ||
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.RESEARCH ||

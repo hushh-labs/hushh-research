@@ -1,7 +1,15 @@
 /** Formatting-only transport planning. Semantic selection belongs to the agent. */
 export type PkmSourceSpan = Readonly<{ start: number; end: number }>;
 type SourceBlock = PkmSourceSpan & Readonly<{ protectedContext: boolean }>;
-export type PkmSourceChunk = Readonly<{ blocks: readonly SourceBlock[] }>;
+export type PkmSourceChunk = Readonly<{
+  blocks: readonly SourceBlock[];
+  /**
+   * Heading lines sent ahead of a protected section's later lines so the body
+   * keeps its attribution after a split. Context is never part of the covered
+   * range: it is transport only, so coverage still accounts every body line once.
+   */
+  context?: readonly PkmSourceSpan[];
+}>;
 
 export const PKM_PROPOSAL_CHARS = 6_000;
 const MAX_BLOCKS = 6;
@@ -15,7 +23,111 @@ export function sourceChunkRange(chunk: PkmSourceChunk): PkmSourceSpan {
 
 export function sourceChunkText(source: string, chunk: PkmSourceChunk): string {
   const { start, end } = sourceChunkRange(chunk);
-  return source.slice(start, end);
+  const body = source.slice(start, end);
+  if (!chunk.context?.length) return body;
+  const prefix = chunk.context
+    .map((span) => {
+      const line = source.slice(span.start, span.end);
+      return line.endsWith("\n") ? line : `${line}\n`;
+    })
+    .join("");
+  return prefix + body;
+}
+
+const MARKDOWN_HEADING = /^\s*(#{1,6})\s+/;
+const STANDALONE_LABEL =
+  /^\s*(?:\*\*[^*]+\*\*|__[^_]+__|[A-Za-z][A-Za-z /&()-]{1,80}:)\s*$/;
+
+/** A line that names a section without stating a fact, or null. */
+function headingLevel(line: string): number | null {
+  const markdown = MARKDOWN_HEADING.exec(line);
+  if (markdown) return markdown[1]!.length;
+  return STANDALONE_LABEL.test(line) ? 6 : null;
+}
+
+function lineSpans(source: string, start: number, end: number): PkmSourceSpan[] {
+  const spans: PkmSourceSpan[] = [];
+  let cursor = start;
+  while (cursor < end) {
+    const newline = source.indexOf("\n", cursor);
+    const lineEnd = newline === -1 || newline >= end ? end : newline + 1;
+    spans.push({ start: cursor, end: lineEnd });
+    cursor = lineEnd;
+  }
+  return spans;
+}
+
+/** The innermost heading path in force after `spans`, outermost first. */
+function headingChain(source: string, spans: readonly PkmSourceSpan[]): PkmSourceSpan[] {
+  const chain: Array<{ span: PkmSourceSpan; level: number }> = [];
+  for (const span of spans) {
+    const level = headingLevel(source.slice(span.start, span.end));
+    if (level === null) continue;
+    while (chain.length && chain[chain.length - 1]!.level >= level) chain.pop();
+    chain.push({ span, level });
+  }
+  return chain.map((entry) => entry.span);
+}
+
+/**
+ * Split a protected section between whole lines, never inside one. The later
+ * half carries the heading chain that was in force at the split, so a bullet
+ * never loses the heading that attributes it. Returns null when the section has
+ * fewer than two content lines: there is then nothing to split without cutting
+ * a single statement apart.
+ */
+function splitProtectedBlockByLines(
+  source: string,
+  block: SourceBlock,
+  context: readonly PkmSourceSpan[] | undefined,
+): PkmSourceChunk[] | null {
+  const lines = lineSpans(source, block.start, block.end);
+  const isContent = (span: PkmSourceSpan) => {
+    const text = source.slice(span.start, span.end);
+    return Boolean(text.trim()) && headingLevel(text) === null;
+  };
+  const contentBefore: number[] = [];
+  let seen = 0;
+  for (const span of lines) {
+    contentBefore.push(seen);
+    if (isContent(span)) seen += 1;
+  }
+  if (seen < 2) return null;
+  const middle = (block.start + block.end) / 2;
+  let split = -1;
+  for (let index = 1; index < lines.length; index++) {
+    const before = contentBefore[index]!;
+    const previousText = source.slice(lines[index - 1]!.start, lines[index - 1]!.end);
+    // Both halves must state something, and a heading stays with its body.
+    if (before === 0 || before === seen || headingLevel(previousText) !== null) continue;
+    if (split === -1 || Math.abs(lines[index]!.start - middle) < Math.abs(lines[split]!.start - middle)) {
+      split = index;
+    }
+  }
+  if (split === -1) return null;
+  const boundary = lines[split]!.start;
+  const inherited = context ?? [];
+  // Headings that open the later half already travel in its body; they still
+  // retire a sibling heading from the carried path (## Food replaces ## Health).
+  const leadingHeadings: PkmSourceSpan[] = [];
+  for (const span of lines.slice(split)) {
+    const text = source.slice(span.start, span.end);
+    if (!text.trim()) continue;
+    if (headingLevel(text) === null) break;
+    leadingHeadings.push(span);
+  }
+  const laterContext = headingChain(source, [...inherited, ...lines.slice(0, split), ...leadingHeadings])
+    .filter((span) => span.end <= boundary);
+  return [
+    {
+      blocks: [{ start: block.start, end: boundary, protectedContext: true }],
+      ...(inherited.length ? { context: inherited } : {}),
+    },
+    {
+      blocks: [{ start: boundary, end: block.end, protectedContext: true }],
+      ...(laterContext.length ? { context: laterContext } : {}),
+    },
+  ];
 }
 
 function proseBlocks(
@@ -57,12 +169,9 @@ export function planPkmSourceChunks(source: string): PkmSourceChunk[] {
     else blocks.push(...proseBlocks(source, start, end, PKM_PROPOSAL_CHARS));
   };
   for (const line of source.match(/[^\n]*\n|[^\n]+$/g) || []) {
-    const markdown = /^\s*(#{1,6})\s+/.exec(line);
+    const markdown = MARKDOWN_HEADING.exec(line);
     const numbered = /^\s*\d{1,3}[.)]\s+\S/.test(line);
-    const standalone =
-      /^\s*(?:\*\*[^*]+\*\*|__[^_]+__|[A-Za-z][A-Za-z /&()-]{1,80}:)\s*$/.test(
-        line,
-      );
+    const standalone = STANDALONE_LABEL.test(line);
     const level = markdown
       ? markdown[1]!.length
       : numbered || standalone
@@ -111,6 +220,33 @@ export function planPkmSourceChunks(source: string): PkmSourceChunk[] {
   return chunks;
 }
 
+/**
+ * Re-plan one previously prepared span, for a per-section retry. A span that was
+ * split out of a protected section keeps that shape (and its heading context);
+ * any other span is planned exactly as a fresh paste of the same text would be.
+ */
+export function planPkmSourceSelection(
+  source: string,
+  range: PkmSourceSpan,
+  context?: readonly PkmSourceSpan[],
+): PkmSourceChunk[] {
+  const valid = (span: PkmSourceSpan) =>
+    Number.isInteger(span.start) && Number.isInteger(span.end) &&
+    span.start >= 0 && span.start < span.end && span.end <= source.length;
+  if (!valid(range) || !(context ?? []).every((span) => valid(span) && span.end <= range.start)) {
+    throw new Error("That section no longer matches this note. Review the note again.");
+  }
+  if (context?.length) {
+    return [{ blocks: [{ start: range.start, end: range.end, protectedContext: true }], context }];
+  }
+  const shift = (block: SourceBlock): SourceBlock => ({
+    ...block, start: block.start + range.start, end: block.end + range.start,
+  });
+  return planPkmSourceChunks(source.slice(range.start, range.end)).map((chunk) => ({
+    blocks: chunk.blocks.map(shift),
+  }));
+}
+
 export function splitPkmSourceChunk(
   source: string,
   chunk: PkmSourceChunk,
@@ -127,13 +263,19 @@ export function splitPkmSourceChunk(
         split = index;
     }
     return [
-      { blocks: chunk.blocks.slice(0, split) },
+      {
+        blocks: chunk.blocks.slice(0, split),
+        ...(chunk.context?.length ? { context: chunk.context } : {}),
+      },
       { blocks: chunk.blocks.slice(split) },
     ];
   }
   const block = chunk.blocks[0];
-  if (!block || block.protectedContext || block.end - block.start < 96)
-    return null;
+  if (!block) return null;
+  if (block.protectedContext) {
+    return splitProtectedBlockByLines(source, block, chunk.context);
+  }
+  if (block.end - block.start < 96) return null;
   const blocks = proseBlocks(
     source,
     block.start,

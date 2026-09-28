@@ -747,10 +747,17 @@ export default function GmailInformationRequestsSection({
           setListView("requests");
           setSelectedWorkflowId(null);
           setScanSummary(null);
-        } else {
-          const scanned = await scanInbox();
-          return scanned;
         }
+        // Enabling doesn't scan inline: the automatic-scan effect above
+        // already fires scanInbox() the moment preference.monitoring_enabled
+        // flips true (setPreference just did that). Awaiting a second,
+        // explicit scanInbox() call here held this promise -- and the
+        // confirm dialog's .finally(() => setShowEnableConfirm(false)),
+        // chained onto it -- open for the whole 40-60s scan, hiding the
+        // "Scanning emails: N" progress panel this same screen already
+        // shows correctly for "Check now". Resolving as soon as the
+        // preference is saved lets the dialog close immediately and that
+        // panel take over.
         return true;
       } catch (updateError) {
         setError(
@@ -766,7 +773,6 @@ export default function GmailInformationRequestsSection({
     [
       idTokenProvider,
       onRequestVaultUnlock,
-      scanInbox,
       userId,
       vaultKey,
       vaultOwnerToken,
@@ -1393,6 +1399,9 @@ export default function GmailInformationRequestsSection({
                 );
               }}
             >
+              {updating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
               {updating ? "Starting…" : "Start monitoring"}
             </AlertDialogAction>
           </AlertDialogFooter>

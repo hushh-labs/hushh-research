@@ -126,10 +126,19 @@ function formatRemaining(ms: number): string {
  * and rendering it during SSR would produce markup the client immediately
  * contradicts. Callers treat null as "not known yet" rather than "expired".
  */
-function useRemainingMs(expiresAt?: string | null): number | null {
+function useRemainingMs(
+  expiresAt?: string | null,
+  trustedUntilMonoMs?: number | null,
+): number | null {
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
   useEffect(() => {
+    if (trustedUntilMonoMs !== null && trustedUntilMonoMs !== undefined) {
+      const tick = () => setRemainingMs(trustedUntilMonoMs - performance.now());
+      tick();
+      const timer = window.setInterval(tick, 1000);
+      return () => window.clearInterval(timer);
+    }
     if (!expiresAt) {
       setRemainingMs(null);
       return;
@@ -143,7 +152,7 @@ function useRemainingMs(expiresAt?: string | null): number | null {
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [expiresAt]);
+  }, [expiresAt, trustedUntilMonoMs]);
 
   return remainingMs;
 }
@@ -381,7 +390,7 @@ export default function PublicLocationViewPageClient() {
     () => String(params?.token || "").trim(),
     [params?.token],
   );
-  const { invite, publicLocation, loading, error, confirmedExpired } =
+  const { invite, publicLocation, loading, error, confirmedExpired, trustedUntilMonoMs } =
     usePublicLocationInvite(publicToken);
   const openedTrackedRef = useRef(false);
   const viewedTrackedRef = useRef(false);
@@ -410,8 +419,10 @@ export default function PublicLocationViewPageClient() {
   }, [publicLocation]);
 
   const ownerName = ownerNameOf(invite);
-  const remainingMs = useRemainingMs(invite?.expiresAt);
+  const remainingMs = useRemainingMs(invite?.expiresAt, trustedUntilMonoMs);
   const countdownLifecycle = lifecycleFor(remainingMs);
+  const awaitingExpiryConfirmation =
+    trustedUntilMonoMs !== null && remainingMs !== null && remainingMs <= 0 && !confirmedExpired;
   const expiredWhileOpen = confirmedExpired;
   // While the confirmation is in flight the badge says "Checking link" rather
   // than announcing an expiry the map beneath it has not acted on yet.
@@ -421,7 +432,7 @@ export default function PublicLocationViewPageClient() {
       ? "unknown"
       : countdownLifecycle;
 
-  const showLocation = Boolean(publicLocation) && !expiredWhileOpen;
+  const showLocation = Boolean(publicLocation) && !expiredWhileOpen && !awaitingExpiryConfirmation;
 
   // Three opposite states shared one action-blue bubble, so an unusable link
   // was painted the same colour as a working one and only the glyph told the
@@ -443,6 +454,8 @@ export default function PublicLocationViewPageClient() {
       ? error
       : expiredWhileOpen
         ? "Sharing has ended. Ask the sender for a fresh link."
+        : awaitingExpiryConfirmation
+          ? "Checking whether this live location link is still active."
         : showLocation
           ? "Live updates appear here automatically while this link is active."
           : "This link is active, but no location has been attached to it yet.";
@@ -501,6 +514,8 @@ export default function PublicLocationViewPageClient() {
                     <BodyText>
                       {expiredWhileOpen
                         ? "The viewing window closed, so the location is no longer shown. Ask the sender to share a fresh live location link."
+                        : awaitingExpiryConfirmation
+                          ? "The viewing window may have closed. Checking this link before showing the location again."
                         : "This link opened correctly, but no live location is attached to it. Ask the sender to share a fresh live location link."}
                     </BodyText>
                   </div>

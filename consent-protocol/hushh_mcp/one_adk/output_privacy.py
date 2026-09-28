@@ -13,6 +13,11 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
+from hushh_mcp.one_adk.run_errors import (
+    is_authored_run_error,
+    transient_model_error_for_exception,
+    transient_model_run_error,
+)
 from hushh_mcp.services.chat_history_rollout import (
     CHAT_HISTORY_UPGRADING,
     CHAT_HISTORY_UPGRADING_MESSAGE,
@@ -39,7 +44,7 @@ def normalize_history_error(event: BaseEvent) -> BaseEvent:
             return CHAT_HISTORY_UPGRADING_RUN_ERROR
         if event.message in CHAT_KEY_ERROR_MESSAGES:
             return CHAT_KEY_RUN_ERROR
-    return event
+    return transient_model_run_error(event) or event
 
 
 def safe_exception_event(exc: Exception) -> RunErrorEvent:
@@ -48,7 +53,7 @@ def safe_exception_event(exc: Exception) -> RunErrorEvent:
         return CHAT_HISTORY_UPGRADING_RUN_ERROR
     if isinstance(exc, CHAT_KEY_ERRORS):
         return CHAT_KEY_RUN_ERROR
-    return RunErrorEvent(
+    return transient_model_error_for_exception(exc) or RunErrorEvent(
         message="One couldn't finish that request. Please try again.", code="AGENT_ERROR"
     )
 
@@ -134,7 +139,7 @@ def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> Ba
         if (event.code, event.message) in {
             (CHAT_KEY_REQUIRED_CODE, CHAT_KEY_RECOVERY_MESSAGE),
             (CHAT_HISTORY_UPGRADING, CHAT_HISTORY_UPGRADING_MESSAGE),
-        }:
+        } or is_authored_run_error(event):
             # A fixed, content-free refusal the person can act on.
             return event.model_copy(update={"raw_event": None})
         # The installed bridge builds this event from str(exception). Neither

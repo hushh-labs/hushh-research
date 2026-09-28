@@ -12,11 +12,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CONNECTION_ID = "conn-req-1";
 
+const platform = vi.hoisted(() => ({ android: false }));
+vi.mock("@/lib/capacitor/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/capacitor/platform")>()),
+  isAndroid: () => platform.android,
+}));
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   consentItems: [] as Array<Record<string, unknown>>,
   connectionRequests: [] as Array<Record<string, unknown>>,
+  circleMemberInvites: [] as Array<Record<string, unknown>>,
   appTasks: [] as Array<Record<string, unknown>>,
   dismissTask: vi.fn(),
   pendingCount: 0,
@@ -56,7 +63,7 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
         : cacheKey === "list"
           ? { items: mocks.consentItems }
           : cacheKey === "location"
-            ? { requests: [] }
+            ? { requests: [], circleMemberInvites: mocks.circleMemberInvites }
             : mocks.connectionRequests;
     return { data, loading: false, refresh: mocks.refresh };
   },
@@ -159,8 +166,10 @@ const incomingConnection = {
 describe("useFeedActionables — connection request de-duplication", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    platform.android = false;
     mocks.consentItems = [];
     mocks.connectionRequests = [];
+    mocks.circleMemberInvites = [];
     mocks.appTasks = [];
     mocks.pendingCount = 0;
   });
@@ -192,6 +201,24 @@ describe("useFeedActionables — connection request de-duplication", () => {
     ]);
   });
 
+  it("adds Report before Decline on Android only (Google Play UGC policy)", () => {
+    platform.android = true;
+    mocks.pendingCount = 1;
+    mocks.consentItems = [consentConnectionEntry];
+    mocks.connectionRequests = [incomingConnection];
+
+    const { result } = renderHook(() => useFeedActionables());
+    const [row] = result.current.actionables;
+
+    expect(row.actions.map((action) => action.key)).toEqual([
+      "report",
+      "decline",
+      "confirm",
+    ]);
+    // A report is irreversible for the sender, so it needs a second tap.
+    expect(row.actions.find((action) => action.key === "report")?.confirm).toBe(true);
+  });
+
   it("still renders ordinary consent requests from the consent lane", () => {
     mocks.pendingCount = 1;
     mocks.consentItems = [
@@ -212,6 +239,67 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(1);
     expect(result.current.actionables[0].id).toBe("consent:consent-1");
     expect(result.current.actionables[0].description).toBe("your holdings");
+  });
+
+  it("keeps a user's consent-request photo on the Feed card", () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [{
+      id: "consent-with-photo",
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "ria",
+      counterpart_id: "advisor-1",
+      counterpart_label: "Meena Rao",
+      counterpart_image_url: "https://example.test/meena.png",
+    }];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    expect(result.current.actionables[0].person).toEqual({
+      displayName: "Meena Rao",
+      photoUrl: "https://example.test/meena.png",
+    });
+  });
+
+  it("shows an older person consent photo even without a counterpart id", () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [{
+      id: "legacy-person-consent",
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "person",
+      counterpart_label: "Kunal",
+      counterpart_image_url: "https://example.test/kunal.png",
+    }];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    expect(result.current.actionables[0].person).toEqual({
+      displayName: "Kunal",
+      photoUrl: "https://example.test/kunal.png",
+    });
+  });
+
+  it("uses the Circle inviter photo already returned by Location state", () => {
+    mocks.circleMemberInvites = [{
+      id: "circle-invite-1",
+      circleId: "circle-1",
+      circleName: "Family",
+      inviterUserId: "friend-1",
+      inviterDisplayName: "Priya Nair",
+      inviterPhotoUrl: "https://example.test/priya.png",
+      inviteeUserId: "user-1",
+      status: "pending",
+    }];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    expect(result.current.actionables[0].person).toEqual({
+      displayName: "Priya Nair",
+      photoUrl: "https://example.test/priya.png",
+    });
   });
 
   it("links to the full Consent Center when pending requests exceed the loaded page", () => {

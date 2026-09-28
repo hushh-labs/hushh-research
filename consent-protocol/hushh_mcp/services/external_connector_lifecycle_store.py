@@ -66,6 +66,23 @@ class ExternalConnectorLifecycleStore:
             raise ConnectorLifecycleError("connector_unavailable")
         return row
 
+    @classmethod
+    def _share(cls, connection: Any, params: dict[str, Any]) -> dict[str, Any] | None:
+        """Read-path counterpart of ``_lock``: never inserts a placeholder row.
+
+        FOR SHARE still blocks a concurrent lifecycle transition (which holds
+        FOR UPDATE), so a generation check made under it stays fenced for the
+        rest of the transaction. Returns None when the owner never connected.
+        """
+        return cls._row(
+            connection,
+            """
+            SELECT * FROM user_external_connector_connections
+            WHERE user_id = :user_id AND connector_id = :connector_id FOR SHARE
+        """,
+            params,
+        )
+
     async def read(self, *, user_id: str, connector_id: str) -> dict[str, Any] | None:
         await self.purge_expired()
         return await self._transaction(

@@ -275,6 +275,21 @@ describe("requesting exact files from a connection", () => {
     fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
   }
 
+  it("opens a focused dialog over the shared backdrop", async () => {
+    mount();
+    const opener = await screen.findByRole("button", { name: "Request files" });
+    await openFiles();
+
+    expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeVisible();
+    expect(screen.getByText("To A")).toBeVisible();
+    expect(screen.queryByText(/You get original Drive links/)).toBeNull();
+    expect(screen.queryByText(/You don't connect your Drive/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   it("offers both actions next to each other", async () => {
     mount();
     expect(await screen.findByRole("button", { name: "Request files" })).toBeVisible();
@@ -289,7 +304,7 @@ describe("requesting exact files from a connection", () => {
       await openFiles("  Files modified in the last two days  ");
       expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
       fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-      expect(await screen.findByText("Request sent. No files have been shared yet.")).toBeVisible();
+      expect(await screen.findByText("Request sent.")).toBeVisible();
       expect(state.googleIdentity).toHaveBeenCalledOnce();
       expect(state.linkGoogle).not.toHaveBeenCalled();
       expect(state.createQuery).not.toHaveBeenCalled();
@@ -324,7 +339,7 @@ describe("requesting exact files from a connection", () => {
       "Add a Google account once to receive original files.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Add Google account" }));
-    expect(await screen.findByText("Request sent. No files have been shared yet.")).toBeVisible();
+    expect(await screen.findByText("Request sent.")).toBeVisible();
     expect(state.linkGoogle).toHaveBeenCalledOnce();
     expect(state.create.mock.calls[1][2].clientRequestId).toBe(
       state.create.mock.calls[0][2].clientRequestId,

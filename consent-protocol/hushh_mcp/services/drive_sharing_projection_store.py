@@ -112,6 +112,27 @@ class DriveSharingProjectionStore(DriveRevocationStore):
             )
             if len(grants) > MAX_FILES:
                 raise DriveSharingError("sharing_storage_unavailable")
+            bulk = (
+                self._row(
+                    connection,
+                    """SELECT share_id,status,file_count
+                FROM drive_bulk_shares WHERE origin_request_id=:request
+                  AND user_id=:owner AND approved_at IS NOT NULL
+                  AND expires_at>clock_timestamp()""",
+                    {"request": request_id, "owner": request["user_id"]},
+                )
+                if request.get("user_id")
+                else None
+            )
+            bulk_shared = 0
+            if bulk:
+                bulk_shared = connection.execute(
+                    text("""SELECT count(*)
+                    FROM drive_bulk_share_effects WHERE share_id=:share
+                      AND recipient_user_id=:recipient
+                      AND state IN ('succeeded','preexisting')"""),
+                    {"share": bulk["share_id"], "recipient": request["recipient_user_id"]},
+                ).scalar_one()
             files = []
             for row in grants:
                 removed = row["revoke_state"] in {"succeeded", "absent"}
@@ -148,7 +169,18 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 "recipient": private["recipient"] if recipient and private else None,
                 "result": {
                     **self._summary(request, recipient=recipient),
-                    "files": files,
+                    "files": [] if bulk else files,
+                    **(
+                        {
+                            "bulkShareId": str(bulk["share_id"]),
+                            "fileCount": bulk["file_count"],
+                            "sharedCount": bulk_shared,
+                            "sharingStatus": bulk["status"],
+                            "nextCursor": None,
+                        }
+                        if bulk
+                        else {}
+                    ),
                     "recordedOutcomeOnly": True,
                     "disconnectDoesNotRevoke": True,
                     "otherAccessMayRemain": True,

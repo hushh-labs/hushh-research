@@ -1326,6 +1326,7 @@ export class OneLocationService {
   static async resolvePublicInvite(publicToken: string): Promise<{
     invite: OneLocationPublicInvite;
     publicLocation?: PlainLocationPoint | null;
+    expiresInSeconds?: number;
   }> {
     return apiJsonWithRetry(
       `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,

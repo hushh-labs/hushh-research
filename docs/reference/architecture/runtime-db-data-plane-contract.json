@@ -25,7 +25,9 @@
     "one_kyc_workflows",
     "one_public_profile_entities",
     "one_public_profile_findings",
-    "one_profile_discovery_feed_outbox"
+    "one_profile_discovery_feed_outbox",
+    "drive_bulk_share_files",
+    "drive_bulk_share_effects"
   ],
   "retention_registry": [
     {
@@ -1291,6 +1293,21 @@
       "expected_row_growth": "medium_per_consent"
     },
     {
+      "id": "account_legal_acceptance",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "account_legal_acceptances"
+      ],
+      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance at sign-in and after the Terms of Use or Privacy Policy version changes; reads return the latest acceptance of each document.",
+      "retention_policy": "Append-only history: one row per person, document, version and effective date. Re-accepting a recorded version keeps the original accepted_at. Kept across account reset.",
+      "deletion_behavior": "Delete rows where the deleting account is user_id on full account deletion (explicit DELETE; no foreign key, because acceptance precedes the actor profile).",
+      "trust_boundary": "Document id, version and effective-date labels, surface (web or native) and a server timestamp, keyed by the Firebase UID from the verified token. Carries no user information and grants no access.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "two rows per person per legal document version they accept"
+    },
+    {
       "id": "one_agent_model_preference",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
@@ -1428,6 +1445,25 @@
       "trust_boundary": "Explicit job-scoped metadata-search consent plus current verified live grant/generation. Existing DriveSharingCipher uses DRIVE_SHARING_KEY_V1 and owner/resource/purpose-bound AES-GCM. Query, provider cursors, shared-drive IDs and result metadata encrypted; no document content or owner session tokens persisted.",
       "plaintext_posture": "encrypted_query_checkpoint_and_results_with_opaque_workflow_metadata",
       "expected_row_growth": "one_job_per_search_up_to_10000_results_24_hour_ttl"
+    },
+    {
+      "id": "drive_bulk_share",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_bulk_shares",
+        "drive_bulk_share_files",
+        "drive_bulk_share_recipients",
+        "drive_bulk_share_effects",
+        "drive_bulk_share_notifications"
+      ],
+      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle.",
+      "retention_policy": "An unapproved review has a 24-hour authority lifetime. Approval and progress extend workflow access for seven days independently of the source search. The timestamps fence reads and worker claims; scheduled physical purging of expired bulk-share rows remains required.",
+      "deletion_behavior": "Owner erasure removes the share and cascades to its frozen files, recipients, effects and notifications. Recipient erasure removes that recipient's rows and effects without deleting another owner's other recipients. Deletion of local records does not revoke already created Google permissions; those require separate provider management.",
+      "trust_boundary": "The source search must be complete under the same live owner Drive generation. Explicit owner approval binds the frozen encrypted file manifest, verified recipient identities, revision and review digest. File metadata and recipient identities are sealed under DRIVE_SHARING_KEY_V1; plaintext contains opaque owner/recipient/workflow references, keyed digests, bounded counts, leases, states and timestamps. The worker rechecks current authority, recipient identity, Trusted membership and live file metadata before each grant. Unknown provider outcomes are reconciled by read and never blindly retried. Google per-file notification emails are suppressed, and recipient links are exposed only after confirmed grants.",
+      "plaintext_posture": "encrypted_frozen_file_and_recipient_metadata_with_opaque_effect_and_notification_state",
+      "expected_row_growth": "up_to_10000_files_and_100000_file_recipient_effects_per_approved_search"
     }
   ]
 }

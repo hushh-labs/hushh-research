@@ -7,15 +7,21 @@ of embedding similarity and Unicode-aware keyword matching.  Used by
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
+import os
 import re
+import time
 import unicodedata
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
+from hushh_mcp.services.action_catalog_vectors import (
+    baked_vectors_for,
+    build_passage,
+    catalog_digest,
+    is_wired,
+)
 from hushh_mcp.services.embedding_client_leaf import EmbeddingClient
 
 logger = logging.getLogger(__name__)
@@ -136,23 +142,44 @@ def _unicode_tokens(text: str) -> list[str]:
 # computed for the rest, so location.share_selected could not win "let Ankit see
 # where I am" no matter how well it matched: it was never scored at all.
 _PASSAGE_CACHE: dict[str, Any] = {"digest": None, "vectors": []}
+# "baked" or "live" for the most recent cache fill; reported by the warmup.
+_last_passage_source: str | None = None
 
 
 def _ensure_passage_vectors(
     supported: list[dict[str, Any]], gateway: dict[str, Any]
 ) -> list[list[float]]:
-    """Embed every wired action once per catalog revision.
+    """Return passage vectors for every wired action, once per catalog revision.
 
     Vectors are positionally aligned to ``supported``; the digest covers the
     generated content, so identical digest implies identical order.
+
+    The image bakes these vectors at build time. They are used when the file
+    matches this catalog digest and model revision and covers every passage;
+    otherwise the catalog is embedded live, exactly as before.
     """
+    global _last_passage_source
     digest = _catalog_digest(gateway)
     cached = _PASSAGE_CACHE
     if cached["digest"] == digest and len(cached["vectors"]) == len(supported):
         return cast(list[list[float]], cached["vectors"])
-    vectors = cast(
-        list[list[float]],
-        get_embedding_client().embed_passages([_build_passage(entry) for entry in supported]),
+    started_at = time.perf_counter()
+    passages = [_build_passage(entry) for entry in supported]
+    vectors: list[list[float]] | None = baked_vectors_for(passages, digest)
+    source = "baked"
+    if vectors is None:
+        source = "live"
+        vectors = cast(list[list[float]], get_embedding_client().embed_passages(passages))
+    _last_passage_source = source
+    # A live embed is the expensive path this file exists to avoid: say so.
+    # A baked read is a dictionary lookup and screen-filtered palette searches
+    # repeat it, so it stays at debug.
+    logger.log(
+        logging.INFO if source == "live" else logging.DEBUG,
+        "action_retrieval.passage_vectors source=%s count=%d duration_ms=%.0f",
+        source,
+        len(vectors),
+        (time.perf_counter() - started_at) * 1000,
     )
     if len(vectors) == len(supported):
         _PASSAGE_CACHE["digest"] = digest
@@ -160,15 +187,10 @@ def _ensure_passage_vectors(
     return vectors
 
 
-def _catalog_digest(gateway: dict[str, Any]) -> str:
-    """Compute a deterministic digest of the canonical gateway content."""
-    raw = json.dumps(
-        gateway,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+# Pure helpers shared with the image-build bake, which cannot import this
+# package (its import builds the agent tree and needs runtime secrets).
+_catalog_digest = catalog_digest
+_build_passage = build_passage
 
 
 # ---------------------------------------------------------------------------
@@ -186,16 +208,44 @@ def get_embedding_client() -> EmbeddingClient:
     return _embedding_client
 
 
+def _warmup_owns_model_load() -> bool:
+    """True when this image bakes the model, so the startup warmup loads it."""
+    from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    return os.getenv(BAKED_MODEL_DIR_ENV) == BAKED_MODEL_DIR and os.path.isdir(BAKED_MODEL_DIR)
+
+
+def _semantic_ready(client: EmbeddingClient) -> bool:
+    """Whether a turn may embed its query now.
+
+    On a baked image the startup warmup owns the one model load. A turn that
+    arrives before it finishes ranks lexically instead of starting its own
+    load. Everywhere else the lazy load still happens on first use.
+    """
+    return client.is_loaded or not _warmup_owns_model_load()
+
+
 def warm_action_retrieval() -> bool:
-    """Load the model and embed the catalog before any person's first search.
+    """Load the model and the catalog vectors before any person's first search.
 
     Blocking; run it in a worker thread. It makes the exact call
     ``list_app_actions`` makes, so the catalog vectors it caches are the ones a
-    real turn reads. Returns whether semantic retrieval is available.
+    real turn reads. When the image baked the vectors this loads them rather
+    than embedding the catalog; the model is still loaded because every query
+    is embedded at request time. Returns whether semantic retrieval is available.
     """
     from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
+    started_at = time.perf_counter()
+    _get_model()
+    model_loaded_at = time.perf_counter()
     search_actions("open settings", {"actions": list_action_gateway_actions()}, limit=1)
+    logger.info(
+        "action_retrieval.warm model_load_ms=%.0f catalog_ms=%.0f passage_source=%s",
+        (model_loaded_at - started_at) * 1000,
+        (time.perf_counter() - model_loaded_at) * 1000,
+        _last_passage_source,
+    )
     return _retrieval_available
 
 
@@ -255,35 +305,6 @@ class RetrievedAction:
 # ---------------------------------------------------------------------------
 # Text normalization and passage building
 # ---------------------------------------------------------------------------
-
-
-def _build_passage(entry: dict[str, Any]) -> str:
-    """Build a searchable description from an action contract entry."""
-    parts: list[str] = []
-    label = str(entry.get("label") or "").strip()
-    meaning = str(entry.get("meaning") or "").strip()
-    action_id = str(entry.get("action_id") or "").strip()
-    parts.append(label or action_id)
-    if meaning:
-        parts.append(meaning)
-    aliases = entry.get("aliases") or []
-    if aliases:
-        parts.append("Aliases: " + ", ".join(str(a) for a in aliases))
-    # AgentManifestV2 generates `search_keywords`; retain the legacy fallback
-    # only for older fixtures. Missing this field silently removes the
-    # authored vocabulary from semantic passage construction.
-    keywords = entry.get("search_keywords") or entry.get("keywords") or []
-    if keywords:
-        parts.append("Keywords: " + ", ".join(str(k) for k in keywords))
-    goal = entry.get("goal") or {}
-    goal_desc = str(goal.get("goal_description") or "").strip()
-    if goal_desc:
-        parts.append(goal_desc)
-    boundaries = entry.get("semantic_boundaries") or ""
-    boundaries = str(boundaries).strip()
-    if boundaries:
-        parts.append("Boundaries: " + boundaries)
-    return ". ".join(parts)
 
 
 def _build_query_tokens(text: str) -> list[str]:
@@ -642,12 +663,7 @@ def search_actions(
     # -- it appears on zero of the catalog's entries -- so filtering on it
     # returned [] for every query while reporting retrieval as available. The
     # rest of the codebase gates on execution_target.status, and so does this.
-    supported = [
-        e
-        for e in entries
-        if (e.get("execution_target") or {}).get("status") == "wired"
-        and _context_allows_entry(e, app_runtime_state)
-    ]
+    supported = [e for e in entries if is_wired(e) and _context_allows_entry(e, app_runtime_state)]
     if not supported:
         return []
 
@@ -669,22 +685,27 @@ def search_actions(
 
     # --- Semantic branch ---
     semantic_scores: dict[int, float] = {}
-    try:
-        query_vec = client.embed_query(query)
-        passage_vecs = _ensure_passage_vectors(supported, gateway)
-        if passage_vecs:
-            sims = client.similarity(query_vec, passage_vecs)
-            # strict=True: a length mismatch would pair an action with another
-            # action's similarity, which is unfindable at runtime.
-            for entry, score in zip(supported, sims, strict=True):
-                semantic_scores[id(entry)] = float(score)
-        _retrieval_available = True
-        _retrieval_error = None
-    except Exception:
-        semantic_scores.clear()
-        _retrieval_available = False
-        _retrieval_error = "embedding_unavailable"
-        logger.warning("semantic_search_failed")
+    if not _semantic_ready(client):
+        # The startup warmup is still loading the model. Rank lexically rather
+        # than making this turn wait on (or duplicate) that load.
+        logger.info("action_retrieval.semantic_deferred_until_warm")
+    else:
+        try:
+            query_vec = client.embed_query(query)
+            passage_vecs = _ensure_passage_vectors(supported, gateway)
+            if passage_vecs:
+                sims = client.similarity(query_vec, passage_vecs)
+                # strict=True: a length mismatch would pair an action with another
+                # action's similarity, which is unfindable at runtime.
+                for entry, score in zip(supported, sims, strict=True):
+                    semantic_scores[id(entry)] = float(score)
+            _retrieval_available = True
+            _retrieval_error = None
+        except Exception:
+            semantic_scores.clear()
+            _retrieval_available = False
+            _retrieval_error = "embedding_unavailable"
+            logger.warning("semantic_search_failed")
 
     # Every wired action is scored above; this bounds how many reach fusion.
     semantic_rank_map = {

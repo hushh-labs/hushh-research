@@ -27,6 +27,10 @@ ONE_APP_NAME = "hussh_one"
 
 VALID_RATINGS = ("up", "down")
 
+# Why a person reported an answer. A bounded enum, never free text, so a report
+# carries no content of any kind, exactly like a rating.
+VALID_REPORT_REASONS = ("offensive", "harmful", "inaccurate", "other")
+
 
 class MessageFeedbackError(ValueError):
     """A rating that cannot be recorded, with the reason a caller can act on."""
@@ -49,11 +53,27 @@ async def set_feedback(
     conversation_ref: str,
     message_ref: str,
     rating: str | None,
+    report_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Record a rating, or clear it by passing ``None``."""
+    """Record a rating, or clear it by passing ``None``.
+
+    A ``report_reason`` flags the answer for the team (the in-app "Report
+    response" control). A report is always a negative rating, so it is stored
+    as ``down`` on the same row, and a structured ``one_agent_response_reported``
+    record is logged with the reason and ids only.
+    """
     owner = _require(user_id, code="USER_REQUIRED", label="A user")
     conversation = _require(conversation_ref, code="CONVERSATION_REQUIRED", label="A conversation")
     message = _require(message_ref, code="MESSAGE_REQUIRED", label="A message")
+
+    reason = str(report_reason or "").strip().lower() or None
+    if reason is not None:
+        if reason not in VALID_REPORT_REASONS:
+            raise MessageFeedbackError(
+                f"{reason} is not a report reason ({', '.join(VALID_REPORT_REASONS)}).",
+                code="REPORT_REASON_INVALID",
+            )
+        rating = "down"
 
     normalized = str(rating or "").strip().lower() or None
     if normalized is not None and normalized not in VALID_RATINGS:
@@ -102,11 +122,24 @@ async def set_feedback(
             code="CONVERSATION_NOT_FOUND",
         ) from exc
 
-    return {
+    recorded: dict[str, Any] = {
         "conversation_id": conversation,
         "message_id": message,
         "rating": normalized,
     }
+    if reason is not None:
+        # The team's review queue: query Cloud Logging for this event, then read
+        # the durable "down" row it points to. Ids and the reason enum only.
+        logger.warning(
+            "one_agent_response_reported reason=%s user=%s conversation=%s message=%s",
+            reason,
+            owner,
+            conversation,
+            message,
+        )
+        recorded["reported"] = True
+        recorded["report_reason"] = reason
+    return recorded
 
 
 async def get_feedback(*, user_id: str, conversation_ref: str) -> dict[str, Any]:

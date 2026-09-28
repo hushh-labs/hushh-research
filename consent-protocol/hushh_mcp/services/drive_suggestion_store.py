@@ -22,6 +22,8 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                   AND c.connector_id='google_drive' AND c.status='connected'
                   AND c.validation_state='verified'
                 WHERE r.status IN ('pending','preparing') AND r.expires_at>clock_timestamp()
+                  AND r.bulk_search_started_at IS NULL
+                  AND c.verified_policy_hash IS DISTINCT FROM :live_policy
                   AND (r.preparation_attempts<3 OR r.status='preparing')
                   AND r.preparation_next_at<=clock_timestamp()
                   AND (r.preparation_lease_id IS NULL OR r.preparation_lease_expires_at<=clock_timestamp())
@@ -30,7 +32,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
                 FROM due WHERE r.request_id=due.request_id RETURNING r.user_id,r.request_id
             """),
-                    {"limit": min(max(limit, 1), 100)},
+                    {"limit": min(max(limit, 1), 100), "live_policy": LIVE_POLICY_HASH},
                 ).mappings()
             ]
 
@@ -47,6 +49,10 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             current = self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             generation = current["connection_generation"]
             live = current["verified_policy_hash"] == LIVE_POLICY_HASH
+            if live and not owner_selected:
+                # Complete live requests use the durable request search. A
+                # legacy 8-file preparation must never race its exact review.
+                return None
             if live:
                 self._live_preparation_access(
                     connection, user_id=user_id, generation=generation, foreground=foreground
@@ -58,6 +64,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["status"] not in {"pending", "preparing"}
+                or row["bulk_search_started_at"] is not None
                 or row["expires_at"] <= now
                 or (row["preparation_next_at"] > now and not (foreground and owner_selected))
                 or row["preparation_lease_expires_at"]
@@ -116,6 +123,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
             row["status"] != "preparing"
+            or row["bulk_search_started_at"] is not None
             or row["revision"] != job["revision"]
             or str(row["preparation_lease_id"]) != job["lease_id"]
             or row["preparation_lease_expires_at"] is None

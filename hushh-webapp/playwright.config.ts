@@ -52,6 +52,8 @@ export default defineConfig({
       // `appearance: menulist` ignores the author's border-radius, so the
       // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
       // passes the broken control.
+      // `contact-invitation-sheet.layout` is opted in for the same reason: it
+      // measures a keyboard-lifted bottom sheet whose list collapsed on iPhones.
       // `save-location-sheet.layout` is opted in because the surface it
       // measures is a bottom sheet that people meet on an iPhone. A Chromium
       // pass says nothing about whether `dvh` inside a `clamp()`, or a sheet
@@ -80,7 +82,12 @@ export default defineConfig({
       // `one-voice-panel.layout` is opted in because the live voice dock ships
       // in a WKWebView; its source-coupled fixture is self-contained and does
       // not exercise either of the known app-shell WebKit failures above.
+      // `text-attachment-viewer.layout` is opted in because the pasted-text
+      // sheet, its own scroll box and the scroll after Send are read on an
+      // iPhone; its fixture builds its own document.
       testMatch: [
+        /text-attachment-viewer\.layout\.spec\.ts/,
+        /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,
         /setup-hub\.layout\.spec\.ts/,
@@ -89,7 +96,7 @@ export default defineConfig({
         /document-share-review\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
-        /(intro-viewport\.layout|country-picker\.layout|account-session-recovery|agent-surface-model-authority\.layout|one-voice-panel\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|location-cta-layout|google-contact-sync\.layout|location-switch\.layout|active-share-actions\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-people-rows\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
+        /(intro-viewport\.layout|country-picker\.layout|account-session-recovery|agent-surface-model-authority\.layout|one-voice-panel\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|location-cta-layout|google-contact-sync\.layout|location-switch\.layout|active-share-actions\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-people-rows\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout|contact-invitation-sheet\.layout)\.spec\.ts/,
       ],
     },
     {

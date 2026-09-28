@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import uuid
 from typing import Any
 
 from hushh_mcp.one_adk.history_projection import (
@@ -512,6 +513,8 @@ def _safe_agent_history_metadata(
         if descriptor is None:
             descriptor = _safe_drive_share_descriptor(event, [part])
         if descriptor is None:
+            descriptor = _safe_drive_bulk_share_descriptor(event, [part])
+        if descriptor is None:
             descriptor = _safe_workspace_connector_setup_descriptor(event, [part], call_providers)
         if descriptor is None:
             continue
@@ -581,3 +584,40 @@ def _submitted_source_id(event: Any) -> str | None:
     source_id = _bounded_text(presentation.get("sourceCardId"), 256)
     expected_id = f"request_submission_{hashlib.sha256(str(source_id).encode()).hexdigest()[:32]}"
     return source_id if source_id and event.id == expected_id else None
+
+
+def _safe_drive_bulk_share_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore a review-only saved-search proposal without private file metadata."""
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        if response is None or getattr(response, "name", "") != "propose_drive_bulk_share":
+            continue
+        result = _record(getattr(response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready" or result.get("audience") != "trusted_circle":
+            return None
+        try:
+            search_job_id = str(uuid.UUID(str(result.get("searchJobId"))))
+            client_request_id = str(uuid.UUID(str(result.get("clientRequestId"))))
+        except (ValueError, TypeError, AttributeError):
+            return None
+        return {
+            "activityType": "one.drive_bulk_share_review.v1",
+            "content": {
+                "audience": "trusted_circle",
+                "searchJobId": search_job_id,
+                "clientRequestId": client_request_id,
+            },
+        }
+    return None

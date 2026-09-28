@@ -369,6 +369,60 @@
     }
   },
   {
+    "route": "/privacy",
+    "mode": "hidden",
+    "exemptionReason": "Public Privacy Policy page (Google OAuth consent screen and app store privacy URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
+    "voicePlaybook": {
+      "playbookId": "route.privacy.policy",
+      "purpose": "Help the person read the Privacy Policy screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/privacy",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/terms",
+    "mode": "hidden",
+    "exemptionReason": "Public Terms of Use page (Google OAuth consent screen and app store terms URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
+    "voicePlaybook": {
+      "playbookId": "route.terms.of.use",
+      "purpose": "Help the person read the Terms of Use screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/terms",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/kyc",
     "mode": "standard",
     "shellVerification": {
@@ -1203,9 +1257,7 @@
       "file": "app/connect/page-client.tsx",
       "includes": [
         "AppPageShell",
-        "AppPageHeaderRegion",
         "AppPageContentRegion",
-        "PageHeader",
         "SurfaceStack"
       ]
     },

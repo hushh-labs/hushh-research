@@ -3,7 +3,10 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
-import { EmailDeliveryService } from "@/lib/services/email-delivery-service";
+import {
+  EmailDeliveryError,
+  EmailDeliveryService,
+} from "@/lib/services/email-delivery-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 
 vi.mock("@/lib/services/email-delivery-service", async () => {
@@ -680,5 +683,46 @@ describe("EmailDraftCard", () => {
       null,
     );
     expect(onSent).not.toHaveBeenCalled();
+  });
+  it("offers Connect Gmail in the connections drawer when Gmail was never connected", async () => {
+    vi.mocked(EmailDeliveryService.draft).mockRejectedValue(
+      new EmailDeliveryError("Connect Mail before you draft or send mail.", 409, "GMAIL_NOT_CONNECTED"),
+    );
+    const onOpenConnections = vi.fn();
+    const { unmount } = render(
+      <EmailDraftCard
+        initialInstruction="Write a note to Pat"
+        autoDraft
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        onOpenConnections={onOpenConnections}
+      />,
+    );
+    const connect = await screen.findByTestId("one-email-draft-connect-gmail");
+    expect(connect).toHaveTextContent("Connect Gmail");
+    expect(screen.queryByText("Reconnect Mail")).not.toBeInTheDocument();
+    fireEvent.click(connect);
+    expect(onOpenConnections).toHaveBeenCalledWith("gmail", connect);
+    unmount();
+
+    // A send-permission gap on a connected mailbox stays a reconnect, not a first connect.
+    vi.mocked(EmailDeliveryService.draft).mockRejectedValue(
+      new EmailDeliveryError("Reconnect Mail to grant mail sending permission.", 403, "GMAIL_SEND_PERMISSION_REQUIRED"),
+    );
+    render(
+      <EmailDraftCard
+        initialInstruction="Write a note to Pat"
+        autoDraft
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        onOpenConnections={onOpenConnections}
+      />,
+    );
+    expect(await screen.findByText("Reconnect Mail")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-email-draft-connect-gmail")).not.toBeInTheDocument();
   });
 });

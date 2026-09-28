@@ -176,6 +176,12 @@ The law, which holds for every signed-in route:
 6. `shellVerification` in the route layout contract must name the file that
    really renders the primitives. When a shell moves into a client component,
    the declaration moves with it.
+7. **A trail is never replaced on scroll.** A nested route keeps its back arrow
+   and trail at rest and scrolled; the scroll-collapsed title chip only fills a
+   bar with no trail (`resolveTopShellTitleSlot`). When the trail already names
+   the screen, its `PageHeader` passes `titleVisuallyHidden`, so the title is
+   drawn once, in the bar, as on Feed and Connect (founder direction,
+   2026-09-27).
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
@@ -245,7 +251,11 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     visible shell height and stops there with a hard edge: no fade band or
     gradient tail (founder direction, 2026-09-27). `bar-with-tabs` stays solid
     through the visible tab underline and the edge moves with partial or full
-    header collapse. The `--top-fade-active` band below the edge is layout
+    header collapse. It paints the page's own base (`--app-layout-surface`,
+    which is `--app-grouped-background` in both themes), so at rest the bar is
+    indistinguishable from the page; never mix the accent into that base
+    (a dark 8% accent mix read as a lighter band, 2026-09-27). The
+    `--top-fade-active` band below the edge is layout
     clearance only, not painted chrome. The route-body gap below a tab row is
     reading space, not mask geometry; never include it in the solid chrome
     height.
@@ -596,8 +606,9 @@ Rules:
 2. Dialogs, sheets, drawers, and the command palette inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Vault create, unlock, recovery, passkey, and biometric credential surfaces are the focused credential exception: every entry point uses one opaque neutral theme canvas without blur, suppressing persistent top chrome, bottom navigation, and the Agent Bar so route content never competes beneath the form. The non-dismissible `VaultLockGuard` uses the same canvas but also suppresses backdrop animation; contextual vault prompts remain dismissible and retain their standard enter/exit motion except while a newly generated one-time recovery key is disclosed. That disclosure blocks Escape and outside-pointer dismissal until the person explicitly confirms the key was saved.
    Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
 3. Modal popovers inherit the same backdrop by default; non-modal anchored popovers stay flat. `PopoverContent withBackdrop` remains an explicit override. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
-4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface.
+4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface. The sheet surface slides on its own `sheet-surface-enter` / `sheet-surface-exit` keyframes, which animate only `transform` and `opacity`; the shared tw-animate `enter` / `exit` keyframes also animate `filter`, so sheets do not use them.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) is the one untinted modal exception: the chat header and the fixed bottom bar sit outside any z-index its close layer can reach, so a scrim there dims only the band between them and leaves a bright strip above and a patch below. Its tap-to-close layer stays transparent, and the floating, inset, opaque panel separates itself with a hairline border and shadow.
 6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,
    4px engagement threshold, scroll-top handoff, distance/velocity dismissal,
    and non-flashing spring-back. Bottom sheets inherit this behavior by default;

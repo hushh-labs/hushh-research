@@ -6,7 +6,7 @@ import {
   parseDriveBatchProgressActivity,
   type DriveBatchProgress,
 } from "@/lib/agent/drive-batch-progress";
-import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
+import { HttpAgent, type AgentSubscriber, type InputContent, type Tool, type UserMessage } from "@ag-ui/client";
 import { Capacitor } from "@capacitor/core";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -27,6 +27,10 @@ import {
   registerAttachedAgentTurn,
   watchDetachedAgentTurn,
 } from "@/lib/agent/agent-chat-turn-watch";
+import {
+  parseStoredTextAttachments,
+  type AgentTextAttachment,
+} from "@/lib/agent/large-text-attachment";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -54,8 +58,43 @@ export type AgentChatMessage = {
     connectorRead?: ConnectorReadExperience | null;
     /** Bound history descriptor for the turn's Activity rows (enums and opaque ids only). */
     turnActivity?: { activityType?: string; content?: unknown } | null;
+    /** Pasted text sent with a user turn, restored as a chip (never as message text). */
+    attachments?: AgentTextAttachment[];
   } | null;
 };
+
+function utf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  // Chunked so a large paste never overflows the argument limit.
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * The AG-UI content of a user turn. Typed text stays the message text; each
+ * pasted attachment rides beside it as a `text/plain` document part, the
+ * protocol's own channel for files, which the agent bridge turns into a
+ * separate model part. A turn without attachments stays a plain string.
+ */
+export function buildAgentUserMessageContent(
+  message: string,
+  attachments: readonly AgentTextAttachment[] = [],
+): UserMessage["content"] {
+  if (attachments.length === 0) return message;
+  const parts: InputContent[] = [];
+  if (message.trim()) parts.push({ type: "text", text: message });
+  for (const attachment of attachments) {
+    parts.push({
+      type: "document",
+      source: { type: "data", value: utf8ToBase64(attachment.text), mimeType: attachment.mimeType },
+      metadata: { filename: attachment.name },
+    });
+  }
+  return parts;
+}
 
 export type AgentChatConversation = {
   id: string;
@@ -231,6 +270,86 @@ function readString(record: Record<string, unknown>, key: string): string {
 
 const GENERIC_AGENT_CHAT_ERROR =
   "One couldn't complete that response. Please try again.";
+
+/** Shown when a turn's stream stops before the server said it finished or failed. */
+export const AGENT_CHAT_STREAM_LOST_ERROR =
+  "One lost the connection before finishing that response. Please try again.";
+
+/**
+ * A turn whose stream was lost. The server may still finish and save it, so
+ * the turn's conversation and start time travel with the error: Retry checks
+ * history for this turn before it ever sends the message again.
+ */
+export class AgentChatStreamLostError extends Error {
+  readonly conversationId: string;
+  readonly startedAtMs: number;
+
+  constructor(conversationId: string, startedAtMs: number) {
+    super(AGENT_CHAT_STREAM_LOST_ERROR);
+    this.name = "AgentChatStreamLostError";
+    this.conversationId = conversationId;
+    this.startedAtMs = startedAtMs;
+  }
+}
+
+/**
+ * How long a turn's stream may be silent before the turn is treated as lost.
+ * The server writes a `: ping` comment every 15 s while a model or tool call is
+ * pending (sse-starlette's keep-alive), so this is six missed pings. It is keyed
+ * on bytes, never on content: a slow model is not a dead connection.
+ */
+export const AGENT_CHAT_STREAM_IDLE_MS = 90_000;
+const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
+
+/**
+ * Byte-level liveness for One's AG-UI stream. The serving instance can be
+ * killed, redeployed or scaled down mid-turn; the stream then either stops
+ * sending or closes without RUN_FINISHED / RUN_ERROR, and `@ag-ui/client`
+ * completes such a run quietly. `fetch` is the HttpAgent transport with every
+ * body chunk noted; `start` arms the silence watchdog for one run.
+ */
+function createAgentStreamLiveness(
+  onSilent: () => void,
+  transport: (init: RequestInit | undefined) => Promise<Response> = (init) => nativeStreamFetch("/api/one/agent-chat", init),
+) {
+  let lastBytesAtMs = Date.now();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const touch = () => {
+    lastBytesAtMs = Date.now();
+  };
+  const stop = () => {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  };
+  return {
+    fetch: async (init: RequestInit | undefined): Promise<Response> => {
+      const response = await transport(init);
+      touch();
+      if (!response.ok || !response.body) return response;
+      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          touch();
+          controller.enqueue(chunk);
+        },
+      }));
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    },
+    start: () => {
+      stop();
+      touch();
+      timer = setInterval(() => {
+        if (Date.now() - lastBytesAtMs < AGENT_CHAT_STREAM_IDLE_MS) return;
+        stop();
+        onSilent();
+      }, AGENT_CHAT_STREAM_WATCHDOG_TICK_MS);
+    },
+    stop,
+  };
+}
 
 type ParkedAppActionDirective = {
   actionId: string;
@@ -582,6 +701,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a Drive share for your confirmation.",
     activity: "Preparing a Drive share",
   },
+  propose_drive_bulk_share: {
+    label: "Google Drive",
+    message: "Preparing saved Drive files for your review.",
+    activity: "Preparing a Drive share",
+  },
   propose_drive_file_share: {
     label: "Google Drive",
     message: "Preparing a Drive share for your confirmation.",
@@ -914,6 +1038,8 @@ export type PendingEmailDraftContext = {
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
+  /** Pasted text sent as separate document parts, never folded into `message`. */
+  attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
   vaultOwnerToken: string;
   /** Unlocked vault key. Only the chat key derived from it is sent. */
@@ -1018,28 +1144,38 @@ export async function streamAgentChat(input: {
     throw error;
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
+  const liveness = createAgentStreamLiveness(() => {
+    loseStream();
+    agent.abortRun();
+  }, (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
+    (hushhId) => {
+      if (!mcpSessionCurrent()) return;
+      lastPodConversation = {
+        hushhId, conversationId: threadId, runtimeCredential: null,
+        runtimeCredentialTransport: null, runtimeProvider: null, puppyDeviceId: null,
+        vertexProject: null, vertexLocation: null,
+      };
+    }));
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
-    initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
-      (hushhId) => {
-        // Keep the existing close/catch-up lifecycle for admitted private chat.
-        // This transport uses the pod's configured model identity; no hub key.
-        if (!mcpSessionCurrent()) return;
-        lastPodConversation = {
-          hushhId, conversationId: threadId, runtimeCredential: null,
-          runtimeCredentialTransport: null, runtimeProvider: null, puppyDeviceId: null,
-          vertexProject: null, vertexLocation: null,
-        };
-      }),
+    initialMessages: [{
+      id: crypto.randomUUID(),
+      role: "user",
+      content: buildAgentUserMessageContent(input.message, input.attachments),
+    }],
+    fetch: (_url, init) => liveness.fetch(init),
   });
   let text = "";
   let runStarted = false;
   let failure: Error | null = null;
   let interrupted = false;
   let intentionallyStoppedAtConfirmation = false;
+  // Per run: whether the server ended it (RUN_FINISHED or RUN_ERROR), and
+  // whether this client gave up on its stream.
+  let runTerminal = false;
+  let streamLost = false;
   // Server events seen, and whether one was terminal. The bridge starts the
   // turn's own task only after RUN_STARTED, so a second event proves a turn is
   // running server-side and will outlive this stream.
@@ -1054,6 +1190,29 @@ export async function streamAgentChat(input: {
   const finishTerminalRun = () => {
     settleTerminalRun?.();
     settleTerminalRun = null;
+  };
+  // The stream stopped without the server ending the run: the instance died,
+  // was replaced, or went silent. Fail the turn so the person can retry
+  // instead of watching a working state that nothing will ever settle. A run
+  // this client stopped on purpose (confirmation, detach, cancel) is not lost.
+  const loseStream = () => {
+    if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
+        detached || input.signal?.aborted) return;
+    streamLost = true;
+    failure = new AgentChatStreamLostError(threadId, startedAtMs);
+    handlers.onError?.(failure.message);
+    finishTerminalRun();
+  };
+  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0]) => {
+    runTerminal = false;
+    streamLost = false;
+    liveness.start();
+    try {
+      await agent.runAgent(parameters, subscriber);
+    } finally {
+      liveness.stop();
+    }
+    if (!runTerminal) loseStream();
   };
   const stopAfterConfirmation = () => {
     if (intentionallyStoppedAtConfirmation) return;
@@ -1123,7 +1282,7 @@ export async function streamAgentChat(input: {
         resume: async (status: "resolved" | "cancelled", payload?: unknown) => {
           const interruptId = interruptsByToolCall.get(callId);
           if (!interruptId) throw new Error("This Agent One action is no longer resumable.");
-          await agent.runAgent({
+          await runUntilTerminal({
             tools,
             context: [],
             forwardedProps: {
@@ -1138,7 +1297,7 @@ export async function streamAgentChat(input: {
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
-          }, subscriber);
+          });
         },
       },
     };
@@ -1489,6 +1648,7 @@ export async function streamAgentChat(input: {
       }
     },
     onRunFinishedEvent: (params) => {
+      runTerminal = true;
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
@@ -1528,7 +1688,7 @@ export async function streamAgentChat(input: {
               input.signal?.addEventListener("abort", abortResume, { once: true });
               signal?.addEventListener("abort", abortResume, { once: true });
               try {
-                await agent.runAgent({
+                await runUntilTerminal({
                   tools, context: [],
                   forwardedProps: {
                     ...await connectorProjection(),
@@ -1545,7 +1705,7 @@ export async function streamAgentChat(input: {
                     } } : {}),
                   },
                   resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
-                }, subscriber);
+                });
                 if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
                 if (failure) throw failure;
               } finally {
@@ -1568,6 +1728,7 @@ export async function streamAgentChat(input: {
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
+      runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
         return;
@@ -1581,8 +1742,9 @@ export async function streamAgentChat(input: {
     },
     onRunFailed: ({ error }) => {
       // Our own abort of a detached stream is not a failure of the turn, which
-      // is still running server-side.
-      if (intentionallyStoppedAtConfirmation || detached) {
+      // is still running server-side. A stream this client already gave up on
+      // was reported once; its abort must not replace that with a second error.
+      if (intentionallyStoppedAtConfirmation || detached || streamLost) {
         finishTerminalRun();
         return;
       }
@@ -1614,7 +1776,7 @@ export async function streamAgentChat(input: {
     },
   });
   try {
-    await agent.runAgent({
+    await runUntilTerminal({
       tools,
       context: [],
       forwardedProps: {
@@ -1632,7 +1794,7 @@ export async function streamAgentChat(input: {
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
       },
-    }, subscriber);
+    });
     await terminalRun;
   } catch (error) {
     // AG-UI reports a failed request to the subscriber, then rejects with the
@@ -1669,14 +1831,28 @@ export async function streamAgentIntro(input: {
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const threadId = crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  let text = "";
+  let failure: Error | null = null;
+  let runTerminal = false;
+  let streamLost = false;
+  // Same guarantee as a vault turn: a stream that stops without the server
+  // ending the run fails the turn instead of leaving it waiting.
+  const loseStream = () => {
+    if (runTerminal || streamLost || failure || input.signal?.aborted) return;
+    streamLost = true;
+    failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
+    handlers.onError?.(failure.message);
+  };
+  const liveness = createAgentStreamLiveness(() => {
+    loseStream();
+    agent.abortRun();
+  });
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
+    fetch: (_url, init) => liveness.fetch(init),
   });
-  let text = "";
-  let failure: Error | null = null;
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
@@ -1690,18 +1866,24 @@ export async function streamAgentIntro(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onRunFinishedEvent: () => handlers.onComplete?.({ conversationId: threadId }),
+    onRunFinishedEvent: () => {
+      runTerminal = true;
+      handlers.onComplete?.({ conversationId: threadId });
+    },
     onRunErrorEvent: ({ event }) => {
+      runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
+      if (streamLost) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
   };
   const abort = () => agent.abortRun();
   input.signal?.addEventListener("abort", abort, { once: true });
+  liveness.start();
   try {
     await agent.runAgent({
       tools: [],
@@ -1709,8 +1891,10 @@ export async function streamAgentIntro(input: {
       forwardedProps: { screenContext: input.screenContext, timezone: resolveBrowserTimeZone() },
     }, subscriber);
   } finally {
+    liveness.stop();
     input.signal?.removeEventListener("abort", abort);
   }
+  if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };
 }
@@ -1752,37 +1936,44 @@ export async function getAgentChatHistory(input: {
         structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
         specialist_read?: unknown;
         turnActivity?: { activityType?: string; content?: unknown } | null;
+        attachments?: unknown;
       } | null;
     }>;
   };
   if (!Array.isArray(payload.messages)) return [];
   return payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
-    .map((message) => ({
-      id: message.id,
-      conversation_id: message.conversation_id,
-      role: message.role,
-      status: message.status,
-      content: message.content,
-      model: message.model,
-      created_at: message.created_at,
-      completed_at: message.completed_at,
-      metadata: message.metadata
-        ? {
-            kind: message.metadata.kind,
-            display: message.metadata.display,
-            structuredExperience: message.metadata.structuredExperience,
-            structuredExperienceId: message.metadata.structuredExperienceId,
-            structuredExperiences: message.metadata.structuredExperiences,
-            ...(message.role === "assistant" && message.metadata.turnActivity
-              ? { turnActivity: message.metadata.turnActivity } : {}),
-            connectorRead:
-              message.role === "assistant"
-                ? parseConnectorReadReceipt(message.metadata.specialist_read)
-                : null,
-          }
-        : message.metadata,
-    }));
+    .map((message) => {
+      const attachments = message.role === "user"
+        ? parseStoredTextAttachments(message.metadata?.attachments)
+        : [];
+      return {
+        id: message.id,
+        conversation_id: message.conversation_id,
+        role: message.role,
+        status: message.status,
+        content: message.content,
+        model: message.model,
+        created_at: message.created_at,
+        completed_at: message.completed_at,
+        metadata: message.metadata
+          ? {
+              kind: message.metadata.kind,
+              display: message.metadata.display,
+              structuredExperience: message.metadata.structuredExperience,
+              structuredExperienceId: message.metadata.structuredExperienceId,
+              structuredExperiences: message.metadata.structuredExperiences,
+              ...(message.role === "assistant" && message.metadata.turnActivity
+                ? { turnActivity: message.metadata.turnActivity } : {}),
+              ...(attachments.length ? { attachments } : {}),
+              connectorRead:
+                message.role === "assistant"
+                  ? parseConnectorReadReceipt(message.metadata.specialist_read)
+                  : null,
+            }
+          : message.metadata,
+      };
+    });
 }
 
 /**
@@ -1806,6 +1997,43 @@ export async function getAgentChatTurnState(input: {
   const pending = payload.turn?.pending === true;
   const last = Array.isArray(payload.messages) ? payload.messages[payload.messages.length - 1] : undefined;
   return { pending, answered: !pending && last?.role === "assistant" };
+}
+
+export type LostAgentTurnOutcome = "pending" | "answered" | "not_answered";
+
+/**
+ * Where a turn whose stream was lost stands, read from the same history
+ * endpoint the turn watch uses. ``answered`` requires the newest exchange to be
+ * this exact message followed by One's reply, so a turn that never reached the
+ * server is not mistaken for an earlier answer. Only the enum leaves here.
+ */
+export async function getLostAgentTurnOutcome(input: {
+  conversationId: string;
+  userMessage: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<LostAgentTurnOutcome> {
+  const response = await ApiService.getAgentChatHistory({
+    conversationId: input.conversationId,
+    vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
+    limit: 2,
+  });
+  // The first turn of a conversation that never reached the server.
+  if (response.status === 404) return "not_answered";
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const payload = (await response.json()) as {
+    messages?: Array<{ role?: unknown; content?: unknown }>;
+    turn?: { pending?: unknown };
+  };
+  if (payload.turn?.pending === true) return "pending";
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const [question, answer] = messages.slice(-2);
+  const sameMessage = question?.role === "user" && typeof question.content === "string" &&
+    question.content.trim() === input.userMessage.trim();
+  return sameMessage && answer?.role === "assistant" ? "answered" : "not_answered";
 }
 
 /**
@@ -1916,11 +2144,20 @@ export async function getAgentChatFeedback(input: {
   }
 }
 
+/** Why a person reported an answer. Mirrors the backend's closed enum. */
+export type AgentResponseReportReason =
+  | "offensive"
+  | "harmful"
+  | "inaccurate"
+  | "other";
+
 export async function setAgentChatFeedback(input: {
   conversationId: string;
   messageId: string;
   rating: "up" | "down" | null;
   vaultOwnerToken: string;
+  /** Flags the answer for team review; the backend records it as "down". */
+  reportReason?: AgentResponseReportReason;
 }): Promise<void> {
   const response = await ApiService.apiFetch("/api/one/agent-chat/feedback", {
     method: "PUT",
@@ -1932,6 +2169,7 @@ export async function setAgentChatFeedback(input: {
       conversation_id: input.conversationId,
       message_id: input.messageId,
       rating: input.rating,
+      ...(input.reportReason ? { report_reason: input.reportReason } : {}),
     }),
   });
   if (!response.ok) {

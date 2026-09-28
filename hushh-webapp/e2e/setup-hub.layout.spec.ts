@@ -83,7 +83,7 @@ for (const width of [320, 393, 768, 1440]) {
   for (const theme of ["light", "dark"]) {
     test(`Setup hub ${width}px ${theme}`, async ({page}, testInfo) => {
       await page.setViewportSize({width,height:852});
-      await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addScriptTag({content:script});
       const subtitle = page.locator('[data-slot="page-header-description"]');
       await expect(subtitle).toHaveText("Choose your AI first.");
@@ -100,7 +100,11 @@ for (const width of [320, 393, 768, 1440]) {
       expect(buttonBox.width).toBeCloseTo(width >= 640 ? 320 : cardBox.width, 0);
       expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(cardBox.x + cardBox.width / 2, 0);
       expect(cardBox.y - subBox.y - subBox.height).toBeCloseTo(24, 0);
-      expect(buttonBox.y - cardBox.y - cardBox.height).toBeCloseTo(16, 0);
+      expect(buttonBox.y + buttonBox.height).toBeCloseTo(852 - 16, 0);
+      expect(buttonBox.y).toBeGreaterThan(cardBox.y + cardBox.height);
+      await page.evaluate(() => document.documentElement.style.setProperty("--app-safe-area-bottom-effective", "34px"));
+      const insetBox = (await finish.boundingBox())!;
+      expect(insetBox.y + insetBox.height).toBeCloseTo(852 - 16 - 34, 0);
       await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");
       await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("opacity", "1");
       for (const property of ["height","border-radius","font-size","font-weight","background-color","color","opacity"]) {

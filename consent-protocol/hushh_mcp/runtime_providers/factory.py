@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from google.genai.types import HttpOptions, HttpOptionsDict
 
+from .gemini_config import resolve_fleet_model_name
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
 
@@ -220,9 +221,13 @@ class ManagedGeminiRuntimeBinding:
         clean_location = str(location or "").strip() or (
             self.primary_location if self.auth_mode == VERTEX_ADC_AUTH_MODE else ""
         )
-        clean_model = self.validate_model(
-            model,
-            location=clean_location or None,
+        # Manifests name the fleet alias; Vertex has no model called
+        # ``gemini-default`` and answers it with a 4xx on every call.
+        clean_model = resolve_fleet_model_name(
+            self.validate_model(
+                model,
+                location=clean_location or None,
+            )
         )
         transport_options = (
             {"http_options": HttpOptions.model_validate(http_options)}
@@ -264,7 +269,7 @@ class ManagedGeminiRuntimeBinding:
         failing each one first. Live sessions keep their pinned region from
         ``build_adk_model``.
         """
-        clean_model = self.validate_model(model)
+        clean_model = resolve_fleet_model_name(self.validate_model(model))
         if self.auth_mode != VERTEX_ADC_AUTH_MODE:
             return self.build_adk_model(clean_model)
         locations = self.locations_for_model(clean_model)

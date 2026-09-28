@@ -1714,11 +1714,6 @@ export function SaveLocationModal({
               </div>
             ) : null}
 
-            {/* A caption, not a card. It reassures; it is not a control, and
-                  the panel it used to sit in gave it a control's weight. */}
-            <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-              Private to you.
-            </p>
           </div>
 
           <div

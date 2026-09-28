@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const shell = vi.hoisted(() => ({ pathname: "/", push: vi.fn(), replace: vi.fn(), toast: vi.fn() }));
@@ -20,13 +20,23 @@ vi.mock("@/lib/vault/vault-context", async (importOriginal) => ({
 }));
 
 import {
+  AGENT_PARTIAL_ANSWER_LOST_NOTICE,
+  AgentBubble,
   chatHeaderSubtitle,
   labelRestoredConnectorSteps,
+  planLostTurnRetry,
   restoredMessageTime,
+  settleAssistantMessageError,
   storedMessagesToAgentMessages,
 } from "@/components/agent/agent-chat-workspace";
+import { ApiService } from "@/lib/services/api-service";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
-import { parseRestoredTurnActivity, type AgentChatMessage } from "@/lib/services/agent-chat-client";
+import {
+  AGENT_CHAT_STREAM_LOST_ERROR,
+  AgentChatStreamLostError,
+  parseRestoredTurnActivity,
+  type AgentChatMessage,
+} from "@/lib/services/agent-chat-client";
 import { AgentChatTurnNotifier } from "@/components/agent/agent-chat-turn-notifier";
 import {
   decideAgentTurnNotice,
@@ -217,5 +227,69 @@ describe("a turn that settles after the person left the chat", () => {
     expect(decideAgentTurnNotice({ viewingConversation: false, pageVisible: true, pushOwnsNotice: true })).toBe("none");
     expect(decideAgentTurnNotice({ viewingConversation: false, pageVisible: false, pushOwnsNotice: false })).toBe("defer");
     expect(decideAgentTurnNotice({ viewingConversation: true, pageVisible: true, pushOwnsNotice: false })).toBe("none");
+  });
+});
+
+// A stream can die after part of an answer arrived, while the server keeps
+// running the turn and saves it. The person must see why the answer stopped,
+// and Retry must never run a turn the server already finished.
+describe("a turn whose stream was lost", () => {
+  const conversationId = "7c2e1f0a-5b3d-4e8a-9f61-2d4c8b7a6e5f";
+  const streaming = {
+    id: "assistant-1", role: "assistant" as const, text: "Here are the first two steps",
+    timestamp: "10:00", status: "streaming" as const,
+  };
+
+  it("keeps the partial answer and says the connection was lost below it", () => {
+    const lost = new AgentChatStreamLostError(conversationId, 1_000);
+    const settled = settleAssistantMessageError(
+      settleAssistantMessageError(streaming, AGENT_CHAT_STREAM_LOST_ERROR), lost.message, lost,
+    );
+    expect(settled).toMatchObject({
+      text: "Here are the first two steps", status: "error",
+      errorNotice: AGENT_PARTIAL_ANSWER_LOST_NOTICE, lostTurn: { conversationId, startedAtMs: 1_000 },
+    });
+    render(<AgentBubble message={settled} onRetry={() => undefined} />);
+    expect(screen.getByText("Here are the first two steps")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-message-error-notice"))
+      .toHaveTextContent("Connection lost before One finished.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+
+    // With nothing streamed the reason is the message itself, not a second notice.
+    const empty = settleAssistantMessageError({ ...streaming, text: "" }, AGENT_CHAT_STREAM_LOST_ERROR);
+    const again = settleAssistantMessageError(empty, AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(again.text).toBe(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(again).not.toHaveProperty("errorNotice");
+  });
+
+  it("shows the saved answer or waits for the running turn instead of sending it again", async () => {
+    const history = vi.spyOn(ApiService, "getAgentChatHistory");
+    const input = {
+      lostTurn: { conversationId, startedAtMs: 1_000 }, retryText: "Plan my week",
+      vaultOwnerToken: "owner-token", vaultKey: "a".repeat(64),
+    };
+    const reply = (body: unknown, status = 200) =>
+      history.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
+
+    reply({ messages: [{ role: "user", content: "Plan my week" }, { role: "assistant", content: "Done" }],
+      turn: { pending: false } });
+    expect(await planLostTurnRetry(input)).toBe("restore");
+    expect(history).toHaveBeenLastCalledWith(expect.objectContaining({ conversationId, limit: 2 }));
+
+    reply({ messages: [{ role: "user", content: "Plan my week" }], turn: { pending: true } });
+    expect(await planLostTurnRetry(input)).toBe("reattach");
+
+    // The newest answer belongs to an earlier question: this turn never finished.
+    reply({ messages: [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Old" }],
+      turn: { pending: false } });
+    expect(await planLostTurnRetry(input)).toBe("rerun");
+    reply({ detail: "Conversation not found." }, 404);
+    expect(await planLostTurnRetry(input)).toBe("rerun");
+
+    // A turn the server ended with its own error was not lost: resend without asking.
+    history.mockClear();
+    expect(await planLostTurnRetry({ ...input, lostTurn: undefined })).toBe("rerun");
+    expect(history).not.toHaveBeenCalled();
+    history.mockRestore();
   });
 });
