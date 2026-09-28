@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Laptop, Loader2 } from "@/components/icons";
 
 import { useAuth } from "@/lib/firebase";
@@ -35,6 +35,7 @@ export function PrivatePuppyInferencePanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
   const [target, setTarget] = useState("Puppy One · private relay");
   // Revocations the pod has not received yet ("pending delivery"). Read from the
   // owner-pod store so the surface never claims a revocation landed when it was
@@ -43,6 +44,8 @@ export function PrivatePuppyInferencePanel({
   // The owner's agent id, for the memory row. Learned from the same status read
   // `send()` performs, so no second source of truth is introduced.
   const [hushhId, setHushhId] = useState<string | null>(null);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +100,8 @@ export function PrivatePuppyInferencePanel({
     setDraft("");
     setError("");
     setBusy(true);
+    const controller = new AbortController();
+    requestRef.current = controller;
     const assistantId = `a-${Date.now()}`;
     const nextTurns = [
       ...turns,
@@ -111,21 +116,16 @@ export function PrivatePuppyInferencePanel({
         throw new Error("PUPPY_REQUIRES_BYOC_POD");
       if (status.state !== "active" || !status.hushhId)
         throw new Error("PRIVATE_AGENT_UNAVAILABLE");
-      if (link?.state !== "live" || !link.device?.id)
+      if (!link?.device?.id || (link.state !== "live" && link.state !== "quiet"))
         throw new Error("PUPPY_OFFLINE");
-      const relayStatus = await ApiService.getPuppyRelayStatus(link.device.id);
-      if (relayStatus.state === "busy") throw new Error("PUPPY_BUSY");
-      if (!relayStatus.inference_ready) {
-        throw new Error(
-          relayStatus.state === "revoked" ? "PUPPY_REVOKED" : "PUPPY_OFFLINE",
-        );
-      }
       const response = await ApiService.runPodTurn({
         hushhId: status.hushhId,
+        vaultOwnerToken,
         message,
         conversationId: "puppy-private-relay",
         runtimeProvider: "puppy",
         puppyDeviceId: link.device.id,
+        signal: controller.signal,
         history: nextTurns.map(({ role, text }) => ({ role, content: text })),
       });
       // Only a model the device actually reported is shown as the model. An
@@ -142,14 +142,19 @@ export function PrivatePuppyInferencePanel({
         ),
       );
     } catch (cause) {
+      const cancelled =
+        (cause instanceof DOMException || cause instanceof Error) &&
+        cause.name === "AbortError";
       const reason =
         cause instanceof Error ? cause.message : "PRIVATE_AGENT_UNAVAILABLE";
       setError(
-        reason === "PUPPY_OFFLINE"
+        cancelled
+          ? "Puppy request cancelled."
+          : reason === "PUPPY_OFFLINE"
           ? "Puppy unavailable—open Puppy on your computer and try again."
           : reason === "PUPPY_REQUIRES_BYOC_POD"
             ? "Puppy needs your active BYOC pod and its private device relay. Shared and Hussh Pods do not run Puppy inference."
-          : reason === "PUPPY_BUSY"
+          : reason === "PUPPY_BUSY" || reason === "LOCAL_MODEL_OVERLOADED"
             ? "Puppy is handling another private turn. Try again shortly."
             : reason === "PUPPY_REVOKED"
               ? "Puppy inference access was revoked. Re-link the device to continue."
@@ -159,6 +164,7 @@ export function PrivatePuppyInferencePanel({
       );
       setTurns((prior) => prior.filter((turn) => turn.id !== assistantId));
     } finally {
+      if (requestRef.current === controller) requestRef.current = null;
       setBusy(false);
     }
   }
@@ -170,7 +176,9 @@ export function PrivatePuppyInferencePanel({
         <span className="font-medium" data-testid="puppy-target">
           {target}
         </span>
-        <span className="ml-auto text-muted-foreground">owner pod</span>
+        <span className="ml-auto text-muted-foreground">
+          {link?.state === "live" ? "Device reporting" : link?.state === "quiet" ? "Device quiet" : "Device unavailable"}
+        </span>
       </div>
       <PodMemoryConsentRow hushhId={hushhId} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -226,16 +234,23 @@ export function PrivatePuppyInferencePanel({
           disabled={busy}
           rows={1}
           placeholder="Ask through your private Puppy relay…"
+          aria-label="Message Puppy One"
           className="min-h-10 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none"
         />
         <button
           type="button"
           onClick={() => void send()}
           disabled={busy || !draft.trim()}
+          aria-label="Send to Puppy One"
           className="rounded-xl bg-foreground px-3 py-2 text-sm text-background disabled:opacity-50"
         >
           Send
         </button>
+        {busy ? (
+          <button type="button" onClick={() => requestRef.current?.abort()} className="text-sm text-muted-foreground">
+            Cancel
+          </button>
+        ) : null}
       </div>
     </div>
   );

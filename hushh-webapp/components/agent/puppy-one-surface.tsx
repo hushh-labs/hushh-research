@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
+import { isLocalHost } from "@/lib/hermes/local-host";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
@@ -45,6 +48,16 @@ export function PuppyOneSurface({
   active?: boolean;
 }) {
   const link = usePuppyLink();
+  // A deployed frontend's loopback is its Cloud Run container, never the
+  // owner's Mac. Resolve after hydration so server and client render agree.
+  const [localBridge, setLocalBridge] = useState<boolean | null>(null);
+  useEffect(() => setLocalBridge(isLocalHost()), []);
+  const panel = (activePanel: boolean, panelClassName?: string) =>
+    localBridge === null ? null : localBridge ? (
+      <HermesChatPanel active={activePanel} className={panelClassName} />
+    ) : (
+      <PrivatePuppyInferencePanel className={panelClassName} />
+    );
   return (
     <div
       className={cn(
@@ -77,22 +90,27 @@ export function PuppyOneSurface({
             answers never leave it.
           </p>
         ) : null}
-        <PuppyMachineSheet className="shrink-0" active={active} />
+        {localBridge ? <PuppyMachineSheet className="shrink-0" active={active} /> : null}
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {conversations === undefined ? <HermesChatPanel active={active} /> : (
+          {conversations === undefined ? panel(active) : (
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
                   <Button onClick={onCreateConversation}>Start a Puppy chat</Button>
                 </div>
               ) : null}
-              {conversations.map((conversation) => (
+              {conversations.map((conversation) => localBridge === null ? null : localBridge ? (
                 <HermesChatPanel
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
+                  className={cn(activeConversationId !== conversation.id && "hidden")}
+                />
+              ) : (
+                <PrivatePuppyInferencePanel
+                  key={conversation.id}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}
