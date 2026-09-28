@@ -836,6 +836,8 @@ cmd=(
   "--port=8080"
   "--memory=${_CLOUD_RUN_MEMORY}"
   "--cpu=${_CLOUD_RUN_CPU}"
+  # Preserve main's shared-runtime warmup/background CPU contract.
+  "--no-cpu-throttling"
   "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
   "--timeout=3600"
   "--session-affinity"
@@ -866,33 +868,9 @@ cmd=(
   "--set-secrets=${secrets}"
 )
 
-# CPU allocated outside requests, DEV ONLY. Correctness, not performance.
-#
-# The hub runs work that outlives the response that started it: personal-agent
-# provisioning is `loop.create_task` around a `wait_ready` poll that can run 150s
-# after the HTTP response has been returned. Cloud Run's default throttles an
-# instance's CPU to near zero the moment no request is in flight, so that task
-# does not merely run slowly -- it makes almost no progress, the registry row
-# strands at `provisioning`, and nothing reports a fault.
-#
-# Scoped to dev because this switches Cloud Run from request-based to
-# instance-based billing, which is a cost decision on the shared uat/prod lanes
-# and needs founder sign-off rather than a silent default.
-#
-# WORTH KNOWING: the same exposure already applies in uat and prod to the consent
-# NOTIFY->FCM listener, the Gmail watch-renewal loop and the revocation sweep --
-# all of them background loops on a throttled instance. This flag is the fix for
-# that class; it is being taken here only where the cost is trivial.
+# Preserve the dev-only liveness rehearsal. Owner pods retain their independently
+# selected CPU/scaling policy; this script deploys the shared backend only.
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-  cmd+=("--no-cpu-throttling")
-  # A LIVENESS probe, distinct from the startup probe above. The startup probe
-  # answers "did the workers ever boot" (gunicorn binds :8080 before forking, so
-  # TCP lies -- see that flag's note); this one answers "is a started instance
-  # still able to serve", which previously had NO detector: a worker that
-  # degraded after a healthy start was invisible and unrestarted. Failure here
-  # makes Cloud Run recycle the instance. Scoped to dev with the same reasoning
-  # as --no-cpu-throttling: recycling behavior on the shared uat/prod lanes is
-  # an operational decision that needs founder sign-off, not a silent default.
   cmd+=("--liveness-probe=httpGet.path=/health,periodSeconds=30,failureThreshold=3,timeoutSeconds=5,initialDelaySeconds=60")
 fi
 

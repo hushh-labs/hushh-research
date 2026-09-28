@@ -303,8 +303,12 @@ def test_production_backend_capacity_matches_uat() -> None:
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    # Background warmups need CPU outside requests on every lane.
-    assert '"--no-cpu-throttling"' in backend_build
+    # The Cloud Build wrapper delegates deployment to the canonical script.
+    assert "scripts/deploy/backend-deploy.sh" in backend_build
+    backend_deploy = _read("scripts/deploy/backend-deploy.sh")
+    command = backend_deploy.split("cmd=(", 1)[1].split("\n)", 1)[0]
+    # Background warmups need CPU outside requests on every shared lane.
+    assert '"--no-cpu-throttling"' in command
 
     for setting in (
         "_CLOUD_RUN_CPU=2",

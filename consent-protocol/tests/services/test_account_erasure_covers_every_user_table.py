@@ -41,6 +41,9 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 _CASCADE_PARENT = {
     "gmail_mailbox_action_proposals": "actor_profiles",
     "drive_owner_search_results": "drive_owner_search_jobs",
+    "drive_bulk_share_files": "drive_bulk_shares",
+    "drive_bulk_share_effects": "drive_bulk_shares",
+    "drive_bulk_share_notifications": "drive_bulk_share_recipients",
     "one_capability_runs": "actor_profiles",
     "one_location_onboarding_interactions": "actor_profiles",
     "one_location_onboarding_receipts": "actor_profiles",

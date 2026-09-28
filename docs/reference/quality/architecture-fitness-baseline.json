@@ -16160,7 +16160,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 598
+      "value": 602
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17078,7 +17078,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_server.py",
       "symbol": null,
-      "value": 514
+      "value": 516
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17744,6 +17744,7 @@
     "completion_integration": {
       "adk": "d751afaf71982e9b86ea8cbb12234b9fc1524ab7",
       "evidence_revision": "5feb09a0d",
+      "gate_corrections": "Two existing test-module ceilings add exact private MCP preview allowlist entries and verify the extracted shared deploy command retains upstream CPU allocation. Cascades are checked against authored SQL, not waived.",
       "generated_compatibility": "One extra generated catalog line retains frozen main graph d4b2dd7b65a583c6 after the merge-base advances; generated owners verified. No semantic revision changed.",
       "root": "94f419c6e7c01ef42d1ac168c791d315eaa5c48a",
       "scope": "Read-only ADK authority review admitted 103 byte-identical upstream findings and 42 additive/moved/renamed merged findings. Parent reviewed nine unchanged premerge MCP fixture and existing facade size findings against exact approval/transaction/privacy contracts. Extracted ledger operation helper eliminates two additional function findings. Renamed existing instruction hotspot replaces its old key. Thresholds, comparator and unrelated ceilings unchanged; this records debt, not universal architecture readiness.",
