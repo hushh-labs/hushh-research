@@ -4543,7 +4543,7 @@ function ProfilePageContent({
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={ConnectedSystemsAgentIcon}
-                iconTone="orange"
+                iconTone="capability"
                 title="Hosting"
                 chevron
                 onClick={() =>
@@ -4552,7 +4552,7 @@ function ProfilePageContent({
               />
               <SettingsRow
                 icon={RefreshCw}
-                iconTone="indigo"
+                iconTone="capability"
                 title="Software updates"
                 chevron
                 onClick={() =>

@@ -2632,9 +2632,30 @@ independently reviewed; no architecture thresholds were raised.
 
 On September 27 (local time), an isolated Cloud SQL target restored a fresh dev
 backup, ran parked cleanup 944, replayed it idempotently, and restored the same
-backup again. One-way row fingerprints proved preservation of retained ciphertext,
-command receipts and dependent records across cleanup, then exact restoration of
-all six checked tables. Restricted receipts remain outside the public repository.
+backup again. One-way row fingerprints proved exact restoration of all six checked
+tables. The actual backup had no retained BYOK chat or command rows in those tables;
+a separate nonempty synthetic fixture on the isolated target proved retained
+ciphertext, command receipts and dependent records survive cleanup and idempotent
+replay. Its transaction was rolled back and the restored table fingerprints matched
+again. Restricted receipts remain outside the public repository.
 This proves the isolated recovery procedure, not a live cutover or writer drain.
 Cleanup 944 remains absent from the release manifest. The temporary restore target
 and additional backup must be removed under the cutover retention procedure.
+
+The actual Hermes predecessor
+`sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701`
+passed synthetic recovery in Cloud Build
+`33ef627c-1461-47d6-8f7f-f87684030f5a` against candidate `b86de9acc`.
+That older image has no persistent ADK session adapter: the rehearsal verified its
+existing stores, introduced encrypted sessions during upgrade, returned through the
+old image, then recovered the sessions with the candidate again. This qualifies
+recovery compatibility only, not old-image feature parity or live rollback. The
+initial failed probe is retained because it incorrectly assumed the newer adapter
+existed in the predecessor. The exact digest is now listed in the dev descriptor.
+
+Hosted CI at `b86de9acc` passed protocol, web core, targeted browser contracts,
+Android, integration, MCP, governance and secret checks. The full web suite found
+two pod menu icons retaining the old tile tones; native iOS compilation found a
+duplicate privacy-cover assertion block introduced by integration. Both are
+corrected without changing their assertions or relaxing gates. A new exact-SHA
+hosted run is required before deployment.
