@@ -207,8 +207,7 @@ ambient unlock writes (key publication, delivery/export sweeps, and pending
 profile synchronization) while preserving read warming. Explicit UI actions are
 still checked by the network admission callback. Normal sessions and unrestricted
 mutation-authorized rehearsals keep their existing background behavior.
-Only the exact reviewed request and its bound
-approval are admitted during their respective actions. Unrelated writes fail
+Only the reviewed request and its bound approval are admitted. Unrelated writes fail
 the run. The runner proves a visible vault challenge, fresh pending/granted
 request identity, 24-hour approval and grant duration, exact browser-local domain
 readback, and separate cold re-unlock. It retains the request/grant and reports
