@@ -26,9 +26,8 @@ WEB_TEST_MAX_WORKERS="${HUSHH_WEB_TEST_MAX_WORKERS:-2}"
   echo "HUSHH_WEB_TEST_MAX_WORKERS must be a positive integer" >&2
   exit 2
 }
-npm run test:ci -- --maxWorkers="$WEB_TEST_MAX_WORKERS"
 npm run verify:voice-gateway
-npm run verify:one-voice
+npm run verify:capability-graph
 npm run verify:surface-map
 npm run verify:capacitor:static
 # The tri-flow signature check: TypeScript registerPlugin interfaces against
@@ -36,3 +35,8 @@ npm run verify:capacitor:static
 # registration sites. It is the only gate that actually catches a method
 # implemented on one platform and not the other.
 npm run verify:capacitor:plugins
+
+# Fail on static/generated drift before spending time on the full suite.
+# Its 41 One Voice files already run here (522 tests in run 36379443842);
+# keep verify:one-voice available for focused local use.
+npm run test:ci -- --maxWorkers="$WEB_TEST_MAX_WORKERS"

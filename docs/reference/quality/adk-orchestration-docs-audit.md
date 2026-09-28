@@ -2665,3 +2665,11 @@ completion response propagated the organization refusal. Completion now returns 
 ready file with organization not requested. Explicit analysis still refuses the
 excluded file, no queue job is created, and encrypted contents remain intact. The
 existing Files jobs suite covers the regression and negative control (10 passing).
+
+At `ff8f801a8`, all 10,513 frontend tests passed. The later native static
+check detected stale aggregate counts in the integrated route inventory: its
+unchanged classifications contain 106 native-required and 22 excluded entries.
+Those counts are reconciled. Static/generated gates now run before the full suite.
+The same hosted log proved all 41 One Voice files (522 tests) ran twice; the full
+lane now retains their single full-suite execution and the separate generated
+capability checks. The focused local One Voice command and browser packs remain.

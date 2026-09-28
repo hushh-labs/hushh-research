@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
   "total_routes": 128,
-  "native_required_routes": 108,
-  "excluded_routes": 20,
+  "native_required_routes": 106,
+  "excluded_routes": 22,
   "routes": [
     {
       "route": "/",
