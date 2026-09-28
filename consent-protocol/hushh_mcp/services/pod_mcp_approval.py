@@ -72,6 +72,60 @@ class PodMcpMutation(BaseModel):
     receipt: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
 
 
+async def _change_review_ledger(
+    store: ActionDirectiveStore,
+    operation: Literal["issue", "confirm", "consume"],
+    review: PodMcpTerms,
+    payload: PodMcpMutation,
+) -> dict:
+    """Apply exact terms inside the caller's fenced registry transaction."""
+    if operation == "issue":
+        if payload.directiveId or payload.receipt:
+            raise ActionDirectiveAuthorityError("Invalid private review issue.")
+        terms = review.terms
+        issued = await store.issue(
+            **review.identity,
+            channel="pod_chat",
+            action_contract=terms.action_contract,
+            slots=terms.slots,
+            resource_binding=terms.resource_binding,
+            trusted_activation_required=True,
+        )
+        return {
+            "directiveId": issued.directive_id,
+            "expiresAt": issued.expires_at.isoformat(),
+            "podReview": review.model_dump(),
+        }
+    if not payload.directiveId:
+        raise ActionDirectiveAuthorityError("Private review is required.")
+    if operation == "confirm":
+        if payload.receipt:
+            raise ActionDirectiveAuthorityError("Unexpected confirmation receipt.")
+        receipt = await store.confirm(
+            **review.identity,
+            directive_id=payload.directiveId,
+            trusted_activation=True,
+            terms=review.terms,
+            expected_channel="pod_chat",
+        )
+        return {
+            "status": "confirmed",
+            "directiveId": receipt.directive_id,
+            "expiresAt": receipt.expires_at.isoformat(),
+            "receipt": receipt.receipt,
+        }
+    if operation != "consume" or not payload.receipt:
+        raise ActionDirectiveAuthorityError("Private review receipt is required.")
+    await store.consume(
+        **review.identity,
+        directive_id=payload.directiveId,
+        receipt=payload.receipt,
+        terms=review.terms,
+        expected_channel="pod_chat",
+    )
+    return {"status": "consumed"}
+
+
 async def mutate_review(
     operation: Literal["issue", "confirm", "consume"],
     payload: PodMcpMutation,
@@ -136,54 +190,7 @@ async def mutate_review(
             review = review.model_copy(update={"serviceUid": uid})
             store = ActionDirectiveStore(connection=conn)
 
-            async def change():
-                if operation == "issue":
-                    if payload.directiveId or payload.receipt:
-                        raise ActionDirectiveAuthorityError("Invalid private review issue.")
-                    terms = review.terms
-                    issued = await store.issue(
-                        **review.identity,
-                        channel="pod_chat",
-                        action_contract=terms.action_contract,
-                        slots=terms.slots,
-                        resource_binding=terms.resource_binding,
-                        trusted_activation_required=True,
-                    )
-                    return {
-                        "directiveId": issued.directive_id,
-                        "expiresAt": issued.expires_at.isoformat(),
-                        "podReview": review.model_dump(),
-                    }
-                if not payload.directiveId:
-                    raise ActionDirectiveAuthorityError("Private review is required.")
-                if operation == "confirm":
-                    if payload.receipt:
-                        raise ActionDirectiveAuthorityError("Unexpected confirmation receipt.")
-                    receipt = await store.confirm(
-                        **review.identity,
-                        directive_id=payload.directiveId,
-                        trusted_activation=True,
-                        terms=review.terms,
-                        expected_channel="pod_chat",
-                    )
-                    return {
-                        "status": "confirmed",
-                        "directiveId": receipt.directive_id,
-                        "expiresAt": receipt.expires_at.isoformat(),
-                        "receipt": receipt.receipt,
-                    }
-                if operation != "consume" or not payload.receipt:
-                    raise ActionDirectiveAuthorityError("Private review receipt is required.")
-                await store.consume(
-                    **review.identity,
-                    directive_id=payload.directiveId,
-                    receipt=payload.receipt,
-                    terms=review.terms,
-                    expected_channel="pod_chat",
-                )
-                return {"status": "consumed"}
-
-            return asyncio.run(change())
+            return asyncio.run(_change_review_ledger(store, operation, review, payload))
 
     return await asyncio.to_thread(commit)
 

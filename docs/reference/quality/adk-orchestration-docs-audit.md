@@ -2608,3 +2608,14 @@ revocation markers, memory, PKM and incarnation fencing. Recovery-format owners
 and dependency locks are unchanged by the frozen ADK import. These exact digests
 are eligible for the dev release descriptor; this is not live installation,
 active-work drain, real-owner continuity or fault-injected rollback evidence.
+
+
+The fixed-scope fitness review admits 154 measured size findings: 103 match the
+frozen upstream bytes, 42 are additive/moved/renamed merge measurements, and nine
+are existing approval-facade/test growth reviewed by the parent. The instruction
+builder rename replaces its former key. A cohesive ledger-operation extraction
+removed two new function-size findings; all 15 transactional/native MCP checks
+still pass. Budgets, dependency/import checks and unrelated ceilings are unchanged.
+This is a reviewed debt record, not a claim that large upstream modules are optimal.
+The private operational Wiki correction persisted and passed readback on September
+27; reauthentication is no longer an observed blocker for that page.
