@@ -307,6 +307,15 @@ export async function createReviewerSessionHarness({
     };
   }
 
+  async function deferLegalAcceptance(page) {
+    const dialog = page.getByRole("dialog", {
+      name: /^(Terms and Privacy Policy|We updated our Terms and Privacy Policy)$/,
+    });
+    if (await dialog.isVisible().catch(() => false)) {
+      await dialog.getByRole("button", { name: "Not now", exact: true }).click();
+    }
+  }
+
   async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs, requireVaultUnlocked = true) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
@@ -336,6 +345,7 @@ export async function createReviewerSessionHarness({
 
     while (Date.now() < deadline) {
       readOnlyGuard.assertNoBlockedMutation();
+      await deferLegalAcceptance(page);
       const bootstrap = await safeBootstrapState();
       if (bootstrap.userMatches &&
         (bootstrap.state === "vault_unlocked" ||
@@ -349,8 +359,12 @@ export async function createReviewerSessionHarness({
       }
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
-        await reviewerButton.click({ noWaitAfter: true });
-        reviewerLoginSubmitted = true;
+        reviewerLoginSubmitted = await page.evaluate(() => {
+          const trigger = window.__HUSHH_NATIVE_TEST__?.triggerReviewerLogin;
+          if (typeof trigger !== "function") return false;
+          trigger();
+          return true;
+        });
       }
 
       if (requireVaultUnlocked && !passphraseFallbackClicked &&
@@ -381,6 +395,7 @@ export async function createReviewerSessionHarness({
   }
 
   async function assertVaultContinuity(page, label) {
+    await deferLegalAcceptance(page);
     const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
     if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
     const state = await page.evaluate(
@@ -501,6 +516,7 @@ export async function createReviewerSessionHarness({
       const deadline = Date.now() + challengeTimeoutMs;
       while (Date.now() < deadline) {
         readOnlyGuard.assertNoBlockedMutation();
+        await deferLegalAcceptance(page);
         capture.assertNoCriticalApiFailures("visible vault challenge");
         if (await unlockInput.isVisible().catch(() => false)) return;
         await page.waitForTimeout(250);

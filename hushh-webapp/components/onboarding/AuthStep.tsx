@@ -469,7 +469,7 @@ export function AuthStep({
     };
   }, []);
 
-  const handleReviewerLogin = useCallback(async () => {
+  const handleReviewerLogin = useCallback(async (interactive: boolean) => {
     trackEvent("auth_started", {
       action: "reviewer",
     });
@@ -511,7 +511,10 @@ export function AuthStep({
         setNativeAuthState("authenticated");
         setNativeDataState("loaded");
         setNativeErrorCode(null);
-        void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
+        void LegalAcceptanceService.recordSignInAcceptance(
+          authenticatedUser,
+          interactive,
+        );
         trackEvent("auth_succeeded", {
           action: "reviewer",
           result: "success",
@@ -592,7 +595,7 @@ export function AuthStep({
       setNativeAuthState("pending");
       setNativeDataState("loading");
       setNativeErrorCode(null);
-      void handleReviewerLogin();
+      void handleReviewerLogin(false);
       return true;
     };
 
@@ -700,7 +703,7 @@ export function AuthStep({
             });
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
-            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
+            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser, true);
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
@@ -1021,7 +1024,7 @@ export function AuthStep({
             setNativeAuthState("pending");
             setNativeDataState("loading");
             setNativeErrorCode(null);
-            void handleReviewerLogin();
+            void handleReviewerLogin(false);
           };
         }}
         errorCode={
@@ -1109,7 +1112,7 @@ export function AuthStep({
                 <AuthProviderButton
                   label="Continue as Reviewer"
                   icon={<Icon icon={Shield} size="md" />}
-                  onClick={handleReviewerLogin}
+                  onClick={() => void handleReviewerLogin(true)}
                   disabled={providerBusy}
                   className={REVIEWER_BTN_CLASS}
                 />

@@ -103,7 +103,7 @@ describe("LegalAcceptanceGate", () => {
     });
     nativePlatform.current = true;
     const signedIn = user("user-new");
-    void LegalAcceptanceService.recordSignInAcceptance(signedIn);
+    void LegalAcceptanceService.recordSignInAcceptance(signedIn, true);
     authState.current = { user: signedIn, loading: false };
 
     render(<LegalAcceptanceGate />);
@@ -111,6 +111,14 @@ describe("LegalAcceptanceGate", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     const post = apiJsonMock.mock.calls.find(([, init]) => init.method === "POST");
     expect(JSON.parse(String(post?.[1].body)).surface).toBe("native");
+  });
+
+  it("does not record agreement for automated reviewer authentication", async () => {
+    const signedIn = user("synthetic-reviewer");
+    await LegalAcceptanceService.recordSignInAcceptance(signedIn, false);
+    await LegalAcceptanceService.waitForSignInRecord(signedIn.uid);
+    expect(apiJsonMock).not.toHaveBeenCalled();
+    expect(signedIn.getIdToken).not.toHaveBeenCalled();
   });
 
   it("never blocks the app when the record cannot be read", async () => {

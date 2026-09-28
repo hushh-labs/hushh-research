@@ -2673,3 +2673,40 @@ Those counts are reconciled. Static/generated gates now run before the full suit
 The same hosted log proved all 41 One Voice files (522 tests) ran twice; the full
 lane now retains their single full-suite execution and the separate generated
 capability checks. The focused local One Voice command and browser packs remain.
+
+#### Fixed-scope dev acceptance — September 28, 2026
+
+Candidate `d162f236b6e7df88191edef0c74f9cee112eb69a` passed complete hosted CI
+in run `36380721828`. Governed dev deployment `36381990643` completed successfully
+in approximately 21 minutes. Independent serving readback confirmed backend
+`consent-protocol-00113-4zx` and frontend `hushh-webapp-00081-6h9` at that revision.
+The post-deploy schema gate passed at release head 256. The immutable dev pod
+offer is `2026.09-dev.4+d162f236b6e7.96e04c5d`; publication did not install it.
+
+The first normal-update rehearsal stopped before approval: automated reviewer
+login tried to record legal agreement. Its original failed receipts are retained.
+The correction requires explicit interactive intent before sign-in records an
+agreement; both automation entrypoints use false. The reviewer harness uses the
+automation bridge and the existing legal dialog's local “Not now” action. Its
+mutation guard still refuses legal-acceptance writes. Twenty focused tests cover
+the existing legal and reviewer contracts. Two independently reviewed module-size
+entries grow by three and sixteen lines; architecture thresholds remain unchanged.
+The local backend run had 7,647 passes and ten failures under load. All ten
+passed a focused serial rerun without code or timeout changes; the initial failed
+log remains evidence. Full hosted CI on the correction is still required.
+
+| Agreed journey | Current evidence and remaining acceptance |
+| --- | --- |
+| Admission and private chat | Baseline `889b332e98` completed a real browser turn and pod-side session revocation. Recheck the changed chat flow after the normal update. |
+| Software update | Exact predecessor recovery passed in isolation. New dev offer is published; normal Settings approval, drain, restart and installed-digest continuity are not yet verified. |
+| Files transfers and library | Baseline interrupted transfer, integrity and library mutations passed. Verify preservation across the normal update. |
+| Files organization | Exclusion regression fixed and focused tests pass. Live opt-in, authenticated queue execution, cancellation and terminal outcome remain unverified. |
+| Commands and connectors | Private approval authority tests pass. Typed and recorded command rehearsal remains pending; the reviewer has no saved MCP connector for live approval/resume. |
+| Puppy | Existing trusted identity and direct-client process are preserved. Owner grant and separate-network browser/device inference remain unverified. |
+| Runtime | Monitoring access verified. Staged overlap, bounded soak and configured idle behavior remain unmeasured. |
+| History cutover | A fresh post-deployment recovery point passed isolated deletion/replay, nonempty synthetic ciphertext preservation and restoration with all six table fingerprints matching. Cleanup 944 is still excluded; positive writer-drain evidence and a governed cutover deployment precede live activation. |
+
+This matrix does not establish dev completion or main/UAT/production readiness.
+Private identities, credentials and restricted recovery receipts remain outside
+the public repository. The affected private operational Wiki section was updated
+to this checkpoint and its changed text and private visibility passed readback.

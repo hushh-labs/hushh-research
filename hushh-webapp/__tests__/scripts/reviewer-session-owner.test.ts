@@ -31,6 +31,39 @@ function browser(state = "authenticated") {
   return { newContext: async () => context, page, window, fill, context };
 }
 describe("reviewer session authority", () => {
+  it("uses the automation bridge rather than a legal-agreement sign-in click", async () => {
+    const reviewer = await harness();
+    const b = browser("pending");
+    const trigger = vi.fn(() => {
+      b.window.__HUSHH_NATIVE_TEST__.bootstrapState = "authenticated";
+    });
+    Object.assign(b.window.__HUSHH_NATIVE_TEST__, { triggerReviewerLogin: trigger });
+    const getByRole = b.page.getByRole;
+    const click = vi.fn();
+    b.page.getByRole = (...[role]: unknown[]) => role === "button" ? {
+      ...getByRole(), isVisible: async () => true, click,
+    } : getByRole();
+    await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    expect(trigger).toHaveBeenCalledOnce();
+    expect(click).not.toHaveBeenCalled();
+  });
+  it("defers a legal prompt without accepting an agreement", async () => {
+    const reviewer = await harness();
+    const b = browser();
+    const getByRole = b.page.getByRole;
+    const defer = vi.fn();
+    b.page.getByRole = (...[role]: unknown[]) => role === "dialog" ? {
+      ...getByRole(),
+      isVisible: async () => true,
+      getByRole: (controlRole: string, controlOptions: { name: string; exact: boolean }) => {
+        expect(controlRole).toBe("button");
+        expect(controlOptions).toEqual({ name: "Not now", exact: true });
+        return { click: defer };
+      },
+    } : getByRole();
+    await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    expect(defer).toHaveBeenCalledOnce();
+  });
   it("attaches observation before navigation and never injects a first-run passphrase", async () => {
     const reviewer = await harness();
     const b = browser();

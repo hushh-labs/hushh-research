@@ -12488,7 +12488,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
       "symbol": null,
-      "value": 1198
+      "value": 1201
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16475,7 +16475,7 @@
       "limit": 500,
       "path": ".codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
       "symbol": null,
-      "value": 557
+      "value": 573
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17800,6 +17800,11 @@
       ],
       "independent_review": "files_activation_review; read-only correctness and bounded-debt review",
       "source_revision": "969a4b273ce402bdf89a22812a1bcf1ac6ea460f"
+    },
+    "reviewer_legal_acceptance_20260927": {
+      "source_revision": "d162f236b6e7df88191edef0c74f9cee112eb69a",
+      "independent_review": "adk_authority_review; explicit interaction authority and exact-dialog deferral",
+      "scope": "Only AuthStep +3 and existing reviewer harness +16 lines: automated authentication never records legal agreement; automation bridge and local Not now preserve blocked mutation policy. No other ceiling or threshold changes."
     }
   },
   "status": "advisory"

@@ -129,7 +129,9 @@ export const LegalAcceptanceService = {
    * Policy". Record that agreement once the sign-in succeeds. Never throws: a
    * failed write only means the prompt asks again later.
    */
-  recordSignInAcceptance(user: AuthUser): Promise<void> {
+  recordSignInAcceptance(user: AuthUser, interactive: boolean): Promise<void> {
+    // Automated reviewer authentication is not a person's agreement.
+    if (!interactive) return Promise.resolve();
     const pending = this.recordAcceptance(user)
       .catch(() => undefined)
       .finally(() => {

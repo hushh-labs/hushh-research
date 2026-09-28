@@ -7,6 +7,10 @@ Use this contract for browser rehearsals whose result depends on protected infor
 1. Use the canonical environment-wired reviewer identity. Resolve it through `hushh-webapp/scripts/testing/reviewer-test-identity.mjs`; do not create a convenient replacement account.
 2. Mutating a shared reviewer fixture requires explicit operator authority for that task. Read-only authentication, unlock, routing, and rendering checks do not grant write authority.
 3. Never reset, delete, reseed, or broaden grants merely to make a rehearsal pass.
+4. Automated authentication does not record legal agreement. Use the reviewer
+   automation bridge; defer the specific Terms and Privacy dialog with “Not now”.
+   Keep legal-acceptance writes blocked unless that separate agreement is explicitly
+   authorized. Do not use an interactive sign-in click as an automation fallback.
 
 ## Memory-only BYOK boundary
 
