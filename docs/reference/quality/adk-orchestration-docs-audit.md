@@ -2659,3 +2659,9 @@ two pod menu icons retaining the old tile tones; native iOS compilation found a
 duplicate privacy-cover assertion block introduced by integration. Both are
 corrected without changing their assertions or relaxing gates. A new exact-SHA
 hosted run is required before deployment.
+
+The final Files boundary review found that an excluded upload was saved but its
+completion response propagated the organization refusal. Completion now returns the
+ready file with organization not requested. Explicit analysis still refuses the
+excluded file, no queue job is created, and encrypted contents remain intact. The
+existing Files jobs suite covers the regression and negative control (10 passing).

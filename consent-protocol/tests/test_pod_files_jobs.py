@@ -34,6 +34,38 @@ async def queued_library(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_excluded_upload_completes_without_organizing_or_bypassing_explicit_refusal(
+    queued_library, monkeypatch
+):
+    from api.routes.one import pod_files
+
+    library, _ = queued_library
+    folder = await library.create(
+        name="Excluded", parent="root", size=0, request_id="excluded-folder", folder=True
+    )
+    await library.configure(revision=1, analysis=True, automatic=True, excluded=[folder["id"]])
+    content = b"Synthetic private upload"
+    entry = await library.create(
+        name="original.txt", parent=folder["id"], size=len(content), request_id="excluded-upload"
+    )
+    await library.put_chunk(entry["id"], 0, content)
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    monkeypatch.setattr(pod_files, "operation", operation)
+    result = await pod_files.complete_file(pod_files.EntryRequest(file_id=entry["id"]), {})
+    assert result["state"] == "ready"
+    assert result["organization"] == {"state": "not_requested", "code": "FILES_EXCLUDED"}
+    assert await library.read_chunk(entry["id"], 0) == content
+    with pytest.raises(FilesRefused, match="FILES_NOT_FOUND"):
+        await jobs.status(library, entry["id"])
+    with pytest.raises(FilesRefused, match="FILES_EXCLUDED"):
+        await jobs.prepare_delivery(library, file_id=entry["id"])
+
+
+@pytest.mark.asyncio
 async def test_lost_delivery_response_reuses_exact_task_and_cancel_is_not_resurrected(
     queued_library,
 ):

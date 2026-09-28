@@ -137,7 +137,14 @@ async def complete_file(body: EntryRequest, owner: Owner):
                 result = await library.complete(body.file_id)
                 settings = await library.settings()
                 if settings["automatic"]:
-                    prepared = await prepare_delivery(library, file_id=body.file_id, automatic=True)
+                    try:
+                        prepared = await prepare_delivery(
+                            library, file_id=body.file_id, automatic=True
+                        )
+                    except FilesRefused as exc:
+                        if exc.code != "FILES_EXCLUDED":
+                            raise
+                        result["organization"] = {"state": "not_requested", "code": exc.code}
             if prepared is not None:
                 try:
                     result["organization"] = await deliver(library, prepared)

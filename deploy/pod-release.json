@@ -10,7 +10,8 @@
     "fixes": [
       "Interrupted chat streams report a retryable failure instead of waiting silently.",
       "Hosting and Software updates retain their titles while Settings closes.",
-      "Settings and Feed keep an approved update visible until its outcome is verified."
+      "Settings and Feed keep an approved update visible until its outcome is verified.",
+      "Uploads excluded from analysis finish normally without starting organization."
     ],
     "security": [
       "Connector approval remains bound to the exact owner, pod, tool and arguments.",
