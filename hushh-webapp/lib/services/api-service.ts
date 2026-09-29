@@ -4157,18 +4157,18 @@ export class ApiService {
       try {
         pin = await ownerPod.refreshEndpointFromHub(uid, transport);
       } catch (error) {
-        if (
-          error instanceof ownerPod.OwnerPodError &&
-          (error.code === "ENDPOINT_UNAVAILABLE:404" ||
-            error.code === "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY")
-        ) {
-          return null;
-        }
+        const unavailable = error instanceof ownerPod.OwnerPodError &&
+          ["ENDPOINT_UNAVAILABLE:404", "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY"].includes(error.code);
+        if (unavailable) return null;
         const code = error instanceof Error ? error.message : "unknown";
         throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
       }
     }
     if (pin.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
+    // Wake the pod and the owner-approved Mac together; dispatch only after both finish.
+    const activation = puppy && ApiService.activatePuppyWhenIdle(
+      puppy.deviceId, puppy.vaultOwnerToken, signal,
+    ).then(() => null, (error: unknown) => ({ error }));
     let session: import("./owner-pod-endpoint").PodSessionRecord;
     try {
       const connection = await ownerPod.currentPodConnection(uid, await ApiService.ownerPodTransport());
@@ -4181,13 +4181,12 @@ export class ApiService {
       throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
     }
     if (puppy) {
-      await ApiService.activatePuppyWhenIdle(puppy.deviceId, puppy.vaultOwnerToken, signal);
+      const result = await activation;
+      if (result) throw result.error;
       if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
       if (stream) globalThis.performance?.mark?.("puppy.turn.activation-sent");
     }
-    const fetcher = stream
-      ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : apiFetch;
+    const fetcher = stream ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
     const response = await fetcher(`${pin.url}/api/one/pod/turn${stream ? "/stream" : ""}`, {
       method: "POST",
       credentials: "omit",

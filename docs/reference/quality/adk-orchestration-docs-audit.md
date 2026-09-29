@@ -3003,3 +3003,93 @@ the direct owner/device/pod guard matched, and the machine panel remained
 available. Browser subjects created by these rehearsals were revoked in the
 pod and hub. This proves a completed direct turn on the new frontend; it does
 not establish a cold-wake latency target.
+
+## 2026-09-29: Remote Puppy stream and owner pod update
+
+Infrastructure source `0f25ee51b3747962f5da7cb84d24c123a59d1ced` passed
+the local core mirror and hosted validation `36548118556`. Main-owned dev
+deployment `36550283094` succeeded. Serving readback found frontend
+`hushh-webapp-00089-4g6` at 100% traffic with digest
+`sha256:d505a8367df4ffb7d2e8f2f6d3a5c1d92c0c2b5a9b7207d59dbd559fa750e30e`
+and backend `consent-protocol-00116-phb` at 100% with digest
+`sha256:f1cbacc1be0100e2fbff945f15f46e81328e74d38780eb3fcafb9fd27832389c`.
+The dev-only pod release `2026.09-dev.6+0f25ee51b374.d278e7a2` targeted
+immutable digest `sha256:d278e7a2ae1164a3a1f79e65fca67f20bc029aab49f3bfcb2a154ac91a34472a`.
+Publishing it did not install it.
+
+The named owner approved that exact release in Settings. Operation
+`op_15b87217ec894798b7d88439d8bf2e53` progressed through scheduled,
+preparing, installing and verifying before the installed digest was reported
+verified. The owner's same Cloud Run service now serves revision
+`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00019-f79` at 100% traffic
+and the target digest. Service UID, service account, owner storage and keys
+were preserved. Minimum zero, maximum one instance, one worker, 1 vCPU,
+1 GiB, concurrency eight and the 600-second relay idle grace remain in place.
+Closing the Settings browser did not lose the durable operation. This is an
+owner-approved image update, not an automatic pod upgrade.
+
+The dev Hermes relay was restarted under its existing `dev-puppy` profile and
+identity. Its source `5faf7cc8f0d49b081dda5a7ce7befa5e15ac9b16` filters
+the local model catalog by chat capability; the live owner picker listed eight
+chat models and excluded the installed embedding model. No re-enrollment or
+grant reset occurred. A streamed synthetic Puppy turn returned a nonempty
+local-model response through the owner's pod: admission at 3.44 seconds,
+activation at 12.13 seconds, stream open at 22.20 seconds, first token at
+95.25 seconds and completion at 98.08 seconds. Another warm turn completed
+at 36.63 seconds, with admission at 3.08 seconds, stream open at 13.53 seconds
+and first token at 34.69 seconds. These are individual observations, not a
+latency percentile.
+
+Before streaming, a confirmed zero-instance cold turn took 192.36 seconds
+and had no first-token receipt. A later confirmed zero-instance attempt on
+the streamed image failed the 215-second browser rehearsal bound before a
+turn reached the pod; it is not a successful cold sample. The pod started at
+11:02:04 UTC and its startup probe passed at 11:03:19 UTC in that attempt.
+The cold preflight and independent-internet phone/browser check remain open.
+The frontend has a 205-second product bound covered by a focused unit test,
+but the cold browser rehearsal still showed a waiting state after its
+215-second harness limit; live timeout presentation is not yet accepted.
+The bounded dev backend log query from 09:00 UTC found
+no recorded `one_text_vertex_failover` or `agent_chat_transient_retry` event;
+this does not measure all provider traffic or establish a 429 rate.
+Cloud Monitoring later reported both active and idle instance counts at zero
+for the updated pod at 12:05 UTC, confirming that this selected hosting
+configuration can return to zero instances after direct-relay activity.
+
+The follow-up UI and test-isolation source `31dd8de3254d202449fa9b1490ea05f9d2e2b4c3`
+passes the local core mirror. It corrects a confirmed model-picker dialog
+handoff defect, aligns the remote composer to the shared content measure,
+shortens the mobile placeholder, marks active stream frames for the existing
+probe, and replaces the inaccurate claim that answers never leave the machine.
+At the earlier dev revision, measured composer left edges were 32, 36 and
+336 CSS pixels at 390, 768 and 1280 widths, with no horizontal overflow;
+the follow-up required deployed bounding-box readback. Hosted validation
+`36565513530` passed on that exact source revision. Main-owned dev workflow
+`36567532981` passed; frontend revision `hushh-webapp-00090-2fn` serves at
+100% with digest `sha256:d40c79e8b686f46a8e482a906f262a84d94240181edd75f8e1326cae9e65b6c6`.
+The backend and owner pod images did not change in this frontend deployment.
+
+At the deployed frontend, the Puppy heading/model/composer start lines used
+16, 20 and 320 CSS pixels at 390, 768 and 1280 viewport widths respectively.
+Bounding-box readback found the repeated start lines equal within one CSS
+pixel, with no horizontal overflow in light or narrow dark presentation.
+The machine sheet showed observation time and scheduled-work context. Its
+eight chat-capable models excluded the embedding model. The owner dialog
+applied a chat-only selection, then changed the machine default only after
+device acknowledgement; the original default was restored and acknowledged.
+The packaged `?perf=1` frame-pacing probe returned no stream sample in this
+deployed browser build, so a frame-pacing pass is not claimed.
+
+A subsequent true zero-instance cold turn on the deployed frontend reached
+pod admission at approximately 81 seconds and activation at 111 seconds;
+the SSE response opened at 121 seconds. The pod reported
+`PuppyRelayUnavailable` after 92.9 seconds of the streamed request without
+a model token, and the browser still showed waiting at the 215-second harness
+bound. This is a failed cold acceptance sample. A separate warm synthetic turn
+with `google/gemma-4-e2b` selected only for that chat completed in 118.6 seconds;
+stream open was 10.6 seconds, first visible token 116.9 seconds. Pod ADK
+telemetry measured 50.3 seconds to its first visible text and 52.0 seconds
+within the model turn. The long pre-model interval remains under review.
+Simple direct probes of the Mac's local model endpoint took approximately
+15.6 seconds for e2b and 7.0 seconds for a warmed 12B model, so those probes
+cannot stand in for an owner-pod turn with full One instructions and tools.

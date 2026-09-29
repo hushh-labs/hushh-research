@@ -361,6 +361,25 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(stream).toHaveBeenCalledTimes(2);
   });
 
+  it("starts owner-approved Puppy activation while a cold pod session is opening", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    let admit!: (session: typeof SESSION) => void;
+    ownerPodMocks.currentPodSession.mockReturnValue(new Promise((resolve) => { admit = resolve; }));
+    const activate = vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(
+      new Response('event: done\ndata: {"model":"local","modelReported":true}\n\n'),
+    );
+    const turn = ApiService.streamPuppyPodTurn({
+      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
+      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1", history: [], onToken: vi.fn(),
+    });
+    await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
+    expect(stream).not.toHaveBeenCalled();
+    admit(SESSION);
+    await expect(turn).resolves.toMatchObject({ model: "local" });
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
   it("gives the pod turn its own ceiling above the proxies", async () => {
     expect(POD_TURN_FETCH_TIMEOUT_MS).toBe(170_000);
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
