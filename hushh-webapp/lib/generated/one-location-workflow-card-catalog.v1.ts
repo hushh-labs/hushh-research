@@ -47,6 +47,7 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
     "af57e85f060b7a4e",
     "bda0bffda4ed0335",
     "be22fe6e0fa3f322",
+    "c118b9582508fec4",
     "c1df11d262f16eea",
     "c2e7e299b49c5228",
     "cb4b4f653c99fc16",
