@@ -2977,3 +2977,29 @@ control contract. The update rehearsal's active permit was observed before
 approval, but uninterrupted active-work drain was not observed after approval
 began. Feed consistency and phone-on-cellular versus Mac-on-another-network
 acceptance also remain unverified.
+
+### 2026-09-29 frontend timeout follow-up
+
+The first bounded-composer implementation could still wait indefinitely on
+the owner-status or device-link preflight, before the abortable pod turn began.
+Source `af4e451354b638e192bba930d14e31afd67bd6a5` closes that gap: it
+bounds the whole submission, cancels the status request, blocks a late
+preflight from starting a turn, and releases a stalled shared device-link read
+so the next refresh can retry. Focused frontend tests passed (28), typecheck
+passed, the architecture ratchet passed without a baseline change, the local
+core mirror passed, and hosted validation `36521411134` passed its status gate.
+
+Main-owned dev workflow `36522970890` completed successfully with frontend
+scope and no pod-image build. Cloud Run readback found
+`hushh-webapp-00088-kt9` at 100% traffic, label
+`deploy-sha=af4e451354b638e192bba930d14e31afd67bd6a5`, and digest
+`sha256:87c96aa9f12562ee8e944794e03a3c87f47b429281e38692c4446183aeb89641`.
+Backend `consent-protocol-00115-npd` and the owner pod image were unchanged.
+The dev `/one` route returned HTTP 200. A cold browser rehearsal exceeded
+its old 90-second helper wait, but the bound direct pod request later returned
+HTTP 200. With the helper wait aligned to the app's 205-second deadline, a
+fresh authenticated browser turn completed with a nonempty local-model reply,
+the direct owner/device/pod guard matched, and the machine panel remained
+available. Browser subjects created by these rehearsals were revoked in the
+pod and hub. This proves a completed direct turn on the new frontend; it does
+not establish a cold-wake latency target.
