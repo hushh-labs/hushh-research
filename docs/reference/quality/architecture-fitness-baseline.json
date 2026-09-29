@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2025,
+  "finding_count": 2026,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -180,6 +180,15 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "DriveSharingStore",
+      "value": 1607
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py|PersonalGmailInformationRequestService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -195,15 +204,6 @@
       "path": "consent-protocol/scripts/uat_kai_regression_smoke.py",
       "symbol": "UatKaiSmoke",
       "value": 1599
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "DriveSharingStore",
-      "value": 1596
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -446,7 +446,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "DriveOwnerSearchService",
-      "value": 787
+      "value": 792
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3564,6 +3564,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_request_candidates|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": "_request_candidates",
+      "value": 172
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/one_adk/test_mcp_oauth_storage.py|test_sdk_authorization_delivers_tokens_once_without_durable_storage|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3614,15 +3623,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "approve",
-      "value": 170
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_request_candidates|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
-      "symbol": "_request_candidates",
       "value": 170
     },
     {
@@ -4599,6 +4599,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "create_request",
+      "value": 140
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/hushh_tech_client_service.py|link_account|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4991,15 +5000,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/connection_graph_service.py",
       "symbol": "recompute_connection",
-      "value": 131
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "create_request",
       "value": 131
     },
     {
@@ -7119,6 +7119,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|compile_request_queries|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": "compile_request_queries",
+      "value": 104
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/information_chat_service.py|_function_declarations|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -7961,15 +7970,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "reserve_contact_sync_lookup_budget",
-      "value": 97
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|compile_request_queries|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
-      "symbol": "compile_request_queries",
       "value": 97
     },
     {
@@ -10737,6 +10737,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|create_for_request|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": "create_for_request",
+      "value": 81
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -12209,7 +12218,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/drive-sharing-service.ts",
       "symbol": null,
-      "value": 1791
+      "value": 1793
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12348,6 +12357,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": null,
+      "value": 1650
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_byoc_substrate_teardown_is_loud.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12363,15 +12381,6 @@
       "path": "consent-protocol/hushh_mcp/operons/kai/fetchers.py",
       "symbol": null,
       "value": 1642
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": null,
-      "value": 1638
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12843,6 +12852,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": null,
+      "value": 1323
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/one_voice/test_tools_sos.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13113,12 +13131,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1229
+      "value": 1231
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13128,15 +13146,6 @@
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
       "value": 1226
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/drive_sharing.py",
-      "symbol": null,
-      "value": 1224
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13383,19 +13392,19 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/consent_listener.py",
-      "symbol": null,
-      "value": 1129
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
+      "symbol": null,
+      "value": 1133
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/consent_listener.py",
       "symbol": null,
       "value": 1129
     },
@@ -13524,6 +13533,15 @@
       "path": "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx",
       "symbol": null,
       "value": 1067
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
+      "symbol": null,
+      "value": 1066
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14208,15 +14226,6 @@
       "path": "consent-protocol/tests/test_trusted_device_heartbeat.py",
       "symbol": null,
       "value": 923
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
-      "symbol": null,
-      "value": 921
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16128,6 +16137,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_drive_sharing_routes.py",
+      "symbol": null,
+      "value": 657
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/one-voice/live-client.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16314,15 +16332,6 @@
       "path": "consent-protocol/tests/scripts/test_measure_agent_chat_latency.py",
       "symbol": null,
       "value": 638
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_drive_sharing_routes.py",
-      "symbol": null,
-      "value": 637
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17460,6 +17469,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
+      "symbol": null,
+      "value": 544
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/connect/__tests__/places-nearby.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17851,15 +17869,6 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_erasure_coverage.py",
-      "symbol": null,
-      "value": 521
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
       "symbol": null,
       "value": 521
     },
@@ -18266,6 +18275,13 @@
       "scope": "Independent source review: 66 frozen ADK measurements, 26 additive root/ADK measurements, smaller chat facade union, account deletion cleanup in existing transaction, and bounded client regression. Includes separately reviewed typed-refusal source/test additions from root 2674. Generated catalog 1388 and unchanged getenv location 40 reviewed separately. Endpoint module ceiling, all other entries, budgets and comparator unchanged.",
       "size_finding_count": 95,
       "size_findings_sha256": "6650ae9e9b2edfc41d67699389431648f7625c35bd6456582e0fc4dd6107fcc4"
+    },
+    "main_drive_relevance_20260929": {
+      "change_commit": "cd911350a",
+      "findings_sha256": "4b18f6d43d3aeaf73b3f01d00bf76a19292c525e5dab7ff3ac7e87baeb70fc76",
+      "main_revision": "d1bb6c82c",
+      "reviewed_findings": 14,
+      "scope": "Fourteen size-only findings from the main Drive request relevance fix (one new function and thirteen worsened existing measurements). The affected 115 backend and 86 frontend tests pass. No dependency-direction or import-initialization finding was introduced; this records inherited source debt rather than accepting a quality or release claim."
     },
     "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",
     "puppy_remote_2026_09_29": {

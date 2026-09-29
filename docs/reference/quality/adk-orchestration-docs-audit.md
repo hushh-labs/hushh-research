@@ -3226,3 +3226,8 @@ request relevance corrections. The infrastructure branch merged that exact
 main head without conflict. The affected 115 backend Drive tests and 86
 frontend Drive service tests pass. This freshness sync changes the candidate
 SHA; the earlier hosted run cannot authorize its deployment.
+The sync contributes fourteen reviewed size-only fitness measurements in
+the Drive route, services, and nearest tests (one new function finding,
+thirteen worsened existing measurements). The original budgets and
+dependency/import checks are unchanged. This is inherited debt, not a
+claim that the Drive seam is optimally structured.
