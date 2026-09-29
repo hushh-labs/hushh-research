@@ -60,6 +60,34 @@ def test_trusted_auto_attention_follows_linked_search_state(search_state, attent
     assert entry(row)["metadata"]["owner_attention_required"] is attention_required
 
 
+def test_background_setup_label_is_owner_only_and_clears_on_resume():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "incoming_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": "background_preparation_required",
+        "owner_search_state": None,
+        "trusted_authority_ready": False,
+        "trusted_batch_seen": False,
+        "trusted_work_active": False,
+        "trusted_recovery_needed": False,
+    }
+    assert entry(row)["scope_description"] == "Enable background Drive access"
+    row["bucket"] = "outgoing_requests"
+    row["direction"] = "outgoing"
+    assert entry(row)["scope_description"] == "Google Drive files"
+    row["bucket"] = "incoming_requests"
+    row["direction"] = "incoming"
+    row["preparation_error_code"] = "trusted_auto_queued"
+    assert entry(row)["scope_description"] == "Google Drive files"
+
+
 def test_trusted_progress_stays_visible_after_first_confirmed_grant():
     row = {
         "source": "share",
@@ -135,6 +163,34 @@ def center(store):
     service._incoming_connection_request_entries = AsyncMock(return_value=[])
     service._load_connection_entries_for_actor = AsyncMock(return_value=[])
     return service
+
+
+@pytest.mark.asyncio
+async def test_background_setup_appears_only_in_the_owner_request(sharing):
+    created = await request(sharing)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_error_code='background_preparation_required'
+              WHERE request_id=:request_id"""),
+            {"request_id": created["requestId"]},
+        )
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    owner = await projection.page("owner", bucket="incoming_requests", limit=20)
+    requester = await projection.page("recipient", bucket="outgoing_requests", limit=20)
+    assert owner["items"][0]["scope_description"] == "Enable background Drive access"
+    assert owner["items"][0]["metadata"]["owner_attention_required"] is True
+    assert requester["items"][0]["scope_description"] == "Google Drive files"
+    assert (
+        await projection.page(
+            "owner", bucket="incoming_requests", limit=20, query="background Drive access"
+        )
+    )["total"] == 1
+    assert (
+        await projection.page(
+            "recipient", bucket="outgoing_requests", limit=20, query="background Drive access"
+        )
+    )["total"] == 0
 
 
 @pytest.mark.asyncio

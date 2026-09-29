@@ -796,6 +796,7 @@ describe("exact-file document review", () => {
         search: null, bulkShare: null, preparationError: "background_preparation_required" }));
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       const enable = await screen.findByRole("button", { name: "Enable background Drive access" });
+      expect(screen.getByText("This request is paused. Enable background Drive access to resume automatic sharing.")).toBeVisible();
       expect(screen.getByText(/read relevant files and send excerpts to Gemini while you're away/)).toBeVisible();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: /Review \d+ files/ })).toBeNull();

@@ -78,6 +78,9 @@ WITH participants AS (
     :query='' OR strpos(lower(status),:query)>0 OR strpos(request_id::text,:query)>0
     OR (source='share' AND (strpos(lower('Document request'),:query)>0
       OR strpos(lower('Google Drive files'),:query)>0
+      OR (bucket='incoming_requests'
+        AND preparation_error_code='background_preparation_required'
+        AND strpos(lower('Enable background Drive access'),:query)>0)
       OR strpos(lower('DOCUMENT_SHARE_REVIEW'),:query)>0))
     OR (source='query' AND (strpos(lower('Drive question'),:query)>0
       OR strpos(lower('Google Drive question'),:query)>0
@@ -246,7 +249,12 @@ def entry(row: Any) -> dict[str, Any]:
         "status": row["status"],
         "action": "DOCUMENT_SHARE_REVIEW",
         "scope": None,
-        "scope_description": "Google Drive files",
+        "scope_description": (
+            "Enable background Drive access"
+            if row["bucket"] == "incoming_requests"
+            and preparation_code == "background_preparation_required"
+            else "Google Drive files"
+        ),
         "counterpart_type": "investor",
         "counterpart_id": None,
         "counterpart_label": "Document request",

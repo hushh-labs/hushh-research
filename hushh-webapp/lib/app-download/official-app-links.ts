@@ -12,7 +12,7 @@ export type OfficialAppLinks = {
 };
 
 export const OFFICIAL_APP_LINKS: OfficialAppLinks = {
-  ios: null,
+  ios: "https://apps.apple.com/us/app/hussh-one-personal-agent/id6757718917",
   android: null,
 };
 

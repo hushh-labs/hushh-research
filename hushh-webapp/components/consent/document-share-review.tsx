@@ -1035,7 +1035,7 @@ function UnlockedDocumentReview({
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
         {review.preparationError === "background_preparation_required" && !backgroundEnabled ? <div className="space-y-3">
-          <BodyText>Enable background Drive access once to handle Trusted-circle document requests automatically.</BodyText>
+          <BodyText>This request is paused. Enable background Drive access to resume automatic sharing.</BodyText>
           <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off in Connections.</HelperText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>

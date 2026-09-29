@@ -352,12 +352,14 @@ describe("useFeedActionables — connection request de-duplication", () => {
       request_id: `11111111-1111-4111-8111-11111111111${index}`,
       kind: direction === "outgoing" ? "outgoing_request" : "incoming_request",
       status: "pending", scope: null, counterpart_label: "Document request",
+      scope_description: index === 0 ? "Enable background Drive access" : "Google Drive files",
       metadata: { request_source: "drive_document_share_request", direction },
     }));
     const { result } = renderHook(() => useFeedActionables());
     const documents = result.current.actionables.filter((row) => row.id.startsWith("consent:document_share_request:"));
     expect(documents).toHaveLength(1);
     expect(documents[0].id).toBe(`consent:${mocks.consentItems[0].id}`);
+    expect(documents[0].description).toBe("Enable background Drive access");
     expect(documents[0].actions).toEqual([]);
     expect(documents[0].href).toContain("document_share_request%3A");
   });
