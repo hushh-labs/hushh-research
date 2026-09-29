@@ -38,11 +38,9 @@ export default function PuppyOnePage() {
       <AppPageHeaderRegion className="shrink-0">
         <PageHeader
           title="Puppy One"
-          // "Answers are generated on your machine" was an unconditional
-          // per-turn claim, and the pill inside the panel can be set to "any
-          // model", which lets the gateway resolve one that runs off it. The
-          // pin is what makes the promise, so the sentence names the pin.
-          description="A personal supercomputer you own. Pin a model to this machine and answers never leave it."
+          // The local model runs on the trusted machine, while sealed requests
+          // and replies travel through the owner's pod and browser.
+          description="A local model on your trusted machine. Requests and replies travel through your private pod."
           accent="neutral"
         />
       </AppPageHeaderRegion>

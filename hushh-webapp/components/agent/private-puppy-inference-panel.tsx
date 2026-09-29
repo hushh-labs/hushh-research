@@ -250,7 +250,7 @@ export function PrivatePuppyInferencePanel({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs">
+      <div className="flex items-center gap-2 border-b border-border/60 px-0 py-2.5 text-xs">
         <Laptop className="size-4 text-muted-foreground" aria-hidden />
         <span className="min-w-0 truncate font-medium" data-testid="puppy-target" data-relay="direct">
           {target}
@@ -259,7 +259,7 @@ export function PrivatePuppyInferencePanel({
           {link?.state === "live" ? "Device reporting" : link?.state === "quiet" ? "Device quiet" : "Device unavailable"}
         </span>
       </div>
-      <div className="flex min-h-10 flex-wrap items-center gap-2 px-4">
+      <div className="flex min-h-10 flex-wrap items-center gap-2 px-0">
         <PuppyRemoteModelPicker
           hushhId={hushhId}
           deviceId={link?.device?.id ?? null}
@@ -279,8 +279,8 @@ export function PrivatePuppyInferencePanel({
         />
         <span className="text-[11px] text-muted-foreground">Local models only</span>
       </div>
-      <PodMemoryConsentRow hushhId={hushhId} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <PodMemoryConsentRow hushhId={hushhId} className="px-0" />
+      <div className="min-h-0 flex-1 overflow-y-auto px-0 py-4">
         {turns.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
             Ask Puppy One through your private pod. The local model answers; One
@@ -291,6 +291,7 @@ export function PrivatePuppyInferencePanel({
           {turns.map((turn) => (
             <div
               key={turn.id}
+              data-agent-streaming={turn.role === "assistant" && busy ? "true" : undefined}
               className={cn(
                 "rounded-2xl px-3.5 py-2.5 text-sm",
                 turn.role === "user"
@@ -326,7 +327,7 @@ export function PrivatePuppyInferencePanel({
           </p>
         ) : null}
       </div>
-      <div className="shrink-0 px-4 pt-3">
+      <div className="shrink-0 px-0 pt-3">
         <div data-testid="puppy-chat-composer" className="bottom-chrome-surface flex min-h-[3.75rem] items-center gap-2 rounded-[var(--app-input-radius)] px-2.5 pl-3.5">
           <textarea
             value={draft}
@@ -339,7 +340,7 @@ export function PrivatePuppyInferencePanel({
             }}
             disabled={busy}
             rows={1}
-            placeholder="Ask through your private Puppy relay…"
+            placeholder="Ask Puppy One…"
             aria-label="Message Puppy One"
             className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:opacity-60 sm:max-h-36 sm:text-sm"
           />

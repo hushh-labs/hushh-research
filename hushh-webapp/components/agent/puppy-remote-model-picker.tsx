@@ -39,12 +39,14 @@ export function PuppyRemoteModelPicker({
   const [applying, setApplying] = useState(false);
   const [pending, setPending] = useState(false);
   const generation = useRef(0);
+  const choiceAfterClose = useRef<string | null>(null);
 
   useEffect(() => {
     const current = generation.current + 1;
     generation.current = current;
     setCatalog(null);
     setChoice(null);
+    choiceAfterClose.current = null;
     setPending(false);
     setError("");
     return () => { generation.current += 1; };
@@ -159,7 +161,14 @@ export function PuppyRemoteModelPicker({
           <ChevronDown className="size-3 shrink-0" aria-hidden />
         </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2" aria-label="Available local models">
+        <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2" aria-label="Available local models"
+          onCloseAutoFocus={(event) => {
+            const selectedModel = choiceAfterClose.current;
+            if (!selectedModel) return;
+            event.preventDefault();
+            choiceAfterClose.current = null;
+            setChoice(selectedModel);
+          }}>
             <p className="px-2 py-1 text-xs font-medium">On this machine</p>
             {loading ? <p className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />Checking installed models…</p> : null}
             {!loading && catalog?.status === "available" ? (
@@ -167,7 +176,7 @@ export function PuppyRemoteModelPicker({
                 {catalog.models.map(({ id }) => (
                   <button key={id} type="button" aria-current={selected === id ? "true" : undefined}
                     className="flex min-h-10 w-full items-center rounded-lg px-2 text-left text-xs hover:bg-muted"
-                    onClick={() => { setChoice(id); setScope("chat"); setOpen(false); }}>
+                    onClick={() => { choiceAfterClose.current = id; setScope("chat"); setOpen(false); }}>
                     <span className="min-w-0 truncate">{id}</span>
                     {selected === id ? <span className="ml-auto pl-2 text-muted-foreground">Current</span> : null}
                   </button>

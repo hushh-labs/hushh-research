@@ -67,7 +67,7 @@ export function PuppyOneSurface({
         // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
         // underneath the navigation. The fallback covers a mount outside the
         // workspace, where the variable is not defined.
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-5 sm:px-6",
+        "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-5 sm:px-5",
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
@@ -86,8 +86,8 @@ export function PuppyOneSurface({
             header, so the claim still appears exactly once per screen. */}
         {link?.state === "unlinked" ? (
           <p className="shrink-0 text-xs text-muted-foreground">
-            A personal supercomputer you own. Pin a model to this machine and
-            answers never leave it.
+            A local model on your trusted machine. Requests and replies travel
+            through your private pod.
           </p>
         ) : null}
         <PuppyMachineSheet className="shrink-0" active={active} />

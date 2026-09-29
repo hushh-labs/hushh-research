@@ -111,6 +111,10 @@ class Subject:
 @pytest.fixture
 async def pod(tmp_path, monkeypatch, hub_key):
     """A pod app with the session router, the wall and a live local authority."""
+    # The shared SlowAPI limiter also serves other route tests in this worker.
+    # Keep their TestClient admission traffic from exhausting this fixture's
+    # 30/min budget before its own role assertions run.
+    limiter.reset()
     monkeypatch.setattr(pod_session, "pod_mode", lambda: True)
     monkeypatch.setenv("HUSSH_POD_IMAGE_TAG", "dev-test")
     object_store = LocalObjectStore(str(tmp_path / "pod"))
@@ -152,6 +156,7 @@ async def pod(tmp_path, monkeypatch, hub_key):
     app.add_middleware(PodIngressPolicy)
     client = TestClient(app, raise_server_exceptions=False)
     yield {"client": client, "authority": authority, "log": log, "store": store}
+    limiter.reset()
     psa.set_active_session_authority(None)
     pod_config.set_active_pod_config(None)
 
@@ -244,7 +249,7 @@ def test_renew_returns_a_fresh_session(pod):
 
 def test_a_device_role_session_is_refused_on_app_routes(pod):
     device = _admit(pod["client"], Subject("tdv_mac_1", "macos"))
-    assert device["role"] == "device"
+    assert device.get("role") == "device", device
     client = pod["client"]
     for method, path, body in (
         ("GET", "/api/one/pod/status", None),

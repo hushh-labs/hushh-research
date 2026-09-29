@@ -64,7 +64,7 @@ beforeEach(() => {
 });
 
 async function ask() {
-  fireEvent.change(screen.getByPlaceholderText("Ask through your private Puppy relay…"), {
+  fireEvent.change(screen.getByRole("textbox", { name: "Message Puppy One" }), {
     target: { value: "A synthetic question" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Send to Puppy One" }));

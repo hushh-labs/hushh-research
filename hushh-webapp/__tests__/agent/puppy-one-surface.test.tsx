@@ -111,7 +111,7 @@ describe("PuppyOneSurface identity", () => {
     render(<PuppyOneSurface />);
     expect(
       await screen.findByText(
-        /A personal supercomputer you own\. Pin a model to this machine and answers never leave it\./,
+        /A local model on your trusted machine\. Requests and replies travel through your private pod\./,
       ),
     ).toBeInTheDocument();
   });
@@ -121,7 +121,7 @@ describe("PuppyOneSurface identity", () => {
     render(<PuppyOneSurface />);
     await waitFor(() => expect(mocks.fetchPuppyStatus).toHaveBeenCalled());
     expect(
-      screen.queryByText(/A personal supercomputer you own/),
+      screen.queryByText(/A local model on your trusted machine/),
     ).not.toBeInTheDocument();
   });
 });
