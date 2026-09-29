@@ -15,7 +15,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
-from typing import Optional, cast
+from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -840,13 +840,12 @@ async def report_personal_agent_update_failure(
     from hushh_mcp.services.pod_update_failure_report import report_blocked_update
 
     try:
-        return cast(
-            dict,
+        return dict(
             await report_blocked_update(
                 user_id=user_id,
                 operation_id=payload.operation_id,
                 repo=PersonalAgentRegistryRepo(),
-            ),
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
