@@ -686,7 +686,7 @@ describe("PersonProfilePage request catalog tools", () => {
 
       const value = await screen.findByTestId("shared-with-you-values");
       expect(value).toHaveTextContent("Pune");
-      expect(screen.getByText(/Information this person has granted to your account/)).toBeInTheDocument();
+      expect(screen.getByText(/End-to-end encrypted information shared with your account/)).toBeInTheDocument();
       expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
       // The same card as chat: no raw record, no JSON control, no grant wording.
       expect(screen.queryByRole("button", { name: /json/i })).toBeNull();

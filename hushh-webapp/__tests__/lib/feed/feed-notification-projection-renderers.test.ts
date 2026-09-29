@@ -234,7 +234,7 @@ describe("notification-backed Feed projection renderers", () => {
       ),
     );
 
-    expect(presented.label).toBe("Alice shared information with you");
+    expect(presented.label).toBe("Information shared with you");
     expect(presented.description).toBe("Granted access to Employment status. Tap to view.");
     expect(presented.href).toBe("/people/alice-public-ref?section=shared");
   });

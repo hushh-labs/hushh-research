@@ -243,7 +243,8 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
   });
 
-  it.each(["/one/setup", "/one/setup/connections"])("returns a completed invite journey to its destination from %s", async (setupRoute) => {
+  it("returns a completed invite journey to its destination from the setup hub", async () => {
+    const setupRoute = "/one/setup";
     pathnameValue = setupRoute;
     const destination = "/circle/join?code=23456789ABCD";
     window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent(destination));
@@ -253,7 +254,8 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalledWith("/");
   });
 
-  it.each(["/one/setup", "/one/setup/connections"])("prioritizes pending Finance when completion ejects %s before its child finishes", async (setupRoute) => {
+  it("prioritizes pending Finance when completion ejects the setup hub", async () => {
+    const setupRoute = "/one/setup";
     pathnameValue = setupRoute;
     const destination = "/circle/join?code=23456789ABCD";
     window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent(destination));

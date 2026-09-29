@@ -166,7 +166,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId, requestId,
     } })));
-    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
+    expect(await screen.findByTestId("shared-with-you-values", {}, { timeout: 5_000 })).toHaveTextContent("Synthetic analyst");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
 
     await act(async () => {

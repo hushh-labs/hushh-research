@@ -78,7 +78,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(preflight).not.toContain("$IOS_NATIVE");
     expect(nativeJob).toContain("needs: [preflight-gate]");
     expect(nativeJob).toMatch(
-      /if: >-\s+!cancelled\(\) && needs\['preflight-gate'\]\.result == 'success' &&\s+needs\['preflight-gate'\]\.outputs\.ios == 'true'/,
+      /if: >-\s+!cancelled\(\) && needs\['preflight-gate'\]\.result == 'success' &&\s+\(needs\['preflight-gate'\]\.outputs\.ios == 'true'\)/,
     );
     expect(finalGate).toContain('IOS_NATIVE="${{ needs[\'ios-native-check\'].result }}"');
     expect(finalGate).toContain('[ "$IOS_NATIVE" != "success" ]');

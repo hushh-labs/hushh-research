@@ -887,6 +887,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
+                  grantedIds: grantedScopeRefs,
                   onToggleMany: (ids, select) =>
                     setSelectedScopeRefs((current) => toggleRequestScopes(
                       allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
