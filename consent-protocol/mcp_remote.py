@@ -68,9 +68,24 @@ def _client_ip(scope: dict[str, Any]) -> str | None:
     return None
 
 
-async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
+def _resource_metadata_url(scope: dict[str, Any]) -> str:
+    origin = str(os.environ.get("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/")
+    if not origin:
+        host = _header_value(scope, b"host")
+        if host:
+            origin = f"{scope.get('scheme', 'http')}://{host}"
+        else:
+            server_host, server_port = scope.get("server") or ("127.0.0.1", 8000)
+            origin = f"{scope.get('scheme', 'http')}://{server_host}:{server_port}"
+    return f"{origin}/.well-known/oauth-protected-resource/mcp"
+
+
+async def _send_json(
+    send, status_code: int, payload: dict[str, Any], *, extra_headers: list[tuple[bytes, bytes]] | None = None
+) -> None:
     body = json.dumps(payload).encode("utf-8")
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
+    headers.extend(extra_headers or [])
     await send({"type": "http.response.start", "status": status_code, "headers": headers})
     await send({"type": "http.response.body", "body": body, "more_body": False})
 
@@ -116,6 +131,9 @@ class AuthenticatedRemoteMCPApp:
                         "'Authorization: Bearer <token>'."
                     ),
                 },
+                extra_headers=[
+                    (b"www-authenticate", f'Bearer resource_metadata="{_resource_metadata_url(scope)}"'.encode())
+                ],
             )
             return
 
@@ -136,6 +154,9 @@ class AuthenticatedRemoteMCPApp:
                     "error_code": "DEVELOPER_TOKEN_INVALID",
                     "message": "Developer token is invalid or revoked.",
                 },
+                extra_headers=[
+                    (b"www-authenticate", f'Bearer resource_metadata="{_resource_metadata_url(scope)}"'.encode())
+                ],
             )
             return
 

@@ -147,17 +147,23 @@ def _build_app(
 @pytest.mark.asyncio
 async def test_missing_token_returns_401(monkeypatch):
     app, _inner = _build_app()
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://api.uat.hushh.ai")
 
     send = _CapturingSend()
     await app(_http_scope(), _noop_receive, send)
 
     assert send.status == 401
     assert send.body_json["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+    response_headers = dict(send.messages[0]["headers"])
+    assert response_headers[b"www-authenticate"] == (
+        b'Bearer resource_metadata="https://api.uat.hushh.ai/.well-known/oauth-protected-resource/mcp"'
+    )
 
 
 @pytest.mark.asyncio
 async def test_invalid_token_returns_401(monkeypatch):
     app, _inner = _build_app()
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://api.uat.hushh.ai")
     monkeypatch.setattr(app._registry, "authenticate_token", lambda *a, **k: None)
 
     send = _CapturingSend()
@@ -166,6 +172,9 @@ async def test_invalid_token_returns_401(monkeypatch):
 
     assert send.status == 401
     assert send.body_json["error_code"] == "DEVELOPER_TOKEN_INVALID"
+    assert dict(send.messages[0]["headers"])[b"www-authenticate"] == (
+        b'Bearer resource_metadata="https://api.uat.hushh.ai/.well-known/oauth-protected-resource/mcp"'
+    )
 
 
 @pytest.mark.asyncio

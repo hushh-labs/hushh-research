@@ -228,6 +228,20 @@ def test_client_credentials_is_advertised_and_returns_no_refresh_token(monkeypat
     assert "refresh_token" not in response.json()
 
 
+def test_mcp_resource_metadata_points_to_configured_authorization_server(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://api.uat.hushh.ai")
+    response = TestClient(_app()).get("/.well-known/oauth-protected-resource/mcp")
+    assert response.status_code == 200
+    assert response.json() == {
+        "resource": "https://api.uat.hushh.ai/mcp/",
+        "authorization_servers": ["https://api.uat.hushh.ai"],
+        "scopes_supported": ["mcp:tools"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
 def test_client_credentials_requires_explicit_partner_grant_configuration():
     service = DeveloperOAuthService.__new__(DeveloperOAuthService)
     service._registry = MagicMock()  # type: ignore[attr-defined]
